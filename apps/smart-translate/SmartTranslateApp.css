@@ -1,0 +1,2071 @@
+.smart-translate-app {
+    --font-family-main: 'Roboto', 'Noto Sans SC', sans-serif;
+    --success-color: #4caf50;
+    --error-color: #f44336;
+    --warning-color: #ff9800;
+}
+
+.smart-translate-app.theme-dark {
+    --color-bg: #0d1117;
+    --color-bg-secondary: #161b22;
+    --color-bg-tertiary: #0d1117;
+    --color-bg-contrast: #2d333b;
+    --color-text-primary: #e6edf3;
+    --color-text-secondary: #909da8;
+    --color-border: #30363d;
+    --color-indigo: #8B5CF6;
+    --color-indigo-hover: #7C3AED;
+    --color-indigo-text: #c4b5fd;
+    --color-indigo-bg-light: rgba(139, 92, 246, 0.1);
+    --color-node-bg: rgba(22, 27, 34, 0.8);
+    --color-header-bg: rgba(13, 17, 23, 0.6);
+    --custom-bg-gradient: radial-gradient(circle at top left, #4a0e9130, var(--color-bg) 40%);
+}
+
+.smart-translate-app.theme-light {
+    --background-color: #f0f4f8;
+    --surface-color: #ffffff;
+    --primary-color: #007aff;
+    --primary-variant-color: #cce5ff;
+    --secondary-color: #34c759;
+    --on-background-color: #333333;
+    --on-surface-color: #000000;
+    --border-color: #d1d9e6;
+    --text-color: #2c3e50;
+    --text-muted-color: #6c757d;
+    --control-bg-color: #e9ecef;
+    --control-hover-bg-color: #d1d9e6;
+    --button-text-color: #fff;
+    --loader-fg-color: #007aff;
+}
+
+.smart-translate-app * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+.smart-translate-root {
+    font-family: var(--font-family-main);
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+    padding: clamp(1rem, 2vw, 2rem);
+    transition: background-color 0.3s ease, color 0.3s ease;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.smart-translate-root h1,
+.smart-translate-root h2,
+.smart-translate-root h3,
+.smart-translate-root h4 {
+    font-weight: 500;
+    color: var(--on-surface-color);
+}
+
+.smart-translate-root header {
+    text-align: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.smart-translate-root .title-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.smart-translate-root .title-bar h1 {
+    font-size: 2rem;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.smart-translate-root .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.smart-translate-root .language-selector {
+    display: flex;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.smart-translate-root .language-selector button {
+    padding: 0.4rem 0.8rem;
+    background-color: transparent;
+    border: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.smart-translate-root .language-selector button:first-child {
+    border-right: 1px solid var(--border-color);
+}
+
+.smart-translate-root .language-selector button:hover {
+    background-color: var(--control-bg-color);
+}
+
+.smart-translate-root .language-selector button.active {
+    background-color: var(--primary-color);
+    color: var(--button-text-color);
+    font-weight: bold;
+}
+
+.smart-translate-root .theme-toggle {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.smart-translate-root .theme-toggle:hover {
+    background-color: var(--control-hover-bg-color);
+}
+
+.smart-translate-root nav {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.smart-translate-root nav button {
+    padding: 0.6rem 1.2rem;
+    border: 1px solid var(--border-color);
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.smart-translate-root nav button:hover {
+    background-color: var(--control-hover-bg-color);
+}
+
+.smart-translate-root nav button.active {
+    background-color: var(--primary-color);
+    color: var(--button-text-color);
+    border-color: var(--primary-color);
+    font-weight: 700;
+}
+
+.smart-translate-root .tool-container {
+    background-color: var(--surface-color);
+    padding: 2rem;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.smart-translate-root .tool-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.smart-translate-root .tool-header h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.smart-translate-root .tool-description {
+    color: var(--text-muted-color);
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.smart-translate-root .tool-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.smart-translate-root .lang-select-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+    /* Important for custom select positioning if needed, though select container handles it */
+}
+
+.smart-translate-root .lang-select-group label {
+    color: var(--text-muted-color);
+    font-size: 0.9rem;
+}
+
+.smart-translate-root .batch-language-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted-color);
+    max-width: 520px;
+    flex-wrap: wrap;
+}
+
+.smart-translate-root .batch-language-summary.compact {
+    max-width: 320px;
+}
+
+.smart-translate-root .batch-language-label {
+    white-space: nowrap;
+}
+
+.smart-translate-root .batch-language-values {
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.smart-translate-root .batch-language-edit {
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+/* Custom Language Selector */
+.smart-translate-root .custom-select-container {
+    position: relative;
+    width: 200px;
+}
+
+.smart-translate-root .custom-select-trigger {
+    width: 100%;
+    padding: 0.5rem 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 0.9rem;
+    text-align: left;
+}
+
+.smart-translate-root .custom-select-trigger:hover {
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .custom-select-trigger.active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px var(--primary-color);
+}
+
+.smart-translate-root .selected-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 8px;
+}
+
+.smart-translate-root .arrow {
+    font-size: 0.7rem;
+    color: var(--text-muted-color);
+}
+
+.smart-translate-root .custom-select-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    max-height: 300px;
+}
+
+.smart-translate-root .custom-select-search-wrapper {
+    padding: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.smart-translate-root .custom-select-search {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-size: 0.9rem;
+    outline: none;
+}
+
+.smart-translate-root .custom-select-search:focus {
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .custom-select-options {
+    overflow-y: auto;
+    flex: 1;
+}
+
+.smart-translate-root .custom-select-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    transition: background 0.1s;
+}
+
+.smart-translate-root .custom-select-option:hover {
+    background-color: var(--control-hover-bg-color);
+}
+
+.smart-translate-root .custom-select-option.selected {
+    background-color: rgba(187, 134, 252, 0.1);
+    /* Light primary tint */
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.smart-translate-app.theme-light .custom-select-option.selected {
+    background-color: rgba(0, 122, 255, 0.1);
+}
+
+.smart-translate-root .custom-select-option.no-results {
+    color: var(--text-muted-color);
+    font-style: italic;
+    cursor: default;
+    text-align: center;
+    padding: 1rem;
+}
+
+/* Batch Translate UI */
+
+/* 收起状态的整体头部 */
+.smart-translate-root .batch-header-collapsed {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.smart-translate-root .batch-header-collapsed .collapsed-title {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--text-color);
+    margin-right: 1rem;
+}
+
+/* 输入区域包装容器 */
+.smart-translate-root .batch-input-wrapper {
+    margin-bottom: 1rem;
+}
+
+/* 收起状态的工具栏 */
+.smart-translate-root .batch-input-collapsed {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    gap: 1rem;
+}
+
+.smart-translate-root .expand-input-btn,
+.smart-translate-root .collapse-input-btn {
+    background: var(--control-bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    transition: all 0.2s;
+}
+
+.smart-translate-root .expand-input-btn:hover,
+.smart-translate-root .collapse-input-btn:hover {
+    background: var(--control-hover-bg-color);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+/* 输入区域头部 */
+.smart-translate-root .input-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.smart-translate-root .input-hint {
+    font-size: 0.85rem;
+    color: var(--text-muted-color);
+}
+
+.smart-translate-root .batch-input-area {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    border: 2px dashed var(--border-color);
+    border-radius: 12px;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.smart-translate-root .batch-input-area.dragging {
+    border-color: var(--primary-color);
+    background-color: rgba(187, 134, 252, 0.05);
+    /* Tint based on primary */
+}
+
+.smart-translate-app.theme-light .batch-input-area.dragging {
+    background-color: rgba(0, 122, 255, 0.05);
+}
+
+.smart-translate-root .batch-textarea {
+    min-height: 120px;
+    border: none;
+    background: transparent;
+    resize: vertical;
+    outline: none;
+    font-size: 1rem;
+}
+
+.smart-translate-root .batch-textarea:focus {
+    outline: none;
+}
+
+.smart-translate-root .batch-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.smart-translate-root .left-controls,
+.smart-translate-root .right-controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.smart-translate-root .text-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    font-size: 0.9rem;
+    text-decoration: underline;
+}
+
+.smart-translate-root .text-btn:hover {
+    color: var(--text-color);
+}
+
+.smart-translate-root .secondary-btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.95rem;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.smart-translate-root .secondary-btn:hover {
+    background-color: var(--control-hover-bg-color);
+    border-color: var(--primary-color);
+}
+
+/* 翻译进度显示 */
+.smart-translate-root .translate-progress-inline {
+    font-size: 0.85rem;
+    color: var(--text-muted-color);
+    padding: 0.3rem 0.6rem;
+    background: var(--control-bg-color);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.smart-translate-root .translate-progress-inline .error-count {
+    color: #ef4444;
+}
+
+.smart-translate-root .translate-progress-inline .processing-count {
+    color: #f59e0b;
+}
+
+/* 重试失败按钮 */
+.smart-translate-root .retry-failed-btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.smart-translate-root .retry-failed-btn:hover {
+    transform: scale(1.02);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+}
+
+.smart-translate-root .retry-failed-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* 批量复制菜单 */
+.smart-translate-root .batch-copy-menu-container {
+    position: relative;
+}
+
+.smart-translate-root .batch-copy-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 0.5rem;
+    min-width: 160px;
+    z-index: 100;
+}
+
+.smart-translate-root .batch-copy-dropdown-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.smart-translate-root .batch-copy-dropdown-menu button:hover {
+    background: var(--control-hover-bg-color);
+    color: var(--primary-color);
+}
+
+.smart-translate-root .batch-copy-dropdown-menu hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 0.5rem 0;
+}
+
+.smart-translate-root button.primary {
+    padding: 0.6rem 1.5rem;
+    border: none;
+    background-color: var(--primary-color);
+    color: var(--button-text-color);
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    transition: filter 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.smart-translate-root button.primary:hover {
+    filter: brightness(1.1);
+}
+
+.smart-translate-root button.primary:disabled {
+    filter: grayscale(1);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.smart-translate-root .batch-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.smart-translate-root .batch-item {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    grid-template-rows: 1fr;
+    /* 允许行拉伸 */
+    gap: 1rem;
+    background: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1rem;
+    position: relative;
+    transition: border-color 0.2s, all 0.3s ease;
+}
+
+/* 右上角固定按钮区域 */
+.smart-translate-root .item-actions {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    z-index: 10;
+    background: var(--background-color);
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+
+.smart-translate-root .item-actions .toggle-btn {
+    background: var(--control-bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    transition: all 0.2s;
+}
+
+.smart-translate-root .item-actions .toggle-btn:hover {
+    background: var(--control-hover-bg-color);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .item-actions .delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+.smart-translate-root .item-actions .delete-btn:hover {
+    color: var(--error-color);
+}
+
+/* 复制菜单容器 */
+.smart-translate-root .copy-menu-container {
+    position: relative;
+}
+
+.smart-translate-root .copy-menu-btn {
+    background: var(--control-bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.smart-translate-root .copy-menu-btn:hover {
+    background: var(--control-hover-bg-color);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .copy-menu-btn.copied {
+    background: #10b981;
+    color: white;
+    border-color: #10b981;
+}
+
+/* 复制下拉菜单 */
+.smart-translate-root .copy-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 0.5rem;
+    min-width: 150px;
+    z-index: 100;
+}
+
+.smart-translate-root .copy-dropdown-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    color: var(--text-color);
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.smart-translate-root .copy-dropdown-menu button:hover:not(:disabled) {
+    background: var(--control-hover-bg-color);
+    color: var(--primary-color);
+}
+
+.smart-translate-root .copy-dropdown-menu button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* 展开状态 - 默认高度加大 */
+.smart-translate-root .batch-item.expanded {
+    min-height: 180px;
+    padding-right: 4.5rem;
+    /* 给右上角按钮留空间 */
+    padding-bottom: 1.5rem;
+    /* 给底部调整手柄留空间 */
+    /* 保持 grid 布局，让行自动填充 */
+    grid-template-rows: 1fr;
+    align-items: stretch;
+}
+
+/* 拖拽调整大小时禁用过渡效果 */
+.smart-translate-root .batch-item.expanded.resizing {
+    transition: none !important;
+}
+
+.smart-translate-root .batch-item.expanded.resizing * {
+    transition: none !important;
+}
+
+/* 底部调整大小手柄 */
+.smart-translate-root .resize-handle-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 12px;
+    cursor: row-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    background: transparent;
+}
+
+.smart-translate-root .resize-handle-bottom:hover {
+    background: linear-gradient(to top, var(--primary-color), transparent);
+    opacity: 0.3;
+}
+
+.smart-translate-root .resize-handle-indicator {
+    width: 40px;
+    height: 3px;
+    background: var(--border-color);
+    border-radius: 2px;
+    transition: background 0.2s;
+}
+
+.smart-translate-root .resize-handle-bottom:hover .resize-handle-indicator {
+    background: var(--primary-color);
+}
+
+/* 收起状态 */
+.smart-translate-root .batch-item.collapsed {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+    padding-right: 4rem;
+    /* 给右上角按钮留空间 */
+    min-height: auto;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-content:hover {
+    background: var(--control-bg-color);
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-visual {
+    width: 50px;
+    height: 50px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-visual img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-visual .text-icon {
+    width: 100%;
+    height: 100%;
+    font-size: 1.2rem;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-original,
+.smart-translate-root .batch-item.collapsed .collapsed-translated {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-label {
+    color: var(--text-muted-color);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-text {
+    color: var(--text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.smart-translate-root .batch-item.collapsed .collapsed-translated .collapsed-text {
+    color: var(--primary-color);
+}
+
+.smart-translate-root .batch-item.success {
+    border-left: 4px solid var(--success-color);
+}
+
+.smart-translate-root .batch-item.error {
+    border-left: 4px solid var(--error-color);
+}
+
+.smart-translate-root .batch-item.processing_translate,
+.smart-translate-root .batch-item.processing_ocr,
+.smart-translate-root .batch-item.processing_upload {
+    border-left: 4px solid var(--primary-color);
+}
+
+.smart-translate-root .batch-item-visual {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+    width: 100%;
+    overflow: hidden;
+    /* 不拉伸，保持顶部对齐 */
+    align-self: start;
+}
+
+.smart-translate-root .batch-item-visual img {
+    width: 100%;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.smart-translate-root .text-icon {
+    width: 100%;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--control-bg-color);
+    border-radius: 6px;
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--text-muted-color);
+    border: 1px solid var(--border-color);
+}
+
+/* 图片下方的链接按钮 */
+.smart-translate-root .link-btn {
+    font-size: 0.7rem;
+    padding: 3px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--control-bg-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    margin-top: 4px;
+}
+
+.smart-translate-root .link-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .link-btn.copied {
+    color: var(--success-color);
+    border-color: var(--success-color);
+}
+
+/* 上传错误的迷你显示 */
+.smart-translate-root .upload-error-mini {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    margin-top: 4px;
+}
+
+.smart-translate-root .set-token-btn-mini {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    background: var(--warning-color);
+    color: #000;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+/* 两列布局（原文 + 译文） */
+.smart-translate-root .batch-item-content.two-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+    /* 行填满高度 */
+    gap: 1rem;
+    height: 100%;
+    align-self: stretch;
+    /* 填充剩余高度 */
+    min-height: 0;
+    /* 允许缩小 */
+}
+
+/* 多列布局（原文 + 多语言译文 + 中文） */
+.smart-translate-root .batch-item-content.multi-columns {
+    display: grid;
+    gap: 1rem;
+    height: 100%;
+    align-self: stretch;
+    min-height: 0;
+    overflow-x: auto;
+}
+
+.smart-translate-root .content-block.chinese .block-header {
+    color: #f59e0b;
+}
+
+.smart-translate-root .content-block.chinese .block-body {
+    border-color: rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.smart-translate-root .link-textarea {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text-color);
+    font-size: 0.9rem;
+    font-family: monospace;
+    resize: none;
+    outline: none;
+    word-break: break-all;
+    padding: 0;
+}
+
+.smart-translate-root .link-textarea:focus {
+    color: var(--primary-color);
+}
+
+.smart-translate-root .identifier-text {
+    font-size: 0.7rem;
+    color: var(--text-muted-color);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    padding: 2px;
+}
+
+.smart-translate-root .identifier-text.error {
+    color: var(--error-color);
+    font-weight: bold;
+}
+
+.smart-translate-root .status-badge {
+    font-size: 0.75rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--control-bg-color);
+    color: var(--text-muted-color);
+    white-space: nowrap;
+}
+
+.smart-translate-root .status-badge.success {
+    color: var(--success-color);
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.smart-translate-root .status-badge.error {
+    color: var(--error-color);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.smart-translate-root .status-badge.processing_translate,
+.smart-translate-root .status-badge.processing_ocr,
+.smart-translate-root .status-badge.processing_upload {
+    color: var(--primary-color);
+    background: rgba(187, 134, 252, 0.1);
+}
+
+.smart-translate-root .batch-item-content {
+    display: grid;
+    grid-template-columns: 0.6fr 1.2fr 1.2fr;
+    /* Link column smaller (20%), Original and Translated larger (40% each) */
+    gap: 1rem;
+}
+
+.smart-translate-root .content-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 0;
+    height: 100%;
+    /* 允许缩小 */
+}
+
+.smart-translate-root .block-header {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: var(--text-muted-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* 检测到的语言标签 */
+.smart-translate-root .detected-language-tag {
+    font-size: 0.75rem;
+    font-weight: normal;
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    margin-left: 0.25rem;
+}
+
+.smart-translate-root .block-body {
+    font-size: 0.95rem;
+    color: var(--text-color);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.5;
+    min-height: 80px;
+    flex: 1;
+    /* 填充剩余高度 */
+    overflow-y: auto;
+    background: var(--surface-color);
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.smart-translate-root .translation-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.smart-translate-root .translation-entry {
+    padding-top: 0.4rem;
+    border-top: 1px dashed var(--border-color);
+}
+
+.smart-translate-root .translation-entry:first-child {
+    padding-top: 0;
+    border-top: none;
+}
+
+.smart-translate-root .translation-entry-label {
+    font-size: 0.75rem;
+    color: var(--text-muted-color);
+    margin-bottom: 0.25rem;
+}
+
+.smart-translate-root .link-block .block-body {
+    background-color: var(--control-bg-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 单条翻译按钮 */
+.smart-translate-root .mini-translate-btn {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--primary-color);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.smart-translate-root .mini-translate-btn:hover {
+    background: var(--primary-color);
+    color: #fff;
+}
+
+.smart-translate-root .placeholder {
+    color: var(--text-muted-color);
+    font-style: italic;
+}
+
+.smart-translate-root .error-text {
+    color: var(--error-color);
+}
+
+.smart-translate-root .delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted-color);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0 0.5rem;
+    align-self: flex-start;
+    line-height: 1;
+}
+
+.smart-translate-root .delete-btn:hover {
+    color: var(--error-color);
+}
+
+.smart-translate-root .mini-copy-btn {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--background-color);
+    color: var(--text-muted-color);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.smart-translate-root .mini-copy-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .mini-copy-btn.copied {
+    border-color: var(--success-color);
+    color: var(--success-color);
+}
+
+/* Upload Error Specifics */
+.smart-translate-root .upload-error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+}
+
+.smart-translate-root .set-token-btn {
+    background-color: var(--warning-color);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    font-weight: 500;
+}
+
+.smart-translate-root .set-token-btn:hover {
+    filter: brightness(1.1);
+}
+
+.smart-translate-root .loader {
+    border: 3px solid var(--control-bg-color);
+    border-top: 3px solid var(--loader-fg-color);
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+}
+
+.smart-translate-root .loader.small {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Modal for API Key */
+.smart-translate-root .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.smart-translate-root .modal-content {
+    background-color: var(--surface-color);
+    padding: 2rem;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+.smart-translate-root .modal-content h3 {
+    text-align: center;
+    margin: 0;
+}
+
+.smart-translate-root .form-group input {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--background-color);
+    color: var(--text-color);
+    font-size: 1rem;
+}
+
+.smart-translate-root .batch-language-config {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.smart-translate-root .batch-language-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted-color);
+}
+
+.smart-translate-root .batch-only-chinese-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    background: var(--control-bg-color);
+}
+
+.smart-translate-root .batch-only-chinese-toggle label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-color);
+}
+
+.smart-translate-root .batch-only-chinese-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted-color);
+}
+
+.smart-translate-root .batch-language-selected {
+    font-size: 0.8rem;
+    color: var(--text-muted-color);
+}
+
+.smart-translate-root .batch-language-selected-values {
+    margin-left: 0.4rem;
+    color: var(--text-color);
+}
+
+.smart-translate-root .batch-language-selected-values.disabled {
+    opacity: 0.6;
+}
+
+.smart-translate-root .batch-language-search {
+    font-size: 0.9rem;
+}
+
+.smart-translate-root .batch-language-options {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--background-color);
+    padding: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.smart-translate-root .batch-language-options.disabled {
+    opacity: 0.6;
+}
+
+.smart-translate-root .batch-language-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-color);
+}
+
+.smart-translate-root .batch-language-option.selected {
+    background: var(--control-hover-bg-color);
+}
+
+.smart-translate-root .batch-language-option.disabled {
+    cursor: not-allowed;
+}
+
+.smart-translate-root .batch-language-option input {
+    margin: 0;
+    width: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+.smart-translate-root .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+}
+
+.smart-translate-root select {
+    padding: 0.4rem 2rem 0.4rem 0.8rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--background-color);
+    color: var(--text-color);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    .smart-translate-root .batch-item {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto;
+    }
+
+    .smart-translate-root .batch-item-visual {
+        flex-direction: row;
+        justify-content: flex-start;
+    }
+
+    .smart-translate-root .batch-item-visual img,
+    .smart-translate-root .text-icon {
+        width: 60px;
+        height: 60px;
+    }
+
+    .smart-translate-root .batch-item-content {
+        grid-template-columns: 1fr;
+    }
+
+    .smart-translate-root .delete-btn {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+}
+
+/* Mode switching tabs */
+.smart-translate-root .mode-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.smart-translate-root .mode-tab {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.95rem;
+    font-family: inherit;
+}
+
+.smart-translate-root .mode-tab:hover {
+    color: var(--text-color);
+    background-color: var(--control-bg-color);
+}
+
+.smart-translate-root .mode-tab.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+    font-weight: 600;
+}
+
+/* Instant translate container */
+.smart-translate-root .instant-translate-container {
+    display: flex;
+    gap: 20px;
+    min-height: 500px;
+}
+
+.smart-translate-root .instant-translate-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.smart-translate-root .instant-panel-header {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted-color);
+    margin-bottom: 5px;
+}
+
+.smart-translate-root .instant-input-area,
+.smart-translate-root .instant-output-area {
+    flex: 1;
+    padding: 15px;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    resize: none;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1.6;
+    background: var(--background-color);
+    color: var(--text-color);
+}
+
+.smart-translate-root .instant-input-area:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .instant-output-area {
+    background: var(--surface-color);
+    overflow-y: auto;
+}
+
+.smart-translate-root .instant-image-preview {
+    max-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--control-bg-color);
+    position: relative;
+}
+
+.smart-translate-root .instant-image-preview img {
+    max-width: 100%;
+    max-height: 200px;
+    object-fit: contain;
+}
+
+.smart-translate-root .instant-image-delete {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(244, 67, 54, 0.9);
+    color: white;
+    border: 2px solid white;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.smart-translate-root .instant-image-delete:hover {
+    background: rgba(211, 47, 47, 1);
+    transform: scale(1.1);
+}
+
+.smart-translate-root .instant-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted-color);
+    font-style: italic;
+}
+
+.smart-translate-root .instant-translate-button {
+    padding: 0.75rem 1.5rem;
+    background-color: var(--primary-color);
+    color: var(--button-text-color);
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.smart-translate-root .instant-translate-button:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.smart-translate-root .instant-translate-button:active {
+    transform: translateY(0);
+}
+
+.smart-translate-root .instant-translate-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: grayscale(0.5);
+}
+
+.smart-translate-root .instant-translate-button:disabled:hover {
+    transform: none;
+    box-shadow: none;
+    filter: grayscale(0.5);
+}
+
+.smart-translate-root .instant-status {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted-color);
+    font-size: 0.95rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.smart-translate-root .instant-status.processing {
+    color: var(--primary-color);
+}
+
+.smart-translate-root .instant-status.error {
+    color: var(--error-color);
+}
+
+.smart-translate-root .instant-placeholder {
+    padding: 20px;
+    text-align: center;
+    color: var(--text-muted-color);
+    font-style: italic;
+}
+
+.smart-translate-root .instant-result {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.smart-translate-root .instant-ocr-result {
+    padding: 15px;
+    background: var(--background-color);
+    border-radius: 6px;
+    border-left: 3px solid var(--primary-color);
+}
+
+.smart-translate-root .instant-ocr-result strong {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-muted-color);
+    font-size: 0.85rem;
+}
+
+.smart-translate-root .instant-ocr-result p {
+    margin: 0;
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+.smart-translate-root .instant-translation {
+    padding: 15px;
+    color: var(--text-color);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .smart-translate-root .instant-translate-container {
+        flex-direction: column;
+        min-height: auto;
+    }
+
+    .smart-translate-root .instant-translate-panel {
+        min-height: 300px;
+    }
+
+    .smart-translate-root .mode-tab {
+        padding: 10px 16px;
+        font-size: 0.9rem;
+    }
+}
+
+/* DeepL-style Layout */
+.deepl-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 500px;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.deepl-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    background-color: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.lang-side {
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+.lang-side.source {
+    justify-content: flex-start;
+}
+
+.lang-side.target {
+    justify-content: flex-end;
+}
+
+.swap-icon {
+    flex: 0 0 40px;
+    display: flex;
+    justify-content: center;
+    color: var(--text-muted-color);
+    font-size: 1.2rem;
+    cursor: default;
+    opacity: 0.5;
+}
+
+.swap-btn {
+    flex: 0 0 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+}
+
+.swap-btn:hover {
+    background-color: var(--control-bg-color);
+    color: var(--primary-color);
+    transform: rotate(180deg);
+}
+
+.lang-btn {
+    background: none;
+    border: none;
+    color: var(--text-color);
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.lang-btn:hover {
+    background-color: var(--control-bg-color);
+}
+
+.lang-btn.active {
+    color: var(--primary-color);
+}
+
+/* Workspace */
+.deepl-workspace {
+    display: flex;
+    flex: 1;
+    background-color: var(--bg-secondary);
+    padding: 1rem;
+    gap: 1rem;
+}
+
+.workspace-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--background-color);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    position: relative;
+    transition: box-shadow 0.2s;
+}
+
+.workspace-column:focus-within {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.textarea-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    padding: 1.5rem;
+}
+
+.deepl-textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: transparent;
+    resize: none;
+    font-size: 1.2rem;
+    line-height: 1.6;
+    color: var(--text-color);
+    outline: none;
+    font-family: inherit;
+}
+
+.deepl-textarea.target {
+    color: var(--text-color);
+}
+
+.placeholder-text {
+    color: var(--text-muted-color);
+    opacity: 0.7;
+}
+
+.column-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 1rem;
+    min-height: 40px;
+}
+
+.icon-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted-color);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 1.1rem;
+}
+
+.icon-btn:hover {
+    background-color: var(--control-bg-color);
+    color: var(--text-color);
+}
+
+.icon-btn.copy-btn.copied {
+    color: #4caf50;
+    border-color: #4caf50;
+}
+
+/* Image Preview Container */
+.image-preview-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    position: relative;
+    padding: 1rem;
+}
+
+.image-preview-container .preview-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.image-close-btn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    transition: all 0.2s;
+    z-index: 10;
+}
+
+.image-close-btn:hover {
+    background: rgba(0, 0, 0, 0.9);
+    transform: scale(1.1);
+}
+
+.close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Loading */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    backdrop-filter: blur(1px);
+}
+
+.theme-dark .loading-overlay {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .deepl-workspace {
+        flex-direction: column;
+    }
+
+    .deepl-layout {
+        min-height: auto;
+    }
+
+    .workspace-column {
+        min-height: 200px;
+    }
+}
+
+/* Hidden file input */
+.hidden-file-input {
+    display: none;
+}
+
+/* Drag and Drop Overlay */
+.drag-overlay {
+    position: absolute;
+    inset: 1rem;
+    z-index: 30;
+    background: rgba(37, 99, 235, 0.1);
+    border: 2px dashed var(--primary-color);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--primary-color);
+    pointer-events: none;
+}
+
+.drag-icon {
+    width: 3rem;
+    height: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.drag-overlay span {
+    font-weight: 600;
+}
+
+/* Translation Progress Bar */
+.translation-progress {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    overflow: hidden;
+    z-index: 10;
+}
+
+.progress-bar {
+    height: 100%;
+    width: 30%;
+    background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+    animation: progress-slide 1.5s infinite;
+}
+
+@keyframes progress-slide {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(400%);
+    }
+}
+
+/* DeepL Footer */
+.deepl-footer {
+    padding: 0.5rem 1.5rem;
+    background-color: var(--background-color);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-muted-color);
+}
+
+/* Small Loader */
+.loader.small {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Update workspace column styles */
+.workspace-column.source-column {
+    border-right: 1px solid var(--border-color);
+}
+
+.column-footer {
+    gap: 0.5rem;
+}
+
+/* Responsive updates */
+@media (max-width: 768px) {
+    .workspace-column.source-column {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+}

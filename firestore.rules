@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 用户数据访问规则
+    // 1. 登录用户可以访问自己的数据（uid 匹配）
+    // 2. 邮箱同步用户可以访问对应的数据（userId 以 email_ 开头）
+    match /users/{userId}/{document=**} {
+      // 登录用户访问自己的数据
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // 邮箱同步用户的项目数据（无需登录）
+    // userId 格式为 email_[base64编码的邮箱]
+    match /users/{userId}/{document=**} {
+      allow read, write: if userId.matches('email_.*');
+    }
+    
+    // 共享配置（如 API 池）- 已登录用户只读
+    match /sharedConfig/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if false; // 只能通过 Firebase Console 或管理脚本修改
+    }
+    
+    // 公共只读数据（如果有的话）
+    match /public/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // 邮箱云同步 - 无需登录，通过邮箱作为密钥
+    // 注意：任何知道邮箱的人都可以读写，请用户自行评估风险
+    match /publicSync/{emailKey} {
+      allow read, write: if true;
+    }
+    
+    // SheetMind 配置预设 - 登录用户可读写自己的数据
+    match /sheetmind_presets/{docId} {
+      // 读取：检查文档中的 userId 字段
+      allow read: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+      // 写入：允许创建新文档或修改自己的文档
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+    }
+    
+    // SheetMind 保存的数据 - 登录用户可读写自己的数据
+    match /sheetmind_data/{docId} {
+      allow read: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      allow update, delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+    }
+    
+    // SheetMind 数据源列表 - 用 userId 作为文档 ID，登录用户可读写自己的数据
+    match /sheetmind_data_sources/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // SheetMind 收藏 - 用 userId 作为文档 ID
+    match /sheetmind_favorites/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Recognition Presets - 用 userId 作为文档 ID
+    match /recognition_presets/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Display Settings - 用 userId 作为文档 ID
+    match /sheetmind_display_settings/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Highlight Rules - 登录用户可读写以自己 uid 开头的文档
+    match /sheetmind_highlight_rules/{docId} {
+      allow read, write: if request.auth != null && docId.matches(request.auth.uid + '.*');
+    }
+    
+    // Gallery Config - 用 userId 作为文档 ID
+    match /sheetmind_gallery_config/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Dashboard Snapshots - 用 userId 作为文档 ID
+    match /sheetmind_snapshots/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Dashboard Bins - 用 userId 作为文档 ID
+    match /sheetmind_dashboard_bins/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Gallery Saved Configs - 用 userId 作为文档 ID
+    match /sheetmind_gallery_saved_configs/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Gallery Current Config - 用 userId 作为文档 ID
+    match /sheetmind_gallery_current_config/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Gallery Notes - 用 userId 作为文档 ID
+    match /sheetmind_gallery_notes/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Gallery Categories - 用 userId 作为文档 ID
+    match /sheetmind_gallery_categories/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // 公共预设库 - 登录用户可读取和创建，只有创建者可删除
+    // 父文档需要读权限才能查询子集合
+    match /publicPresets/{module} {
+      allow read: if request.auth != null;
+    }
+    match /publicPresets/{module}/items/{presetId} {
+      // 任何登录用户可读取
+      allow read: if request.auth != null;
+      // 任何登录用户可创建
+      allow create: if request.auth != null;
+      // 只有创建者可删除（通过 createdByEmail 字段验证）
+      allow delete: if request.auth != null && 
+        resource.data.createdByEmail == request.auth.token.email;
+      // 不允许更新
+      allow update: if false;
+    }
+
+    // 文案相似度检查 - 用户配置（库链接等）
+    match /copydedup_config/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

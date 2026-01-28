@@ -1,0 +1,409 @@
+/**
+ * Google Sheets 认证配置面板样式
+ */
+
+.sheets-auth-config {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.sheets-auth-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.sheets-auth-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.sheets-auth-header .close-btn {
+    background: none;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    color: #64748b;
+    border-radius: 4px;
+}
+
+.sheets-auth-header .close-btn:hover {
+    background: #f1f5f9;
+    color: #1e293b;
+}
+
+/* 消息提示 */
+.auth-message {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.auth-message.error {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.auth-message.success {
+    background: #f0fdf4;
+    color: #16a34a;
+    border: 1px solid #bbf7d0;
+}
+
+/* 模式卡片 */
+.auth-modes {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.auth-mode-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.auth-mode-card:hover {
+    border-color: #94a3b8;
+    background: #f8fafc;
+}
+
+.auth-mode-card.active {
+    border-color: #6366f1;
+    background: #eef2ff;
+}
+
+.mode-icon {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    border-radius: 10px;
+    color: #475569;
+}
+
+.auth-mode-card.active .mode-icon {
+    background: #6366f1;
+    color: white;
+}
+
+.mode-info {
+    flex: 1;
+}
+
+.mode-title {
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+
+.mode-desc {
+    font-size: 13px;
+    color: #64748b;
+}
+
+.mode-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.mode-badge.readonly {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.mode-badge.readwrite {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.mode-badge.test {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+/* 配置详情区域 */
+.auth-config-detail {
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.config-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.config-title {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 15px;
+}
+
+.config-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #eff6ff;
+    border-radius: 8px;
+    color: #1d4ed8;
+    font-size: 14px;
+}
+
+.config-info.warning {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.current-config {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #dcfce7;
+    border-radius: 8px;
+    color: #16a34a;
+    font-size: 13px;
+}
+
+.upload-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.upload-btn:hover {
+    background: #4f46e5;
+}
+
+.config-help {
+    display: flex;
+    align-items: center;
+}
+
+.config-help a {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #6366f1;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.config-help a:hover {
+    text-decoration: underline;
+}
+
+.config-note {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-size: 13px;
+    color: #475569;
+}
+
+.config-note strong {
+    color: #1e293b;
+}
+
+.config-note ol,
+.config-note ul {
+    margin: 8px 0 0 0;
+    padding-left: 20px;
+}
+
+.config-note li {
+    margin: 6px 0;
+}
+
+.config-note code {
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #6366f1;
+}
+
+/* 表单样式 */
+.config-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.config-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.config-form label span {
+    font-size: 13px;
+    font-weight: 500;
+    color: #475569;
+}
+
+.config-form input {
+    padding: 10px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.config-form input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.save-btn {
+    padding: 10px 20px;
+    background: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 4px;
+}
+
+.save-btn:hover {
+    background: #4f46e5;
+}
+
+/* 写入功能说明 */
+.write-features-info {
+    background: #fefce8;
+    border: 1px solid #fef08a;
+    border-radius: 10px;
+    padding: 16px 20px;
+}
+
+.write-features-info .info-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #854d0e;
+    margin-bottom: 12px;
+}
+
+.write-features-info ul {
+    margin: 0;
+    padding-left: 24px;
+    color: #713f12;
+    font-size: 14px;
+}
+
+.write-features-info li {
+    margin: 6px 0;
+}
+
+.write-features-info .info-note {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #fef08a;
+    font-size: 13px;
+    color: #854d0e;
+}
+
+/* 暗色模式支持 */
+@media (prefers-color-scheme: dark) {
+    .sheets-auth-config {
+        background: #1e293b;
+    }
+
+    .sheets-auth-header h3 {
+        color: #f1f5f9;
+    }
+
+    .auth-mode-card {
+        border-color: #334155;
+        background: #0f172a;
+    }
+
+    .auth-mode-card:hover {
+        border-color: #475569;
+        background: #1e293b;
+    }
+
+    .auth-mode-card.active {
+        border-color: #818cf8;
+        background: #312e81;
+    }
+
+    .mode-icon {
+        background: #334155;
+        color: #94a3b8;
+    }
+
+    .mode-title {
+        color: #f1f5f9;
+    }
+
+    .mode-desc {
+        color: #94a3b8;
+    }
+
+    .auth-config-detail {
+        background: #0f172a;
+    }
+
+    .config-title {
+        color: #f1f5f9;
+    }
+
+    .config-note {
+        background: #1e293b;
+        border-color: #334155;
+        color: #94a3b8;
+    }
+
+    .config-note strong {
+        color: #f1f5f9;
+    }
+
+    .config-form input {
+        background: #1e293b;
+        border-color: #475569;
+        color: #f1f5f9;
+    }
+}

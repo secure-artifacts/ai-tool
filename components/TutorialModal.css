@@ -1,0 +1,224 @@
+.tutorial-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease-out;
+}
+
+.tutorial-modal-panel {
+    background: var(--surface-color);
+    border-radius: 16px;
+    width: 90%;
+    max-width: 900px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    animation: slideUp 0.3s ease-out;
+}
+
+.tutorial-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.tutorial-modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--text-color);
+}
+
+.tutorial-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.8rem;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.tutorial-modal-close:hover {
+    background: var(--control-hover-bg-color);
+    color: var(--text-color);
+}
+
+.tutorial-modal-body {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+.tutorial-nav {
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    background: var(--background-color);
+}
+
+.tutorial-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    width: 100%;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+    color: var(--text-color);
+}
+
+.tutorial-nav-item:hover {
+    background: var(--control-hover-bg-color);
+}
+
+.tutorial-nav-item.active {
+    background: var(--control-bg-color);
+    border-left-color: var(--primary-color);
+    font-weight: 600;
+}
+
+.tutorial-nav-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.tutorial-nav-text {
+    font-size: 0.9rem;
+}
+
+.tutorial-content {
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+.tutorial-content h3 {
+    margin: 0 0 1.5rem 0;
+    font-size: 1.5rem;
+    color: var(--text-color);
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.75rem;
+}
+
+.tutorial-content-text {
+    color: var(--text-color);
+    line-height: 1.8;
+}
+
+.tutorial-content-text h4 {
+    margin: 1.5rem 0 0.75rem 0;
+    font-size: 1.1rem;
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+.tutorial-content-text p {
+    margin: 0.75rem 0;
+    color: var(--text-color);
+}
+
+.tutorial-content-text li {
+    margin: 0.5rem 0;
+    padding-left: 1rem;
+    color: var(--text-color);
+    position: relative;
+}
+
+.tutorial-content-text li:before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--primary-color);
+    font-weight: bold;
+}
+
+.tutorial-modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.tutorial-close-btn {
+    padding: 0.6rem 1.5rem;
+    background: var(--primary-color);
+    color: var(--button-text-color);
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tutorial-close-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .tutorial-modal-panel {
+        width: 95%;
+        max-height: 90vh;
+    }
+
+    .tutorial-modal-body {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+    }
+
+    .tutorial-nav {
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    .tutorial-nav-item {
+        flex-direction: column;
+        padding: 0.75rem 1rem;
+        min-width: 80px;
+        border-left: none;
+        border-bottom: 3px solid transparent;
+    }
+
+    .tutorial-nav-item.active {
+        border-left: none;
+        border-bottom-color: var(--primary-color);
+    }
+
+    .tutorial-nav-text {
+        font-size: 0.75rem;
+        text-align: center;
+    }
+
+    .tutorial-content {
+        padding: 1.5rem;
+    }
+
+    .tutorial-content h3 {
+        font-size: 1.25rem;
+    }
+}

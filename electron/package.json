@@ -1,0 +1,58 @@
+{
+    "name": "ai-creative-toolkit",
+    "version": "2.82.0",
+    "description": "AI 创作工具包 - 桌面版",
+    "main": "main.js",
+    "author": "ITEN Creative Toolkit",
+    "scripts": {
+        "start": "electron .",
+        "start:dev": "NODE_ENV=development electron .",
+        "build:mac": "electron-builder --mac",
+        "build:win": "electron-builder --win",
+        "build:all": "electron-builder --mac --win"
+    },
+    "build": {
+        "appId": "com.iten.ai-toolkit",
+        "productName": "AI创作工具包",
+        "directories": {
+            "output": "../dist-electron"
+        },
+        "files": [
+            "main.js",
+            "preload.js",
+            "icon.png"
+        ],
+        "extraResources": [
+            {
+                "from": "../dist",
+                "to": "app"
+            }
+        ],
+        "mac": {
+            "category": "public.app-category.productivity",
+            "icon": "icon.icns",
+            "target": [
+                "dmg",
+                "zip"
+            ]
+        },
+        "win": {
+            "icon": "icon.ico",
+            "target": [
+                "nsis",
+                "portable"
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true
+        }
+    },
+    "devDependencies": {
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.0"
+    },
+    "dependencies": {
+        "puppeteer-core": "^24.36.0"
+    }
+}

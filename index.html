@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 创作工具包</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap"
+    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="index.css" />
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🪄</text></svg>">
+  <script type="importmap">
+{
+  "imports": {
+    "@/": "./",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.27.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "path": "https://aistudiocdn.com/path@^0.12.7",
+    "vite": "https://aistudiocdn.com/vite@^7.2.2",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
+    "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+    "recharts": "https://aistudiocdn.com/recharts@^2.12.7",
+    "react-markdown": "https://aistudiocdn.com/react-markdown@^9.0.1",
+    "xlsx": "https://aistudiocdn.com/xlsx@^0.18.5",
+    "@xyflow/react": "https://aistudiocdn.com/@xyflow/react@^12.10.0",
+    "@xyflow/system": "https://aistudiocdn.com/@xyflow/system@^0.0.51",
+    "zustand": "https://aistudiocdn.com/zustand@^5.0.0",
+    "zustand/middleware": "https://aistudiocdn.com/zustand@^5.0.0/middleware",
+    "@dagrejs/dagre": "https://aistudiocdn.com/@dagrejs/dagre@^1.1.4",
+    "html-to-image": "https://aistudiocdn.com/html-to-image@^1.11.13",
+    "jspdf": "https://aistudiocdn.com/jspdf@^2.5.1"
+  }
+}
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+  <!-- Google Identity Services for OAuth login -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
