@@ -259,7 +259,7 @@ const CloudSyncPanel: React.FC<CloudSyncPanelProps> = ({
                         borderRadius: '8px',
                         marginBottom: '1rem'
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div className="flex items-center gap-2">
                             <span style={{ fontSize: '1.2rem' }}>👤</span>
                             <div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted-color)' }}>同步账号</div>

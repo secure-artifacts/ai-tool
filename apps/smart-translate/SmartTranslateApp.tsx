@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
+import { Copy, Check, FileText, Globe, Languages, RefreshCw, Plus, FolderOpen } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import './SmartTranslateApp.css';
 import { InstantTranslateTool } from './InstantTranslateTool';
@@ -918,21 +919,21 @@ const BatchItemCard: React.FC<{
                         onClick={() => setShowCopyMenu(!showCopyMenu)}
                         title="复制"
                     >
-                        {copied ? '✓' : '📋'}
+                        {copied ? <Check size={14} /> : <Copy size={14} />}
                     </button>
                     {showCopyMenu && (
                         <div className="copy-dropdown-menu" onMouseLeave={() => setShowCopyMenu(false)}>
                             <button onClick={copyOriginal} disabled={!getOriginalText()}>
-                                📝 复制原文
+                                <FileText size={14} /> 复制原文
                             </button>
                             <button
                                 onClick={copyTranslated}
                                 disabled={hasPrimaryBatchLanguage ? !getTranslationByLang(primaryBatchLanguage) : !item.chineseText}
                             >
-                                🌐 复制译文
+                                <Globe size={14} /> 复制译文
                             </button>
                             <button onClick={copyAllLanguages} disabled={effectiveBatchLanguages.length === 0}>
-                                🌍 复制所有语种
+                                <Languages size={14} /> 复制所有语种
                             </button>
                             <button
                                 onClick={copyTranslatedAndChinese}
@@ -940,13 +941,13 @@ const BatchItemCard: React.FC<{
                                     ? (!getTranslationByLang(primaryBatchLanguage) && !item.chineseText)
                                     : !item.chineseText}
                             >
-                                🔄 复制译文+中文
+                                <RefreshCw size={14} /> 复制译文+中文
                             </button>
                             <button
                                 onClick={copyAll}
                                 disabled={!getOriginalText() && !(hasPrimaryBatchLanguage ? getTranslationByLang(primaryBatchLanguage) : item.chineseText)}
                             >
-                                📋 复制全部
+                                <Copy size={14} /> 复制全部
                             </button>
                         </div>
                     )}
@@ -2381,7 +2382,7 @@ ${textToTranslate}
             {mode === 'batch' && isInputCollapsed ? (
                 <div className="batch-header-collapsed">
                     <div className="left-controls">
-                        <span className="collapsed-title">📝 批量翻译</span>
+                        <span className="collapsed-title">批量翻译</span>
                         <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
                             📷 {t('uploadButton')}
                         </button>
@@ -2398,7 +2399,7 @@ ${textToTranslate}
                             onClick={addEmptyItem}
                             title={t('addEmptyTooltip')}
                         >
-                            ➕ {t('addEmpty')}
+                            + {t('addEmpty')}
                         </button>
                     </div>
                     <div className="right-controls">
@@ -2435,7 +2436,7 @@ ${textToTranslate}
                                 disabled={isProcessing}
                                 title="重试所有失败的项目"
                             >
-                                🔄 重试失败
+                                ↻ 重试失败
                             </button>
                         )}
                         <button
@@ -2455,7 +2456,7 @@ ${textToTranslate}
                         {/* 当前项目名称 */}
                         {currentProject && !currentProject.id.startsWith('temp_') && (
                             <span className="text-xs text-zinc-500 max-w-[100px] truncate" title={currentProject.name}>
-                                📁 {currentProject.name}
+                                ⋮ {currentProject.name}
                             </span>
                         )}
                         {/* 项目管理按钮 */}
@@ -2511,7 +2512,7 @@ ${textToTranslate}
                         {/* 当前项目名称 */}
                         {currentProject && !currentProject.id.startsWith('temp_') && (
                             <span className="text-xs text-zinc-500 truncate" style={{ marginLeft: '8px', maxWidth: '100px' }} title={currentProject.name}>
-                                📁 {currentProject.name}
+                                ⋮ {currentProject.name}
                             </span>
                         )}
                         {/* 项目管理按钮 */}
@@ -2573,7 +2574,7 @@ ${textToTranslate}
                                         onClick={addEmptyItem}
                                         title={t('addEmptyTooltip')}
                                     >
-                                        ➕ {t('addEmpty')}
+                                        + {t('addEmpty')}
                                     </button>
                                 </div>
                                 <div className="right-controls">
@@ -2639,7 +2640,7 @@ ${textToTranslate}
                                             onClick={addEmptyItem}
                                             title={t('addEmptyTooltip')}
                                         >
-                                            ➕ {t('addEmpty')}
+                                            + {t('addEmpty')}
                                         </button>
                                     </div>
                                     <div className="right-controls">
@@ -2703,7 +2704,7 @@ ${textToTranslate}
                                                 disabled={isProcessing}
                                                 title="重试所有失败的项目"
                                             >
-                                                🔄 重试失败
+                                                ↻ 重试失败
                                             </button>
                                         )}
                                         {items.some(i => i.status === 'success' || i.status === 'error') && (

@@ -261,7 +261,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                <div className="flex flex-col gap-3">
                                     <button
                                         onClick={() => setShowSheetsConfig(true)}
                                         style={{
