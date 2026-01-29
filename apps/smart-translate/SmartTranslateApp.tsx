@@ -2382,7 +2382,7 @@ ${textToTranslate}
                 <div className="batch-header-collapsed">
                     <div className="left-controls">
                         <span className="collapsed-title">📝 批量翻译</span>
-                        <button className="secondary-btn" onClick={() => fileInputRef.current?.click()}>
+                        <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
                             📷 {t('uploadButton')}
                         </button>
                         <input
@@ -2394,7 +2394,7 @@ ${textToTranslate}
                             onChange={e => handleFiles(e.target.files)}
                         />
                         <button
-                            className="secondary-btn"
+                            className="btn btn-secondary"
                             onClick={addEmptyItem}
                             title={t('addEmptyTooltip')}
                         >
@@ -2439,7 +2439,7 @@ ${textToTranslate}
                             </button>
                         )}
                         <button
-                            className="primary"
+                            className="btn btn-primary"
                             onClick={processQueue}
                             disabled={isProcessing || items.every(i => i.status === 'success' || i.status === 'error')}
                         >
@@ -2460,7 +2460,7 @@ ${textToTranslate}
                         )}
                         {/* 项目管理按钮 */}
                         <button
-                            className="secondary-btn"
+                            className="btn btn-secondary"
                             onClick={() => setShowProjectPanel(true)}
                             title="项目管理"
                         >
@@ -2557,7 +2557,7 @@ ${textToTranslate}
                             /* 收起状态：只显示紧凑工具栏 */
                             <div className="batch-input-collapsed">
                                 <div className="left-controls">
-                                    <button className="secondary-btn" onClick={() => fileInputRef.current?.click()}>
+                                    <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
                                         📷 {t('uploadButton')}
                                     </button>
                                     <input
@@ -2569,7 +2569,7 @@ ${textToTranslate}
                                         onChange={e => handleFiles(e.target.files)}
                                     />
                                     <button
-                                        className="secondary-btn"
+                                        className="btn btn-secondary"
                                         onClick={addEmptyItem}
                                         title={t('addEmptyTooltip')}
                                     >
@@ -2586,7 +2586,7 @@ ${textToTranslate}
                                         <button className="text-btn" onClick={handleClear}>{t('clearQueue')}</button>
                                     )}
                                     <button
-                                        className="primary"
+                                        className="btn btn-primary"
                                         onClick={processQueue}
                                         disabled={isProcessing || items.every(i => i.status === 'success' || i.status === 'error')}
                                     >
@@ -2623,7 +2623,7 @@ ${textToTranslate}
                                 />
                                 <div className="batch-controls">
                                     <div className="left-controls">
-                                        <button className="secondary-btn" onClick={() => fileInputRef.current?.click()}>
+                                        <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>
                                             📷 {t('uploadButton')}
                                         </button>
                                         <input
@@ -2635,7 +2635,7 @@ ${textToTranslate}
                                             onChange={e => handleFiles(e.target.files)}
                                         />
                                         <button
-                                            className="secondary-btn"
+                                            className="btn btn-secondary"
                                             onClick={addEmptyItem}
                                             title={t('addEmptyTooltip')}
                                         >
@@ -2708,7 +2708,7 @@ ${textToTranslate}
                                         )}
                                         {items.some(i => i.status === 'success' || i.status === 'error') && (
                                             <button
-                                                className="secondary-btn"
+                                                className="btn btn-secondary"
                                                 onClick={() => {
                                                     // Reset all completed/error items to idle for retranslation
                                                     setItems(prev => prev.map(item =>
@@ -2726,7 +2726,7 @@ ${textToTranslate}
                                             </button>
                                         )}
                                         <button
-                                            className="primary"
+                                            className="btn btn-primary"
                                             onClick={processQueue}
                                             disabled={isProcessing || (!inputText.trim() && items.every(i => i.status === 'success' || i.status === 'error'))}
                                         >
@@ -2969,8 +2969,8 @@ const ApiKeyModal: React.FC<{
                 </div>
 
                 <div className="modal-footer">
-                    <button className="secondary-btn" onClick={onClose}>{t('cancel')}</button>
-                    <button className="primary" onClick={handleSave}>{t('save')}</button>
+                    <button className="btn btn-secondary" onClick={onClose}>{t('cancel')}</button>
+                    <button className="btn btn-primary" onClick={handleSave}>{t('save')}</button>
                 </div>
             </div>
         </div>
@@ -3018,7 +3018,7 @@ const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = 
                             <h1>🪄 {t('appTitle')}</h1>
                             <div className="header-controls">
                                 {allowApiKeySettings && (
-                                    <button onClick={() => setSettingsOpen(true)} className="secondary-btn api-key-btn">
+                                    <button onClick={() => setSettingsOpen(true)} className="btn btn-secondary api-key-btn">
                                         ⚙️ {t('apiKeyButtonLabel')}
                                     </button>
                                 )}

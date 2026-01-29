@@ -45,10 +45,10 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           </label>
         )}
         <div className="modal-footer">
-          <button className="secondary-btn" onClick={onCancel}>
+          <button className="btn btn-secondary" onClick={onCancel}>
             {cancelLabel}
           </button>
-          <button className="primary" onClick={onConfirm} disabled={confirmDisabled}>
+          <button className="btn btn-primary" onClick={onConfirm} disabled={confirmDisabled}>
             {confirmLabel}
           </button>
         </div>

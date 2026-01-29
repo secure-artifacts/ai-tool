@@ -240,7 +240,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                                 disabled={isProcessing}
                             />
                             <button
-                                className="primary"
+                                className="btn btn-primary"
                                 onClick={onFusionChat}
                                 disabled={isProcessing || !fusionChatInput.trim()}
                             >

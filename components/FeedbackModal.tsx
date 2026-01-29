@@ -106,10 +106,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, userEmail }) => 
                         {error && <div className="error-message">{error}</div>}
 
                         <div className="modal-actions">
-                            <button type="button" onClick={onClose} className="secondary-btn">
+                            <button type="button" onClick={onClose} className="btn btn-secondary">
                                 取消
                             </button>
-                            <button type="submit" className="primary" disabled={isSubmitting || !title || !description}>
+                            <button type="submit" className="btn btn-primary" disabled={isSubmitting || !title || !description}>
                                 {isSubmitting ? '提交中...' : '提交反馈'}
                             </button>
                         </div>

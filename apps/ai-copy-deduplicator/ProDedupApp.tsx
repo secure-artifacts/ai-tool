@@ -1845,7 +1845,7 @@ export function ProDedupApp() {
                         <div className="pro-modal-footer">
                             <button onClick={() => setEditCategoryModal(null)} disabled={isSubmitting}>取消</button>
                             <button
-                                className="primary"
+                                className="btn btn-primary"
                                 onClick={confirmEditCategory}
                                 disabled={isSubmitting || !editCategoryModal.newName.trim()}
                             >

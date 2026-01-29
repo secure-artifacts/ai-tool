@@ -830,7 +830,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                     <div className="upload-buttons">
                         <button
                             type="button"
-                            className="secondary-btn"
+                            className="btn btn-secondary"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 fileInputRef.current?.click();
@@ -838,7 +838,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         >
                             {t('uploadFromComputer') || '从电脑上传'}
                         </button>
-                        <button type="button" className="secondary-btn">
+                        <button type="button" className="btn btn-secondary">
                             {t('uploadFromUrl') || '从链接添加'}
                         </button>
                     </div>
@@ -935,7 +935,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                 拖拽、双击选择，或 Ctrl+V 粘贴
                             </p>
                             <div className="upload-buttons">
-                                <button type="button" className="secondary-btn" onClick={(e) => {
+                                <button type="button" className="btn btn-secondary" onClick={(e) => {
                                     e.stopPropagation();
                                     (e.currentTarget.closest('label')?.querySelector('input[type="file"]') as HTMLInputElement)?.click();
                                 }}>{t('uploadFromComputer') || '从电脑上传'}</button>
@@ -995,19 +995,10 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 )}
 
                 {/* 批量操作工具栏 - 始终可见 */}
-                <div className="batch-actions-toolbar" style={{
-                    display: 'flex',
-                    gap: '8px',
-                    marginBottom: '12px',
-                    flexWrap: 'wrap',
-                    padding: '10px 12px',
-                    background: 'var(--control-bg-color)',
-                    borderRadius: '8px',
-                    alignItems: 'center'
-                }}>
-                    <span style={{ fontSize: '0.85rem', opacity: 0.7, marginRight: '8px' }}>批量操作:</span>
+                <div className="flex flex-wrap gap-2 items-center mb-3 p-3 rounded-md" style={{ background: 'var(--control-bg-color)' }}>
+                    <span className="text-sm text-muted mr-2">批量操作:</span>
                     <button
-                        className="secondary-btn"
+                        className="btn btn-secondary btn-sm"
                         onClick={async () => {
                             const success = await copyToClipboard(mergedPrompts.english);
                             if (success) {
@@ -1015,12 +1006,11 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                 setTimeout(() => setCopyFeedback(null), 1500);
                             }
                         }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem', padding: '6px 10px' }}
                     >
                         {copyFeedback === 'en' ? '✅ 已复制' : '📋 复制英文'}
                     </button>
                     <button
-                        className="secondary-btn"
+                        className="btn btn-secondary btn-sm"
                         onClick={async () => {
                             const success = await copyToClipboard(mergedPrompts.chinese);
                             if (success) {
@@ -1028,12 +1018,11 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                 setTimeout(() => setCopyFeedback(null), 1500);
                             }
                         }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem', padding: '6px 10px' }}
                     >
                         {copyFeedback === 'zh' ? '✅ 已复制' : '📋 复制中文'}
                     </button>
                     <button
-                        className="secondary-btn"
+                        className="btn btn-secondary btn-sm"
                         onClick={() => {
                             const content = `=== 英文提示词 ===\n\n${mergedPrompts.english}\n\n\n=== 中文提示词 ===\n\n${mergedPrompts.chinese}`;
                             const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -1044,12 +1033,11 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             a.click();
                             URL.revokeObjectURL(url);
                         }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem', padding: '6px 10px' }}
                     >
                         💾 导出TXT
                     </button>
                     <button
-                        className="secondary-btn"
+                        className="btn btn-secondary btn-sm"
                         onClick={() => {
                             const data = {
                                 exportTime: new Date().toISOString(),
@@ -1075,7 +1063,6 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             a.click();
                             URL.revokeObjectURL(url);
                         }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem', padding: '6px 10px' }}
                     >
                         📁 导出JSON
                     </button>
@@ -1180,7 +1167,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                         disabled={isProcessing}
                                     />
                                     <button
-                                        className="primary"
+                                        className="btn btn-primary"
                                         onClick={handleSendMessage}
                                         disabled={isProcessing || !userInput[activeImageId]?.trim()}
                                     >
@@ -1405,13 +1392,13 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         </pre>
                         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                             <button
-                                className="secondary-btn"
+                                className="btn btn-secondary"
                                 onClick={() => copyToClipboard(getEffectiveInstruction(selectedExperts, false))}
                             >
                                 {t('copy') || '复制'}
                             </button>
                             <button
-                                className="primary"
+                                className="btn btn-primary"
                                 onClick={() => setShowSystemInstructionModal(false)}
                             >
                                 {t('close') || '关闭'}

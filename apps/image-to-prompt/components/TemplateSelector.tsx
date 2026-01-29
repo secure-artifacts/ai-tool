@@ -41,7 +41,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                 </label>
                 {onViewSystemInstruction && (
                     <button
-                        className="secondary-btn small"
+                        className="btn btn-secondary btn-sm"
                         onClick={onViewSystemInstruction}
                         style={{ padding: '2px 8px', fontSize: '0.8rem' }}
                     >
