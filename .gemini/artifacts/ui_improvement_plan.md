@@ -1,5 +1,8 @@
 # AI 创作工具包 UI 统一化报告
 
+**最后更新**: 2026-01-30 00:55
+**版本**: v2.8.6 (开发中)
+
 ## 📊 完成进度
 
 ### Phase 1: 设计系统基础 ✅
@@ -12,59 +15,74 @@
 - [x] 添加完整的工具类 (flex, gap, padding, margin 等)
 - [x] 创建 React UI 组件库 (`components/ui/index.tsx`)
 
-### Phase 2: 代码替换 🔄
+### Phase 2: 代码替换 ✅
 - [x] 批量替换旧按钮类名 (`secondary-btn` → `btn btn-secondary`)
+- [x] 批量替换旧按钮类名 (`primary-btn` → `btn btn-primary`)
 - [x] 创建批量替换脚本 (`scripts/ui-cleanup.sh`)
-- [x] 批量替换简单内联样式 (655 → 412 处，37%)
+- [x] 批量替换简单内联样式 (655 → 410 处，37%)
+
+### Phase 3: 图标统一化 🔄
 - [x] ImageToPromptApp: 全部 emoji 替换为 Lucide 图标
+- [x] SmartTranslateApp: 复制菜单 emoji 替换为 Lucide 图标
+- [ ] 其他模块还有约 500+ emoji 待处理
 
 ## 📈 数据统计
 
 | 指标 | 原始值 | 当前值 | 改善 |
 |------|--------|--------|------|
-| 内联样式 | 655 处 | 412 处 | -37% |
-| 旧按钮类名 | 73 处 | 0 处 | -100% |
-| 使用新设计系统 | 0 处 | 31 处 | +31 |
-| Lucide 图标文件 | 48 个 | 48 个 | - |
+| 内联样式 | 655 处 | 410 处 | **-37%** |
+| 旧按钮类名 | 73 处 | **0 处** | **-100%** |
+| 使用新设计系统 | 0 处 | 31 处 | **+31** |
+| Lucide 图标文件 | 48 个 | 49 个 | +1 |
 
-## 📁 新增文件
+## 📁 新增/修改文件
 
 ```
 components/ui/
 ├── design-system.css   # 统一设计系统 CSS (~600 行)
 └── index.tsx           # React UI 组件库
+
 scripts/
 └── ui-cleanup.sh       # 批量替换脚本
+
+修改的主要文件:
+- apps/image-to-prompt/ImageToPromptApp.tsx (Lucide 图标)
+- apps/smart-translate/SmartTranslateApp.tsx (Lucide 图标)
+- components/ConfirmDialog.tsx (新按钮类名)
+- components/FeedbackModal.tsx (新按钮类名)
 ```
 
-## 🎯 建议后续工作
+## ✅ 已完成的重点工作
+
+1. **设计系统完全独立**
+   - 新样式与旧代码完全分离
+   - 通过 `@import` 引入，不影响现有功能
+
+2. **按钮系统完全统一**
+   - 所有 `secondary-btn` 已替换 ✅
+   - 所有 `primary-btn` 已替换 ✅
+   - 新按钮有完整的 hover/focus 状态
+
+3. **ImageToPromptApp 图标统一**
+   - 复制按钮、导出按钮、刷新按钮
+   - 上传区域、添加按钮、状态图标
+
+4. **SmartTranslateApp 图标部分统一**
+   - 复制菜单全部使用 Lucide
+
+## 🎯 下一步建议
 
 ### 短期 (建议优先)
-1. **处理剩余 412 处内联样式中的高频模式**
-   - 可以扩展 `ui-cleanup.sh` 脚本
-   
-2. **为 CloudSyncPanel、LoginModal 等公共组件创建专用 CSS 模块**
-   - 将复杂内联样式移入 CSS 文件
-
-3. **继续替换其他模块的 emoji**
-   - ProDedupApp、SmartTranslateApp 等
+1. 继续处理其他模块的 emoji → Lucide 替换
+2. 为 CloudSyncPanel、LoginModal 创建专用 CSS 模块
 
 ### 中期
-4. **清理 index.css 中的旧样式**
-   - 删除不再使用的 `.secondary-btn`、`.primary-btn` 等旧类
-
-5. **统一模态框 (Modal) 样式**
-   - 创建 `.modal-*` 统一组件
-
-6. **优化移动端响应式**
-   - 检查并修复小屏幕显示问题
+3. 清理 index.css 中已废弃的 `.secondary-btn` 等旧样式
+4. 统一模态框 (Modal) 样式
 
 ### 长期
-7. **考虑使用 CSS Modules 或 Styled Components**
-   - 更好的样式隔离和维护性
-
-8. **创建 Storybook 组件文档**
-   - 便于团队协作和组件复用
+5. 考虑使用 CSS Modules 提高样式隔离性
+6. 创建 Storybook 组件文档
 
 ## 🚀 使用指南
 
@@ -85,6 +103,7 @@ scripts/
 <button className="btn btn-danger">删除</button>
 
 // 图标按钮
+import { Settings } from 'lucide-react';
 <button className="btn btn-ghost btn-icon"><Settings size={16} /></button>
 ```
 
@@ -106,7 +125,15 @@ scripts/
 <div className="card card-glass">...</div>
 ```
 
----
+### Lucide 图标使用示例
+```tsx
+import { Copy, Check, Download, Settings, Plus } from 'lucide-react';
 
-**最后更新**: 2026-01-30
-**版本**: v2.8.6 (开发中)
+// 按钮中使用
+<button className="btn btn-secondary">
+  <Copy size={14} /> 复制
+</button>
+
+// 状态切换
+{copied ? <Check size={14} /> : <Copy size={14} />}
+```

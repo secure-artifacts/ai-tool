@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
+import { Palette, Sparkles, Plus } from 'lucide-react';
 import { FusionItem, FusionRole, FusionResult, FusionChatMessage } from '../types';
 import { PromptDisplay, Loader, FileUploader } from './shared';
 
@@ -79,11 +80,11 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
             <div className="fusion-workspace fusion-empty">
                 <FileUploader onFileSelect={(files) => onAddImages(files as File[])} multiple openOnClick={false} onPaste={onPaste}>
                     <div className="uploader-content">
-                        <span style={{ fontSize: '3rem' }}>🎨</span>
+                        <Palette size={48} className="text-primary" />
                         <h3>{t('fusionTitle') || '灵感融合'}</h3>
                         <p>{t('fusionDesc') || '添加多张参考图，为每张图指定角色，生成融合提示词'}</p>
-                        <p style={{ marginTop: '1rem', color: 'var(--primary-color)' }}>双击选择图片、拖拽图片、或直接粘贴图片</p>
-                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted-color)', marginTop: '0.5rem' }}>支持从网页、谷歌表格等来源粘贴图片</p>
+                        <p className="mt-4 text-primary">双击选择图片、拖拽图片、或直接粘贴图片</p>
+                        <p className="text-sm text-muted mt-2">支持从网页、谷歌表格等来源粘贴图片</p>
                     </div>
                 </FileUploader>
             </div>

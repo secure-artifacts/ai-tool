@@ -1,0 +1,259 @@
+/**
+ * LoginModal 组件样式
+ * 用于替代内联样式
+ */
+
+.login-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+
+.login-modal-content {
+    background: var(--surface-color);
+    border-radius: var(--radius-xl);
+    padding: 2rem;
+    width: 100%;
+    max-width: 420px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid var(--border-color);
+}
+
+.login-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.login-modal-title {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--on-surface-color);
+    font-weight: var(--font-semibold);
+}
+
+.login-modal-close {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--on-surface-color);
+    opacity: 0.6;
+    padding: 0.25rem;
+    line-height: 1;
+    transition: opacity var(--transition-fast);
+}
+
+.login-modal-close:hover {
+    opacity: 1;
+}
+
+/* 用户信息卡片 */
+.login-user-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: var(--background-color);
+    border-radius: var(--radius-lg);
+    margin-bottom: 1.5rem;
+}
+
+.login-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.login-avatar-placeholder {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.login-user-name {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--on-surface-color);
+}
+
+.login-user-email {
+    font-size: 0.875rem;
+    color: var(--text-muted-color);
+    margin-top: 0.25rem;
+}
+
+/* 按钮组 */
+.login-button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.login-button-full {
+    width: 100%;
+    padding: 0.875rem;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.login-button-full.primary {
+    background: var(--gradient-primary);
+    border: none;
+    color: white;
+    font-weight: 600;
+}
+
+.login-button-full.primary:hover {
+    filter: brightness(1.1);
+}
+
+.login-button-full.secondary {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--on-surface-color);
+}
+
+.login-button-full.secondary:hover {
+    background: var(--surface-hover-color);
+}
+
+.login-button-full.danger {
+    background: #ff6b6b;
+    border: none;
+    color: white;
+    font-weight: 600;
+}
+
+.login-button-full.danger:hover {
+    background: #ff5252;
+}
+
+/* 提示信息 */
+.login-info-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+}
+
+.login-info-text {
+    font-size: 0.9rem;
+    color: var(--on-surface-color);
+    margin: 0;
+}
+
+.login-info-subtext {
+    font-size: 0.8rem;
+    color: var(--text-muted-color);
+    margin: 0.5rem 0 0 0;
+}
+
+/* 表单元素 */
+.login-form-group {
+    margin-bottom: 1rem;
+}
+
+.login-form-label {
+    display: block;
+    font-size: 0.875rem;
+    color: var(--text-muted-color);
+    margin-bottom: 0.5rem;
+}
+
+.login-form-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    background: var(--control-bg-color);
+    color: var(--on-surface-color);
+    transition: border-color var(--transition-fast);
+}
+
+.login-form-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+}
+
+/* 分隔线 */
+.login-divider {
+    display: flex;
+    align-items: center;
+    margin: 1.5rem 0;
+    color: var(--text-muted-color);
+    font-size: 0.875rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
+}
+
+.login-divider span {
+    padding: 0 1rem;
+}
+
+/* 错误提示 */
+.login-error {
+    color: var(--error-color);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+}
+
+/* Google 登录按钮 */
+.login-google-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.875rem;
+    background: white;
+    border: 1px solid #dadce0;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    color: #3c4043;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.login-google-btn:hover {
+    background: #f8f9fa;
+    border-color: #c6c6c6;
+}
+
+.login-google-btn img {
+    width: 20px;
+    height: 20px;
+}
