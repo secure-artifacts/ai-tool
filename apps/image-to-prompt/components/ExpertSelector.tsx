@@ -51,7 +51,7 @@ export const ExpertSelector: React.FC<ExpertSelectorProps> = ({
                     <div
                         key={expert}
                         className="expert-option"
-                        style={{ display: 'flex', alignItems: 'center' }}
+                        className="flex items-center"
                     >
                         <input
                             id={`expert-${expert}`}

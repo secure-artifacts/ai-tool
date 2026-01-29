@@ -1149,7 +1149,7 @@ export function ProDedupApp() {
                             {/* GAS 模式 */}
                             {state.authMode === 'gas' && (
                                 <div className="gas-config">
-                                    <div className="auth-mode-tip" style={{ marginBottom: '8px' }}>
+                                    <div className="auth-mode-tip" className="mb-2">
                                         📖 <strong>部署步骤：</strong>
                                         <ol style={{ margin: '4px 0 0 16px', padding: 0, fontSize: '10px' }}>
                                             <li>在 Google Sheets 中打开 扩展程序 → Apps Script</li>
@@ -1872,11 +1872,11 @@ export function ProDedupApp() {
 
                             <h4 style={{ margin: '16px 0 8px', color: '#64b5f6' }}>🔧 部署步骤</h4>
                             <ol style={{ paddingLeft: '20px', margin: 0, color: '#bbb' }}>
-                                <li style={{ marginBottom: '8px' }}>在 Google Sheets 中点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>扩展程序</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Apps Script</code></li>
-                                <li style={{ marginBottom: '8px' }}>删除默认代码，<strong style={{ color: '#fff' }}>粘贴下方脚本代码</strong></li>
-                                <li style={{ marginBottom: '8px' }}>点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>新建部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Web 应用</code></li>
-                                <li style={{ marginBottom: '8px' }}><span style={{ color: '#ef5350' }}>⚠️ 「谁可以访问」必须选择「任何人」</span></li>
-                                <li style={{ marginBottom: '8px' }}>首次需授权：高级 → 转至 xxx → 允许</li>
+                                <li className="mb-2">在 Google Sheets 中点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>扩展程序</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Apps Script</code></li>
+                                <li className="mb-2">删除默认代码，<strong style={{ color: '#fff' }}>粘贴下方脚本代码</strong></li>
+                                <li className="mb-2">点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>新建部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Web 应用</code></li>
+                                <li className="mb-2"><span style={{ color: '#ef5350' }}>⚠️ 「谁可以访问」必须选择「任何人」</span></li>
+                                <li className="mb-2">首次需授权：高级 → 转至 xxx → 允许</li>
                                 <li>复制 Web App URL，粘贴到上方输入框</li>
                             </ol>
 

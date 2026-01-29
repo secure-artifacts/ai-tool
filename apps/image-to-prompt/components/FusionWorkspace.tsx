@@ -218,7 +218,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                             </>
                         ) : (
                             <div style={{ minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted-color)' }}>
-                                <div style={{ textAlign: 'center' }}>
+                                <div className="text-center">
                                     <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>🎨 {t('fusionTitle') || '灵感融合'}</p>
                                     <p>{t('fusionDesc') || '添加多张参考图，为每张图指定角色，生成融合提示词'}</p>
                                     <p style={{ marginTop: '1rem' }}>点击右上角 "✨ 融合生成" 按钮开始</p>

@@ -375,7 +375,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                     <option value="straight">直线</option>
                                     <option value="step">折线</option>
                                 </select>
-                                <div className="control-row" style={{ marginTop: '8px' }}>
+                                <div className="control-row" className="mt-2">
                                     <span>颜色</span>
                                     <input
                                         type="color"
@@ -383,7 +383,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                         onChange={(e) => handleUpdateMapStyle({ lineColor: e.target.value })}
                                     />
                                 </div>
-                                <div className="control-row" style={{ marginTop: '8px' }}>
+                                <div className="control-row" className="mt-2">
                                     <label>
                                         <input
                                             type="checkbox"

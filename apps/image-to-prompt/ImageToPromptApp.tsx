@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Copy, Check, Download, FileJson, RefreshCw, Image, Plus, Sparkles } from 'lucide-react';
 
 // Types
 import {
@@ -805,7 +806,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 <div
                     className="uploader-content"
                     onDoubleClick={() => fileInputRef.current?.click()}
-                    style={{ cursor: 'pointer' }}
+                    className="cursor-pointer"
                 >
                     {/* 隐藏的文件输入 */}
                     <input
@@ -822,7 +823,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             e.target.value = '';
                         }}
                     />
-                    <span>🖼️</span>
+                    <Image size={48} className="text-muted" />
                     <p>2. {t('uploadPrompt') || '拖拽上传，双击选择文件，或粘贴图片'}</p>
                     <p style={{ fontSize: '0.85rem', opacity: 0.7, margin: '0.5rem 0' }}>
                         在上传区按 <strong>Ctrl+V</strong> 可粘贴截图
@@ -929,7 +930,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         onRequestPasteFocus={() => globalPasteTextareaRef.current?.focus()}
                     >
                         <div className="uploader-content">
-                            <span>➕</span>
+                            <Plus size={32} className="text-muted" />
                             <p>{t('appendImages') || '继续添加图片'}</p>
                             <p style={{ fontSize: '0.8rem', opacity: 0.7, margin: '0.5rem 0' }}>
                                 拖拽、双击选择，或 Ctrl+V 粘贴
@@ -1007,7 +1008,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             }
                         }}
                     >
-                        {copyFeedback === 'en' ? '✅ 已复制' : '📋 复制英文'}
+                        {copyFeedback === 'en' ? <><Check size={14} /> 已复制</> : <><Copy size={14} /> 复制英文</>}
                     </button>
                     <button
                         className="btn btn-secondary btn-sm"
@@ -1019,7 +1020,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             }
                         }}
                     >
-                        {copyFeedback === 'zh' ? '✅ 已复制' : '📋 复制中文'}
+                        {copyFeedback === 'zh' ? <><Check size={14} /> 已复制</> : <><Copy size={14} /> 复制中文</>}
                     </button>
                     <button
                         className="btn btn-secondary btn-sm"
@@ -1034,7 +1035,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             URL.revokeObjectURL(url);
                         }}
                     >
-                        💾 导出TXT
+                        <Download size={14} /> 导出TXT
                     </button>
                     <button
                         className="btn btn-secondary btn-sm"
@@ -1064,7 +1065,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             URL.revokeObjectURL(url);
                         }}
                     >
-                        📁 导出JSON
+                        <FileJson size={14} /> 导出JSON
                     </button>
                 </div>
 
@@ -1092,7 +1093,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                         onClick={(e) => { e.stopPropagation(); handleRetryImage(img.id); }}
                                         disabled={isBatchProcessing}
                                         title={t('reGenerate') || '重新生成'}
-                                    >🔄</button>
+                                    ><RefreshCw size={12} /></button>
                                 )}
                                 <button
                                     className="delete-img-btn-tab"
@@ -1289,7 +1290,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         gap: '24px',
                         position: 'relative'
                     }}>
-                        <span style={{ fontSize: '48px' }}>✨</span>
+                        <Sparkles size={48} className="text-primary" />
                         <div style={{ flex: 1 }}>
                             <div style={{ color: '#22c55e', fontWeight: 700, fontSize: '20px', marginBottom: '8px' }}>
                                 功能已更新
@@ -1378,7 +1379,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             overflow: 'auto'
                         }}
                     >
-                        <h3 style={{ marginBottom: '16px' }}>{t('systemInstruction') || '系统指令'}</h3>
+                        <h3 className="mb-4">{t('systemInstruction') || '系统指令'}</h3>
                         <pre style={{
                             whiteSpace: 'pre-wrap',
                             fontSize: '0.85rem',
