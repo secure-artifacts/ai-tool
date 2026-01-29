@@ -2405,7 +2405,7 @@ ${textToTranslate}
                     <div className="right-controls">
                         {renderBatchLanguageSummary(true)}
                         {items.some(i => i.status === 'success' || i.sourceUrl) && (
-                            <button className={`secondary-btn ${copyAllStatus ? 'success-btn' : ''}`} onClick={handleBatchCopy}>
+                            <button className={`btn btn-secondary ${copyAllStatus ? 'success-btn' : ''}`} onClick={handleBatchCopy}>
                                 {copyAllStatus ? `✓` : `📋`}
                             </button>
                         )}
@@ -2579,7 +2579,7 @@ ${textToTranslate}
                                 </div>
                                 <div className="right-controls">
                                     {items.some(i => i.status === 'success' || i.sourceUrl) && (
-                                        <button className={`secondary-btn ${copyAllStatus ? 'success-btn' : ''}`} onClick={handleBatchCopy}>
+                                        <button className={`btn btn-secondary ${copyAllStatus ? 'success-btn' : ''}`} onClick={handleBatchCopy}>
                                             {copyAllStatus ? `✓ ${t('copyAllSuccess')}` : `📋 ${t('copyAll')}`}
                                         </button>
                                     )}
@@ -2647,7 +2647,7 @@ ${textToTranslate}
                                         {items.some(i => i.status === 'success' || i.sourceUrl) && (
                                             <div className="batch-copy-menu-container">
                                                 <button
-                                                    className={`secondary-btn ${copyAllStatus ? 'success-btn' : ''}`}
+                                                    className={`btn btn-secondary ${copyAllStatus ? 'success-btn' : ''}`}
                                                     onClick={() => setShowBatchCopyMenu(!showBatchCopyMenu)}
                                                 >
                                                     {copyAllStatus ? `✓ ${t('copyAllSuccess')}` : `📋 ${t('copyAll')} ▼`}
