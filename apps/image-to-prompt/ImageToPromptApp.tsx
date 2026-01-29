@@ -912,7 +912,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 </div>
                 <aside className="staging-sidebar">
                     {/* 批量模式切换 */}
-                    <div className="mode-selector" style={{ marginBottom: '1rem' }}>
+                    <div className="mode-selector" className="mb-4">
                         <ModeToggle
                             modes={[
                                 { key: 'accurate', label: t('accurateMode') || '精确模式' },

@@ -421,7 +421,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
 
                         {/* 邮箱表单 */}
                         <form onSubmit={handleEmailSubmit}>
-                            <div style={{ marginBottom: '1rem' }}>
+                            <div className="mb-4">
                                 <input
                                     type="email"
                                     value={email}
@@ -442,7 +442,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
 
                             {/* 密码输入框（重置密码模式不需要） */}
                             {mode !== 'reset' && (
-                                <div style={{ marginBottom: '1rem' }}>
+                                <div className="mb-4">
                                     <input
                                         type="password"
                                         value={password}

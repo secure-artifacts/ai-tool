@@ -22,7 +22,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
     t
 }) => {
     return (
-        <div className="expert-selector-multi" style={{ marginTop: '1rem' }}>
+        <div className="expert-selector-multi" className="mt-4">
             <div style={{
                 display: 'flex',
                 justifyContent: 'space-between',
