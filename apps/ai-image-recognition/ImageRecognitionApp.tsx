@@ -657,36 +657,33 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         const loadFromCloud = async () => {
             try {
                 const cloudPresets = await loadPresetsFromFirebase(user.uid, 'image-recognition');
-                if (cloudPresets && Array.isArray(cloudPresets) && cloudPresets.length > 0) {
-                    console.log('[Presets Cloud] Loaded', cloudPresets.length, 'presets from Firebase');
 
-                    // 自动合并新的默认预设（根据名称去重）
-                    const existingNames = new Set(cloudPresets.map((p: Preset) => p.name));
-                    const newDefaults = DEFAULT_PRESETS.filter(dp => !existingNames.has(dp.name));
+                // 获取默认预设的 ID 列表
+                const defaultPresetIds = new Set(DEFAULT_PRESETS.map(p => p.id));
 
-                    let finalPresets = cloudPresets;
-                    if (newDefaults.length > 0) {
-                        // 有新的默认预设需要合并
-                        finalPresets = [...newDefaults, ...cloudPresets];
-                        console.log(`[Presets Cloud] 自动合并了 ${newDefaults.length} 个新默认预设:`, newDefaults.map(p => p.name));
-                        // 异步保存合并后的预设到云端
-                        savePresetsToFirebase(user.uid, 'image-recognition', finalPresets).catch(err => {
-                            console.error('[Presets Cloud] Failed to save merged presets:', err);
-                        });
-                    }
+                // 分离云端数据：默认预设 vs 自定义预设
+                const cloudCustomPresets = (cloudPresets && Array.isArray(cloudPresets))
+                    ? cloudPresets.filter((p: Preset) => !defaultPresetIds.has(p.id))
+                    : [];
 
-                    // 更新状态和本地缓存
-                    setState(prev => ({ ...prev, presets: finalPresets }));
-                    savePresetsToStorage(finalPresets);
-                    presetsSyncedRef.current = true;
-                } else {
-                    console.log('[Presets Cloud] No presets in Firebase, using defaults');
-                    // 云端没有预设，使用默认预设并保存到云端
-                    await savePresetsToFirebase(user.uid, 'image-recognition', DEFAULT_PRESETS);
-                    setState(prev => ({ ...prev, presets: DEFAULT_PRESETS }));
-                    savePresetsToStorage(DEFAULT_PRESETS);
-                    presetsSyncedRef.current = true;
-                }
+                // 合并：默认预设（最新版本）+ 云端自定义预设
+                // 默认预设始终使用代码中的最新版本，不被云端覆盖
+                const finalPresets = [...DEFAULT_PRESETS, ...cloudCustomPresets];
+
+                console.log('[Presets Cloud] 合并预设:', {
+                    defaults: DEFAULT_PRESETS.length,
+                    cloudCustom: cloudCustomPresets.length,
+                    total: finalPresets.length
+                });
+
+                // 更新状态和本地缓存
+                setState(prev => ({ ...prev, presets: finalPresets }));
+                savePresetsToStorage(finalPresets);
+                presetsSyncedRef.current = true;
+
+                // 保存合并后的预设到云端
+                await savePresetsToFirebase(user.uid, 'image-recognition', finalPresets);
+                console.log('[Presets Cloud] Synced merged presets to Firebase');
             } catch (error) {
                 console.error('[Presets Cloud] Failed to load presets:', error);
             }
@@ -1245,9 +1242,20 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
         if (item.base64Data) {
             // 使用图片单独的提示词（如果启用），否则使用全局提示词
-            let effectivePrompt = (item.useCustomPrompt && item.customPrompt?.trim())
-                ? item.customPrompt
-                : prompt;
+            // 支持合并模式：全局指令 + 单独指令
+            let effectivePrompt: string;
+            if (item.useCustomPrompt && item.customPrompt?.trim()) {
+                if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
+                    // 合并模式：全局指令 + 单独指令
+                    effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
+                } else {
+                    // 独立模式：仅使用单独指令
+                    effectivePrompt = item.customPrompt;
+                }
+            } else {
+                // 没有单独指令，使用全局指令
+                effectivePrompt = prompt;
+            }
 
             if (!effectivePrompt.trim()) {
                 updateItem({ status: 'error', errorMsg: '请先输入指令' });
@@ -1368,9 +1376,20 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 if (!item.base64Data || !item.mimeType) throw new Error("No image data");
 
                 // 使用图片单独的提示词（如果启用），否则使用全局提示词
-                let effectivePrompt = (item.useCustomPrompt && item.customPrompt?.trim())
-                    ? item.customPrompt
-                    : prompt;
+                // 支持合并模式：全局指令 + 单独指令
+                let effectivePrompt: string;
+                if (item.useCustomPrompt && item.customPrompt?.trim()) {
+                    if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
+                        // 合并模式：全局指令 + 单独指令
+                        effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
+                    } else {
+                        // 独立模式：仅使用单独指令
+                        effectivePrompt = item.customPrompt;
+                    }
+                } else {
+                    // 没有单独指令，使用全局指令
+                    effectivePrompt = prompt;
+                }
 
                 // 如果开启了纯净回复模式，在提示词末尾添加后缀
                 if (pureReplyMode) {
@@ -1535,9 +1554,20 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 if (!item.base64Data || !item.mimeType) throw new Error("No image data");
 
                 // 使用图片单独的提示词（如果启用），否则使用全局提示词
-                let effectivePrompt = (item.useCustomPrompt && item.customPrompt?.trim())
-                    ? item.customPrompt
-                    : prompt;
+                // 支持合并模式：全局指令 + 单独指令
+                let effectivePrompt: string;
+                if (item.useCustomPrompt && item.customPrompt?.trim()) {
+                    if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
+                        // 合并模式：全局指令 + 单独指令
+                        effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
+                    } else {
+                        // 独立模式：仅使用单独指令
+                        effectivePrompt = item.customPrompt;
+                    }
+                } else {
+                    // 没有单独指令，使用全局指令
+                    effectivePrompt = prompt;
+                }
 
                 // 如果开启了纯净回复模式，在提示词末尾添加后缀
                 if (pureReplyMode) {
@@ -1914,6 +1944,15 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         setImages(prev => prev.map(img =>
             img.id === imageId
                 ? { ...img, customPrompt: presetText, useCustomPrompt: true }
+                : img
+        ));
+    }, [setImages]);
+
+    // 切换单独指令的合并模式
+    const toggleMergeMode = useCallback((id: string, merge: boolean) => {
+        setImages(prev => prev.map(img =>
+            img.id === id
+                ? { ...img, mergeWithGlobalPrompt: merge }
                 : img
         ));
     }, [setImages]);
@@ -2999,6 +3038,7 @@ ${text}`;
                                     presets={presets}
                                     onUpdateCustomPrompt={updateCustomPrompt}
                                     onApplyPreset={applyPresetToImage}
+                                    onToggleMergeMode={toggleMergeMode}
                                     onToggleInnovation={toggleInnovation}
                                     onStartInnovation={startInnovation}
                                     onCopyInnovation={copyInnovation}

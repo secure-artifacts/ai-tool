@@ -10,7 +10,8 @@ import {
   Info,
   MousePointer2,
   Languages,
-  CheckSquare
+  CheckSquare,
+  Hash
 } from 'lucide-react';
 import {
   processGrid,
@@ -34,20 +35,23 @@ function ScriptToolApp() {
   const [statusMsg, setStatusMsg] = useState<string>('');
   const [clearSource, setClearSource] = useState(false); // 默认保留原文（开关关 = 保留，开关开 = 删除）
   const [gridStyles, setGridStyles] = useState<GridStyles>(new Map()); // 单元格样式（橙色标记）
+  const [showPrefixModal, setShowPrefixModal] = useState(false); // 自定义前缀弹窗
+  const [customPrefix, setCustomPrefix] = useState('prompt'); // 自定义前缀内容
 
   // Initialize empty grid
   useEffect(() => {
     setGridData(Array(DEFAULT_ROWS).fill(null).map(() => Array(DEFAULT_COLS).fill('')));
   }, []);
 
-  const handleProcess = (tool: ToolType) => {
+  // 实际处理函数
+  const doProcess = (tool: ToolType, prefix?: string) => {
     if (!selection) {
       setStatusMsg('请先用鼠标框选要处理的单元格区域');
       return;
     }
 
     // clearSource: false = 保留原文（默认）, true = 删除原文
-    const options: ProcessOptions = { clearSource };
+    const options: ProcessOptions = { clearSource, customPrefix: prefix };
     console.log('Before processGrid:', { gridData, selection, tool, options });
     const { newGrid, updatedCols } = processGrid(gridData, selection, tool, options);
     console.log('After processGrid:', { newGrid, updatedCols });
@@ -114,12 +118,41 @@ function ScriptToolApp() {
         msg = '选区内没有找到中文内容';
       }
       toolMsg = msg;
+    } else if (tool === ToolType.AddPromptPrefix) {
+      // Parse stats from updatedCols
+      let totalAdded = 0;
+      for (const col of updatedCols) {
+        if (col <= -3000) {
+          totalAdded = -(col + 3000);
+        }
+      }
+      const prefixUsed = prefix || 'prompt';
+      toolMsg = `已为 ${totalAdded} 个单元格添加 ${prefixUsed}- 前缀`;
     } else {
       const colsStr = updatedCols.filter(c => c >= 0).map(c => colToLetter(c)).join(', ');
       const clearMsg = clearSource ? ' (已删除原文案)' : '';
       toolMsg = `已处理选区，结果更新于列: ${colsStr}${clearMsg}`;
     }
     setStatusMsg(toolMsg);
+  };
+
+  // 入口函数：对于 AddPromptPrefix 显示弹窗，其他工具直接处理
+  const handleProcess = (tool: ToolType) => {
+    if (tool === ToolType.AddPromptPrefix) {
+      if (!selection) {
+        setStatusMsg('请先用鼠标框选要处理的单元格区域');
+        return;
+      }
+      setShowPrefixModal(true);
+    } else {
+      doProcess(tool);
+    }
+  };
+
+  // 确认添加前缀
+  const handleConfirmPrefix = () => {
+    setShowPrefixModal(false);
+    doProcess(ToolType.AddPromptPrefix, customPrefix);
   };
 
   const handleCopyAll = async () => {
@@ -248,6 +281,13 @@ function ScriptToolApp() {
                 onClick={() => handleProcess(ToolType.ClearChinese)}
                 disabled={!selection}
               />
+              <ToolButton
+                icon={<Hash className="w-4 h-4" />}
+                label="Opal 序号"
+                tooltip="给每个单元格内容前面添加 prompt-序号（用于 Opal 自动化）"
+                onClick={() => handleProcess(ToolType.AddPromptPrefix)}
+                disabled={!selection}
+              />
             </div>
 
             <div className="w-px h-6 bg-slate-300 mx-1"></div>
@@ -293,6 +333,100 @@ function ScriptToolApp() {
           cellStyles={gridStyles}
         />
       </main>
+
+      {/* 自定义前缀弹窗 */}
+      {showPrefixModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999
+          }}
+          onClick={() => setShowPrefixModal(false)}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              minWidth: '360px',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '18px', fontWeight: 600, color: '#1e293b' }}>
+              添加序号前缀
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: '14px', color: '#64748b' }}>
+              输入要添加的前缀内容。例如输入 "prompt"，将生成 prompt-1、prompt-2...
+            </p>
+            <input
+              type="text"
+              value={customPrefix}
+              onChange={(e) => setCustomPrefix(e.target.value)}
+              placeholder="输入前缀，如: prompt, step, item"
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '16px',
+                outline: 'none',
+                marginBottom: '16px',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && customPrefix.trim()) {
+                  handleConfirmPrefix();
+                }
+              }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowPrefixModal(false)}
+                style={{
+                  padding: '10px 20px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  background: 'white',
+                  color: '#64748b',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer'
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmPrefix}
+                disabled={!customPrefix.trim()}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  background: customPrefix.trim() ? '#22c55e' : '#94a3b8',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: customPrefix.trim() ? 'pointer' : 'not-allowed'
+                }}
+              >
+                确定添加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -39,6 +39,7 @@ export interface ImageItem {
     // 新增：单独提示词
     customPrompt?: string;
     useCustomPrompt?: boolean;
+    mergeWithGlobalPrompt?: boolean; // 是否与全局指令合并（true=合并模式，false=独立模式）
     // 新增：创新指令（单图覆盖）
     customInnovationInstruction?: string;
     customInnovationCount?: number; // 每次生成个数
@@ -102,7 +103,7 @@ export const DEFAULT_PRESETS: Preset[] = [
     { id: '5', name: 'OCR 文字提取', text: '提取图片中所有可见的文字，保持原有排版，直接输出文字内容。' },
 ];
 
-// 从 localStorage 加载预设，并自动合并新的默认预设
+// 从 localStorage 加载预设，并确保默认预设始终存在
 const loadPresetsFromStorage = (): Preset[] => {
     if (typeof window === 'undefined') return DEFAULT_PRESETS;
     try {
@@ -110,19 +111,24 @@ const loadPresetsFromStorage = (): Preset[] => {
         if (saved) {
             const parsed = JSON.parse(saved);
             if (Array.isArray(parsed) && parsed.length > 0) {
-                // 检查是否有新的默认预设需要添加
-                const existingNames = new Set(parsed.map((p: Preset) => p.name));
-                const newPresets = DEFAULT_PRESETS.filter(dp => !existingNames.has(dp.name));
+                // 获取默认预设的 ID 列表
+                const defaultPresetIds = new Set(DEFAULT_PRESETS.map(p => p.id));
 
-                if (newPresets.length > 0) {
-                    // 将新预设添加到列表开头
-                    const merged = [...newPresets, ...parsed];
-                    // 保存合并后的列表
-                    localStorage.setItem('ai-classifier-presets', JSON.stringify(merged));
-                    console.log(`[Presets] 自动合并了 ${newPresets.length} 个新预设:`, newPresets.map(p => p.name));
-                    return merged;
-                }
-                return parsed;
+                // 分离本地数据：排除默认预设ID的自定义预设
+                const localCustomPresets = parsed.filter((p: Preset) => !defaultPresetIds.has(p.id));
+
+                // 合并：默认预设（最新版本）+ 本地自定义预设
+                // 默认预设始终使用代码中的最新版本，不被本地覆盖
+                const merged = [...DEFAULT_PRESETS, ...localCustomPresets];
+
+                // 保存合并后的列表
+                localStorage.setItem('ai-classifier-presets', JSON.stringify(merged));
+                console.log('[Presets] 合并预设:', {
+                    defaults: DEFAULT_PRESETS.length,
+                    localCustom: localCustomPresets.length,
+                    total: merged.length
+                });
+                return merged;
             }
         }
     } catch (e) {

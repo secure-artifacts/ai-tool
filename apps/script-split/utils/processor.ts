@@ -166,6 +166,34 @@ export const processGrid = (
       updatedCols.push(-2000 - punctuationOnlyCount);  // Signal: punctuation only count
     }
   }
+  else if (tool === ToolType.AddPromptPrefix) {
+    // Add custom prefix with sequence number to each non-empty cell in the selection
+    // Sequence number is based on the order of non-empty cells (row by row, left to right)
+    const prefix = options.customPrefix || 'prompt';  // 默认使用 prompt
+    let promptIndex = 1;
+
+    // 创建用于检测已有前缀的正则（动态生成）
+    const existingPrefixRegex = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+:?\\s*`);
+
+    for (let r = minR; r <= maxR; r++) {
+      if (!newGrid[r]) newGrid[r] = [];
+      for (let c = minC; c <= maxC; c++) {
+        const val = newGrid[r][c] || '';
+        if (val.trim()) {
+          // Check if already has this prefix, avoid duplicating
+          if (!existingPrefixRegex.test(val)) {
+            newGrid[r][c] = `${prefix}-${promptIndex}: ${val}`;
+          }
+          promptIndex++;
+        }
+      }
+    }
+    // Mark these columns as updated
+    for (let c = minC; c <= maxC; c++) updatedCols.push(c);
+
+    // Store stats using special negative value convention
+    updatedCols.push(-3000 - (promptIndex - 1));  // Signal: total cells updated
+  }
   else {
     // Split/Prompt Logic:
     // For SplitThree/SplitTwo: Process EACH column in selection, output to its right side

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { ImageItem, Preset, ChatMessage, InnovationItem } from '../types';
 import { convertBlobToBase64 } from '../utils';
-import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronUp, X, Paperclip, Plus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2 } from 'lucide-react';
+import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronUp, X, Paperclip, Plus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play } from 'lucide-react';
 
 interface ResultsGridProps {
     images: ImageItem[];
@@ -20,6 +20,7 @@ interface ResultsGridProps {
     presets?: Preset[];
     onUpdateCustomPrompt?: (id: string, value: string) => void;
     onApplyPreset?: (id: string, text: string) => void;
+    onToggleMergeMode?: (id: string, merge: boolean) => void;
     // 创新功能
     onToggleInnovation?: (id: string) => void;
     onStartInnovation?: (id: string) => void;
@@ -73,9 +74,21 @@ const getInnovationOutputs = (item: ImageItem) => getInnovationItemsForRender(it
 
 
 const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: (id: string) => void; onExpand?: (item: ImageItem) => void }) => {
-    if (item.status === 'idle') return <span className="text-zinc-600 text-xs italic">等待处理...</span>;
+    if (item.status === 'idle') return (
+        <div className="flex items-center gap-2">
+            <span className="text-zinc-600 text-xs italic">等待处理...</span>
+            <button
+                onClick={() => onRetry(item.id)}
+                className="flex items-center gap-1 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 px-2 py-1 rounded text-[0.625rem] transition-colors"
+                title="单独开始处理这张图片"
+            >
+                <Play size={10} />
+                开始
+            </button>
+        </div>
+    );
     if (item.status === 'loading') return (
-        <div className="flex items-center gap-2 text-emerald-400 text-xs animate-pulse">
+        <div className="flex items-center gap-2 text-emerald-400 text-xs">
             <Loader2 size={14} className="animate-spin" />
             正在分析...
         </div>
@@ -1025,30 +1038,54 @@ interface CustomPromptPanelProps {
     presets?: Preset[];
     onUpdateCustomPrompt?: (id: string, value: string) => void;
     onApplyPreset?: (id: string, text: string) => void;
+    onToggleMergeMode?: (id: string, merge: boolean) => void;
 }
 
-const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset }: CustomPromptPanelProps) => {
+const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset, onToggleMergeMode }: CustomPromptPanelProps) => {
     if (item.status !== 'idle') return null;
 
+    const isMergeMode = item.mergeWithGlobalPrompt ?? true; // 默认为合并模式
+
     return (
-        <div className="border-t border-zinc-700/50 bg-zinc-900/50 p-2">
+        <div className="border-t border-zinc-700/50 bg-zinc-900/50 p-2" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2">
                 <input
                     type="text"
                     value={item.customPrompt || ''}
                     onChange={(e) => onUpdateCustomPrompt?.(item.id, e.target.value)}
-                    placeholder="单独指令（留空使用全局）"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    placeholder={isMergeMode ? "追加指令（将与全局合并）" : "单独指令（留空使用全局）"}
                     className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                 />
+                {/* 合并模式开关 */}
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleMergeMode?.(item.id, !isMergeMode);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-[0.625rem] transition-colors ${isMergeMode
+                        ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
+                        : 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:border-zinc-600'
+                        }`}
+                    title={isMergeMode ? "合并模式：全局指令 + 单独指令" : "独立模式：仅使用单独指令"}
+                >
+                    {isMergeMode ? '🔗 合并' : '📝 独立'}
+                </button>
                 {presets && presets.length > 0 && (
                     <select
-                        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300"
+                        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 cursor-pointer"
                         onChange={(e) => {
                             if (e.target.value) {
                                 onApplyPreset?.(item.id, e.target.value);
+                                // 重置为默认选项
+                                e.target.value = '';
                             }
                         }}
-                        value=""
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        defaultValue=""
                     >
                         <option value="">预设</option>
                         {presets.map((p, index) => (
@@ -1058,8 +1095,8 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset 
                 )}
             </div>
             {item.customPrompt && (
-                <div className="text-[0.625rem] text-blue-400 mt-1">
-                    ✓ 将使用单独指令
+                <div className={`text-[0.625rem] mt-1 ${isMergeMode ? 'text-purple-400' : 'text-blue-400'}`}>
+                    {isMergeMode ? '🔗 全局指令 + 单独指令 合并运行' : '✓ 将使用单独指令（替代全局）'}
                 </div>
             )}
         </div>
@@ -1694,6 +1731,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     presets,
     onUpdateCustomPrompt,
     onApplyPreset,
+    onToggleMergeMode,
     onToggleInnovation,
     onStartInnovation,
     onCopyInnovation,
@@ -2657,6 +2695,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 presets={presets}
                                                 onUpdateCustomPrompt={onUpdateCustomPrompt}
                                                 onApplyPreset={onApplyPreset}
+                                                onToggleMergeMode={onToggleMergeMode}
                                             />
                                         </>
                                     );
@@ -3114,6 +3153,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 presets={presets}
                                 onUpdateCustomPrompt={onUpdateCustomPrompt}
                                 onApplyPreset={onApplyPreset}
+                                onToggleMergeMode={onToggleMergeMode}
                             />
 
                             {/* 右下角调整大小手柄 */}

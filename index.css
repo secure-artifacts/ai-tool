@@ -1,12 +1,35 @@
+/* Google Fonts - Plus Jakarta Sans */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+
 :root {
-  --font-family-main: 'Roboto', 'Noto Sans SC', sans-serif;
-  --success-color: #4caf50;
-  --error-color: #f44336;
+  /* 现代化字体系统 */
+  --font-family-main: 'Plus Jakarta Sans', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  /* 状态颜色 */
+  --success-color: #22c55e;
+  --error-color: #ef4444;
+  --warning-color: #f59e0b;
+  --info-color: #3b82f6;
+
   /* Base typography size (responsive, bounded) */
   --app-base-font-size: clamp(14px, 0.15vw + 14px, 18px);
 
   /* Combined scale: (UI scale %) * (Font scale %) */
   --app-scale: 1;
+
+  /* 圆角系统 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  /* 过渡动画 */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: 500ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
 /* 
@@ -21,41 +44,109 @@ html {
 }
 
 body.dark {
-  --background-color: #0b1018;
-  --surface-color: #131a24;
-  --primary-color: #4dabff;
-  --primary-variant-color: #1f6feb;
-  --secondary-color: #5bd8a6;
-  --on-background-color: #f2f6ff;
-  --on-surface-color: #f8fbff;
-  --border-color: #3a4659;
-  --text-color: #f2f6ff;
-  --text-muted-color: #ffffff;
-  --control-bg-color: #101621;
-  --control-hover-bg-color: #19212d;
-  --button-text-color: #f8fbff;
-  --loader-fg-color: #4dabff;
-  --warning-bg-color: rgb(255, 255, 255);
-  --warning-text-color: #ff0000;
+  /* 背景层次 */
+  --background-color: #0f172a;
+  --surface-color: #1e293b;
+  --surface-hover-color: #334155;
+
+  /* 主色调 - Teal */
+  --primary-color: #0d9488;
+  --primary-hover-color: #14b8a6;
+  --primary-variant-color: #115e59;
+  --secondary-color: #14b8a6;
+
+  /* CTA 橙色 - 用于关键按钮 */
+  --cta-color: #f97316;
+  --cta-hover-color: #fb923c;
+
+  /* 文本层次 */
+  --on-background-color: #f1f5f9;
+  --on-surface-color: #f8fafc;
+  --text-color: #e2e8f0;
+  --text-muted-color: #94a3b8;
+
+  /* 边框和控件 */
+  --border-color: rgba(148, 163, 184, 0.2);
+  --border-hover-color: rgba(148, 163, 184, 0.4);
+  --control-bg-color: #0f172a;
+  --control-hover-bg-color: #1e293b;
+  --button-text-color: #ffffff;
+  --loader-fg-color: #0d9488;
+
+  /* 警告提示 */
+  --warning-bg-color: rgba(251, 146, 60, 0.15);
+  --warning-text-color: #fb923c;
+
+  /* 渐变效果 */
+  --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --gradient-cta: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+  --gradient-premium: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+
+  /* 阴影效果 */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px rgba(13, 148, 136, 0.4);
+  --shadow-cta-glow: 0 0 20px rgba(249, 115, 22, 0.4);
+
+  /* 玻璃拟态 */
+  --glass-bg: rgba(30, 41, 59, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-blur: blur(20px);
 }
 
 body.light {
-  --background-color: #f0f4f8;
+  /* 背景层次 */
+  --background-color: #f0fdfa;
   --surface-color: #ffffff;
-  --primary-color: #007aff;
-  --primary-variant-color: #cce5ff;
-  --secondary-color: #34c759;
-  --on-background-color: #333333;
-  --on-surface-color: #000000;
-  --border-color: #d1d9e6;
-  --text-color: #2c3e50;
-  --text-muted-color: #6c757d;
-  --control-bg-color: #e9ecef;
-  --control-hover-bg-color: #d1d9e6;
-  --button-text-color: #fff;
-  --loader-fg-color: #007aff;
-  --warning-bg-color: #fff3cd;
-  --warning-text-color: #8a6d3b;
+  --surface-hover-color: #f0fdfa;
+
+  /* 主色调 - Teal */
+  --primary-color: #0d9488;
+  --primary-hover-color: #0f766e;
+  --primary-variant-color: #ccfbf1;
+  --secondary-color: #14b8a6;
+
+  /* CTA 橙色 */
+  --cta-color: #f97316;
+  --cta-hover-color: #ea580c;
+
+  /* 文本层次 */
+  --on-background-color: #134e4a;
+  --on-surface-color: #0f172a;
+  --text-color: #1e293b;
+  --text-muted-color: #64748b;
+
+  /* 边框和控件 */
+  --border-color: rgba(15, 23, 42, 0.1);
+  --border-hover-color: rgba(15, 23, 42, 0.2);
+  --control-bg-color: #f8fafc;
+  --control-hover-bg-color: #f1f5f9;
+  --button-text-color: #ffffff;
+  --loader-fg-color: #0d9488;
+
+  /* 警告提示 */
+  --warning-bg-color: rgba(251, 146, 60, 0.1);
+  --warning-text-color: #c2410c;
+
+  /* 渐变效果 */
+  --gradient-primary: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  --gradient-cta: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+  --gradient-premium: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  --gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(240, 253, 250, 0.95) 100%);
+
+  /* 阴影效果 */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 20px rgba(13, 148, 136, 0.2);
+  --shadow-cta-glow: 0 0 20px rgba(249, 115, 22, 0.2);
+
+  /* 玻璃拟态 */
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-blur: blur(20px);
 }
 
 
@@ -1942,6 +2033,13 @@ button.primary:active,
 
 .template-builder .template-preview {
   margin-top: 2rem;
+}
+
+/* 确保模板预览区域的复制按钮始终可见 */
+.template-builder .template-preview .copy-btn {
+  opacity: 1 !important;
+  visibility: visible !important;
+  position: static !important;
 }
 
 .template-add-section {
@@ -8626,4 +8724,421 @@ body.dark .prompt-tab-btn:hover {
 
 .help-version {
   color: #555;
+}
+
+/* ============================================
+   🎨 UI UX Pro Max - Premium Button System
+   Modern micro-interactions and animations
+   ============================================ */
+
+/* Base button reset and defaults */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+}
+
+/* Primary Button - Teal gradient */
+.btn-primary,
+nav button.active,
+.confirm-button,
+.execute-btn,
+.start-btn {
+  background: var(--gradient-primary, linear-gradient(135deg, #0d9488 0%, #14b8a6 100%));
+  color: var(--button-text-color, #ffffff);
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  padding: 0.65rem 1.25rem;
+  font-weight: 600;
+  position: relative;
+  overflow: hidden;
+  transform: translateY(0);
+  box-shadow: 0 4px 14px -4px rgba(13, 148, 136, 0.4);
+  transition: all var(--transition-fast);
+}
+
+.btn-primary:hover,
+nav button.active:hover,
+.confirm-button:hover,
+.execute-btn:hover,
+.start-btn:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 25px -8px rgba(13, 148, 136, 0.6),
+    var(--shadow-glow, 0 0 20px rgba(13, 148, 136, 0.3));
+}
+
+.btn-primary:active,
+nav button.active:active,
+.confirm-button:active,
+.execute-btn:active,
+.start-btn:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px -4px rgba(13, 148, 136, 0.4);
+}
+
+/* CTA Button - Orange for key actions */
+.btn-cta,
+.cta-button,
+.start-prompting-btn,
+.batch-process-btn {
+  background: var(--gradient-cta, linear-gradient(135deg, #f97316 0%, #fb923c 100%));
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md, 10px);
+  padding: 0.75rem 1.5rem;
+  font-weight: 700;
+  position: relative;
+  overflow: hidden;
+  transform: translateY(0);
+  box-shadow: 0 4px 14px -4px rgba(249, 115, 22, 0.5);
+  transition: all var(--transition-fast);
+}
+
+.btn-cta:hover,
+.cta-button:hover,
+.start-prompting-btn:hover,
+.batch-process-btn:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 25px -8px rgba(249, 115, 22, 0.7),
+    var(--shadow-cta-glow, 0 0 20px rgba(249, 115, 22, 0.4));
+}
+
+.btn-cta:active,
+.cta-button:active,
+.start-prompting-btn:active,
+.batch-process-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Secondary Button - Outlined style */
+.btn-secondary,
+nav button:not(.active),
+.cancel-button {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  border-radius: var(--radius-md, 10px);
+  padding: 0.65rem 1.25rem;
+  font-weight: 500;
+  transition: all var(--transition-fast);
+}
+
+.btn-secondary:hover,
+nav button:not(.active):hover,
+.cancel-button:hover {
+  background: var(--surface-hover-color, rgba(255, 255, 255, 0.05));
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:active,
+nav button:not(.active):active,
+.cancel-button:active {
+  transform: scale(0.98);
+}
+
+/* Success Button */
+.btn-success {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 4px 14px -4px rgba(34, 197, 94, 0.4);
+}
+
+.btn-success:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(34, 197, 94, 0.6);
+}
+
+/* Danger Button */
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: #ffffff;
+  border: none;
+  box-shadow: 0 4px 14px -4px rgba(239, 68, 68, 0.4);
+}
+
+.btn-danger:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(239, 68, 68, 0.6);
+}
+
+/* Ghost Button - Minimal style */
+.btn-ghost {
+  background: transparent;
+  border: none;
+  color: var(--text-muted-color);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm, 6px);
+  transition: all var(--transition-fast);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-hover-color, rgba(255, 255, 255, 0.05));
+  color: var(--primary-color);
+}
+
+/* Icon Button - Square with icon */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-md, 10px);
+  background: var(--control-bg-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+  transition: all var(--transition-fast);
+}
+
+.btn-icon:hover {
+  background: var(--control-hover-bg-color);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  transform: scale(1.05);
+}
+
+.btn-icon:active {
+  transform: scale(0.95);
+}
+
+/* ============================================
+   🎯 Micro-interaction Animations
+   ============================================ */
+
+/* Ripple effect on click */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* Success pulse animation */
+@keyframes success-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+  }
+
+  70% {
+    box-shadow: 0 0 0 12px rgba(34, 197, 94, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+.success-feedback {
+  animation: success-pulse 0.6s ease-out;
+}
+
+/* Copy success animation */
+@keyframes copy-success {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.15);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.copy-success {
+  animation: copy-success 0.3s ease;
+}
+
+/* Loading dots animation */
+@keyframes loading-dots {
+
+  0%,
+  20% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+}
+
+.loading-dot {
+  animation: loading-dots 1.4s infinite ease-in-out both;
+}
+
+.loading-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+.loading-dot:nth-child(3) {
+  animation-delay: 0;
+}
+
+/* Skeleton loading shimmer */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg,
+      var(--control-bg-color) 25%,
+      var(--surface-hover-color, rgba(255, 255, 255, 0.1)) 50%,
+      var(--control-bg-color) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: var(--radius-sm, 6px);
+}
+
+/* Glow pulse for active processing */
+@keyframes glow-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 5px rgba(13, 148, 136, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(13, 148, 136, 0.6), 0 0 40px rgba(13, 148, 136, 0.3);
+  }
+}
+
+.processing-glow {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Fade in animation */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Scale in animation */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+/* ============================================
+   🪟 Glassmorphism Cards
+   ============================================ */
+
+.glass-card {
+  background: var(--glass-bg, rgba(30, 41, 59, 0.7));
+  backdrop-filter: var(--glass-blur, blur(20px));
+  -webkit-backdrop-filter: var(--glass-blur, blur(20px));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-lg, 16px);
+  box-shadow:
+    var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.3)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: all var(--transition-normal);
+}
+
+.glass-card:hover {
+  border-color: var(--border-hover-color, rgba(255, 255, 255, 0.2));
+  transform: translateY(-4px);
+  box-shadow:
+    var(--shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.4)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Premium surface with subtle gradient */
+.premium-surface {
+  background: var(--gradient-surface, linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%));
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================
+   ✨ Focus & Accessibility
+   ============================================ */
+
+/* Modern focus ring */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.4);
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================
+   📱 Touch-friendly interactions
+   ============================================ */
+
+@media (hover: none) and (pointer: coarse) {
+
+  button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-cta {
+    padding: 0.75rem 1.5rem;
+    min-height: 44px;
+    /* Apple's recommended touch target */
+  }
 }

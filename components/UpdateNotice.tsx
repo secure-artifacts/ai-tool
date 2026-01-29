@@ -31,11 +31,17 @@ interface UpdateNoticeProps {
 const versionHistory: VersionInfo[] = [
 
     {
+        version: 'v2.8.5',
+        date: '2026-01-29',
+        description: '反推提示词工具重大修复 + 全局复制粘贴修复',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v2.7.0',
         date: '2026-01-17',
         description: '新增 AI 思维导图 测试版',
-        url: '#',
-        isCurrent: true
+        url: '#'
     },
     {
         version: 'v2.6.11',
@@ -137,21 +143,27 @@ const versionHistory: VersionInfo[] = [
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v2.7.0',
-    date: '2026-01-17',
+    version: 'v2.8.5',
+    date: '2026-01-29',
     features: {
         en: [
-            'AI Mind Map: Enhanced AI co-creation with chat panel',
-            'AI Mind Map: Professional export with full content capture',
-            'AI Mind Map: Dark mode support for all panels',
-            'UI improvements and bug fixes'
+            'Image to Prompt: Major bug fixes and state preservation',
+            'Global copy/paste functionality restored',
+            'Electron menu support for macOS',
+            'Mind Map keyboard shortcuts now scoped correctly'
         ],
         zh: [
             '✨如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
-            '26.01.17',
-            '🆕 新增功能',
+            '26.01.29',
+            '🔧 重大修复',
+            '• 修复全局复制粘贴功能失效的问题（AI 思维导图快捷键导致）',
+            '• 反推提示词工具：切换标签页后状态保持不丢失',
+            '• 反推提示词工具：优化图片粘贴功能',
+            '• 桌面版：添加 macOS 编辑菜单支持（Cmd+C/V 等快捷键）',
+            '-',
+            '上一版本2.7.0更新：',
             '• AI 思维导图 测试版',
 
 

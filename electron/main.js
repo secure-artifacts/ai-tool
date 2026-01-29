@@ -2,13 +2,91 @@ const electron = require('electron');
 console.log('[DEBUG] electron module:', typeof electron, electron);
 console.log('[DEBUG] app:', typeof electron.app, electron.app);
 
-const { app, BrowserWindow, ipcMain, session, shell } = electron;
+const { app, BrowserWindow, ipcMain, session, shell, Menu } = electron;
 const path = require('path');
 const fs = require('fs');
 
 // 缓存目录 - 延迟初始化（在 app ready 后）
 let userDataPath;
 let cachePath;
+
+// 创建应用菜单（macOS 必须有菜单才能使用 Cmd+C/V 等快捷键）
+function createMenu() {
+    const isMac = process.platform === 'darwin';
+
+    const template = [
+        // macOS 应用菜单
+        ...(isMac ? [{
+            label: app.name,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' }
+            ]
+        }] : []),
+        // 编辑菜单 - 复制/粘贴等功能
+        {
+            label: '编辑',
+            submenu: [
+                { role: 'undo', label: '撤销' },
+                { role: 'redo', label: '重做' },
+                { type: 'separator' },
+                { role: 'cut', label: '剪切' },
+                { role: 'copy', label: '复制' },
+                { role: 'paste', label: '粘贴' },
+                ...(isMac ? [
+                    { role: 'pasteAndMatchStyle', label: '粘贴并匹配格式' },
+                    { role: 'delete', label: '删除' },
+                    { role: 'selectAll', label: '全选' },
+                ] : [
+                    { role: 'delete', label: '删除' },
+                    { type: 'separator' },
+                    { role: 'selectAll', label: '全选' }
+                ])
+            ]
+        },
+        // 视图菜单
+        {
+            label: '视图',
+            submenu: [
+                { role: 'reload', label: '重新加载' },
+                { role: 'forceReload', label: '强制重新加载' },
+                { role: 'toggleDevTools', label: '开发者工具' },
+                { type: 'separator' },
+                { role: 'resetZoom', label: '重置缩放' },
+                { role: 'zoomIn', label: '放大' },
+                { role: 'zoomOut', label: '缩小' },
+                { type: 'separator' },
+                { role: 'togglefullscreen', label: '全屏' }
+            ]
+        },
+        // 窗口菜单
+        {
+            label: '窗口',
+            submenu: [
+                { role: 'minimize', label: '最小化' },
+                { role: 'zoom', label: '缩放' },
+                ...(isMac ? [
+                    { type: 'separator' },
+                    { role: 'front', label: '前置所有窗口' },
+                    { type: 'separator' },
+                    { role: 'window' }
+                ] : [
+                    { role: 'close', label: '关闭' }
+                ])
+            ]
+        }
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+}
 
 // 初始化缓存目录
 function initCachePath() {
@@ -173,6 +251,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
     initCachePath(); // 初始化缓存目录
+    createMenu();    // 创建应用菜单（编辑菜单用于复制/粘贴）
     createWindow();
 
     app.on('activate', () => {

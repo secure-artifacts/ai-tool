@@ -351,9 +351,21 @@ export function useKeyboardShortcuts() {
                 return;
             }
 
+            // 🔧 修复：只有当焦点在思维导图区域内时，才处理编辑类快捷键
+            // 这样可以避免影响其他模块的复制/粘贴功能
+            const mindMapContainer = document.querySelector('.mind-map-app');
+            const isInMindMap = mindMapContainer?.contains(document.activeElement) ||
+                mindMapContainer?.contains(e.target as Node);
+
             // 匹配所有快捷键
             for (const shortcut of KEYBOARD_SHORTCUTS) {
                 if (matchShortcut(e, shortcut)) {
+                    // 编辑类快捷键（copy, paste, cut, selectAll）只在思维导图区域内生效
+                    const editActions = ['copy', 'paste', 'cut', 'selectAll'];
+                    if (editActions.includes(shortcut.action) && !isInMindMap) {
+                        // 不拦截，让浏览器默认处理
+                        return;
+                    }
                     executeAction(shortcut.action, e);
                     return;
                 }

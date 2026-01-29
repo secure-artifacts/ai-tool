@@ -314,32 +314,75 @@ const PromptManager: React.FC<PromptManagerProps> = ({
     };
 
     return (
-        <div className={`bg-zinc-900 border border-zinc-800 rounded-xl shadow-sm ${compact ? 'p-3' : 'p-4 mb-6'}`}>
-            <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                    <label className="text-zinc-400 text-sm font-medium flex items-center gap-2">
-                        <MessageSquareText size={16} />
-                        识别指令 (Prompt)
-                    </label>
+        <div className={`
+            relative
+            bg-gradient-to-br from-zinc-900/95 via-zinc-900/90 to-zinc-800/80
+            backdrop-blur-xl
+            border border-zinc-700/50
+            rounded-2xl shadow-2xl
+            ${compact ? 'p-3' : 'p-5 mb-6'}
+            transition-all duration-300
+            hover:border-teal-500/30
+            hover:shadow-teal-500/5
+        `}
+            style={{
+                background: 'linear-gradient(135deg, rgba(24, 24, 27, 0.95) 0%, rgba(39, 39, 42, 0.9) 50%, rgba(24, 24, 27, 0.95) 100%)'
+            }}
+        >
+            {/* 装饰性渐变光效 */}
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/50 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
 
-                    {/* 纯净模式开关 */}
+            {/* 头部区域 */}
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-4">
+                    {/* 标题区域 - AI Native 风格 */}
+                    <div className="flex items-center gap-2.5">
+                        <div className="relative">
+                            <div className="absolute inset-0 bg-teal-500/20 rounded-lg blur-md" />
+                            <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-teal-500 to-teal-600 shadow-lg shadow-teal-500/25">
+                                <MessageSquareText size={16} className="text-white" />
+                            </div>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-sm font-semibold text-zinc-100 tracking-tight">识别指令</span>
+                            <span className="text-[10px] text-zinc-500 font-medium">AI Prompt</span>
+                        </div>
+                    </div>
+
+                    {/* 纯净模式开关 - 现代化设计 */}
                     {setPureReplyMode && (
-                        <div className="flex items-center gap-1.5 border-l border-zinc-700 pl-3">
+                        <div className="flex items-center gap-2 pl-4 border-l border-zinc-700/50">
                             <button
                                 onClick={() => setPureReplyMode(!pureReplyMode)}
-                                className={`relative inline-flex items-center rounded-full transition-colors focus:outline-none h-4 w-7 ${pureReplyMode ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                                className={`
+                                    relative inline-flex items-center rounded-full transition-all duration-300 
+                                    focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:ring-offset-2 focus:ring-offset-zinc-900
+                                    h-5 w-10 
+                                    ${pureReplyMode
+                                        ? 'bg-gradient-to-r from-teal-500 to-teal-400 shadow-lg shadow-teal-500/30'
+                                        : 'bg-zinc-700 hover:bg-zinc-600'
+                                    }
+                                `}
                                 title={pureReplyMode ? "纯净模式已开启：输出仅包含提示词，无多余说明" : "纯净模式已关闭：AI 可能输出带解释的回复"}
                             >
                                 <span
-                                    className={`inline-block transform rounded-full bg-white transition-transform h-2.5 w-2.5 ${pureReplyMode ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+                                    className={`
+                                        inline-block transform rounded-full bg-white 
+                                        transition-all duration-300 ease-out
+                                        h-3.5 w-3.5 shadow-sm
+                                        ${pureReplyMode ? 'translate-x-5' : 'translate-x-1'}
+                                    `}
                                 />
                             </button>
                             <span
-                                className={`text-[0.625rem] font-medium cursor-pointer select-none ${pureReplyMode ? 'text-emerald-400' : 'text-zinc-500'}`}
+                                className={`
+                                    text-xs font-medium cursor-pointer select-none transition-colors duration-200
+                                    ${pureReplyMode ? 'text-teal-400' : 'text-zinc-500 hover:text-zinc-400'}
+                                `}
                                 onClick={() => setPureReplyMode(!pureReplyMode)}
-                                title={pureReplyMode ? "纯净模式已开启：输出仅包含提示词，无多余说明" : "纯净模式已关闭：AI 可能输出带解释的回复"}
                             >
-                                纯净
+                                纯净模式
                             </span>
                         </div>
                     )}
@@ -426,17 +469,37 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                     <div className="relative">
                         <button
                             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                            className="flex items-center gap-2 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors bg-emerald-400/10 px-3 py-1.5 rounded-full"
+                            className={`
+                                flex items-center gap-2 
+                                text-xs font-semibold 
+                                px-4 py-2 rounded-xl
+                                transition-all duration-300
+                                ${isDropdownOpen
+                                    ? 'bg-gradient-to-r from-teal-500 to-teal-400 text-white shadow-lg shadow-teal-500/30'
+                                    : 'bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 hover:text-teal-300'
+                                }
+                            `}
                         >
-                            预设指令 <ChevronDown size={14} />
+                            <span>预设指令</span>
+                            <ChevronDown
+                                size={14}
+                                className={`transition-transform duration-300 ${isDropdownOpen ? 'rotate-180' : ''}`}
+                            />
                         </button>
 
                         {isDropdownOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-72 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-20 overflow-hidden">
-                                <div className="p-2 max-h-80 overflow-y-auto custom-scrollbar">
+                            <div className="absolute right-0 top-full mt-3 w-80 bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/50 rounded-2xl shadow-2xl z-20 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                {/* 顶部装饰线 */}
+                                <div className="h-px bg-gradient-to-r from-transparent via-teal-500/50 to-transparent" />
+
+                                <div className="p-3 max-h-96 overflow-y-auto custom-scrollbar">
                                     {/* 系统默认（来自反推提示词） */}
                                     {unifiedPresets.filter(p => p.source === 'system').length > 0 && (
                                         <>
+                                            <div className="text-[10px] text-teal-400/80 font-semibold px-2 py-1.5 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                                                反推指令
+                                            </div>
                                             {unifiedPresets.filter(p => p.source === 'system').map(preset => (
                                                 <div
                                                     key={preset.id}
@@ -444,38 +507,42 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                                                         setPrompt(preset.text);
                                                         setIsDropdownOpen(false);
                                                     }}
-                                                    className="flex items-center justify-between p-2 hover:bg-zinc-700 rounded-md cursor-pointer group transition-colors mb-1 border-b border-zinc-700 pb-2"
+                                                    className="flex items-center justify-between p-2.5 mb-1 hover:bg-teal-500/10 rounded-xl cursor-pointer group transition-all duration-200 border border-transparent hover:border-teal-500/20"
                                                 >
-                                                    <span className="text-sm text-emerald-400 font-medium">{preset.name}</span>
-                                                    <span className="text-[0.625rem] text-zinc-600">反推指令</span>
+                                                    <span className="text-sm text-teal-400 font-medium group-hover:text-teal-300 transition-colors">{preset.name}</span>
+                                                    <span className="text-[9px] text-zinc-600 px-1.5 py-0.5 bg-zinc-800/50 rounded group-hover:bg-teal-500/10 group-hover:text-teal-500 transition-all">系统</span>
                                                 </div>
                                             ))}
+                                            <div className="h-px bg-zinc-700/50 my-2" />
                                         </>
                                     )}
 
                                     {/* 本地预设 */}
                                     {presets.length > 0 && (
                                         <>
-                                            <div className="text-[0.625rem] text-zinc-500 px-2 py-1 uppercase tracking-wider">识别指令</div>
+                                            <div className="text-[10px] text-zinc-400/80 font-semibold px-2 py-1.5 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                                                识别指令
+                                            </div>
                                             {presets.map(preset => (
                                                 <div
                                                     key={preset.id}
                                                     onClick={() => loadPreset(preset)}
-                                                    className="flex items-center justify-between p-2 hover:bg-zinc-700 rounded-md cursor-pointer group transition-colors"
+                                                    className="flex items-center justify-between p-2.5 mb-1 hover:bg-zinc-700/50 rounded-xl cursor-pointer group transition-all duration-200 border border-transparent hover:border-zinc-600/50"
                                                 >
-                                                    <span className="text-sm text-zinc-200 truncate pr-2 flex-1">{preset.name}</span>
+                                                    <span className="text-sm text-zinc-200 truncate pr-2 flex-1 group-hover:text-white transition-colors">{preset.name}</span>
 
-                                                    <div className="flex items-center gap-1">
+                                                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <button
                                                             onClick={(e) => handleEditPreset(preset, e)}
-                                                            className="text-zinc-500 hover:text-emerald-400 p-1.5 hover:bg-zinc-600 rounded"
+                                                            className="text-zinc-500 hover:text-teal-400 p-1.5 hover:bg-teal-500/10 rounded-lg transition-all"
                                                             title="编辑"
                                                         >
                                                             <Pencil size={12} />
                                                         </button>
                                                         <button
                                                             onClick={(e) => deletePreset(preset.id, e)}
-                                                            className="text-zinc-500 hover:text-red-400 p-1.5 hover:bg-zinc-600 rounded"
+                                                            className="text-zinc-500 hover:text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-all"
                                                             title="删除"
                                                         >
                                                             <Trash2 size={12} />
@@ -489,7 +556,11 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                                     {/* 指令模版（来自提示词工具） */}
                                     {templateState?.savedTemplates && templateState.savedTemplates.length > 0 && (
                                         <>
-                                            <div className="text-[0.625rem] text-zinc-500 px-2 py-1 mt-2 uppercase tracking-wider border-t border-zinc-700 pt-2">创新指令</div>
+                                            <div className="h-px bg-zinc-700/50 my-2" />
+                                            <div className="text-[10px] text-purple-400/80 font-semibold px-2 py-1.5 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                                                创新指令
+                                            </div>
                                             {templateState.savedTemplates.map(template => {
                                                 // 将模版内容拼接成字符串
                                                 const templateText = template.sections
@@ -505,10 +576,10 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                                                                 setIsDropdownOpen(false);
                                                             }
                                                         }}
-                                                        className="flex items-center justify-between p-2 hover:bg-zinc-700 rounded-md cursor-pointer group transition-colors"
+                                                        className="flex items-center justify-between p-2.5 mb-1 hover:bg-purple-500/10 rounded-xl cursor-pointer group transition-all duration-200 border border-transparent hover:border-purple-500/20"
                                                     >
-                                                        <span className="text-sm text-purple-300 truncate pr-2 flex-1">{template.name}</span>
-                                                        <span className="text-[0.625rem] text-zinc-600">模版</span>
+                                                        <span className="text-sm text-purple-300 truncate pr-2 flex-1 group-hover:text-purple-200 transition-colors">{template.name}</span>
+                                                        <span className="text-[9px] text-zinc-600 px-1.5 py-0.5 bg-zinc-800/50 rounded group-hover:bg-purple-500/10 group-hover:text-purple-400 transition-all">模版</span>
                                                     </div>
                                                 );
                                             })}
@@ -525,50 +596,95 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                 </div>
             </div>
 
+            {/* 输入区域 */}
             <div className="relative">
-                <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onDoubleClick={() => {
-                        setExpandedPromptDraft(prompt);
-                        setIsExpandedEditorOpen(true);
-                    }}
-                    placeholder="输入给 AI 的指令 (双击可展开大窗口编辑)..."
-                    className={`
-            w-full bg-zinc-950 border text-zinc-100 rounded-lg p-3 text-sm focus:ring-2 focus:ring-emerald-500/50 outline-none transition-all ${compact ? 'min-h-[80px]' : 'min-h-[100px]'} resize-y custom-scrollbar
-            ${editingPresetId ? 'border-emerald-500/50 ring-1 ring-emerald-500/20' : 'border-zinc-700 focus:border-emerald-500'}
-          `}
-                    title="双击展开大窗口编辑"
-                />
+                <div className="relative">
+                    <textarea
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        onDoubleClick={() => {
+                            setExpandedPromptDraft(prompt);
+                            setIsExpandedEditorOpen(true);
+                        }}
+                        placeholder="✨ 选择预设指令或手动输入，用于反推提示词或其他图片识别需求。建议实测不同预设观察效果（双击展开大窗口）"
+                        className={`
+                            w-full 
+                            bg-zinc-950/80 
+                            backdrop-blur-sm
+                            border border-zinc-700/60 
+                            text-zinc-100 
+                            rounded-xl 
+                            p-4 pt-3
+                            text-sm leading-relaxed
+                            placeholder:text-zinc-500/80
+                            focus:ring-2 focus:ring-teal-500/30 
+                            focus:border-teal-500/50
+                            outline-none 
+                            transition-all duration-300
+                            ${compact ? 'min-h-[80px]' : 'min-h-[120px]'} 
+                            resize-y 
+                            custom-scrollbar
+                            ${editingPresetId ? 'border-teal-500/50 ring-2 ring-teal-500/20' : ''}
+                        `}
+                        title="双击展开大窗口编辑"
+                    />
 
-                <div className="absolute bottom-2 right-2 flex gap-2">
-                    {isSaving ? (
-                        <div className="flex items-center gap-2 bg-zinc-800 p-1.5 rounded-lg border border-zinc-700 shadow-lg animate-in fade-in slide-in-from-right-4 duration-200">
-                            {editingPresetId && <span className="text-[0.625rem] text-emerald-500 font-bold px-1">EDIT</span>}
-                            <input
-                                type="text"
-                                autoFocus
-                                value={newPresetName}
-                                onChange={(e) => setNewPresetName(e.target.value)}
-                                placeholder="预设名称"
-                                className="bg-transparent text-xs text-white outline-none px-1 w-28 border-b border-zinc-600 focus:border-emerald-500"
-                            />
-                            <button onClick={savePreset} className="text-zinc-400 hover:text-emerald-400 p-1" title="保存">
-                                <Check size={14} />
-                            </button>
-                            <button onClick={cancelSave} className="text-zinc-500 hover:text-zinc-300 px-1" title="取消">
-                                <X size={14} />
-                            </button>
+                    {/* 字符计数和工具栏 */}
+                    <div className="absolute bottom-3 left-4 right-3 flex items-center justify-between">
+                        <span className={`text-[10px] font-medium transition-colors ${prompt.length > 0 ? 'text-zinc-500' : 'text-transparent'}`}>
+                            {prompt.length} 字符
+                        </span>
+
+                        <div className="flex items-center gap-2">
+                            {isSaving ? (
+                                <div className="flex items-center gap-2 bg-zinc-900/95 backdrop-blur-sm p-2 rounded-lg border border-zinc-700/50 shadow-xl animate-in fade-in slide-in-from-right-4 duration-200">
+                                    {editingPresetId && (
+                                        <span className="text-[10px] text-teal-400 font-bold px-1.5 py-0.5 bg-teal-500/10 rounded">编辑中</span>
+                                    )}
+                                    <input
+                                        type="text"
+                                        autoFocus
+                                        value={newPresetName}
+                                        onChange={(e) => setNewPresetName(e.target.value)}
+                                        placeholder="输入预设名称..."
+                                        className="bg-transparent text-xs text-zinc-100 outline-none px-2 w-32 border-b border-zinc-600 focus:border-teal-500 transition-colors"
+                                    />
+                                    <button
+                                        onClick={savePreset}
+                                        className="p-1.5 text-zinc-400 hover:text-teal-400 hover:bg-teal-500/10 rounded-md transition-all"
+                                        title="确认保存"
+                                    >
+                                        <Check size={14} />
+                                    </button>
+                                    <button
+                                        onClick={cancelSave}
+                                        className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 rounded-md transition-all"
+                                        title="取消"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={() => setIsSaving(true)}
+                                    disabled={!prompt.trim()}
+                                    className={`
+                                        flex items-center gap-1.5 
+                                        text-xs font-medium
+                                        px-3 py-1.5 rounded-lg
+                                        transition-all duration-200
+                                        disabled:opacity-30 disabled:cursor-not-allowed
+                                        ${prompt.trim()
+                                            ? 'text-teal-400 bg-teal-500/10 hover:bg-teal-500/20 hover:text-teal-300 hover:shadow-lg hover:shadow-teal-500/10'
+                                            : 'text-zinc-600 bg-zinc-800/50'
+                                        }
+                                    `}
+                                >
+                                    <Save size={12} /> 保存预设
+                                </button>
+                            )}
                         </div>
-                    ) : (
-                        <button
-                            onClick={() => setIsSaving(true)}
-                            disabled={!prompt.trim()}
-                            className="text-xs flex items-center gap-1 text-zinc-500 hover:text-zinc-300 disabled:opacity-50 transition-colors bg-zinc-900/50 p-1.5 rounded-md backdrop-blur-sm hover:bg-zinc-800"
-                        >
-                            <Save size={14} /> 保存为预设
-                        </button>
-                    )}
+                    </div>
                 </div>
             </div>
 

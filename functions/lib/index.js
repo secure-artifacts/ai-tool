@@ -57,13 +57,18 @@ const ALLOWED_ORIGINS = [
  * 用于前端访问 Google Sheets API
  */
 exports.getServiceAccountToken = functions.https.onRequest(async (req, res) => {
-    // CORS 处理
+    // CORS 处理 - 优先匹配白名单，否则使用通配符
     const origin = req.headers.origin || '';
     if (ALLOWED_ORIGINS.includes(origin)) {
         res.set('Access-Control-Allow-Origin', origin);
     }
+    else {
+        // 对于其他来源（如 Electron app 或开发环境），使用通配符
+        res.set('Access-Control-Allow-Origin', '*');
+    }
     res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.set('Access-Control-Max-Age', '3600');
     // 预检请求
     if (req.method === 'OPTIONS') {
         res.status(204).send('');
