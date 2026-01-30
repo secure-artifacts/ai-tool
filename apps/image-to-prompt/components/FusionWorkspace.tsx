@@ -112,13 +112,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                         >
                             <img src={item.imageData.url} alt="thumbnail" />
                             <span className="tab-filename" title={item.imageData.name}>{item.imageData.name}</span>
-                            <span className="role-badge" style={{
-                                fontSize: '0.75rem',
-                                padding: '2px 6px',
-                                background: 'var(--primary-color)',
-                                borderRadius: '4px',
-                                marginLeft: '4px'
-                            }}>
+                            <span className="role-badge">
                                 {item.role === 'style' && '🎨'}
                                 {item.role === 'composition' && '📐'}
                                 {item.role === 'scene' && '🏞️'}
@@ -129,34 +123,20 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                                 className="delete-img-btn-tab"
                                 onClick={(e) => { e.stopPropagation(); onRemoveItem(item.id); }}
                                 title={t('deleteImage') || '删除图片'}
-                                style={{
-                                    marginLeft: '8px',
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: 'var(--text-color)',
-                                    opacity: 0.6,
-                                    cursor: 'pointer',
-                                    fontSize: '16px',
-                                    padding: '0 4px',
-                                    lineHeight: 1
-                                }}
-                                onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-                                onMouseOut={(e) => e.currentTarget.style.opacity = '0.6'}
                             >×</button>
                         </button>
                     ))}
                     {/* 添加更多图片按钮 */}
                     <FileUploader onFileSelect={(files) => onAddImages(files as File[])} multiple openOnClick={false} onPaste={onPaste}>
-                        <button type="button" className="tab-btn tab-btn-add" style={{ minWidth: 'auto', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }} title="双击选择图片，或直接粘贴图片（支持从谷歌表格等来源粘贴）">
+                        <button type="button" className="tab-btn tab-btn-add" title="双击选择图片，或直接粘贴图片（支持从谷歌表格等来源粘贴）">
                             <Plus size={14} /> <span>{t('addImage') || '添加/粘贴图片'}</span>
                         </button>
                     </FileUploader>
                     {/* 融合生成按钮 */}
                     <button
                         onClick={onFusionGenerate}
-                        className="tab-btn tab-btn-export"
+                        className="tab-btn tab-btn-export ml-auto"
                         disabled={isProcessing || fusionItems.length < 1}
-                        style={{ marginLeft: 'auto' }}
                     >
                         {isProcessing ? (t('processing') || '处理中...') : (<><Sparkles size={14} /> {t('fuse') || '融合生成'}</>)}
                     </button>
@@ -173,7 +153,6 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                             value={activeItem.role}
                             onChange={(e) => onUpdateItem(activeItem.id, { role: e.target.value as FusionRole })}
                             className="role-selector"
-                            style={{ width: '100%', marginTop: '10px', padding: '8px', borderRadius: '6px' }}
                         >
                             <option value="style">🎨 {t('roleStyle') || '画风风格'}</option>
                             <option value="composition">📐 {t('roleComposition') || '构图布局'}</option>
@@ -188,15 +167,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                         value={extraInstruction}
                         onChange={(e) => onExtraInstructionChange(e.target.value)}
                         placeholder={t('extraInstructionPlaceholder') || '额外指令（可选）'}
-                        style={{
-                            width: '100%',
-                            marginTop: '10px',
-                            padding: '8px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--control-bg-color)',
-                            color: 'var(--text-color)'
-                        }}
+                        className="extra-instruction-input"
                     />
                 </div>
                 <div className="output-area">
@@ -218,9 +189,9 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                                 ))}
                             </>
                         ) : (
-                            <div style={{ minHeight: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted-color)' }}>
+                            <div className="fusion-empty-state">
                                 <div className="text-center">
-                                    <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>🎨 {t('fusionTitle') || '灵感融合'}</p>
+                                    <p className="fusion-empty-title">🎨 {t('fusionTitle') || '灵感融合'}</p>
                                     <p>{t('fusionDesc') || '添加多张参考图，为每张图指定角色，生成融合提示词'}</p>
                                     <p className="mt-4">点击右上角 "✨ 融合生成" 按钮开始</p>
                                 </div>

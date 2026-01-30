@@ -9175,3 +9175,84 @@ textarea:focus-visible {
     /* Apple's recommended touch target */
   }
 }
+
+/* ============================================
+   🎨 FusionWorkspace Styles
+   ============================================ */
+
+/* Role Badge */
+.role-badge {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: var(--primary-color);
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+/* Delete Image Button in Tab */
+.delete-img-btn-tab {
+  margin-left: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+  transition: opacity 0.15s ease;
+}
+
+.delete-img-btn-tab:hover {
+  opacity: 1;
+}
+
+/* Tab Button Add */
+.tab-btn-add {
+  min-width: auto;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Role Selector */
+.role-selector {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--control-bg-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-color);
+}
+
+/* Extra Instruction Input */
+.extra-instruction-input {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--control-bg-color);
+  color: var(--text-color);
+}
+
+/* Fusion Empty State */
+.fusion-empty-state {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted-color);
+}
+
+.fusion-empty-title {
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Auto margin left utility */
+.ml-auto {
+  margin-left: auto;
+}
