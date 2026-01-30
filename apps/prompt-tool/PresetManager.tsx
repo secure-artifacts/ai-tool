@@ -394,8 +394,7 @@ export function PresetManager({
                                 }}
                                 placeholder="改写指令内容..."
                                 rows={5}
-                                className="w-full bg-zinc-900 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-200 mb-2 resize-y focus:border-amber-500 focus:outline-none"
-                                className="preset-textarea-sm"
+                                className="w-full bg-zinc-900 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-200 mb-2 resize-y focus:border-amber-500 focus:outline-none preset-textarea-sm"
                             />
                             <div className="flex justify-end gap-2">
                                 <button
@@ -493,8 +492,7 @@ export function PresetManager({
                                                     e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
                                                 }}
                                                 rows={6}
-                                                className="w-full bg-zinc-900 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-200 mb-2 resize-y focus:border-amber-500 focus:outline-none"
-                                                className="preset-textarea-md"
+                                                className="w-full bg-zinc-900 border border-zinc-600 rounded px-3 py-2 text-sm text-zinc-200 mb-2 resize-y focus:border-amber-500 focus:outline-none preset-textarea-md"
                                             />
                                             <div className="flex justify-end gap-2">
                                                 <button

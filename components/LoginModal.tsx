@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { sendPasswordReset } from '@/services/authService';
 import SheetsAuthConfig from './SheetsAuthConfig';
+import { BarChart3, RefreshCw, LogOut, AlertTriangle, Lightbulb, X, Check, Circle } from 'lucide-react';
 
 interface LoginModalProps {
     isOpen: boolean;
@@ -191,7 +192,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                     <>
                         <div className="modal-header">
                             <h2 className="modal-title">
-                                {showSheetsConfig ? '📊 Sheets 认证配置' : texts.accountTitle}
+                                {showSheetsConfig ? <><BarChart3 size={18} className="inline mr-1" /> Sheets 认证配置</> : texts.accountTitle}
                             </h2>
                             <button onClick={onClose} className="modal-close-btn">×</button>
                         </div>
@@ -231,13 +232,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                         onClick={() => setShowSheetsConfig(true)}
                                         className="modal-btn modal-btn-filled"
                                     >
-                                        📊 Sheets 认证配置
+                                        <BarChart3 size={16} className="inline mr-1" /> Sheets 认证配置
                                     </button>
                                     <button onClick={handleSwitchAccount} className="modal-btn modal-btn-outline">
-                                        🔄 {texts.switchAccount}
+                                        <RefreshCw size={16} className="inline mr-1" /> {texts.switchAccount}
                                     </button>
                                     <button onClick={handleLogout} className="modal-btn modal-btn-danger">
-                                        🚪 {texts.logout}
+                                        <LogOut size={16} className="inline mr-1" /> {texts.logout}
                                     </button>
                                 </div>
                             </>
@@ -255,7 +256,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                         {hideGoogleLogin && (
                             <div className="notice-box notice-box-warning">
                                 <p className="notice-title">
-                                    ⚠️ {isElectron ? '桌面版请使用邮箱密码登录' : texts.embeddedWarning}
+                                    <AlertTriangle size={16} className="inline mr-1" /> {isElectron ? '桌面版请使用邮箱密码登录' : texts.embeddedWarning}
                                 </p>
                                 <p className="notice-hint">
                                     {texts.embeddedHint}
@@ -266,7 +267,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                         {/* Google 用户提示 */}
                         {mode === 'login' && (
                             <div className="notice-box notice-box-info text-sm">
-                                💡 {texts.googleUserHint}
+                                <Lightbulb size={14} className="inline mr-1" /> {texts.googleUserHint}
                             </div>
                         )}
 
@@ -300,7 +301,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                         <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
                                         <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
                                     </svg>
-                                    🔵 普通登录（只读）
+                                    <Circle size={14} fill="#3b82f6" className="inline text-blue-500" /> 普通登录（只读）
                                 </button>
 
                                 {/* 高级登录（读写） */}
@@ -330,12 +331,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                         <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" />
                                         <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" />
                                     </svg>
-                                    🟢 高级登录（读写）
+                                    <Circle size={14} fill="#22c55e" className="inline text-green-500" /> 高级登录（读写）
                                 </button>
 
                                 {/* 高级登录说明 */}
                                 <div className="login-advanced-hint">
-                                    💡 高级登录需要 Sheets 写入权限，适合需要同步/入库功能的用户。
+                                    <Lightbulb size={14} className="inline mr-1" /> 高级登录需要 Sheets 写入权限，适合需要同步/入库功能的用户。
                                     普通用户选择"普通登录"即可。
                                 </div>
 
@@ -378,14 +379,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                             {/* 错误提示 */}
                             {error && (
                                 <div className="login-error-box">
-                                    ❌ {error}
+                                    <X size={14} className="inline mr-1" /> {error}
                                 </div>
                             )}
 
                             {/* 成功提示 */}
                             {success && (
                                 <div className="login-success-box">
-                                    ✅ {success}
+                                    <Check size={14} className="inline mr-1" /> {success}
                                 </div>
                             )}
 

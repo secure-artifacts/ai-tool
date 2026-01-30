@@ -2100,8 +2100,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                 {/* 原始提示词下方的对话区（首个输出） */}
                                                                 {entry.originChatOpen && (
                                                                     <div
-                                                                        className="mt-2 p-3 bg-zinc-950/60 rounded-xl border border-zinc-800 flex flex-col gap-2 overflow-auto resize-y"
-                                                                        className="preset-textarea-lg"
+                                                                        className="mt-2 p-3 bg-zinc-950/60 rounded-xl border border-zinc-800 flex flex-col gap-2 overflow-auto resize-y preset-textarea-lg"
                                                                         onDragOver={(e) => e.preventDefault()}
                                                                         onDrop={(e) => handleOriginChatDrop(e as any, entry.id)}
                                                                     >
