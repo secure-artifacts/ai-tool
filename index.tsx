@@ -8184,7 +8184,8 @@ const App = () => {
           />
         );
       case 'subemail':
-        return <SubEmailGenerator />;
+        // TODO: SubEmailGenerator component not implemented yet
+        return null;
       case 'template':
         return (
           <TemplateBuilderTool
