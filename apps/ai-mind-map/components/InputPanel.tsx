@@ -726,44 +726,21 @@ export const InputPanel: React.FC = () => {
                         </div>
 
                         {/* 🎯 Prompt 模式选择器 */}
-                        <div className="prompt-mode-selector" style={{
-                            marginBottom: '12px',
-                            padding: '12px',
-                            background: 'rgba(99, 102, 241, 0.08)',
-                            borderRadius: '12px',
-                            border: '1px solid rgba(99, 102, 241, 0.15)'
-                        }}>
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                marginBottom: '10px'
-                            }}>
-                                <span style={{ fontWeight: 600, fontSize: '13px', color: '#a5b4fc' }}>
+                        <div className="prompt-mode-selector">
+                            <div className="prompt-mode-header">
+                                <span className="prompt-mode-title">
                                     🎯 Prompt 模式
                                 </span>
                                 {aiPromptMode === 'custom' && (
                                     <button
                                         onClick={() => setShowCustomPromptEditor(!showCustomPromptEditor)}
-                                        style={{
-                                            fontSize: '12px',
-                                            padding: '4px 8px',
-                                            borderRadius: '6px',
-                                            background: showCustomPromptEditor ? 'rgba(99, 102, 241, 0.3)' : 'transparent',
-                                            border: '1px solid rgba(99, 102, 241, 0.3)',
-                                            color: '#a5b4fc',
-                                            cursor: 'pointer'
-                                        }}
+                                        className={`prompt-mode-edit-btn ${showCustomPromptEditor ? 'active' : ''}`}
                                     >
                                         {showCustomPromptEditor ? '收起' : '编辑 Prompt'}
                                     </button>
                                 )}
                             </div>
-                            <div style={{
-                                display: 'flex',
-                                gap: '8px',
-                                flexWrap: 'wrap'
-                            }}>
+                            <div className="prompt-mode-grid">
                                 {PROMPT_PRESETS.map(preset => (
                                     <button
                                         key={preset.id}
@@ -773,27 +750,12 @@ export const InputPanel: React.FC = () => {
                                                 setAiCustomPrompt(DEFAULT_CUSTOM_PROMPT);
                                             }
                                         }}
-                                        style={{
-                                            flex: '1',
-                                            minWidth: '100px',
-                                            padding: '10px 12px',
-                                            borderRadius: '8px',
-                                            border: aiPromptMode === preset.id
-                                                ? '2px solid #6366f1'
-                                                : '1px solid rgba(255,255,255,0.1)',
-                                            background: aiPromptMode === preset.id
-                                                ? 'rgba(99, 102, 241, 0.2)'
-                                                : 'rgba(255,255,255,0.05)',
-                                            color: aiPromptMode === preset.id ? '#fff' : '#aaa',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.15s ease',
-                                            textAlign: 'left'
-                                        }}
+                                        className={`prompt-preset-btn ${aiPromptMode === preset.id ? 'active' : ''}`}
                                     >
-                                        <div style={{ fontSize: '16px', marginBottom: '4px' }}>
+                                        <div className="prompt-preset-icon">
                                             {preset.icon} {preset.label}
                                         </div>
-                                        <div style={{ fontSize: '11px', opacity: 0.7, lineHeight: 1.3 }}>
+                                        <div className="prompt-preset-desc">
                                             {preset.description}
                                         </div>
                                     </button>
@@ -849,57 +811,39 @@ export const InputPanel: React.FC = () => {
                         </div>
 
                         {/* 🚀 流式生成开关 */}
-                        <div className="streaming-toggle" style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            marginBottom: '12px',
-                            padding: '8px 12px',
-                            background: useStreaming ? 'rgba(34, 197, 94, 0.1)' : 'rgba(100, 100, 100, 0.1)',
-                            borderRadius: '8px',
-                            fontSize: '13px'
-                        }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                        <div className={`input-toggle-control ${useStreaming ? 'active-streaming' : ''}`}>
+                            <label className="input-toggle-label">
                                 <input
                                     type="checkbox"
                                     checked={useStreaming}
                                     onChange={(e) => {
                                         setUseStreaming(e.target.checked);
-                                        if (e.target.checked) setUseWebSearch(false); // 互斥
+                                        if (e.target.checked) setUseWebSearch(false);
                                     }}
-                                    style={{ accentColor: '#22c55e' }}
+                                    className="input-toggle-checkbox"
                                 />
                                 <span>🚀 流式生成</span>
                             </label>
-                            <span style={{ color: '#888', fontSize: '12px' }}>
+                            <span className="input-toggle-desc">
                                 {useStreaming ? '实时看到节点生成' : '一次性生成完整结构'}
                             </span>
                         </div>
 
                         {/* 🌐 联网搜索开关 */}
-                        <div className="websearch-toggle" style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            marginBottom: '12px',
-                            padding: '8px 12px',
-                            background: useWebSearch ? 'rgba(14, 165, 233, 0.1)' : 'rgba(100, 100, 100, 0.1)',
-                            borderRadius: '8px',
-                            fontSize: '13px'
-                        }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                        <div className={`input-toggle-control ${useWebSearch ? 'active-websearch' : ''}`}>
+                            <label className="input-toggle-label">
                                 <input
                                     type="checkbox"
                                     checked={useWebSearch}
                                     onChange={(e) => {
                                         setUseWebSearch(e.target.checked);
-                                        if (e.target.checked) setUseStreaming(false); // 互斥
+                                        if (e.target.checked) setUseStreaming(false);
                                     }}
-                                    style={{ accentColor: '#0ea5e9' }}
+                                    className="input-toggle-checkbox websearch"
                                 />
                                 <span>🌐 联网增强</span>
                             </label>
-                            <span style={{ color: '#888', fontSize: '12px' }}>
+                            <span className="input-toggle-desc">
                                 {useWebSearch ? '搜索最新信息，节点带来源' : '使用 AI 内部知识'}
                             </span>
                         </div>
