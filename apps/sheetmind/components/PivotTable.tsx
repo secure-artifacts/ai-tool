@@ -411,8 +411,8 @@ const PivotTable: React.FC<PivotTableProps> = ({ data }) => {
                                                 </button>
                                                 <button
                                                     onClick={() => applyPreset('comments')}
-                                                    className="flex-1 text-xs px-2 py-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors"
-                                                    data-tip="预设: 普通/爆贴/大爆贴" className="tooltip-bottom"
+                                                    className="flex-1 text-xs px-2 py-1.5 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors tooltip-bottom"
+                                                     data-tip="预设: 普通/爆贴/大爆贴"
                                                 >
                                                     评论量
                                                 </button>

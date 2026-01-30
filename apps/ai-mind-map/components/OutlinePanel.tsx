@@ -74,7 +74,7 @@ const OutlineItem: React.FC<OutlineItemProps> = ({ nodeId, depth, searchQuery, m
                         e.stopPropagation();
                         setFocusNode(nodeId);
                     }}
-                    data-tip="聚焦此节点（仅显示该分支）" className="tooltip-bottom"
+                    className="tooltip-bottom" data-tip="聚焦此节点（仅显示该分支）"
                 >
                     <Focus size={12} />
                 </button>
@@ -170,7 +170,7 @@ export const OutlinePanel: React.FC = () => {
                         <button
                             className="outline-back-btn"
                             onClick={() => setFocusNode(null)}
-                            data-tip="返回全图" className="tooltip-bottom"
+                            className="tooltip-bottom" data-tip="返回全图"
                         >
                             ← 全图
                         </button>

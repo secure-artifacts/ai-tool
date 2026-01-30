@@ -666,21 +666,21 @@ export const InputPanel: React.FC = () => {
                     <button
                         className={`input-tab ${activeTab === 'youtube' ? 'active' : ''}`}
                         onClick={() => setActiveTab('youtube')}
-                        data-tip="YouTube 视频转导图" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="YouTube 视频转导图"
                     >
                         🎬 视频
                     </button>
                     <button
                         className={`input-tab ${activeTab === 'webpage' ? 'active' : ''}`}
                         onClick={() => setActiveTab('webpage')}
-                        data-tip="网页链接转导图" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="网页链接转导图"
                     >
                         🌐 网页
                     </button>
                     <button
                         className={`input-tab ${activeTab === 'audio' ? 'active' : ''}`}
                         onClick={() => setActiveTab('audio')}
-                        data-tip="音频转导图" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="音频转导图"
                     >
                         🎵 音频
                     </button>

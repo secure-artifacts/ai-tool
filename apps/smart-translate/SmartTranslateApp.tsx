@@ -876,7 +876,7 @@ const BatchItemCard: React.FC<{
                     <button
                         className="toggle-btn"
                         onClick={() => setIsCollapsed(false)}
-                        data-tip="展开" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="展开"
                     >
                         ▼
                     </button>
@@ -916,7 +916,7 @@ const BatchItemCard: React.FC<{
                     <button
                         className={`copy-menu-btn ${copied ? 'copied' : ''}`}
                         onClick={() => setShowCopyMenu(!showCopyMenu)}
-                        data-tip="复制" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="复制"
                     >
                         {copied ? <Check size={14} /> : <Copy size={14} />}
                     </button>
@@ -954,7 +954,7 @@ const BatchItemCard: React.FC<{
                 <button
                     className="toggle-btn"
                     onClick={() => setIsCollapsed(true)}
-                    data-tip="收起" className="tooltip-bottom"
+                    className="tooltip-bottom" data-tip="收起"
                 >
                     ▲
                 </button>
@@ -1005,7 +1005,7 @@ const BatchItemCard: React.FC<{
                             <button
                                 className="mini-translate-btn"
                                 onClick={() => onTranslate(item.id)}
-                                data-tip="翻译此条目" className="tooltip-bottom"
+                                className="tooltip-bottom" data-tip="翻译此条目"
                             >
                                 {item.status === 'success' ? '🔄' : '▶️'} 翻译
                             </button>
@@ -1074,7 +1074,7 @@ const BatchItemCard: React.FC<{
             <div
                 className="resize-handle-bottom"
                 onMouseDown={startResizeHeight}
-                data-tip="拖拽调整高度" className="tooltip-bottom"
+                className="tooltip-bottom" data-tip="拖拽调整高度"
             >
                 <div className="resize-handle-indicator" />
             </div>
@@ -2428,7 +2428,7 @@ ${textToTranslate}
                                     setTimeout(() => processQueue(), 100);
                                 }}
                                 disabled={isProcessing}
-                                data-tip="重试所有失败的项目" className="tooltip-bottom"
+                                className="tooltip-bottom" data-tip="重试所有失败的项目"
                             >
                                 ↻ 重试失败
                             </button>
@@ -2443,7 +2443,7 @@ ${textToTranslate}
                         <button
                             className="expand-input-btn"
                             onClick={() => setIsInputCollapsed(false)}
-                            data-tip="展开输入区域" className="tooltip-bottom"
+                            className="tooltip-bottom" data-tip="展开输入区域"
                         >
                             ▼
                         </button>
@@ -2457,7 +2457,7 @@ ${textToTranslate}
                         <button
                             className="btn btn-secondary"
                             onClick={() => setShowProjectPanel(true)}
-                            data-tip="项目管理" className="tooltip-bottom"
+                            className="tooltip-bottom" data-tip="项目管理"
                         >
                             📁
                         </button>
@@ -2475,7 +2475,7 @@ ${textToTranslate}
                                 <button
                                     className="collapse-input-btn"
                                     onClick={() => setIsInputCollapsed(true)}
-                                    data-tip="收起输入区域" className="tooltip-bottom"
+                                    className="tooltip-bottom" data-tip="收起输入区域"
                                 >
                                     ▲ 收起
                                 </button>
@@ -2513,7 +2513,7 @@ ${textToTranslate}
                         <button
                             className="mode-tab"
                             onClick={() => setShowProjectPanel(true)}
-                            data-tip="项目管理" className="tooltip-bottom"
+                            className="tooltip-bottom" data-tip="项目管理"
                             style={{ marginLeft: '8px' }}
                         >
                             📁
@@ -2590,7 +2590,7 @@ ${textToTranslate}
                                     <button
                                         className="expand-input-btn"
                                         onClick={() => setIsInputCollapsed(false)}
-                                        data-tip="展开输入区域" className="tooltip-bottom"
+                                        className="tooltip-bottom" data-tip="展开输入区域"
                                     >
                                         ▼
                                     </button>
@@ -2696,7 +2696,7 @@ ${textToTranslate}
                                                     setTimeout(() => processQueue(), 100);
                                                 }}
                                                 disabled={isProcessing}
-                                                data-tip="重试所有失败的项目" className="tooltip-bottom"
+                                                className="tooltip-bottom" data-tip="重试所有失败的项目"
                                             >
                                                 ↻ 重试失败
                                             </button>
@@ -2715,7 +2715,7 @@ ${textToTranslate}
                                                     setTimeout(() => processQueue(), 100);
                                                 }}
                                                 disabled={isProcessing}
-                                                data-tip="重新翻译所有已翻译/失败的项目" className="tooltip-bottom"
+                                                className="tooltip-bottom" data-tip="重新翻译所有已翻译/失败的项目"
                                             >
                                                 🔄 {t('retranslateAll') || '重新翻译'}
                                             </button>

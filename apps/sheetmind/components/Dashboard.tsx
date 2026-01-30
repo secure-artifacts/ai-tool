@@ -1205,7 +1205,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                     <div className="w-px bg-slate-200 mx-1"></div>
                     {/* 智能推荐按钮 */}
                     <button
-                        data-tip="智能推荐" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="智能推荐"
                         onClick={handleSmartAnalyze}
                         disabled={isAnalyzing}
                         className="px-3 py-1.5 rounded bg-gradient-to-r from-violet-500 to-purple-600 text-white font-medium text-sm flex items-center gap-1.5 hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm disabled:opacity-50"
@@ -1348,13 +1348,13 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                             <div className="flex gap-1">
                                 <button
                                     onClick={exportPreset}
-                                    data-tip="导出预设" className="tooltip-bottom"
+                                    className="tooltip-bottom" data-tip="导出预设"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1"
                                 >
                                     <Download size={12} className="inline mr-1" /> 导出
                                 </button>
                                 <label
-                                    data-tip="导入预设" className="tooltip-bottom"
+                                    className="tooltip-bottom" data-tip="导入预设"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1 cursor-pointer"
                                 >
                                     <Upload size={12} className="inline mr-1" /> 导入

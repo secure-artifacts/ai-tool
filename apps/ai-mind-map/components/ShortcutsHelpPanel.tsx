@@ -50,7 +50,7 @@ export const ShortcutsHelpPanel: React.FC<ShortcutsHelpPanelProps> = ({
                 <button
                     className="shortcuts-help-trigger"
                     onClick={handleOpen}
-                    data-tip="键盘快捷键" className="tooltip-bottom"
+                    className="tooltip-bottom" data-tip="键盘快捷键"
                 >
                     <Keyboard size={18} />
                 </button>

@@ -1022,8 +1022,8 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
             {/* 消息放大模态框 */}
             <TextExpandModal
                 text={expandedMessageText}
-                data-tip="AI 回复" className="tooltip-bottom"
-                subdata-tip="对话消息" className="tooltip-bottom"
+                className="tooltip-bottom" data-tip="AI 回复"
+                subclassName="tooltip-bottom" data-tip="对话消息"
                 onClose={() => setExpandedMessageText(null)}
             />
         </div>

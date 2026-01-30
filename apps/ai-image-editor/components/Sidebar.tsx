@@ -169,15 +169,15 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ layers, activeLayerId, i
         <div className="flex flex-col items-center gap-4">
           <button
             onClick={handleThemeToggle}
-            className="p-2 rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-contrast)] hover:text-[var(--color-text-primary)]"
-            data-tip="切换主题" className="tooltip-bottom"
+            className="p-2 rounded-lg text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-contrast)] hover:text-[var(--color-text-primary)] tooltip-bottom"
+             data-tip="切换主题"
           >
             <ThemeIcon />
           </button>
           <button
             onClick={handleLanguageToggle}
-            className="p-2 w-10 h-10 flex items-center justify-center rounded-lg text-sm font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-contrast)] hover:text-[var(--color-text-primary)]"
-            data-tip="切换语言" className="tooltip-bottom"
+            className="p-2 w-10 h-10 flex items-center justify-center rounded-lg text-sm font-bold text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-contrast)] hover:text-[var(--color-text-primary)] tooltip-bottom"
+             data-tip="切换语言"
           >
             {language === 'zh' ? 'EN' : '中'}
           </button>

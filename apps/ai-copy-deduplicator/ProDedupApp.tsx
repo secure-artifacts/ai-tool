@@ -1214,7 +1214,7 @@ export function ProDedupApp() {
                             <button
                                 className="cat-add-btn"
                                 onClick={handleCreateCategory}
-                                data-tip="添加分类" className="tooltip-bottom"
+                                className="tooltip-bottom" data-tip="添加分类"
                             >
                                 <Plus size={12} />
                             </button>
@@ -1240,14 +1240,14 @@ export function ProDedupApp() {
                                         <button
                                             className="cat-action-btn"
                                             onClick={() => handleRenameCategory(cat)}
-                                            data-tip="重命名" className="tooltip-bottom"
+                                            className="tooltip-bottom" data-tip="重命名"
                                         >
                                             <Edit2 size={10} />
                                         </button>
                                         <button
                                             className="cat-action-btn danger"
                                             onClick={() => handleDeleteCategory(cat)}
-                                            data-tip="删除" className="tooltip-bottom"
+                                            className="tooltip-bottom" data-tip="删除"
                                         >
                                             <Trash2 size={10} />
                                         </button>
@@ -1318,7 +1318,7 @@ export function ProDedupApp() {
                                 <button
                                     className="topbar-btn"
                                     onClick={() => updateState({ inputText: '', result: null })}
-                                    data-tip="清空" className="tooltip-bottom"
+                                    className="tooltip-bottom" data-tip="清空"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -1348,7 +1348,7 @@ export function ProDedupApp() {
                                 <button
                                     className="topbar-btn"
                                     onClick={() => updateState({ searchQuery: '', searchGroups: [], selectedSearchItems: new Set() })}
-                                    data-tip="清空" className="tooltip-bottom"
+                                    className="tooltip-bottom" data-tip="清空"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -1359,7 +1359,7 @@ export function ProDedupApp() {
                     <button
                         className="topbar-btn settings"
                         onClick={() => updateState({ showSettings: true })}
-                        data-tip="设置" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="设置"
                     >
                         <Settings size={14} />
                     </button>
@@ -1484,10 +1484,10 @@ export function ProDedupApp() {
                                                 {/* 行操作按钮 - 在顶部 */}
                                                 {group.matches.length > 0 && (
                                                     <div className="search-group-toolbar">
-                                                        <button onClick={selectAllInGroup} data-tip="全选" className="tooltip-bottom">全选</button>
-                                                        <button onClick={invertInGroup} data-tip="反选" className="tooltip-bottom">反选</button>
-                                                        <button onClick={cancelInGroup} data-tip="取消" className="tooltip-bottom">取消</button>
-                                                        <button onClick={copyGroup} data-tip="复制选中" className="tooltip-bottom"><Copy size={12} /> 复制选中</button>
+                                                        <button onClick={selectAllInGroup} className="tooltip-bottom" data-tip="全选">全选</button>
+                                                        <button onClick={invertInGroup} className="tooltip-bottom" data-tip="反选">反选</button>
+                                                        <button onClick={cancelInGroup} className="tooltip-bottom" data-tip="取消">取消</button>
+                                                        <button onClick={copyGroup} className="tooltip-bottom" data-tip="复制选中"><Copy size={12} /> 复制选中</button>
                                                         <span className="group-count">已选 {selectedInGroup} / {group.matches.length}</span>
                                                     </div>
                                                 )}
@@ -1628,7 +1628,7 @@ export function ProDedupApp() {
                                                     <button
                                                         className="action-btn danger"
                                                         onClick={() => deleteGroup(groupIdx)}
-                                                        data-tip="删除整组" className="tooltip-bottom"
+                                                        className="tooltip-bottom" data-tip="删除整组"
                                                     >
                                                         <Trash2 size={11} />
                                                     </button>
@@ -1669,7 +1669,7 @@ export function ProDedupApp() {
                                                             <div
                                                                 className="similar-item-text"
                                                                 onDoubleClick={() => swapRepresentative(groupIdx, dupIdx)}
-                                                                data-tip="双击设为保留" className="tooltip-bottom"
+                                                                className="tooltip-bottom" data-tip="双击设为保留"
                                                             >
                                                                 {highlightSimilarWords(dup.item.text, group.representative.text)}
                                                             </div>
@@ -1681,7 +1681,7 @@ export function ProDedupApp() {
                                                                 <button
                                                                     className="action-btn success"
                                                                     onClick={() => markAsUnique(groupIdx, dupIdx)}
-                                                                    data-tip="标为不重复" className="tooltip-bottom"
+                                                                    className="tooltip-bottom" data-tip="标为不重复"
                                                                 >
                                                                     <Check size={10} />
                                                                 </button>
@@ -1702,7 +1702,7 @@ export function ProDedupApp() {
                                                     <button
                                                         className="action-btn view-similar-btn"
                                                         onClick={() => viewSimilarInLibrary(match.newItem.text)}
-                                                        data-tip="查看库中所有相似文案" className="tooltip-bottom"
+                                                        className="tooltip-bottom" data-tip="查看库中所有相似文案"
                                                     >
                                                         <Search size={11} />
                                                     </button>
@@ -1749,7 +1749,7 @@ export function ProDedupApp() {
                                                     <button
                                                         className={`action-btn ${isSelected ? 'active' : ''}`}
                                                         onClick={() => markAsDuplicate(i)}
-                                                        data-tip="标记为重复" className="tooltip-bottom"
+                                                        className="tooltip-bottom" data-tip="标记为重复"
                                                     >
                                                         <Link size={11} />
                                                     </button>

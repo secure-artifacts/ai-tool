@@ -189,7 +189,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             type="color"
                                             value={selectedNode.style?.borderColor || '#000000'}
                                             onChange={(e) => handleUpdateNodeStyle({ borderColor: e.target.value })}
-                                            data-tip="边框颜色" className="tooltip-bottom"
+                                            className="tooltip-bottom" data-tip="边框颜色"
                                         />
                                         <select
                                             value={selectedNode.style?.borderStyle || 'solid'}
@@ -257,7 +257,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             type="color"
                                             value={selectedNode.style?.color || '#000000'}
                                             onChange={(e) => handleUpdateNodeStyle({ color: e.target.value })}
-                                            data-tip="文本颜色" className="tooltip-bottom"
+                                            className="tooltip-bottom" data-tip="文本颜色"
                                         />
                                     </div>
                                 </div>

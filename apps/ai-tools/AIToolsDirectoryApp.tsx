@@ -404,8 +404,8 @@ URL: ${urlInput}
                         <button
                             onClick={loadCommunityTools}
                             disabled={loadingCommunity}
-                            className="p-2 text-slate-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors disabled:opacity-50"
-                            data-tip="刷新社区工具" className="tooltip-bottom"
+                            className="p-2 text-slate-400 hover:text-purple-400 hover:bg-purple-500/10 rounded-lg transition-colors disabled:opacity-50 tooltip-bottom"
+                             data-tip="刷新社区工具"
                         >
                             <RefreshCw size={18} className={loadingCommunity ? 'animate-spin' : ''} />
                         </button>
@@ -829,8 +829,8 @@ function ToolCard({ tool, onCopy, onDelete, onShare, isCopied, source, sharedBy 
                 {onShare && (
                     <button
                         onClick={onShare}
-                        className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
-                        data-tip="分享到社区" className="tooltip-bottom"
+                        className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors tooltip-bottom"
+                         data-tip="分享到社区"
                     >
                         <Share2 size={16} />
                     </button>
@@ -914,8 +914,8 @@ function ToolListItem({ tool, onCopy, onDelete, onShare, isCopied, source, share
                 {onShare && (
                     <button
                         onClick={onShare}
-                        className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                        data-tip="分享到社区" className="tooltip-bottom"
+                        className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 tooltip-bottom"
+                         data-tip="分享到社区"
                     >
                         <Share2 size={16} />
                     </button>

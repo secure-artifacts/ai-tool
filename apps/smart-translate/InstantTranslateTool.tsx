@@ -638,7 +638,7 @@ Rules:
                 <button
                     className="swap-btn"
                     onClick={handleSwapLanguages}
-                    data-tip="交换语言" className="tooltip-bottom"
+                    className="tooltip-bottom" data-tip="交换语言"
                 >
                     ⇄
                 </button>
@@ -709,7 +709,7 @@ Rules:
                             <button
                                 className="icon-btn"
                                 onClick={() => fileInputRef.current?.click()}
-                                data-tip="上传图片识别文字" className="tooltip-bottom"
+                                className="tooltip-bottom" data-tip="上传图片识别文字"
                             >
                                 📷
                             </button>
@@ -751,7 +751,7 @@ Rules:
                                 <button
                                     className={`icon-btn copy-btn ${copied ? 'copied' : ''}`}
                                     onClick={() => handleCopy(outputText)}
-                                    data-tip="复制译文" className="tooltip-bottom"
+                                    className="tooltip-bottom" data-tip="复制译文"
                                 >
                                     {copied ? '✓' : '📋'}
                                 </button>
@@ -825,8 +825,8 @@ Rules:
                                             e.stopPropagation();
                                             navigator.clipboard.writeText(item.translatedText || '');
                                         }}
-                                        className="history-item-copy-btn"
-                                        data-tip="复制译文" className="tooltip-bottom"
+                                        className="history-item-copy-btn tooltip-bottom"
+                                         data-tip="复制译文"
                                     >
                                         📋
                                     </button>

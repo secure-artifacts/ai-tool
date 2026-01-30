@@ -886,7 +886,7 @@ export const Toolbar: React.FC = () => {
                             }
                         }}
                         disabled={!selectedNode || !selectedNode.parentId}
-                        data-tip="添加兄弟节点 (Enter)" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="添加兄弟节点 (Enter)"
                     >
                         <Plus size={16} />
                         <span className="label">兄弟</span>
@@ -920,7 +920,7 @@ export const Toolbar: React.FC = () => {
                             setTimeout(() => window.dispatchEvent(new CustomEvent('mindmap-fit-view')), 100);
                         }}
                         disabled={!currentMap}
-                        data-tip="整理布局" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="整理布局"
                     >
                         <Sparkles size={16} />
                         <span className="label">整理</span>
@@ -940,7 +940,7 @@ export const Toolbar: React.FC = () => {
                             ref={expandTriggerRef}
                             className={`ai-tools-trigger-v2 ${expandMenuOpen ? 'open' : ''}`}
                             onClick={toggleExpandMenu}
-                            data-tip="展开/收起" className="tooltip-bottom"
+                            className="tooltip-bottom" data-tip="展开/收起"
                         >
                             <List size={14} className="trigger-icon" />
                             <span>展开/收起</span>
@@ -989,7 +989,7 @@ export const Toolbar: React.FC = () => {
                             ref={layoutTriggerRef}
                             className={`ai-tools-trigger-v2 ${layoutMenuOpen ? 'open' : ''}`}
                             onClick={toggleLayoutMenu}
-                            data-tip="布局方向" className="tooltip-bottom"
+                            className="tooltip-bottom" data-tip="布局方向"
                         >
                             <span className="trigger-icon layout-emoji">{currentLayout?.icon || '🧭'}</span>
                             <span>{currentLayout?.label || '布局方向'}</span>
@@ -1079,7 +1079,7 @@ export const Toolbar: React.FC = () => {
                     <button
                         className="toolbar-btn theme-toggle"
                         onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
-                        data-tip="切换主题" className="tooltip-bottom"
+                        className="tooltip-bottom" data-tip="切换主题"
                     >
                         {themeMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
                     </button>

@@ -175,15 +175,15 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                     <div className="chat-container" ref={chatContainerRef}>
                         {fusionResult ? (
                             <>
-                                <PromptDisplay data-tip="Fused Prompt (English)" className="tooltip-bottom" text={fusionResult.englishPrompt} />
-                                <PromptDisplay data-tip="融合提示词 (中文)" className="tooltip-bottom" text={fusionResult.chinesePrompt} />
+                                <PromptDisplay className="tooltip-bottom" data-tip="Fused Prompt (English)" text={fusionResult.englishPrompt} />
+                                <PromptDisplay className="tooltip-bottom" data-tip="融合提示词 (中文)" text={fusionResult.chinesePrompt} />
                                 {/* 显示对话历史 */}
                                 {fusionChatHistory?.map((msg, index) => (
                                     msg.sender === 'user' ? (
                                         <div key={index} className="chat-message user"><pre>{msg.text}</pre></div>
                                     ) : (
                                         <div key={index} className="chat-message model">
-                                            <PromptDisplay data-tip="修改后的提示词" className="tooltip-bottom" text={msg.text} />
+                                            <PromptDisplay className="tooltip-bottom" data-tip="修改后的提示词" text={msg.text} />
                                         </div>
                                     )
                                 ))}

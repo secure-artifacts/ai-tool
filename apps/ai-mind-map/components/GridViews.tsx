@@ -86,7 +86,7 @@ export const GridViews: React.FC<GridViewsProps> = ({
                 e.stopPropagation();
                 onAddNode?.(parentId);
             }}
-            data-tip="添加子节点" className="tooltip-bottom"
+            className="tooltip-bottom" data-tip="添加子节点"
         >
             <Plus size={14} />
         </button>

@@ -701,7 +701,7 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                                                             <div
                                                                 className="similar-item"
                                                                 onClick={() => swapRepresentative(group.id, similarItem.id)}
-                                                                data-tip="点击设为保留文案" className="tooltip-bottom"
+                                                                className="tooltip-bottom" data-tip="点击设为保留文案"
                                                             >
                                                                 <div className="copy-row">
                                                                     <div className="copy-text">
@@ -731,7 +731,7 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                                                 <button
                                                     className="delete-btn"
                                                     onClick={() => deleteGroup(group.id)}
-                                                    data-tip="删除整组" className="tooltip-bottom"
+                                                    className="tooltip-bottom" data-tip="删除整组"
                                                 >
                                                     <Trash2 size={14} />
                                                 </button>

@@ -437,14 +437,14 @@ ${userGoal}
                                                 <button
                                                     className="step-approve"
                                                     onClick={() => approveStep(step.id)}
-                                                    data-tip="批准" className="tooltip-bottom"
+                                                    className="tooltip-bottom" data-tip="批准"
                                                 >
                                                     <Check size={16} />
                                                 </button>
                                                 <button
                                                     className="step-reject"
                                                     onClick={() => rejectStep(step.id)}
-                                                    data-tip="跳过" className="tooltip-bottom"
+                                                    className="tooltip-bottom" data-tip="跳过"
                                                 >
                                                     <X size={16} />
                                                 </button>

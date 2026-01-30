@@ -656,16 +656,16 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                 <button
                                     onClick={handleSingleAdd}
                                     disabled={!bulkInput.trim()}
-                                    className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-600 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    data-tip="将内容作为单条添加 (可含换行)" className="tooltip-bottom"
+                                    className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-600 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 tooltip-bottom"
+                                     data-tip="将内容作为单条添加 (可含换行)"
                                 >
                                     <FilePlus size={14} /> 单条
                                 </button>
                                 <button
                                     onClick={handleBulkAdd}
                                     disabled={!bulkInput.trim()}
-                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                                    data-tip="按行分割批量添加" className="tooltip-bottom"
+                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-500 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 tooltip-bottom"
+                                     data-tip="按行分割批量添加"
                                 >
                                     <ListPlus size={14} /> 批量
                                 </button>
@@ -682,16 +682,16 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
 
                             <button
                                 onClick={handleAddEmpty}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs transition-colors"
-                                data-tip="添加空对话" className="tooltip-bottom"
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs transition-colors tooltip-bottom"
+                                 data-tip="添加空对话"
                             >
                                 <MessageSquarePlus size={14} /> 空对话
                             </button>
                             <button
                                 onClick={handleExportAll}
                                 disabled={sessions.length === 0}
-                                className="p-1.5 text-purple-400 hover:bg-purple-900/20 border border-transparent hover:border-purple-900/30 rounded-lg transition-colors disabled:opacity-50"
-                                data-tip="导出所有" className="tooltip-bottom"
+                                className="p-1.5 text-purple-400 hover:bg-purple-900/20 border border-transparent hover:border-purple-900/30 rounded-lg transition-colors disabled:opacity-50 tooltip-bottom"
+                                 data-tip="导出所有"
                             >
                                 <Download size={16} />
                             </button>
@@ -704,16 +704,16 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                             {/* 项目管理按钮 */}
                             <button
                                 onClick={() => setShowProjectPanel(true)}
-                                className="p-1.5 text-amber-400 hover:bg-amber-900/20 border border-transparent hover:border-amber-900/30 rounded-lg transition-colors"
-                                data-tip="项目管理" className="tooltip-bottom"
+                                className="p-1.5 text-amber-400 hover:bg-amber-900/20 border border-transparent hover:border-amber-900/30 rounded-lg transition-colors tooltip-bottom"
+                                 data-tip="项目管理"
                             >
                                 📁
                             </button>
                             <button
                                 onClick={handleClearAll}
                                 disabled={sessions.length === 0}
-                                className="p-1.5 text-red-400 hover:bg-red-900/20 border border-transparent hover:border-red-900/30 rounded-lg transition-colors disabled:opacity-50"
-                                data-tip="清空所有" className="tooltip-bottom"
+                                className="p-1.5 text-red-400 hover:bg-red-900/20 border border-transparent hover:border-red-900/30 rounded-lg transition-colors disabled:opacity-50 tooltip-bottom"
+                                 data-tip="清空所有"
                             >
                                 <Trash2 size={16} />
                             </button>
@@ -747,22 +747,22 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                         <div className="flex items-center gap-1">
                                             <button
                                                 onClick={() => handleCopyHistory(session)}
-                                                className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
-                                                data-tip="复制聊天记录" className="tooltip-bottom"
+                                                className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                                 data-tip="复制聊天记录"
                                             >
                                                 {copiedId === `history-${session.id}` ? <Check size={14} /> : <Copy size={14} />}
                                             </button>
                                             <button
                                                 onClick={() => handleClearHistory(session.id)}
-                                                className="p-1.5 text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 rounded transition-colors"
-                                                data-tip="清空聊天记录 (保留卡片)" className="tooltip-bottom"
+                                                className="p-1.5 text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                                 data-tip="清空聊天记录 (保留卡片)"
                                             >
                                                 <Eraser size={14} />
                                             </button>
                                             <button
                                                 onClick={() => handleDeleteSession(session.id)}
-                                                className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded transition-colors"
-                                                data-tip="删除会话" className="tooltip-bottom"
+                                                className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                                 data-tip="删除会话"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -820,16 +820,16 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                                             {msg.role !== 'user' && (
                                                                 <button
                                                                     onClick={(e) => { e.stopPropagation(); setExpandedMessageText(msg.text); }}
-                                                                    className="p-1 rounded bg-black/20 text-white/70 hover:bg-black/40"
-                                                                    data-tip="放大查看" className="tooltip-bottom"
+                                                                    className="p-1 rounded bg-black/20 text-white/70 hover:bg-black/40 tooltip-bottom"
+                                                                     data-tip="放大查看"
                                                                 >
                                                                     <Maximize2 size={10} />
                                                                 </button>
                                                             )}
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); handleCopy(msg.text, msg.id); }}
-                                                                className="p-1 rounded bg-black/20 text-white/70 hover:bg-black/40"
-                                                                data-tip="Copy" className="tooltip-bottom"
+                                                                className="p-1 rounded bg-black/20 text-white/70 hover:bg-black/40 tooltip-bottom"
+                                                                 data-tip="Copy"
                                                             >
                                                                 {copiedId === msg.id ? <Check size={10} /> : <Copy size={10} />}
                                                             </button>
@@ -883,8 +883,8 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                                         <img src={img} className="w-full h-full object-cover rounded border border-zinc-700" alt="pending" />
                                                         <button
                                                             onClick={() => removeAttachment(session.id, i)}
-                                                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                            data-tip="删除图片" className="tooltip-bottom"
+                                                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity tooltip-bottom"
+                                                             data-tip="删除图片"
                                                         >
                                                             <X size={8} />
                                                         </button>
@@ -904,8 +904,8 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                             />
                                             <button
                                                 onClick={() => fileInputRefs.current[session.id]?.click()}
-                                                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg border border-zinc-700 transition-colors shrink-0"
-                                                data-tip="上传参考图" className="tooltip-bottom"
+                                                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg border border-zinc-700 transition-colors shrink-0 tooltip-bottom"
+                                                 data-tip="上传参考图"
                                             >
                                                 <ImageIcon size={18} />
                                             </button>
@@ -965,15 +965,15 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                             ? 'bg-emerald-600 text-white'
                                             : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white'
                                             }`}
-                                        data-tip="复制内容" className="tooltip-bottom"
+                                        className="tooltip-bottom" data-tip="复制内容"
                                     >
                                         {modalCopied ? <Check size={14} /> : <Copy size={14} />}
                                         {modalCopied ? '已复制' : '复制'}
                                     </button>
                                     <button
                                         onClick={() => setExpandedMessageText(null)}
-                                        className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors"
-                                        data-tip="关闭 (ESC)" className="tooltip-bottom"
+                                        className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors tooltip-bottom"
+                                         data-tip="关闭 (ESC)"
                                     >
                                         <X size={18} />
                                     </button>

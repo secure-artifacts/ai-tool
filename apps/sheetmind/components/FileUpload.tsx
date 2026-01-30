@@ -547,8 +547,8 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
                                 <button
                                     onClick={handleBatchCache}
                                     disabled={batchCaching}
-                                    className="flex items-center gap-1 px-2 py-1 text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg transition-colors disabled:opacity-50"
-                                    data-tip="批量缓存所有数据源到本地" className="tooltip-bottom"
+                                    className="flex items-center gap-1 px-2 py-1 text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg transition-colors disabled:opacity-50 tooltip-bottom"
+                                     data-tip="批量缓存所有数据源到本地"
                                 >
                                     {batchCaching ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
                                     批量缓存

@@ -209,8 +209,8 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                                                     </button>
                                                     <button
                                                         onClick={() => removeLevel(idx)}
-                                                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                        data-tip="删除此层级及所有子层级" className="tooltip-bottom"
+                                                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors tooltip-bottom"
+                                                         data-tip="删除此层级及所有子层级"
                                                     >
                                                         <Trash2 size={16} />
                                                     </button>
@@ -368,7 +368,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                     }}
                     className="absolute bottom-2 right-2 w-10 h-10 flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 rounded-lg shadow-lg transition-all"
                     style={{ zIndex: 9999, cursor: 'se-resize' }}
-                    data-tip="拖拽调整窗口大小" className="tooltip-bottom"
+                    className="tooltip-bottom" data-tip="拖拽调整窗口大小"
                 >
                     <svg width="16" height="16" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M11 1L1 11M11 5L5 11M11 9L9 11" stroke="white" strokeWidth="2" strokeLinecap="round" />
