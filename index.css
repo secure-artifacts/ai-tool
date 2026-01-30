@@ -10035,3 +10035,60 @@ textarea:focus-visible {
 .switch-off {
   transform: translateX(2px);
 }
+/* ============================================
+   🎯 通用工具类 (Utility Classes)
+   ============================================ */
+
+/* 水平边距 */
+.mx-2 {
+  margin-left: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+.ml-2 {
+  margin-left: 0.5rem;
+}
+
+/* 上边距 */
+.mt-1rem {
+  margin-top: 1rem;
+}
+
+/* 文字大小 */
+.text-sm {
+  font-size: 0.8rem;
+}
+
+.text-xs {
+  font-size: 0.75rem;
+}
+
+/* 预设文本框尺寸 */
+.preset-textarea-sm {
+  min-height: 120px;
+  max-height: 300px;
+}
+
+.preset-textarea-md {
+  min-height: 150px;
+  max-height: 300px;
+}
+
+.preset-textarea-lg {
+  min-height: 220px;
+  max-height: 70vh;
+}
+
+/* 固定宽度 */
+.w-50 {
+  width: 50px;
+}
+
+.w-60 {
+  width: 60px;
+}
+
+/* Flex 对齐 */
+.items-center {
+  align-items: center;
+}

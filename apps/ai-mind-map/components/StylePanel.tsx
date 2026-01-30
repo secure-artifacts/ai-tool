@@ -205,7 +205,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             max="10"
                                             value={selectedNode.style?.borderWidth ?? 0}
                                             onChange={(e) => handleUpdateNodeStyle({ borderWidth: Number(e.target.value) })}
-                                            style={{ width: '50px' }}
+                                            className="w-50"
                                         />
                                     </div>
                                 </div>
@@ -226,7 +226,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             type="number"
                                             value={selectedNode.style?.fontSize || 14}
                                             onChange={(e) => handleUpdateNodeStyle({ fontSize: Number(e.target.value) })}
-                                            style={{ width: '60px' }}
+                                            className="w-60"
                                             title="字号"
                                         />
                                         <button
@@ -393,7 +393,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                         彩虹线条
                                     </label>
                                 </div>
-                                <div className="control-row" style={{ marginTop: '8px', alignItems: 'center' }}>
+                                <div className="control-row" className="mt-2 items-center">
                                     <span>宽度</span>
                                     <input
                                         type="range"

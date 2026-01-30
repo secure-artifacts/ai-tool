@@ -2101,7 +2101,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                 {entry.originChatOpen && (
                                                                     <div
                                                                         className="mt-2 p-3 bg-zinc-950/60 rounded-xl border border-zinc-800 flex flex-col gap-2 overflow-auto resize-y"
-                                                                        style={{ minHeight: '220px', maxHeight: '70vh' }}
+                                                                        className="preset-textarea-lg"
                                                                         onDragOver={(e) => e.preventDefault()}
                                                                         onDrop={(e) => handleOriginChatDrop(e as any, entry.id)}
                                                                     >

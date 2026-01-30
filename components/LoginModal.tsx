@@ -201,8 +201,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                 <SheetsAuthConfig onConfigChanged={() => { }} />
                                 <button
                                     onClick={() => setShowSheetsConfig(false)}
-                                    className="modal-btn modal-btn-outline"
-                                    style={{ marginTop: '1rem' }}
+                                    className="modal-btn modal-btn-outline mt-1rem"
                                 >
                                     ← 返回账号管理
                                 </button>
@@ -266,7 +265,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
 
                         {/* Google 用户提示 */}
                         {mode === 'login' && (
-                            <div className="notice-box notice-box-info" style={{ fontSize: '0.8rem' }}>
+                            <div className="notice-box notice-box-info text-sm">
                                 💡 {texts.googleUserHint}
                             </div>
                         )}

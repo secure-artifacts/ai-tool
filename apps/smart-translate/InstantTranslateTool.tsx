@@ -766,9 +766,8 @@ Rules:
                 <span>字符数：{inputText.length}</span>
                 <button
                     onClick={() => setShowHistory(!showHistory)}
-                    className="icon-btn"
+                    className="icon-btn mx-2"
                     title={showHistory ? '收起历史记录' : '展开历史记录'}
-                    style={{ marginLeft: '8px', marginRight: '8px' }}
                 >
                     {showHistory ? '▲' : '▼'} 📝
                 </button>
