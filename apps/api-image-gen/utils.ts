@@ -119,16 +119,110 @@ export interface ParsedSheetRow {
     prompt: string;
 }
 
+// 从 HTML 表格中解析行数据 (类似 CopywritingView 的 parseHtmlTable)
+const parseHtmlTableRows = (html: string): { cells: string[]; images: string[] }[] => {
+    const results: { cells: string[]; images: string[] }[] = [];
+
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const rows = doc.querySelectorAll('tr');
+
+        if (rows.length === 0) {
+            // 没有 tr 标签，尝试直接查找 td
+            const cells = doc.querySelectorAll('td');
+            if (cells.length > 0) {
+                const cellTexts = Array.from(cells).map(cell =>
+                    (cell.textContent || '').trim()
+                );
+                const images = Array.from(cells).flatMap(cell =>
+                    Array.from(cell.querySelectorAll('img')).map(img => img.src)
+                );
+                results.push({ cells: cellTexts, images });
+            }
+            return results;
+        }
+
+        rows.forEach(row => {
+            const cells = row.querySelectorAll('td, th');
+            if (cells.length === 0) return;
+
+            const getCellText = (cell: Element): string => {
+                const clone = cell.cloneNode(true) as Element;
+                clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+                return (clone.textContent || '').trim();
+            };
+
+            const cellTexts = Array.from(cells).map(cell => getCellText(cell));
+            const images = Array.from(cells).flatMap(cell =>
+                Array.from(cell.querySelectorAll('img')).map(img => img.src)
+            );
+
+            if (cellTexts.some(t => t) || images.length > 0) {
+                results.push({ cells: cellTexts, images });
+            }
+        });
+    } catch (e) {
+        console.error('[parseHtmlTableRows] Error:', e);
+    }
+
+    return results;
+};
+
 export const parseSheetsPaste = (html: string, plainText: string): ParsedSheetRow[] => {
     const results: ParsedSheetRow[] = [];
+    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
 
-    // 从 HTML 提取图片
+    // 1️⃣ 尝试从 HTML 表格解析 (最准确的方式)
+    if (html && (html.includes('<table') || html.includes('<tr'))) {
+        const tableRows = parseHtmlTableRows(html);
+        const textLines = plainText.split(/\r?\n/).filter(line => line.trim());
+
+        for (let i = 0; i < tableRows.length; i++) {
+            const row = tableRows[i];
+            let imageUrl: string | null = null;
+            let prompt = '';
+
+            // 从 HTML img 标签获取图片
+            if (row.images.length > 0) {
+                imageUrl = processImageUrl(decodeHtmlEntities(row.images[0]));
+            }
+
+            // 从对应的纯文本行尝试获取 =IMAGE() 公式的 URL (更优)
+            if (i < textLines.length) {
+                const lineParts = textLines[i].split('\t');
+                for (const part of lineParts) {
+                    const formulaMatch = part.match(formulaRegex);
+                    if (formulaMatch) {
+                        // 优先使用公式中的 URL，因为 HTML 中的可能是 Google 代理的
+                        imageUrl = processImageUrl(decodeHtmlEntities(formulaMatch[1]));
+                        break;
+                    }
+                }
+            }
+
+            // 从单元格文本中获取 prompt
+            for (const cellText of row.cells) {
+                if (!cellText) continue;
+                // 跳过 =IMAGE 公式和纯 URL
+                if (cellText.match(formulaRegex) || cellText.match(/^https?:\/\//)) continue;
+                // 使用第一个非图片单元格作为 prompt
+                prompt = cellText;
+                break;
+            }
+
+            if (imageUrl || prompt) {
+                results.push({ imageUrl, prompt });
+            }
+        }
+
+        if (results.length > 0) return results;
+    }
+
+    // 2️⃣ 回退到纯文本解析
     const imageUrls = extractUrlsFromHtml(html);
-
-    // 从纯文本提取行 (每行可能是: 图片公式\t文本 或 文本)
     const lines = plainText.split(/\r?\n/).filter(line => line.trim());
 
-    // 尝试解析 Tab 分隔的数据
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const parts = line.split('\t');
@@ -141,7 +235,6 @@ export const parseSheetsPaste = (html: string, plainText: string): ParsedSheetRo
             const first = parts[0].trim();
             const second = parts[1].trim();
 
-            const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
             const firstMatch = first.match(formulaRegex);
             const secondMatch = second.match(formulaRegex);
 
@@ -163,7 +256,7 @@ export const parseSheetsPaste = (html: string, plainText: string): ParsedSheetRo
             }
         } else {
             // 单列
-            const formulaMatch = line.match(/=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i);
+            const formulaMatch = line.match(formulaRegex);
             if (formulaMatch) {
                 imageUrl = processImageUrl(decodeHtmlEntities(formulaMatch[1]));
             } else if (!line.startsWith('http')) {

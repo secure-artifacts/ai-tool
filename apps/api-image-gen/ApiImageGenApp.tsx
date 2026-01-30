@@ -145,20 +145,26 @@ const ApiImageGenApp: React.FC = () => {
                 }
             }
 
-            // 3. 检查 HTML (Google Sheets 复制的图片会以 HTML 形式存在)
+            // 3. 检查 HTML (Google Sheets 复制的图片/表格会以 HTML 形式存在)
             const html = e.clipboardData.getData('text/html');
             const plainText = e.clipboardData.getData('text/plain');
 
-            if (html && (html.includes('<img') || plainText.includes('=IMAGE'))) {
-                e.preventDefault();
-                await handleSheetsPaste(html, plainText);
-                return;
-            }
+            // 检测是否有可解析的内容
+            const hasHtmlContent = html && (
+                html.includes('<img') ||
+                html.includes('<table') ||
+                html.includes('<tr')
+            );
+            const hasTextContent = plainText && (
+                plainText.includes('=IMAGE') ||
+                plainText.includes('http') ||
+                plainText.includes('\t') // Tab 分隔的数据
+            );
 
-            // 4. 检查纯文本中的 =IMAGE 公式或 URL
-            if (plainText && (plainText.includes('=IMAGE') || plainText.includes('http'))) {
+            if (hasHtmlContent || hasTextContent) {
                 e.preventDefault();
-                await handleSheetsPaste('', plainText);
+                await handleSheetsPaste(html || '', plainText || '');
+                return;
             }
         };
 
