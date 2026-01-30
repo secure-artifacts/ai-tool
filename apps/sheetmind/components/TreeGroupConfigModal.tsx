@@ -4,7 +4,7 @@
  * 每一层级的配置项与普通分组完全一致
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Plus, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { X, Plus, ChevronDown, ChevronUp, Trash2, BarChart2, Folder, FolderOpen, File, Settings, FileText, Hash, Calendar, Lightbulb, Move } from 'lucide-react';
 import { GroupLevel, TextGroupBin, TextGroupCondition, GroupBinRange, DateBinRange } from '../types/sharedConfig';
 
 interface TreeGroupConfigModalProps {
@@ -138,7 +138,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                 {/* 头部 */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white rounded-t-2xl">
                     <div className="flex items-center gap-3">
-                        <span className="text-2xl">📊</span>
+                        <BarChart2 size={24} className="text-indigo-500" />
                         <div>
                             <h2 className="text-lg font-bold text-slate-800">多级分组树状视图</h2>
                             <p className="text-xs text-slate-500">可视化配置层级嵌套关系 · 每层级可配置完整分组规则</p>
@@ -153,7 +153,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                 <div className="flex-1 overflow-auto p-6 bg-slate-50">
                     {localLevels.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12">
-                            <div className="text-6xl mb-4">📂</div>
+                            <FolderOpen size={48} className="text-slate-300 mb-4" />
                             <p className="text-slate-500 mb-4">尚未配置分组层级</p>
                             <button
                                 onClick={addLevel}
@@ -191,7 +191,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                                             {/* 层级头部 */}
                                             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                                                 <div className="flex items-center gap-3">
-                                                    <span className="text-xl">{idx === 0 ? '📁' : isLast ? '📄' : '📂'}</span>
+                                                    {idx === 0 ? <Folder size={20} className="text-indigo-500" /> : isLast ? <File size={20} className="text-slate-500" /> : <FolderOpen size={20} className="text-blue-500" />}
                                                     <span className="font-semibold text-slate-700">
                                                         {levelNames[idx] || `${idx + 1}级分组`}
                                                     </span>
@@ -205,7 +205,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                                                             }`}
                                                     >
                                                         {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                                        {isExpanded ? '收起规则' : '⚙️ 设置分组规则'}
+                                                        {isExpanded ? '收起规则' : <><Settings size={14} className="inline mr-1" /> 设置分组规则</>}
                                                     </button>
                                                     <button
                                                         onClick={() => removeLevel(idx)}
@@ -265,7 +265,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                                                 {/* 提示用户点击设置分组规则 */}
                                                 {!isExpanded && level.column && (
                                                     <div className="mt-2 text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded flex items-center gap-1">
-                                                        💡 点击上方 "⚙️ 设置分组规则" 按钮来配置{level.type === 'text' ? '文本匹配条件' : level.type === 'numeric' ? '数值范围' : '日期范围'}
+                                                        <Lightbulb size={12} className="inline mr-1" /> 点击上方 "设置分组规则" 按钮来配置{level.type === 'text' ? '文本匹配条件' : level.type === 'numeric' ? '数值范围' : '日期范围'}
                                                     </div>
                                                 )}
                                             </div>
@@ -368,7 +368,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                     }}
                     className="absolute bottom-2 right-2 w-10 h-10 flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 rounded-lg shadow-lg transition-all"
                     style={{ zIndex: 9999, cursor: 'se-resize' }}
-                    title="↘️ 拖拽调整窗口大小"
+                    title="拖拽调整窗口大小"
                 >
                     <svg width="16" height="16" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M11 1L1 11M11 5L5 11M11 9L9 11" stroke="white" strokeWidth="2" strokeLinecap="round" />
@@ -422,7 +422,7 @@ const TextGroupConfig: React.FC<{
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">📝 文本分组规则</span>
+                <span className="text-sm font-medium text-slate-700"><FileText size={14} className="inline mr-1" /> 文本分组规则</span>
                 <button onClick={addBin} className="text-xs text-green-600 hover:text-green-700 flex items-center gap-1">
                     <Plus size={12} /> 添加分组
                 </button>
@@ -534,7 +534,7 @@ const NumericGroupConfig: React.FC<{
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">🔢 数值范围分组</span>
+                <span className="text-sm font-medium text-slate-700"><Hash size={14} className="inline mr-1" /> 数值范围分组</span>
                 <button onClick={addBin} className="text-xs text-amber-600 hover:text-amber-700 flex items-center gap-1">
                     <Plus size={12} /> 添加范围
                 </button>
@@ -608,7 +608,7 @@ const DateGroupConfig: React.FC<{
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-700">📅 日期范围分组</span>
+                <span className="text-sm font-medium text-slate-700"><Calendar size={14} className="inline mr-1" /> 日期范围分组</span>
                 <button onClick={addBin} className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1">
                     <Plus size={12} /> 添加范围
                 </button>

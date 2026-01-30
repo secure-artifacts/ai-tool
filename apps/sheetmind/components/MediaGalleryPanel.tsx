@@ -4,7 +4,8 @@ import {
     ZoomIn, ExternalLink, Settings2, ArrowUp, ArrowDown, Plus, Trash2,
     CalendarDays, LayoutGrid, ChevronLeft, Table2, Filter, ArrowRight, Info,
     Cloud, Download, Upload, Loader2, Bookmark, CloudOff, Link2, RefreshCw,
-    Grid3X3, Star, Copy, MessageSquare, Edit3, Send, Tag, FolderPlus, RotateCcw, FolderTree, Layers, GripVertical
+    Grid3X3, Star, Copy, MessageSquare, Edit3, Send, Tag, FolderPlus, RotateCcw, FolderTree, Layers, GripVertical,
+    FileText, FolderOpen, Lightbulb, AlertCircle, BookOpen, ClipboardList, BarChart2
 } from 'lucide-react';
 import { SheetData, DataRow } from '../types';
 import {
@@ -6467,7 +6468,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             className="w-full px-2 py-1 text-[10px] bg-white text-slate-800 border border-slate-200 rounded"
                                         >
                                             <option value="">选择列...</option>
-                                            <option value="__GROUP_SETTINGS__">📊 按分组设置</option>
+                                            <option value="__GROUP_SETTINGS__">[分组设置]</option>
                                             {effectiveData.columns.map(col => (
                                                 <option key={col} value={col}>{col}</option>
                                             ))}
@@ -6508,7 +6509,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
                                         }`}
                                 >
-                                    ⬜ 填充方格
+                                    <Grid3X3 size={14} className="inline mr-1" /> 填充方格
                                 </button>
                                 <button
                                     onClick={() => updateConfig({ thumbnailFit: 'contain' })}
@@ -6543,7 +6544,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                     className="w-4 h-4 rounded border-slate-300"
                                 />
                                 <label htmlFor="showFavoriteIcon" className="text-xs text-slate-600">
-                                    显示收藏按钮 ⭐
+                                    显示收藏按钮 <Star size={12} className="inline ml-1" />
                                 </label>
                             </div>
                             <div className="flex items-center gap-2 mt-1">
@@ -6555,7 +6556,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                     className="w-4 h-4 rounded border-slate-300"
                                 />
                                 <label htmlFor="showCategoryIcon" className="text-xs text-slate-600">
-                                    显示媒体标签按钮 🏷️
+                                    显示媒体标签按钮 <Tag size={12} className="inline ml-1" />
                                 </label>
                             </div>
                         </div>
@@ -6741,7 +6742,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             })}
                                             className="px-2 py-1 text-[10px] bg-green-100 text-green-700 hover:bg-green-200 rounded transition-colors"
                                         >
-                                            📝 贴文类型
+                                            <FileText size={12} className="inline mr-1" /> 贴文类型
                                         </button>
                                         <button
                                             onClick={() => updateConfig({
@@ -6749,7 +6750,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             })}
                                             className="px-2 py-1 text-[10px] bg-orange-100 text-orange-700 hover:bg-orange-200 rounded transition-colors"
                                         >
-                                            🏷️ 画面细节
+                                            <Tag size={12} className="inline mr-1" /> 画面细节
                                         </button>
                                         {/* Custom presets from cloud */}
                                         {customPresets.map((preset) => (
@@ -6897,14 +6898,14 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 </div>
                                                 {data.sheetName && (
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-[10px] text-blue-500">📋 工作表:</span>
+                                                        <span className="text-[10px] text-blue-500"><FileText size={10} className="inline mr-1" /> 工作表:</span>
                                                         <span className="text-[11px] text-blue-800 font-medium truncate flex-1" title={data.sheetName}>
                                                             {data.sheetName}
                                                         </span>
                                                     </div>
                                                 )}
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] text-blue-500">📊 数据:</span>
+                                                    <span className="text-[10px] text-blue-500"><BarChart2 size={10} className="inline mr-1" /> 数据:</span>
                                                     <span className="text-[11px] text-blue-800">
                                                         {effectiveData.rows.length} 行 · {effectiveData.columns.length} 列
                                                     </span>
@@ -6971,8 +6972,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
                                     {/* Stats */}
                                     <div className="bg-slate-50 rounded-lg p-2 text-[10px] text-slate-500 space-y-0.5">
-                                        <p>📊 {stats.totalImages} 张图片</p>
-                                        <p>📁 {stats.groups} 个分组</p>
+                                        <p><Image size={12} className="inline mr-1" /> {stats.totalImages} 张图片</p>
+                                        <p><FolderOpen size={12} className="inline mr-1" /> {stats.groups} 个分组</p>
                                         <p>👤 {stats.accounts} 个账号</p>
                                     </div>
 
@@ -7276,7 +7277,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
                                 {/* Folder Tabs with Tip */}
                                 <div className="flex items-center justify-between gap-2 mb-1">
-                                    <span className="text-[10px] text-slate-400">💡 双击收藏夹可编辑名称和图标</span>
+                                    <span className="text-[10px] text-slate-400"><Lightbulb size={10} className="inline mr-1" /> 双击收藏夹可编辑名称和图标</span>
                                 </div>
                                 <div className="flex items-center gap-2 overflow-x-auto pb-2">
                                     <button
@@ -7286,7 +7287,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
                                             }`}
                                     >
-                                        📚 全部 ({favorites.length})
+                                        <BookOpen size={12} className="inline mr-1" /> 全部 ({favorites.length})
                                     </button>
                                     {favoriteFolders.map(folder => (
                                         <button
@@ -8270,7 +8271,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 {/* Classification Groups Row */}
                                                                 {dragTargetTypes.classification && (
                                                                     <div className="flex flex-wrap gap-2 mb-2">
-                                                                        <span className="text-xs text-purple-600 font-medium self-center mr-1">📁 分组:</span>
+                                                                        <span className="text-xs text-purple-600 font-medium self-center mr-1"><FolderOpen size={12} className="inline mr-1" /> 分组:</span>
                                                                         {/* 当没有分组列时，使用 categoryOptions 作为分组目标 */}
                                                                         {!primaryGroupColumn && !hasDateBinning ? (
                                                                             config.categoryOptions.length > 0 ? (
@@ -8299,7 +8300,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     </div>
                                                                                 ))
                                                                             ) : (
-                                                                                <span className="text-xs text-amber-600">⚠️ 请先在「媒体标签」设置中添加分类选项</span>
+                                                                                <span className="text-xs text-amber-600"><AlertCircle size={12} className="inline mr-1" /> 请先在「媒体标签」设置中添加分类选项</span>
                                                                             )
                                                                         ) : (
                                                                             filteredGroups.map(([targetGroup]) => (
@@ -8556,7 +8557,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 {/* Favorites Drop Zone Row */}
                                                                 {dragTargetTypes.favorites && (
                                                                     <div className="flex flex-wrap gap-2 mb-2">
-                                                                        <span className="text-xs text-amber-600 font-medium self-center mr-1">⭐ 收藏:</span>
+                                                                        <span className="text-xs text-amber-600 font-medium self-center mr-1"><Star size={12} className="inline mr-1" /> 收藏:</span>
                                                                         {favoriteFolders.map(folder => {
                                                                             const folderCount = favorites.filter(f => f.folderId === folder.id || (!f.folderId && folder.id === favoriteFolders[0]?.id)).length;
                                                                             return (
@@ -8660,7 +8661,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 {/* Tags Drop Zone Row */}
                                                                 {dragTargetTypes.tags && (
                                                                     <div className="flex flex-wrap gap-2">
-                                                                        <span className="text-xs text-blue-600 font-medium self-center mr-1">🏷️ 标签:</span>
+                                                                        <span className="text-xs text-blue-600 font-medium self-center mr-1"><Tag size={12} className="inline mr-1" /> 标签:</span>
                                                                         {config.categoryOptions.filter(c => c.trim()).map(category => {
                                                                             const tagCount = Array.from(galleryCategories.entries()).filter(([, cat]) => cat === category).length;
                                                                             return (
@@ -8717,7 +8718,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }`}
                                                                                     title="点击切换媒体标签视图，拖拽添加标签"
                                                                                 >
-                                                                                    🏷️ {category}
+                                                                                    <Tag size={10} className="inline mr-1" /> {category}
                                                                                     <span className="ml-1 text-xs opacity-70">({tagCount})</span>
                                                                                 </div>
                                                                             );
@@ -9935,7 +9936,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         <thead className="sticky top-0 z-10">
                                             <tr>
                                                 <th className="sticky left-0 z-20 bg-slate-100 border border-slate-300 px-2 py-2 text-xs font-semibold text-slate-700" style={{ maxWidth: 120, minWidth: 80 }}>
-                                                    {config.matrixRowColumn === '__GROUP_SETTINGS__' ? '📊 按分组设置' : (config.matrixRowColumn || '行')}
+                                                    {config.matrixRowColumn === '__GROUP_SETTINGS__' ? '[分组设置]' : (config.matrixRowColumn || '行')}
                                                 </th>
                                                 {matrixData.colKeys.map(col => (
                                                     <th key={col} className="bg-slate-100 border border-slate-300 px-2 py-2 text-xs font-medium text-slate-600 whitespace-nowrap">
@@ -10272,7 +10273,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         {config.categoryOptions.filter(c => c.trim()).length > 0 && (
                             <div>
                                 <div className="px-2 py-1 text-[10px] font-semibold text-purple-600 uppercase tracking-wider flex items-center gap-1">
-                                    🏷️ 媒体标签
+                                    <Tag size={12} className="inline mr-1" /> 媒体标签
                                 </div>
                                 <div className="space-y-1 max-h-40 overflow-y-auto">
                                     {config.categoryOptions.filter(c => c.trim()).map(category => (
@@ -10718,7 +10719,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         </p>
                                         {noteModal.syncToSheet && (
                                             <p className="text-[10px] text-amber-600 mt-2 bg-amber-50 px-2 py-1 rounded inline-block">
-                                                💡 备注将覆盖 {NOTE_COLUMN} 列现有内容
+                                                <Lightbulb size={12} className="inline mr-1" /> 备注将覆盖 {NOTE_COLUMN} 列现有内容
                                             </p>
                                         )}
                                     </div>
@@ -11773,7 +11774,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                 )}
                                 className="px-4 py-2 text-sm font-medium text-white bg-purple-500 rounded-lg hover:bg-purple-600 transition-colors"
                             >
-                                📋 复制视图布局
+                                <ClipboardList size={12} className="inline mr-1" /> 复制视图布局
                             </button>
                         </div>
                     </div>
