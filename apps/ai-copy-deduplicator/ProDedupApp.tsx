@@ -1158,8 +1158,7 @@ export function ProDedupApp() {
                                         </ol>
                                         <button
                                             onClick={() => setShowGasGuide(true)}
-                                            className="gas-tip-btn"
-                                            style={{ marginTop: '8px' }}
+                                            className="gas-tip-btn mt-2"
                                         >
                                             📖 查看详细部署指南
                                         </button>
@@ -1613,10 +1612,10 @@ export function ProDedupApp() {
                             <table className="pro-results-table">
                                 <thead>
                                     <tr>
-                                        <th style={{ width: '70px' }}>状态</th>
+                                        <th className="th-status">状态</th>
                                         <th>保留的文案</th>
                                         <th>相似文案</th>
-                                        <th style={{ width: '40px' }}>操作</th>
+                                        <th className="th-actions">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1765,9 +1764,9 @@ export function ProDedupApp() {
                 ) : (
                     <div className="pro-dedup-empty">
                         <Zap size={48} />
-                        <h3>专业文案查重搜索工具 <span style={{ fontSize: '0.6em', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.15)', padding: '2px 8px', borderRadius: '4px', marginLeft: '8px' }}>英文专用</span></h3>
+                        <h3>专业文案查重搜索工具 <span className="pro-dedup-beta-badge">英文专用</span></h3>
                         <p>MinHash + LSH 算法 · 毫秒级处理</p>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted-color)', marginTop: '0.5rem' }}>暂不支持其他语言检测</p>
+                        <p className="pro-dedup-hint">暂不支持其他语言检测</p>
                     </div>
                 )}
             </main>
@@ -1879,7 +1878,7 @@ export function ProDedupApp() {
                                 <li>复制 Web App URL，粘贴到上方输入框</li>
                             </ol>
 
-                            <h4 className="gas-section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <h4 className="gas-section-title gas-section-title-flex">
                                 📋 GAS 脚本代码
                                 <button
                                     onClick={() => {
@@ -2010,7 +2009,7 @@ function doGet(e) {
                             <button onClick={() => setDeleteConfirmModal(null)}><X size={16} /></button>
                         </div>
                         <div className="pro-modal-body">
-                            <p style={{ margin: 0 }}>确定删除分类 "<strong>{deleteConfirmModal}</strong>"？此操作不可恢复！</p>
+                            <p className="m-0">确定删除分类 "<strong>{deleteConfirmModal}</strong>"？此操作不可恢复！</p>
                         </div>
                         <div className="pro-modal-footer">
                             <button onClick={() => setDeleteConfirmModal(null)}>取消</button>

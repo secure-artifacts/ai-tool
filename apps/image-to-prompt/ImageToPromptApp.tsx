@@ -804,9 +804,8 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 onRequestPasteFocus={() => globalPasteTextareaRef.current?.focus()}
             >
                 <div
-                    className="uploader-content"
+                    className="uploader-content cursor-pointer"
                     onDoubleClick={() => fileInputRef.current?.click()}
-                    className="cursor-pointer"
                 >
                     {/* 隐藏的文件输入 */}
                     <input
@@ -814,7 +813,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         type="file"
                         accept="image/*"
                         multiple
-                        style={{ display: 'none' }}
+                        className="d-none"
                         onChange={(e) => {
                             const files = Array.from(e.target.files || []);
                             if (files.length > 0) {
@@ -825,7 +824,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                     />
                     <Image size={48} className="text-muted" />
                     <p>2. {t('uploadPrompt') || '拖拽上传，双击选择文件，或粘贴图片'}</p>
-                    <p style={{ fontSize: '0.85rem', opacity: 0.7, margin: '0.5rem 0' }}>
+                    <p className="upload-hint">
                         在上传区按 <strong>Ctrl+V</strong> 可粘贴截图
                     </p>
                     <div className="upload-buttons">
@@ -914,7 +913,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         <div className="uploader-content">
                             <Plus size={32} className="text-muted" />
                             <p>{t('appendImages') || '继续添加图片'}</p>
-                            <p style={{ fontSize: '0.8rem', opacity: 0.7, margin: '0.5rem 0' }}>
+                            <p className="upload-hint-sm">
                                 拖拽、双击选择，或 Ctrl+V 粘贴
                             </p>
                             <div className="upload-buttons">
@@ -926,10 +925,9 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         </div>
                     </FileUploader>
                     <button
-                        className="primary process-all-btn"
+                        className="primary process-all-btn w-full"
                         onClick={handleStartProcessing}
                         disabled={isBatchProcessing}
-                        style={{ width: '100%', padding: '12px', marginTop: '1rem' }}
                     >
                         {isBatchProcessing ? <Loader small /> : null}
                         {isBatchProcessing ? (t('processing') || '处理中...') : (t('startPrompting') || '开始反推提示词')}
@@ -978,7 +976,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 )}
 
                 {/* 批量操作工具栏 - 始终可见 */}
-                <div className="flex flex-wrap gap-2 items-center mb-3 p-3 rounded-md" style={{ background: 'var(--control-bg-color)' }}>
+                <div className="batch-toolbar">
                     <span className="text-sm text-muted mr-2">批量操作:</span>
                     <button
                         className="btn btn-secondary btn-sm"
@@ -1081,17 +1079,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                     className="delete-img-btn-tab"
                                     onClick={(e) => { e.stopPropagation(); handleDeleteImage(img.id); }}
                                     title={t('deleteImage') || '删除图片'}
-                                    style={{
-                                        marginLeft: '8px',
-                                        background: 'transparent',
-                                        border: 'none',
-                                        color: 'var(--text-color)',
-                                        opacity: 0.6,
-                                        cursor: 'pointer',
-                                        fontSize: '16px',
-                                        padding: '0 4px',
-                                        lineHeight: 1
-                                    }}
+                                    className="delete-img-btn-tab"
                                 >×</button>
                             </div>
                         ))}
@@ -1263,7 +1251,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 {showDeprecationWarning && (
                     <div className="feature-update-banner">
                         <Sparkles size={48} className="text-primary" />
-                        <div style={{ flex: 1 }}>
+                        <div className="flex-1">
                             <div className="feature-update-title">
                                 功能已更新
                             </div>

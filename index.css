@@ -9840,3 +9840,100 @@ textarea:focus-visible {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* ============================================
+   📷 ImageToPromptApp 组件样式
+   ============================================ */
+
+/* 上传提示文案 */
+.upload-hint {
+  font-size: 0.85rem;
+  opacity: 0.7;
+  margin: 0.5rem 0;
+}
+
+.upload-hint-sm {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin: 0.5rem 0;
+}
+
+/* 批量操作工具栏 */
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  background: var(--control-bg-color);
+}
+
+/* 全宽按钮 */
+.w-full {
+  width: 100%;
+}
+
+/* 删除图片按钮 (标签页内) */
+.delete-img-btn-tab {
+  margin-left: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-color);
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.delete-img-btn-tab:hover {
+  opacity: 1;
+}
+
+/* ============================================
+   📋 ProDedupApp 组件样式
+   ============================================ */
+
+/* Beta 徽章 */
+.pro-dedup-beta-badge {
+  font-size: 0.6em;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+}
+
+/* 提示文案 */
+.pro-dedup-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted-color);
+  margin-top: 0.5rem;
+}
+
+/* GAS 标题 flex 布局 */
+.gas-section-title-flex {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 表格列宽 */
+.th-status {
+  width: 70px;
+}
+
+.th-actions {
+  width: 40px;
+}
+
+/* 通用边距类 */
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+.m-0 {
+  margin: 0;
+}
