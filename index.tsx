@@ -58,6 +58,7 @@ import ImageRecognitionApp from '@/apps/ai-image-recognition/ImageRecognitionApp
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import SubEmailGenerator from '@/apps/sub-email/SubEmailGenerator';
 import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot } from 'lucide-react';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
@@ -8184,8 +8185,7 @@ const App = () => {
           />
         );
       case 'subemail':
-        // TODO: SubEmailGenerator component not implemented yet
-        return null;
+        return <SubEmailGenerator />;
       case 'template':
         return (
           <TemplateBuilderTool
