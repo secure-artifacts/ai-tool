@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Download, Sparkles, Search, FileText, Clipboard, Image, Video, Globe, Music, Type } from 'lucide-react';
 import { useMindMapStore } from '../store/mindMapStore';
 import { GeminiService, type StreamProgress } from '../services/geminiService';
 import { getStoredApiKey, hasAiAccess } from '../services/aiAccess';
@@ -570,7 +571,7 @@ export const InputPanel: React.FC = () => {
     return (
         <div className="input-panel">
             <div className="input-panel-header">
-                <h3>📥 输入内容</h3>
+                <h3><Download size={16} /> 输入内容</h3>
             </div>
 
             <div className="input-panel-content">
@@ -925,7 +926,7 @@ export const InputPanel: React.FC = () => {
                                 </>
                             ) : (
                                 <>
-                                    ✨ AI 生成思维导图
+                                    <Sparkles size={16} /> AI 生成思维导图
                                 </>
                             )}
                         </button>
@@ -970,7 +971,7 @@ export const InputPanel: React.FC = () => {
                                 className={`mode-btn ${imageAnalysisMode === 'ocr' ? 'active' : ''}`}
                                 onClick={() => setImageAnalysisMode('ocr')}
                             >
-                                🔍 文字识别
+                                <Search size={14} /> 文字识别
                             </button>
                             <button
                                 className={`mode-btn ${imageAnalysisMode === 'poster-video' ? 'active' : ''}`}
@@ -1018,7 +1019,7 @@ export const InputPanel: React.FC = () => {
                                 </>
                             ) : (
                                 <>
-                                    {imageAnalysisMode === 'poster-video' ? '🎬 生成视频创意' : '🔍 AI 识别并生成导图'}
+                                    {imageAnalysisMode === 'poster-video' ? <><Video size={14} /> 生成视频创意</> : <><Search size={14} /> AI 识别并生成导图</>}
                                 </>
                             )}
                         </button>
@@ -1042,7 +1043,7 @@ export const InputPanel: React.FC = () => {
                                     setDocumentFile(null);
                                 }}
                             >
-                                📋 粘贴内容
+                                <Clipboard size={14} /> 粘贴内容
                             </button>
                         </div>
 

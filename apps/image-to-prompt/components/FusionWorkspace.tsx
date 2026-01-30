@@ -148,7 +148,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                     {/* 添加更多图片按钮 */}
                     <FileUploader onFileSelect={(files) => onAddImages(files as File[])} multiple openOnClick={false} onPaste={onPaste}>
                         <button type="button" className="tab-btn tab-btn-add" style={{ minWidth: 'auto', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }} title="双击选择图片，或直接粘贴图片（支持从谷歌表格等来源粘贴）">
-                            ➕ <span>{t('addImage') || '添加/粘贴图片'}</span>
+                            <Plus size={14} /> <span>{t('addImage') || '添加/粘贴图片'}</span>
                         </button>
                     </FileUploader>
                     {/* 融合生成按钮 */}
@@ -158,7 +158,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                         disabled={isProcessing || fusionItems.length < 1}
                         style={{ marginLeft: 'auto' }}
                     >
-                        {isProcessing ? (t('processing') || '处理中...') : (t('fuse') || '✨ 融合生成')}
+                        {isProcessing ? (t('processing') || '处理中...') : (<><Sparkles size={14} /> {t('fuse') || '融合生成'}</>)}
                     </button>
                 </div>
             </div>

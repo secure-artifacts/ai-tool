@@ -398,7 +398,7 @@ export const AIPanel: React.FC = () => {
                 disabled={isLoading || !selectedNode}
             >
                 <Sparkles size={16} />
-                <span>✨ 选择扩展模式</span>
+                <span>选择扩展模式</span>
                 <ChevronRight size={16} />
             </button>
 
@@ -466,7 +466,7 @@ export const AIPanel: React.FC = () => {
                 <div className="section-v2 missing-hints-v2">
                     <div className="section-header-v2">
                         <Lightbulb size={16} />
-                        <span>💡 AI 建议补充</span>
+                        <span>AI 建议补充</span>
                     </div>
                     <div className="hints-list-v2">
                         {missingHints.map((hint, i) => (
@@ -487,7 +487,7 @@ export const AIPanel: React.FC = () => {
                 <div className="section-v2">
                     <div className="section-header-v2">
                         <FileText size={16} />
-                        <span>📄 结果历史</span>
+                        <span>结果历史</span>
                     </div>
                     <div className="results-list-v2">
                         {aiResults.slice(0, 3).map((item) => (
