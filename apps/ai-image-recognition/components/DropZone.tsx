@@ -125,8 +125,8 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
             <div className="flex flex-wrap items-center gap-2">
                 <button
                     onClick={triggerFileSelect}
-                    className={`flex items-center justify-center gap-2 ${compact ? 'w-8 h-8 p-0' : 'px-3 py-2'} bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-medium transition-colors`}
-                    title="选择本地图片文件"
+                    className={`flex items-center justify-center gap-2 tooltip-bottom ${compact ? 'w-8 h-8 p-0' : 'px-3 py-2'} bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-medium transition-colors`}
+                    data-tip="选择本地图片文件"
                 >
                     <Upload size={16} />
                     {!compact && "上传文件"}
@@ -134,8 +134,8 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
 
                 <button
                     onClick={() => setShowLinkModal(true)}
-                    className={`flex items-center justify-center gap-2 ${compact ? 'w-8 h-8 p-0' : 'px-3 py-2'} bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-medium transition-colors`}
-                    title="粘贴图片链接或公式"
+                    className={`flex items-center justify-center gap-2 tooltip-bottom ${compact ? 'w-8 h-8 p-0' : 'px-3 py-2'} bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-medium transition-colors`}
+                    data-tip="粘贴图片链接或公式"
                 >
                     <LinkIcon size={16} />
                     {!compact && "添加链接"}

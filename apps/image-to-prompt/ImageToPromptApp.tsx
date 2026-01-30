@@ -862,16 +862,16 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                     <img src={img.imageData.url} alt={img.imageData.name} />
                                     <div className="batch-item-overlay">
                                         <div className="batch-item-info">
-                                            <p className="filename" title={img.imageData.name}>{img.imageData.name}</p>
+                                            <p className="filename tooltip-bottom" data-tip={img.imageData.name}>{img.imageData.name}</p>
                                         </div>
                                     </div>
                                     <button
-                                        className="delete-img-btn-absolute"
+                                        className="delete-img-btn-absolute tooltip-bottom"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             handleDeleteImage(img.id);
                                         }}
-                                        title={t('deleteImage') || '删除图片'}
+                                        data-tip={t('deleteImage') || '删除图片'}
                                     >×</button>
                                 </div>
                                 <textarea
@@ -1061,7 +1061,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                 tabIndex={isBatchProcessing ? -1 : 0}
                             >
                                 <img src={img.imageData.url} alt="thumbnail" />
-                                <span className="tab-filename" title={img.imageData.name}>{img.imageData.name}</span>
+                                <span className="tab-filename tooltip-bottom" data-tip={img.imageData.name}>{img.imageData.name}</span>
                                 <div className="status-indicator">
                                     {img.status === 'processing' && <Loader small />}
                                     {img.status === 'success' && '✓'}
@@ -1069,16 +1069,16 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                 </div>
                                 {(img.status === 'success' || img.status === 'error') && (
                                     <button
-                                        className="retry-btn"
+                                        className="retry-btn tooltip-bottom"
                                         onClick={(e) => { e.stopPropagation(); handleRetryImage(img.id); }}
                                         disabled={isBatchProcessing}
-                                        title={t('reGenerate') || '重新生成'}
+                                        data-tip={t('reGenerate') || '重新生成'}
                                     ><RefreshCw size={12} /></button>
                                 )}
                                 <button
-                                    className="delete-img-btn-tab"
+                                    className="delete-img-btn-tab tooltip-bottom"
                                     onClick={(e) => { e.stopPropagation(); handleDeleteImage(img.id); }}
-                                    title={t('deleteImage') || '删除图片'}
+                                    data-tip={t('deleteImage') || '删除图片'}
                                 >×</button>
                             </div>
                         ))}

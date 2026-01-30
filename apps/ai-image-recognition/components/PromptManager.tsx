@@ -391,23 +391,23 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                     {/* Cloud Sync Tools */}
                     <div className="flex items-center gap-1 mr-2 border-r border-zinc-700 pr-2">
                         {userName ? (
-                            <span className="text-[0.625rem] text-zinc-500 mr-1 max-w-20 truncate" title={`同步用户: ${userName}`}>
+                            <span className="text-[0.625rem] text-zinc-500 mr-1 max-w-20 truncate tooltip-bottom" data-tip={`同步用户: ${userName}`}>
                                 {userName}
                             </span>
                         ) : (
-                            <span className="text-[0.625rem] text-zinc-600 mr-1" title="请在首页设置邮箱后才能同步云端预设">
+                            <span className="text-[0.625rem] text-zinc-600 mr-1 tooltip-bottom" data-tip="请在首页设置邮箱后才能同步云端预设">
                                 未登录
                             </span>
                         )}
                         <button
                             onClick={handleSyncLoad}
                             disabled={isSyncing || !userName}
-                            className={`p-1.5 rounded-md transition-all duration-300 disabled:opacity-30 ${syncState?.op === 'load' && syncState.status === 'success' ? 'text-emerald-400 bg-emerald-400/10' :
+                            className={`p-1.5 rounded-md transition-all duration-300 disabled:opacity-30 tooltip-bottom ${syncState?.op === 'load' && syncState.status === 'success' ? 'text-emerald-400 bg-emerald-400/10' :
                                 syncState?.op === 'load' && syncState.status === 'error' ? 'text-red-400 bg-red-400/10' :
                                     syncState?.op === 'load' && syncState.status === 'no-change' ? 'text-zinc-400 bg-zinc-800' :
                                         'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                 }`}
-                            title={userName ? "从云端加载预设" : "请先在首页设置邮箱"}
+                            data-tip={userName ? "从云端加载预设" : "请先在首页设置邮箱"}
                         >
                             {syncState?.op === 'load' && syncState.status === 'loading' ? (
                                 <div className="w-3.5 h-3.5 border-2 border-zinc-500 border-t-emerald-400 rounded-full animate-spin" />
@@ -422,11 +422,11 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                         <button
                             onClick={handleSyncSave}
                             disabled={isSyncing || !userName}
-                            className={`p-1.5 rounded-md transition-all duration-300 disabled:opacity-30 ${syncState?.op === 'save' && syncState.status === 'success' ? 'text-emerald-400 bg-emerald-400/10' :
+                            className={`p-1.5 rounded-md transition-all duration-300 disabled:opacity-30 tooltip-bottom ${syncState?.op === 'save' && syncState.status === 'success' ? 'text-emerald-400 bg-emerald-400/10' :
                                 syncState?.op === 'save' && syncState.status === 'error' ? 'text-red-400 bg-red-400/10' :
                                     'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                 }`}
-                            title={userName ? "保存预设到云端" : "请先在首页设置邮箱"}
+                            data-tip={userName ? "保存预设到云端" : "请先在首页设置邮箱"}
                         >
                             {syncState?.op === 'save' && syncState.status === 'loading' ? (
                                 <div className="w-3.5 h-3.5 border-2 border-zinc-500 border-t-emerald-400 rounded-full animate-spin" />
@@ -444,15 +444,15 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                     <div className="flex items-center gap-1 mr-2">
                         <button
                             onClick={handleImportClick}
-                            className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded-md transition-colors"
-                            title="导入预设 (JSON)"
+                            className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded-md transition-colors tooltip-bottom"
+                            data-tip="导入预设 (JSON)"
                         >
                             <Upload size={14} />
                         </button>
                         <button
                             onClick={handleExport}
-                            className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded-md transition-colors"
-                            title="导出预设 (JSON)"
+                            className="p-1.5 text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800 rounded-md transition-colors tooltip-bottom"
+                            data-tip="导出预设 (JSON)"
                         >
                             <Download size={14} />
                         </button>
@@ -534,15 +534,15 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                                                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                         <button
                                                             onClick={(e) => handleEditPreset(preset, e)}
-                                                            className="text-zinc-500 hover:text-teal-400 p-1.5 hover:bg-teal-500/10 rounded-lg transition-all"
-                                                            title="编辑"
+                                                            className="text-zinc-500 hover:text-teal-400 p-1.5 hover:bg-teal-500/10 rounded-lg transition-all tooltip-bottom"
+                                                            data-tip="编辑"
                                                         >
                                                             <Pencil size={12} />
                                                         </button>
                                                         <button
                                                             onClick={(e) => deletePreset(preset.id, e)}
-                                                            className="text-zinc-500 hover:text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-all"
-                                                            title="删除"
+                                                            className="text-zinc-500 hover:text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-all tooltip-bottom"
+                                                            data-tip="删除"
                                                         >
                                                             <Trash2 size={12} />
                                                         </button>
