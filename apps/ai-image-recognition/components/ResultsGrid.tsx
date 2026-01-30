@@ -816,16 +816,16 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                                 }
                                 onToggleChat?.(item.id);
                             }}
-                            className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors ${isCompact ? 'p-0.5' : 'p-1'}`}
-                            title="精简显示 (只看最后结果)"
+                            className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                            data-tip="精简显示 (只看最后结果)"
                         >
                             <ChevronUp size={isCompact ? 12 : 14} />
                         </button>
                     )}
                     <button
                         onClick={() => onToggleChat?.(item.id)}
-                        className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors ${isCompact ? 'p-0.5' : 'p-1'}`}
-                        title="关闭对话面板"
+                        className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                        data-tip="关闭对话面板"
                     >
                         <X size={isCompact ? 12 : 14} />
                     </button>
