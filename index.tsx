@@ -8648,7 +8648,7 @@ const App = () => {
                     gap: '0.2rem'
                   }}
                 >
-                  {appEdition === 'website' ? '🌐' : '🤖'}
+                  {appEdition === 'website' ? <Globe size={14} /> : <Bot size={14} />}
                   <span>{appEdition === 'website' ? 'Web' : 'AI'}</span>
                 </button>
               </div>
@@ -8683,7 +8683,7 @@ const App = () => {
                   className="collapsed-settings-btn"
                   title={language === 'zh' ? '设置 (模型/缩放)' : 'Settings (Model/Scale)'}
                 >
-                  ⚙️
+                  <Settings size={16} />
                 </button>
 
                 {/* 设置面板下拉菜单 - 使用 fixed 定位避免被裁切 */}
@@ -9017,7 +9017,7 @@ const App = () => {
                   gap: '0.25rem'
                 }}
               >
-                {appEdition === 'website' ? '🌐 Web' : '🤖 AI'}
+                {appEdition === 'website' ? <><Globe size={14} className="inline mr-1" /> Web</> : <><Bot size={14} className="inline mr-1" /> AI</>}
               </button>
               <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle theme">
                 {theme === 'dark' ? '☀️' : '🌙'}
