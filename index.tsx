@@ -16,6 +16,7 @@ import SheetMindApp from '@/apps/sheetmind/SheetMindApp';
 import AICopyDeduplicatorApp from '@/apps/ai-copy-deduplicator/AICopyDeduplicatorApp';
 import ProDedupApp from '@/apps/ai-copy-deduplicator/ProDedupApp';
 import { MindMapApp } from '@/apps/ai-mind-map';
+import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
 import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
@@ -159,6 +160,7 @@ const translations = {
     navProDedup: "Pro Dedup Search",
     navMindMap: "AI Mind Map",
     navAIToolsDirectory: "AI Tools",
+    navApiImageGen: "API Image Gen",
     navOpalBatch: "Opal Batch Image",
     // Prompt Tool
     promptTitle: "Image to Prompt",
@@ -409,6 +411,7 @@ const translations = {
     navProDedup: "专业文案查重",
     navMindMap: "AI 思维导图",
     navAIToolsDirectory: "AI 工具集",
+    navApiImageGen: "API 生图",
     navOpalBatch: "Opal 批量生图",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
@@ -1126,7 +1129,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -6986,6 +6989,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   proDedup: 'fingerprint',
   mindMap: 'tips_and_updates',
   aiToolsDirectory: 'apps',
+  apiImageGen: 'auto_awesome',
 };
 
 const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
@@ -7002,6 +7006,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'template', labelKey: 'navTemplate' },
   { tool: 'subemail', labelKey: 'navSubEmail' },
   { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory' },
+  { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
   { tool: 'copyDedup', labelKey: 'navCopyDedup' },
 ];
 
@@ -9269,6 +9274,10 @@ const App = () => {
           {/* AI Mind Map - Full-screen React Flow canvas */}
           <div className={`mindmap-page-wrapper ${activeTool === 'mindMap' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'mindMap' ? '100%' : '0' }}>
             <MindMapApp getAiInstance={getAiInstance} />
+          </div>
+          {/* API Image Gen - Opal-style workflow */}
+          <div className={`api-image-gen-wrapper ${activeTool === 'apiImageGen' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'apiImageGen' ? '100%' : '0' }}>
+            <ApiImageGenApp />
           </div>
 
         </main>
