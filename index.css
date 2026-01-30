@@ -9720,3 +9720,38 @@ textarea:focus-visible {
 .d-none {
   display: none;
 }
+
+/* ============================================
+   🔘 ModeToggle 组件样式
+   ============================================ */
+
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--control-bg-color);
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.mode-toggle .toggle-btn {
+  background: transparent;
+  color: var(--text-color);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.mode-toggle .toggle-btn.active {
+  background: var(--primary-color);
+  color: white;
+}
+
+/* 文件上传 label */
+.file-upload-label {
+  position: relative;
+  outline: none;
+}

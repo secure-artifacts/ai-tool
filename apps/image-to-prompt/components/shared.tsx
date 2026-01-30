@@ -285,7 +285,6 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
             tabIndex={0}
             role="button"
             data-paste-zone={pasteZoneId}
-            style={{ position: 'relative', outline: 'none' }}
         >
             {children}
             <input
@@ -294,13 +293,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
                 accept={accept}
                 multiple={multiple}
                 onChange={handleFileChange}
-                style={{ display: 'none' }}
+                className="d-none"
             />
             {/* 内置隐藏的 textarea 用于接收粘贴事件 */}
             <textarea
                 ref={textareaRef}
                 onPaste={handleInternalPaste}
-                style={{ position: 'absolute', left: '-9999px', top: 0, width: '1px', height: '1px', opacity: 0 }}
+                className="visually-hidden"
                 aria-hidden="true"
             />
         </label>
@@ -352,29 +351,12 @@ interface ModeToggleProps {
 
 export const ModeToggle: React.FC<ModeToggleProps> = ({ modes, activeMode, onModeChange }) => {
     return (
-        <div className="mode-toggle" style={{
-            display: 'flex',
-            gap: '4px',
-            background: 'var(--control-bg-color)',
-            padding: '3px',
-            borderRadius: '8px'
-        }}>
+        <div className="mode-toggle">
             {modes.map(mode => (
                 <button
                     key={mode.key}
                     className={`toggle-btn ${activeMode === mode.key ? 'active' : ''}`}
                     onClick={() => onModeChange(mode.key)}
-                    style={{
-                        background: activeMode === mode.key ? 'var(--primary-color)' : 'transparent',
-                        color: activeMode === mode.key ? 'white' : 'var(--text-color)',
-                        border: 'none',
-                        borderRadius: '6px',
-                        padding: '6px 12px',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem',
-                        fontWeight: 500,
-                        transition: 'all 0.2s'
-                    }}
                 >
                     {mode.label}
                 </button>
