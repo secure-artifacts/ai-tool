@@ -28,7 +28,8 @@ import {
     Upload,
     BarChart2,
     Grid,
-    AlertTriangle
+    AlertTriangle,
+    Target
 } from 'lucide-react';
 import {
     isUserLoggedIn,
@@ -1518,7 +1519,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                     }}
                                                     className={`text-[10px] px-2 py-1 rounded ${chartDisplayMode === 'filtered' ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
                                                 >
-                                                    🎯 筛选
+                                                    <Target size={12} className="inline mr-1" /> 筛选
                                                 </button>
                                             </div>
 
@@ -1869,7 +1870,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                     )
                                 ) : (
                                     <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                        <span className="text-4xl mb-3">🎯</span>
+                                        <Target size={40} className="mb-3" />
                                         <p className="text-sm font-medium">请在左侧勾选要显示的分段</p>
                                         <p className="text-xs mt-1">勾选后将只显示选中的分段数据</p>
                                     </div>
