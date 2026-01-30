@@ -252,7 +252,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                             type="file"
                             accept=".json"
                             onChange={handleFileUpload}
-                            style={{ display: 'none' }}
+                            className="d-none"
                         />
                         <button
                             className="upload-btn"
@@ -353,7 +353,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                                 <li>需要联系应用管理员将您的 Google 邮箱添加到白名单</li>
                                 <li>Token 有效期 1 小时，过期需重新登录</li>
                             </ul>
-                            <p style={{ marginTop: '12px' }}>
+                            <p className="mt-3">
                                 如果您需要长期使用写入功能，建议选择 <strong>Service Account</strong> 或 <strong>自定义 OAuth</strong> 模式。
                             </p>
                         </div>
@@ -374,7 +374,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                 <div className="info-note">
                     如果不需要以上功能，使用默认的 <strong>API Key（只读）</strong> 模式即可。
                 </div>
-                <div className="info-note" style={{ marginTop: '8px', borderTop: '1px dashed #d4a574', paddingTop: '8px' }}>
+                <div className="info-note info-note-separator">
                     <strong>💡 获取帮助：</strong>
                     <ul className="mt-1 mb-0">
                         <li>需要创建 <strong>Service Account</strong> 或 <strong>OAuth</strong>？可联系技术员协助配置</li>
@@ -412,14 +412,14 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                             <h4 className="gas-section-title">🔧 部署步骤</h4>
                             <ol className="gas-steps-list">
                                 <li className="mb-2">在 Google Sheets 中点击 <code className="gas-code-highlight">扩展程序</code> → <code className="gas-code-highlight">Apps Script</code></li>
-                                <li className="mb-2">删除默认代码，<strong style={{ color: '#fff' }}>粘贴下方脚本代码</strong></li>
+                                <li className="mb-2">删除默认代码，<strong className="text-white">粘贴下方脚本代码</strong></li>
                                 <li className="mb-2">点击 <code className="gas-code-highlight">部署</code> → <code className="gas-code-highlight">新建部署</code> → <code className="gas-code-highlight">Web 应用</code></li>
                                 <li className="mb-2"><span className="gas-warning-text">⚠️ 「谁可以访问」必须选择「任何人」</span></li>
                                 <li className="mb-2">首次需授权：高级 → 转至 xxx → 允许</li>
                                 <li>复制 Web App URL，粘贴到文案查重页面</li>
                             </ol>
 
-                            <h4 style={{ margin: '20px 0 8px', color: '#64b5f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <h4 className="gas-code-title">
                                 📋 GAS 脚本代码
                                 <button
                                     onClick={() => {
