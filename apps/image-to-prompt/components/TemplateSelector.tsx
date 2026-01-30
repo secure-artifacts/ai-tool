@@ -22,20 +22,11 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
     t
 }) => {
     return (
-        <div className="expert-selector-multi" className="mt-4">
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '0.5rem'
-            }}>
-                <label style={{ marginBottom: 0, fontWeight: 500 }}>
+        <div className="expert-selector-multi mt-4">
+            <div className="template-selector-header">
+                <label className="template-selector-label">
                     {t('templateLabel') || '反推指令模版'}{' '}
-                    <span style={{
-                        fontSize: '0.85em',
-                        color: 'var(--text-muted-color)',
-                        fontWeight: 'normal'
-                    }}>
+                    <span className="template-selector-hint">
                         (可选自定义)
                     </span>
                 </label>
@@ -43,7 +34,6 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                     <button
                         className="btn btn-secondary btn-sm"
                         onClick={onViewSystemInstruction}
-                        style={{ padding: '2px 8px', fontSize: '0.8rem' }}
                     >
                         {t('viewSystemInstruction') || '查看系统指令'}
                     </button>
@@ -52,15 +42,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
             <select
                 value={selectedId}
                 onChange={(e) => onSelect(e.target.value)}
-                style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-color)',
-                    backgroundColor: 'var(--control-bg-color)',
-                    color: 'var(--text-color)',
-                    cursor: 'pointer'
-                }}
+                className="template-selector-select"
             >
                 <option value="system_default">{t('systemDefault') || '系统默认'}</option>
                 <option value="manual_input">{t('manualInput') || '手动输入 (自定义)'}</option>
@@ -70,11 +52,7 @@ export const TemplateSelector: React.FC<TemplateSelectorProps> = ({
                     </option>
                 ))}
             </select>
-            <div style={{
-                fontSize: '0.85rem',
-                color: 'var(--text-muted-color)',
-                marginTop: '0.5rem'
-            }}>
+            <div className="template-selector-desc">
                 {selectedId === 'system_default'
                     ? (t('systemDefaultDesc') || '使用系统内置的反推指令')
                     : selectedId === 'manual_input'

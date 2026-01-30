@@ -9755,3 +9755,41 @@ textarea:focus-visible {
   position: relative;
   outline: none;
 }
+
+/* ============================================
+   📋 TemplateSelector 组件样式
+   ============================================ */
+
+.template-selector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.template-selector-label {
+  margin-bottom: 0;
+  font-weight: 500;
+}
+
+.template-selector-hint {
+  font-size: 0.85em;
+  color: var(--text-muted-color);
+  font-weight: normal;
+}
+
+.template-selector-select {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background-color: var(--control-bg-color);
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.template-selector-desc {
+  font-size: 0.85rem;
+  color: var(--text-muted-color);
+  margin-top: 0.5rem;
+}
