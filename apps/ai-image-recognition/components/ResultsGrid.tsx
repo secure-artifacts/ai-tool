@@ -889,7 +889,7 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                                 </div>
                             )}
                             <div
-                                className={`whitespace-pre-wrap break-words ${msg.role !== 'user' ? 'cursor-pointer hover:bg-zinc-700/30 rounded transition-colors relative' : ''}`}
+                                className={`tooltip-bottom whitespace-pre-wrap break-words text-xs leading-relaxed ${msg.role === 'user' ? 'text-zinc-400' : 'text-zinc-200 cursor-pointer hover:bg-zinc-700/30 rounded transition-colors relative'} ${isCompact ? 'line-clamp-2' : 'line-clamp-4'}`}
                                 onClick={(e) => {
                                     if (msg.role !== 'user') {
                                         setClickHint({ show: true, x: e.clientX, y: e.clientY });
@@ -897,7 +897,7 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                                     }
                                 }}
                                 onDoubleClick={() => msg.role !== 'user' && setExpandedMessageText(msg.text)}
-                                title={msg.role !== 'user' ? '双击放大窗口查看结果' : undefined}
+                                data-tip={msg.role !== 'user' ? '双击放大窗口查看结果' : undefined}
                             >
                                 {msg.text}
                             </div>
@@ -929,8 +929,8 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                             <img src={att} alt={`attachment-${index}`} className="w-full h-full object-cover rounded border border-zinc-700" />
                             <button
                                 onClick={() => removeAttachment(index)}
-                                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="删除图片"
+                                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity tooltip-bottom"
+                                data-tip="删除图片"
                             >
                                 <X size={10} />
                             </button>
@@ -939,8 +939,8 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                     {/* 上传小块块 */}
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-16 h-16 shrink-0 rounded border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 transition-colors"
-                        title="添加图片"
+                        className="w-16 h-16 shrink-0 rounded border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 transition-colors tooltip-bottom"
+                        data-tip="添加图片"
                     >
                         <Plus size={20} />
                     </button>
@@ -976,8 +976,8 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                         {(!item.chatAttachments || item.chatAttachments.length === 0) && (
                             <button
                                 onClick={() => fileInputRef.current?.click()}
-                                className={`bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors border border-zinc-700 ${isCompact ? 'p-1.5' : 'p-2'}`}
-                                title="上传图片"
+                                className={`bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors border border-zinc-700 tooltip-bottom ${isCompact ? 'p-1.5' : 'p-2'}`}
+                                data-tip="上传图片"
                             >
                                 <Paperclip size={isCompact ? 14 : 18} />
                             </button>
@@ -1009,8 +1009,8 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                         {item.chatHistory.length > 0 && (
                             <button
                                 onClick={() => onCopyChatHistory?.(item.id)}
-                                className={`bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg transition-colors ${isCompact ? 'p-1.5' : 'px-3 py-2'}`}
-                                title="复制对话历史"
+                                className={`bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg transition-colors tooltip-bottom ${isCompact ? 'p-1.5' : 'px-3 py-2'}`}
+                                data-tip="复制对话历史"
                             >
                                 <Copy size={isCompact ? 12 : 14} />
                             </button>
@@ -1065,11 +1065,11 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                         onToggleMergeMode?.(item.id, !isMergeMode);
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
-                    className={`flex items-center gap-1 px-2 py-1 rounded text-[0.625rem] transition-colors ${isMergeMode
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-[0.625rem] transition-colors tooltip-bottom ${isMergeMode
                         ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
                         : 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:border-zinc-600'
                         }`}
-                    title={isMergeMode ? "合并模式：全局指令 + 单独指令" : "独立模式：仅使用单独指令"}
+                    data-tip={isMergeMode ? "合并模式：全局指令 + 单独指令" : "独立模式：仅使用单独指令"}
                 >
                     {isMergeMode ? '🔗 合并' : '📝 独立'}
                 </button>
@@ -1198,8 +1198,8 @@ const InnovationChatBlock = ({
                     {innovation.chatHistory.length > 0 && (
                         <button
                             onClick={() => onCopyHistory?.(imageId, innovation.id)}
-                            className="p-1 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
-                            title="复制对话记录"
+                            className="p-1 text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                            data-tip="复制对话记录"
                         >
                             <Copy size={11} />
                         </button>
@@ -1250,8 +1250,8 @@ const InnovationChatBlock = ({
                             <img src={att} alt={`attachment-${idx}`} className="w-full h-full object-cover rounded border border-zinc-700" />
                             <button
                                 onClick={() => removeAttachment(idx)}
-                                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="删除图片"
+                                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity tooltip-bottom"
+                                data-tip="删除图片"
                             >
                                 <X size={8} />
                             </button>
@@ -1259,8 +1259,8 @@ const InnovationChatBlock = ({
                     ))}
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-14 h-14 shrink-0 rounded border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 transition-colors"
-                        title="添加图片"
+                        className="w-14 h-14 shrink-0 rounded border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 transition-colors tooltip-bottom"
+                        data-tip="添加图片"
                     >
                         <Plus size={16} />
                     </button>
@@ -1289,8 +1289,8 @@ const InnovationChatBlock = ({
                 <div className="flex gap-2 items-start">
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg border border-zinc-700 transition-colors shrink-0"
-                        title="上传参考图"
+                        className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg border border-zinc-700 transition-colors shrink-0 tooltip-bottom"
+                        data-tip="上传参考图"
                     >
                         <Paperclip size={14} />
                     </button>
@@ -1420,16 +1420,16 @@ const InnovationPanel = ({
                             {/* 仅复制创新结果 */}
                             <button
                                 onClick={copyOnlyOutputs}
-                                className={`text-zinc-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors ${isCompact ? 'p-0.5' : 'p-1'}`}
-                                title="仅复制创新结果"
+                                className={`text-zinc-500 hover:text-emerald-400 hover:bg-zinc-700 rounded transition-colors tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                                data-tip="仅复制创新结果"
                             >
                                 {copiedAll === 'outputs' ? <Check size={isCompact ? 10 : 14} className="text-emerald-400" /> : <Copy size={isCompact ? 10 : 14} />}
                             </button>
                             {/* 复制原始词+创新结果 */}
                             <button
                                 onClick={copyAllWithSource}
-                                className={`text-zinc-500 hover:text-pink-400 hover:bg-zinc-700 rounded transition-colors flex items-center gap-0.5 ${isCompact ? 'p-0.5' : 'p-1'}`}
-                                title="复制原始词 + 创新结果"
+                                className={`text-zinc-500 hover:text-pink-400 hover:bg-zinc-700 rounded transition-colors flex items-center gap-0.5 tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                                data-tip="复制原始词 + 创新结果"
                             >
                                 {copiedAll === 'all' ? <Check size={isCompact ? 10 : 14} className="text-pink-400" /> : (
                                     <>
@@ -1449,16 +1449,16 @@ const InnovationPanel = ({
                                 }
                                 onToggleInnovation?.(item.id);
                             }}
-                            className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors ${isCompact ? 'p-0.5' : 'p-1'}`}
-                            title="精简显示 (只看最后结果)"
+                            className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                            data-tip="精简显示 (只看最后结果)"
                         >
                             <ChevronUp size={isCompact ? 12 : 14} />
                         </button>
                     )}
                     <button
                         onClick={() => onToggleInnovation?.(item.id)}
-                        className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors ${isCompact ? 'p-0.5' : 'p-1'}`}
-                        title="关闭创新面板"
+                        className={`text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 rounded transition-colors tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                        data-tip="关闭创新面板"
                     >
                         <X size={isCompact ? 12 : 14} />
                     </button>
@@ -1616,21 +1616,21 @@ const InnovationPanel = ({
                                     <div className="flex items-center gap-1">
                                         <button
                                             onClick={() => copyOutput(inv.text, idx)}
-                                            className="p-1 text-zinc-500 hover:text-emerald-400 rounded transition-colors"
-                                            title="复制创新词"
+                                            className="p-1 text-zinc-500 hover:text-emerald-400 rounded transition-colors tooltip-bottom"
+                                            data-tip="复制创新词"
                                         >
                                             {copiedIndex === idx ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                                         </button>
                                         {onToggleInnovationChat && (
                                             <button
                                                 onClick={() => onToggleInnovationChat(item.id, inv.id)}
-                                                className={`p-1 rounded transition-colors ${inv.isChatOpen
+                                                className={`p-1 rounded transition-colors tooltip-bottom ${inv.isChatOpen
                                                     ? 'text-blue-300 bg-blue-500/20 ring-1 ring-blue-500/40'
                                                     : (inv.chatHistory && inv.chatHistory.length > 0
                                                         ? 'text-blue-300 bg-blue-900/20'
                                                         : 'text-blue-300 hover:bg-zinc-800')
                                                     }`}
-                                                title={inv.chatHistory && inv.chatHistory.length > 0 ? '继续对话' : '打开对话'}
+                                                data-tip={inv.chatHistory && inv.chatHistory.length > 0 ? '继续对话' : '打开对话'}
                                             >
                                                 <MessageCircle size={12} />
                                             </button>
@@ -1638,8 +1638,8 @@ const InnovationPanel = ({
                                         {inv.chatHistory && inv.chatHistory.length > 0 && onCopyInnovationChatHistory && (
                                             <button
                                                 onClick={() => onCopyInnovationChatHistory(item.id, inv.id)}
-                                                className="p-1 text-zinc-500 hover:text-emerald-400 rounded transition-colors"
-                                                title="复制对话记录"
+                                                className="p-1 text-zinc-500 hover:text-emerald-400 rounded transition-colors tooltip-bottom"
+                                                data-tip="复制对话记录"
                                             >
                                                 <Copy size={12} />
                                             </button>
@@ -2143,13 +2143,13 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             {item.result}
                                         </div>
                                     ) : item.status === 'error' ? (
-                                        <div className="text-xs text-red-400 truncate" title={item.errorMsg}>
+                                        <div className="text-xs text-red-400 truncate tooltip-bottom" data-tip={item.errorMsg}>
                                             {item.errorMsg || '处理失败'}
                                         </div>
                                     ) : item.status === 'loading' ? (
                                         <div className="text-xs text-emerald-400">分析中...</div>
                                     ) : (
-                                        <div className="text-xs text-zinc-500 truncate" title={item.originalInput}>
+                                        <div className="text-xs text-zinc-500 truncate tooltip-bottom" data-tip={item.originalInput}>
                                             {item.originalInput}
                                         </div>
                                     )}
@@ -2161,8 +2161,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 {item.status === 'error' ? (
                                     <button
                                         onClick={() => onRetry(item.id)}
-                                        className="p-1 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors"
-                                        title="重试"
+                                        className="p-1 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors tooltip-bottom"
+                                        data-tip="重试"
                                     >
                                         <RotateCw size={12} />
                                     </button>
@@ -2172,11 +2172,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         <button
                                             onClick={() => copyImage(item)}
                                             disabled={!item.imageUrl}
-                                            className={`p-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isCopied(item.id, 'image')
+                                            className={`p-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'image')
                                                 ? 'text-emerald-400 bg-emerald-900/20'
                                                 : 'text-zinc-500 hover:text-purple-400 hover:bg-zinc-800'
                                                 }`}
-                                            title={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
+                                            data-tip={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
                                         >
                                             {isCopied(item.id, 'image') ? <Check size={12} /> : <ImageIcon size={12} />}
                                         </button>
@@ -2208,22 +2208,22 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             <>
                                                 <button
                                                     onClick={() => copyResult(item)}
-                                                    className={`p-1 rounded transition-colors ${isCopied(item.id, 'result')
+                                                    className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                                         }`}
-                                                    title="复制结果"
+                                                    data-tip="复制结果"
                                                 >
                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                 </button>
                                                 {onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
-                                                        className={`p-1 rounded transition-colors ${sentToDescIds?.includes(item.id)
+                                                        className={`p-1 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
                                                             ? 'text-emerald-300 bg-emerald-700/20 border border-emerald-500/40'
                                                             : 'text-blue-300 hover:text-white hover:bg-blue-500/30'
                                                             }`}
-                                                        title={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
+                                                        data-tip={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
                                                     >
                                                         {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                                     </button>
@@ -2231,21 +2231,21 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 {onToggleChat && (
                                                     <button
                                                         onClick={() => onToggleChat(item.id)}
-                                                        className={`p-1 rounded transition-colors ${item.isChatOpen
+                                                        className={`p-1 rounded transition-colors tooltip-bottom ${item.isChatOpen
                                                             ? 'text-blue-400 bg-blue-500/30 ring-2 ring-blue-400/50'
                                                             : (item.chatHistory.length > 1
                                                                 ? 'text-blue-400 bg-blue-900/20'
                                                                 : 'text-blue-400 hover:bg-zinc-800')
                                                             }`}
-                                                        title={item.chatHistory.length > 1 ? "继续对话 (已有记录)" : "继续对话"}
+                                                        data-tip={item.chatHistory.length > 1 ? "继续对话 (已有记录)" : "继续对话"}
                                                     >
                                                         <MessageCircle size={12} fill={item.chatHistory.length > 1 ? "currentColor" : "none"} fillOpacity={item.chatHistory.length > 1 ? 0.2 : 0} />
                                                     </button>
                                                 )}
                                                 <button
                                                     onClick={() => onRetry(item.id)}
-                                                    className="p-1 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
-                                                    title="重新识别"
+                                                    className="p-1 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                                    data-tip="重新识别"
                                                 >
                                                     <RotateCw size={12} />
                                                 </button>
@@ -2255,8 +2255,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 )}
                                 <button
                                     onClick={() => onRemove(item.id)}
-                                    className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
-                                    title="删除"
+                                    className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors tooltip-bottom"
+                                    data-tip="删除"
                                 >
                                     <Trash2 size={12} />
                                 </button>
