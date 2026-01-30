@@ -1,7 +1,7 @@
 // API 生图 - Gemini 服务
 
 import { GoogleGenAI, Modality } from "@google/genai";
-import { ImageGenModel, ImageSize, GeneratedPrompt } from './types';
+import { ImageGenModel, ImageSize, GeneratedPrompt } from '../types';
 
 // 获取 AI 实例
 const getAiInstance = (): GoogleGenAI => {
@@ -69,28 +69,61 @@ export const generatePrompts = async (
 
     const text = response.text || '';
 
-    // 解析结果 - 提取 PROMPT1, PROMPT2 等
+    // 解析结果 - 提取 PROMPT1_EN, PROMPT1_ZH 等双语格式
     const prompts: GeneratedPrompt[] = [];
-    const regex = /PROMPT\d+:\s*(.+?)(?=PROMPT\d+:|$)/gs;
-    let match;
-    let index = 0;
 
-    while ((match = regex.exec(text)) !== null) {
-        prompts.push({
-            id: `prompt-${Date.now()}-${index}`,
-            text: match[1].trim(),
-            selected: true
-        });
-        index++;
+    // 匹配所有 PROMPT{N}_EN 和 PROMPT{N}_ZH
+    const promptNumbers = new Set<number>();
+    const regexNumbers = /PROMPT(\d+)_(?:EN|ZH)/g;
+    let numMatch;
+    while ((numMatch = regexNumbers.exec(text)) !== null) {
+        promptNumbers.add(parseInt(numMatch[1]));
     }
 
-    // 如果没有匹配到格式化的输出，尝试按行分割
+    // 对于每个提取到的编号，获取 EN 和 ZH 版本
+    Array.from(promptNumbers).sort((a, b) => a - b).forEach((num, index) => {
+        const enRegex = new RegExp(`PROMPT${num}_EN:\\s*(.+?)(?=PROMPT\\d+_|$)`, 's');
+        const zhRegex = new RegExp(`PROMPT${num}_ZH:\\s*(.+?)(?=PROMPT\\d+_|$)`, 's');
+
+        const enMatch = text.match(enRegex);
+        const zhMatch = text.match(zhRegex);
+
+        if (enMatch || zhMatch) {
+            prompts.push({
+                id: `prompt-${Date.now()}-${index}`,
+                textEn: (enMatch?.[1] || '').trim().replace(/\n+/g, ' '),
+                textZh: (zhMatch?.[1] || '').trim().replace(/\n+/g, ' '),
+                selected: true
+            });
+        }
+    });
+
+    // 如果没有匹配到双语格式，尝试单语格式 (PROMPT1:)
+    if (prompts.length === 0) {
+        const regex = /PROMPT\d+:\s*(.+?)(?=PROMPT\d+:|$)/gs;
+        let match;
+        let index = 0;
+        while ((match = regex.exec(text)) !== null) {
+            const promptText = match[1].trim();
+            prompts.push({
+                id: `prompt-${Date.now()}-${index}`,
+                textEn: promptText,
+                textZh: promptText, // 单语时 EN/ZH 相同
+                selected: true
+            });
+            index++;
+        }
+    }
+
+    // 最后尝试按行分割
     if (prompts.length === 0) {
         const lines = text.split('\n').filter(line => line.trim().length > 20);
-        lines.forEach((line, i) => {
+        lines.slice(0, 4).forEach((line, i) => {
+            const cleanedLine = line.replace(/^\d+[\.\)]\s*/, '').trim();
             prompts.push({
                 id: `prompt-${Date.now()}-${i}`,
-                text: line.replace(/^\d+[\.\)]\s*/, '').trim(),
+                textEn: cleanedLine,
+                textZh: cleanedLine,
                 selected: true
             });
         });

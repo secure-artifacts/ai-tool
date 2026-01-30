@@ -8,14 +8,25 @@ export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface GeneratedPrompt {
     id: string;
-    text: string;
+    textEn: string;  // 英文版本 (用于生成)
+    textZh: string;  // 中文版本 (用于显示)
     selected: boolean;
 }
+
+// 生成唯一文件名前缀
+export const generateFilePrefix = (): string => {
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+    const randomStr = Math.random().toString(36).substring(2, 6);
+    return `api-gen-${dateStr}-${timeStr}-${randomStr}`;
+};
 
 export interface ImageGenTask {
     id: string;
     promptId: string;
     promptText: string;
+    filename: string;  // 唯一文件名，同一张图多次下载保持不变
     model: ImageGenModel;
     size: ImageSize;
     useReferenceImage: boolean; // 是否垫图
@@ -51,14 +62,18 @@ export const DEFAULT_PROMPT_INSTRUCTION = `请根据输入的图片和/或文字
 要求：
 1. 每个描述词应该详细、具体，适合 AI 图像生成
 2. 描述词应该包含：主体、场景、风格、光线、色调等元素
-3. 使用英文输出每个描述词
+3. 同时提供英文版本和中文版本 (英文用于生成，中文方便查看)
 4. 4个描述词应该有明显的差异，例如不同风格、角度或氛围
 
-请用以下格式输出：
-PROMPT1: [描述词1]
-PROMPT2: [描述词2]
-PROMPT3: [描述词3]
-PROMPT4: [描述词4]`;
+请严格按照以下格式输出 (每个 prompt 包含 EN 和 ZH 两行)：
+PROMPT1_EN: [English description for image generation]
+PROMPT1_ZH: [对应的中文描述]
+PROMPT2_EN: [English description for image generation]
+PROMPT2_ZH: [对应的中文描述]
+PROMPT3_EN: [English description for image generation]
+PROMPT3_ZH: [对应的中文描述]
+PROMPT4_EN: [English description for image generation]
+PROMPT4_ZH: [对应的中文描述]`;
 
 export const SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
     { value: '512x512', label: '512×512 (1:1)' },

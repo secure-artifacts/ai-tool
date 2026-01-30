@@ -12,7 +12,6 @@ import {
     Check,
     AlertCircle,
     Loader2,
-    Settings,
     ChevronDown,
     ChevronUp,
     X,
@@ -22,7 +21,8 @@ import {
     Sparkles,
     Layers,
     CheckSquare,
-    Square
+    Square,
+    Zap
 } from 'lucide-react';
 import {
     WorkflowState,
@@ -33,7 +33,8 @@ import {
     DEFAULT_PROMPT_INSTRUCTION,
     SIZE_OPTIONS,
     MODEL_OPTIONS,
-    TaskStatus
+    TaskStatus,
+    generateFilePrefix
 } from './types';
 import {
     generatePrompts,
@@ -65,6 +66,7 @@ const ApiImageGenApp: React.FC = () => {
         prompts: true,
         generate: true,
     });
+    const [isOneClickMode, setIsOneClickMode] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // 更新状态
@@ -108,10 +110,12 @@ const ApiImageGenApp: React.FC = () => {
                 state.promptInstruction
             );
             updateState({ generatedPrompts: prompts, isGeneratingPrompts: false });
+            return prompts; // 返回生成的 prompts 供一键生成使用
         } catch (error) {
             console.error('生成描述词失败:', error);
             alert('生成描述词失败: ' + (error as Error).message);
             updateState({ isGeneratingPrompts: false });
+            return null;
         }
     };
 
@@ -123,27 +127,31 @@ const ApiImageGenApp: React.FC = () => {
         updateState({ generatedPrompts: newPrompts });
     }, [state.generatedPrompts, updateState]);
 
-    // 编辑 Prompt
-    const updatePromptText = useCallback((promptId: string, newText: string) => {
+    // 编辑 Prompt (英文版本)
+    const updatePromptTextEn = useCallback((promptId: string, newText: string) => {
         const newPrompts = state.generatedPrompts.map(p =>
-            p.id === promptId ? { ...p, text: newText } : p
+            p.id === promptId ? { ...p, textEn: newText } : p
         );
         updateState({ generatedPrompts: newPrompts });
     }, [state.generatedPrompts, updateState]);
 
     // 第三步：开始批量生图
-    const handleStartGeneration = async () => {
-        const selectedPrompts = state.generatedPrompts.filter(p => p.selected);
+    const handleStartGeneration = async (promptsToUse?: GeneratedPrompt[]) => {
+        const selectedPrompts = (promptsToUse || state.generatedPrompts).filter(p => p.selected);
         if (selectedPrompts.length === 0) {
             alert('请至少选择一个描述词');
             return;
         }
 
-        // 创建任务
-        const tasks: ImageGenTask[] = selectedPrompts.map(prompt => ({
+        // 生成唯一前缀，同一批次的图片共用
+        const batchPrefix = generateFilePrefix();
+
+        // 创建任务，每个任务有唯一的文件名
+        const tasks: ImageGenTask[] = selectedPrompts.map((prompt, index) => ({
             id: `task-${Date.now()}-${prompt.id}`,
             promptId: prompt.id,
-            promptText: prompt.text,
+            promptText: prompt.textEn, // 使用英文版本生成
+            filename: `${batchPrefix}-${index + 1}.png`, // 唯一文件名
             model: state.model,
             size: state.size,
             useReferenceImage: state.useReferenceImage,
@@ -192,9 +200,9 @@ const ApiImageGenApp: React.FC = () => {
                     ),
                 }));
 
-                // 自动下载
+                // 自动下载 - 使用任务的唯一文件名
                 if (state.autoDownload && result) {
-                    downloadImage(result, `api-gen-${i + 1}-${Date.now()}.png`);
+                    downloadImage(result, task.filename);
                 }
             } catch (error) {
                 console.error('生成图片失败:', error);
@@ -212,14 +220,35 @@ const ApiImageGenApp: React.FC = () => {
         updateState({ isGeneratingImages: false });
     };
 
-    // 下载所有完成的图片
+    // 一键生成：自动执行步骤2和步骤3
+    const handleOneClickGeneration = async () => {
+        if (state.inputImages.length === 0 && !state.inputText.trim()) {
+            alert('请先上传图片或输入文字描述');
+            return;
+        }
+
+        setIsOneClickMode(true);
+
+        // 执行步骤2：生成描述词
+        const prompts = await handleGeneratePrompts();
+
+        if (prompts && prompts.length > 0) {
+            // 等待状态更新完成
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // 执行步骤3：批量生图
+            await handleStartGeneration(prompts);
+        }
+
+        setIsOneClickMode(false);
+    };
+
+    // 下载所有完成的图片 - 使用任务的唯一文件名
     const handleDownloadAll = () => {
         const completedTasks = state.tasks.filter(t => t.status === 'completed' && t.result);
-        const images = completedTasks.map((t, i) => ({
-            url: t.result!,
-            name: `image-${i + 1}.png`,
-        }));
-        downloadAllImages(images, 'api-gen-batch');
+        completedTasks.forEach(task => {
+            downloadImage(task.result!, task.filename);
+        });
     };
 
     // 清空重置
@@ -259,13 +288,34 @@ const ApiImageGenApp: React.FC = () => {
                         Opal 风格工作流
                     </span>
                 </div>
-                <button
-                    onClick={handleReset}
-                    className="text-slate-500 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                    data-tip="重置"
-                >
-                    <Trash2 size={18} />
-                </button>
+                <div className="flex items-center gap-2">
+                    {/* 一键生成按钮 */}
+                    <button
+                        onClick={handleOneClickGeneration}
+                        disabled={isOneClickMode || state.isGeneratingPrompts || state.isGeneratingImages || (state.inputImages.length === 0 && !state.inputText.trim())}
+                        className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                        data-tip="一键生成"
+                    >
+                        {isOneClickMode ? (
+                            <>
+                                <Loader2 size={14} className="animate-spin" />
+                                生成中...
+                            </>
+                        ) : (
+                            <>
+                                <Zap size={14} />
+                                一键生成
+                            </>
+                        )}
+                    </button>
+                    <button
+                        onClick={handleReset}
+                        className="text-slate-500 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                        data-tip="重置"
+                    >
+                        <Trash2 size={18} />
+                    </button>
+                </div>
             </div>
 
             {/* Main Content - 三步工作流 */}
@@ -360,6 +410,11 @@ const ApiImageGenApp: React.FC = () => {
                             <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold">2</div>
                             <Wand2 size={18} />
                             <span className="font-medium">AI 生成描述词</span>
+                            {state.generatedPrompts.length > 0 && (
+                                <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                                    {state.generatedPrompts.filter(p => p.selected).length} 个已选
+                                </span>
+                            )}
                         </div>
                         {expandedSections.prompts ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </button>
@@ -415,9 +470,9 @@ const ApiImageGenApp: React.FC = () => {
                                 )}
                             </button>
 
-                            {/* 生成的描述词列表 */}
+                            {/* 生成的描述词列表 - 双语显示 */}
                             {state.generatedPrompts.length > 0 && (
-                                <div className="space-y-2">
+                                <div className="space-y-3">
                                     <div className="flex items-center justify-between">
                                         <span className="text-sm font-medium text-slate-700">
                                             生成的描述词 ({state.generatedPrompts.filter(p => p.selected).length}/{state.generatedPrompts.length} 已选)
@@ -434,8 +489,8 @@ const ApiImageGenApp: React.FC = () => {
                                         <div
                                             key={prompt.id}
                                             className={`p-3 rounded-lg border transition-all ${prompt.selected
-                                                    ? 'border-purple-300 bg-purple-50'
-                                                    : 'border-slate-200 bg-slate-50 opacity-60'
+                                                ? 'border-purple-300 bg-purple-50'
+                                                : 'border-slate-200 bg-slate-50 opacity-60'
                                                 }`}
                                         >
                                             <div className="flex items-start gap-2">
@@ -445,23 +500,41 @@ const ApiImageGenApp: React.FC = () => {
                                                 >
                                                     {prompt.selected ? <CheckSquare size={18} /> : <Square size={18} />}
                                                 </button>
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-2 mb-1">
+                                                <div className="flex-1 space-y-2">
+                                                    <div className="flex items-center gap-2">
                                                         <span className="text-xs font-bold text-purple-600">
                                                             Prompt {index + 1}
                                                         </span>
                                                     </div>
-                                                    <textarea
-                                                        value={prompt.text}
-                                                        onChange={(e) => updatePromptText(prompt.id, e.target.value)}
-                                                        className="w-full text-sm text-slate-700 bg-transparent border-none resize-none focus:outline-none focus:ring-0"
-                                                        rows={2}
-                                                    />
+
+                                                    {/* 中文版本 - 仅展示 */}
+                                                    {prompt.textZh && (
+                                                        <div className="bg-white/50 rounded-lg p-2">
+                                                            <div className="flex items-center gap-1 mb-1">
+                                                                <span className="text-[10px] font-medium text-slate-400 bg-slate-200 px-1.5 py-0.5 rounded">🇨🇳 中文</span>
+                                                            </div>
+                                                            <p className="text-sm text-slate-600">{prompt.textZh}</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* 英文版本 - 可编辑 (用于生成) */}
+                                                    <div className="bg-white/50 rounded-lg p-2">
+                                                        <div className="flex items-center gap-1 mb-1">
+                                                            <span className="text-[10px] font-medium text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded">🇺🇸 EN</span>
+                                                            <span className="text-[10px] text-slate-400">(用于生成)</span>
+                                                        </div>
+                                                        <textarea
+                                                            value={prompt.textEn}
+                                                            onChange={(e) => updatePromptTextEn(prompt.id, e.target.value)}
+                                                            className="w-full text-sm text-slate-700 bg-transparent border-none resize-none focus:outline-none focus:ring-0"
+                                                            rows={2}
+                                                        />
+                                                    </div>
                                                 </div>
                                                 <button
-                                                    onClick={() => navigator.clipboard.writeText(prompt.text)}
+                                                    onClick={() => navigator.clipboard.writeText(prompt.textEn)}
                                                     className="text-slate-400 hover:text-slate-600"
-                                                    data-tip="复制"
+                                                    data-tip="复制英文"
                                                 >
                                                     <Copy size={14} />
                                                 </button>
@@ -484,6 +557,11 @@ const ApiImageGenApp: React.FC = () => {
                             <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold">3</div>
                             <Layers size={18} />
                             <span className="font-medium">批量生图</span>
+                            {state.tasks.length > 0 && (
+                                <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                                    {state.tasks.filter(t => t.status === 'completed').length}/{state.tasks.length} 完成
+                                </span>
+                            )}
                         </div>
                         {expandedSections.generate ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </button>
@@ -551,7 +629,7 @@ const ApiImageGenApp: React.FC = () => {
                             {/* 生成按钮 */}
                             <div className="flex gap-2">
                                 <button
-                                    onClick={handleStartGeneration}
+                                    onClick={() => handleStartGeneration()}
                                     disabled={state.isGeneratingImages || state.generatedPrompts.filter(p => p.selected).length === 0}
                                     className="flex-1 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                                 >
@@ -610,12 +688,19 @@ const ApiImageGenApp: React.FC = () => {
                                             {task.result && (
                                                 <div className="p-2 flex justify-center gap-2">
                                                     <button
-                                                        onClick={() => downloadImage(task.result!, `api-gen-${index + 1}.png`)}
+                                                        onClick={() => downloadImage(task.result!, task.filename)}
                                                         className="px-3 py-1 bg-green-500 text-white text-xs rounded-lg hover:bg-green-600"
                                                     >
                                                         <Download size={12} className="inline mr-1" />
                                                         下载
                                                     </button>
+                                                </div>
+                                            )}
+
+                                            {/* 文件名显示 */}
+                                            {task.filename && (
+                                                <div className="px-2 pb-2 text-[10px] text-slate-400 truncate text-center">
+                                                    {task.filename}
                                                 </div>
                                             )}
 
