@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
-import { Copy, Check, FileText, Globe, Languages, RefreshCw, Plus, FolderOpen } from 'lucide-react';
+import { Copy, Check, FileText, Globe, Languages, RefreshCw, Plus, FolderOpen, Pencil } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import './SmartTranslateApp.css';
 import { InstantTranslateTool } from './InstantTranslateTool';
@@ -2655,16 +2655,16 @@ ${textToTranslate}
                                                 {showBatchCopyMenu && (
                                                     <div className="batch-copy-dropdown-menu" onMouseLeave={() => setShowBatchCopyMenu(false)}>
                                                         <button onClick={copyAllOriginals}>
-                                                            📝 复制所有原文
+                                                            <Pencil size={14} /> 复制所有原文
                                                         </button>
                                                         <button onClick={copyAllTranslated}>
-                                                            🌐 复制所有译文
+                                                            <Globe size={14} /> 复制所有译文
                                                         </button>
                                                         <button onClick={copyAllTranslatedAndChinese}>
-                                                            🔄 复制译文+中文
+                                                            <RefreshCw size={14} /> 复制译文+中文
                                                         </button>
                                                         <button onClick={copyAllComplete}>
-                                                            📋 复制全部内容
+                                                            <Copy size={14} /> 复制全部内容
                                                         </button>
                                                         <hr />
                                                         <button onClick={() => { handleBatchCopy(); setShowBatchCopyMenu(false); }}>

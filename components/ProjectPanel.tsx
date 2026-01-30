@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Star, Pin, Clock, Pencil, Copy, Trash2, FolderOpen, Tag, RotateCcw } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -628,21 +629,21 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                         onClick={(e) => handleToggleStar(e, project.id)}
                         title={project.isStarred ? '取消星标' : '添加星标'}
                     >
-                        {project.isStarred ? '⭐' : '☆'}
+                        {project.isStarred ? <Star size={14} fill="#fbbf24" color="#fbbf24" /> : <Star size={14} />}
                     </button>
                     <button
                         className="project-action-btn"
                         onClick={(e) => handleTogglePin(e, project.id)}
                         title={project.isPinned ? '取消固定' : '固定'}
                     >
-                        {project.isPinned ? '📌' : '📍'}
+                        {project.isPinned ? <Pin size={14} fill="#f59e0b" color="#f59e0b" /> : <Pin size={14} />}
                     </button>
                     <button
                         className="project-action-btn"
                         onClick={(e) => handleViewVersions(e, project)}
                         title="版本历史"
                     >
-                        🕐
+                        <Clock size={14} />
                     </button>
                     <button
                         className="project-action-btn"
@@ -653,14 +654,14 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                         }}
                         title="重命名"
                     >
-                        ✏️
+                        <Pencil size={14} />
                     </button>
                     <button
                         className="project-action-btn"
                         onClick={(e) => handleDuplicate(e, project.id)}
                         title="复制"
                     >
-                        📋
+                        <Copy size={14} />
                     </button>
                     {deleteConfirmId === project.id ? (
                         <div className="delete-confirm" onClick={(e) => e.stopPropagation()}>
@@ -676,7 +677,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                             }}
                             title="删除"
                         >
-                            🗑️
+                            <Trash2 size={14} />
                         </button>
                     )}
                 </div>
@@ -740,7 +741,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                         onClick={(e) => handleToggleVersionStar(e, version.id)}
                         title={version.isStarred ? '取消星标' : '保留此版本'}
                     >
-                        {version.isStarred ? '⭐' : '☆'}
+                        {version.isStarred ? <Star size={14} fill="#fbbf24" color="#fbbf24" /> : <Star size={14} />}
                     </button>
                     <button
                         className="version-action-btn"
@@ -751,7 +752,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                         }}
                         title="编辑标签"
                     >
-                        🏷️
+                        <Tag size={14} />
                     </button>
                     <button
                         className="version-action-btn restore"
@@ -761,14 +762,14 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                         }}
                         title="恢复到此版本"
                     >
-                        ↩️
+                        <RotateCcw size={14} />
                     </button>
                     <button
                         className="version-action-btn delete"
                         onClick={(e) => handleDeleteVersion(e, version.id)}
                         title="删除"
                     >
-                        🗑️
+                        <Trash2 size={14} />
                     </button>
                 </div>
             </div>
@@ -913,7 +914,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                                     {groupedProjects.pinned.length > 0 && (
                                         <div className="project-group">
                                             <h3 className="project-group-title">
-                                                📌 固定项目
+                                                <Pin size={14} /> 固定项目
                                                 <span className="project-group-count">{groupedProjects.pinned.length}</span>
                                             </h3>
                                             <div className="project-group-items">
@@ -926,7 +927,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                                     {groupedProjects.starred.length > 0 && (
                                         <div className="project-group">
                                             <h3 className="project-group-title">
-                                                ⭐ 星标项目
+                                                <Star size={14} /> 星标项目
                                                 <span className="project-group-count">{groupedProjects.starred.length}</span>
                                             </h3>
                                             <div className="project-group-items">
@@ -939,7 +940,7 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                                     {groupedProjects.normal.length > 0 && (
                                         <div className="project-group">
                                             <h3 className="project-group-title">
-                                                📁 全部项目
+                                                <FolderOpen size={14} /> 全部项目
                                                 <span className="project-group-count">{groupedProjects.normal.length}</span>
                                             </h3>
                                             <div className="project-group-items">
