@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    Key, Upload, User, Shield, AlertCircle, Check, X, ExternalLink, Info, FileJson
+    Key, Upload, User, Shield, AlertCircle, Check, X, ExternalLink, Info, FileJson, Lightbulb, BookOpen, Clipboard, Wrench, AlertTriangle
 } from 'lucide-react';
 import {
     SheetsAuthMode,
@@ -205,7 +205,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                 {/* GAS 提示 */}
                 <div className="gas-tip">
                     <div className="gas-tip-header">
-                        <span>💡</span>
+                        <Lightbulb size={14} className="inline" />
                         <span>文案查重/文本库推荐</span>
                     </div>
                     <div className="gas-tip-desc">
@@ -216,7 +216,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                             onClick={() => setShowGasGuide(true)}
                             className="gas-tip-btn"
                         >
-                            📖 查看 GAS 部署指南
+                            <BookOpen size={14} className="inline mr-1" /> 查看 GAS 部署指南
                         </button>
                     </div>
                 </div>
@@ -375,7 +375,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                     如果不需要以上功能，使用默认的 <strong>API Key（只读）</strong> 模式即可。
                 </div>
                 <div className="info-note info-note-separator">
-                    <strong>💡 获取帮助：</strong>
+                    <Lightbulb size={14} className="inline mr-1" /><strong>获取帮助：</strong>
                     <ul className="mt-1 mb-0">
                         <li>需要创建 <strong>Service Account</strong> 或 <strong>OAuth</strong>？可联系技术员协助配置</li>
                         <li><strong>文案查重/文本库设置</strong>：推荐使用 <strong>GAS (Google Apps Script)</strong> 方式，在文本库设置中配置 Web App URL 即可读写表格，无需复杂认证</li>
@@ -394,7 +394,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                         onClick={e => e.stopPropagation()}
                     >
                         <div className="gas-guide-header">
-                            <h3 className="gas-guide-title">📖 GAS (Google Apps Script) 部署指南</h3>
+                            <h3 className="gas-guide-title"><BookOpen size={16} className="inline mr-1" /> GAS (Google Apps Script) 部署指南</h3>
                             <button
                                 onClick={() => setShowGasGuide(false)}
                                 className="gas-guide-close-btn"
@@ -409,18 +409,18 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                                 <span className="gas-advantage-text">无需复杂认证配置，支持读写，适合个人使用</span>
                             </div>
 
-                            <h4 className="gas-section-title">🔧 部署步骤</h4>
+                            <h4 className="gas-section-title"><Wrench size={14} className="inline mr-1" /> 部署步骤</h4>
                             <ol className="gas-steps-list">
                                 <li className="mb-2">在 Google Sheets 中点击 <code className="gas-code-highlight">扩展程序</code> → <code className="gas-code-highlight">Apps Script</code></li>
                                 <li className="mb-2">删除默认代码，<strong className="text-white">粘贴下方脚本代码</strong></li>
                                 <li className="mb-2">点击 <code className="gas-code-highlight">部署</code> → <code className="gas-code-highlight">新建部署</code> → <code className="gas-code-highlight">Web 应用</code></li>
-                                <li className="mb-2"><span className="gas-warning-text">⚠️ 「谁可以访问」必须选择「任何人」</span></li>
+                                <li className="mb-2"><AlertTriangle size={12} className="inline mr-1 text-amber-400" /><span className="gas-warning-text">「谁可以访问」必须选择「任何人」</span></li>
                                 <li className="mb-2">首次需授权：高级 → 转至 xxx → 允许</li>
                                 <li>复制 Web App URL，粘贴到文案查重页面</li>
                             </ol>
 
                             <h4 className="gas-code-title">
-                                📋 GAS 脚本代码
+                                <Clipboard size={14} className="inline mr-1" /> GAS 脚本代码
                                 <button
                                     onClick={() => {
                                         const code = `/**
@@ -553,7 +553,7 @@ function doPost(e) {
                             </pre>
 
                             <div className="gas-warning-box">
-                                ⚠️ 点击「复制代码」获取完整脚本，上方仅显示部分代码
+                                <AlertTriangle size={14} className="inline mr-1" /> 点击「复制代码」获取完整脚本，上方仅显示部分代码
                             </div>
                         </div>
 

@@ -59,7 +59,7 @@ import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-i
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import SubEmailGenerator from '@/apps/sub-email/SubEmailGenerator';
-import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot } from 'lucide-react';
+import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot, Package, BookOpen, Edit, PlusCircle, Search } from 'lucide-react';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
@@ -6393,7 +6393,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             {!storedUserEmail && !useSharedPool && (
               <div style={{ marginBottom: '1rem', padding: '1rem', background: '#ff000020', borderRadius: '6px', border: '1px solid #ff6b6b' }}>
                 <p style={{ margin: 0, color: '#ff6b6b', fontSize: '0.9rem' }}>
-                  ⚠️ 请先在首页设置您的邮箱
+                  <AlertTriangle size={14} className="inline mr-1" /> 请先在首页设置您的邮箱
                 </p>
               </div>
             )}
@@ -6409,7 +6409,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     {/* Google Sheets 同步状态指示器 */}
                     {sheetSyncStatus === 'syncing' && (
                       <span style={{ fontSize: '0.75rem', color: '#2196f3', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>🔄</span>
+                        <RefreshCw size={12} className="inline animate-spin" />
                         同步到表格...
                       </span>
                     )}
@@ -6503,7 +6503,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   {keysError && !isLoadingKeys && (
                     <div style={{ padding: '1rem', background: '#fff3cd', margin: '0.5rem', borderRadius: '6px', border: '1px solid #ffc107' }}>
                       <p style={{ margin: '0 0 0.75rem 0', color: '#856404', fontSize: '0.9rem', fontWeight: 500 }}>
-                        ⚠️ {keysError}
+                        <AlertTriangle size={14} className="inline mr-1" /> {keysError}
                       </p>
                       {keysError.includes('ApiKeys') || keysError.includes('表格') ? (
                         <details style={{ fontSize: '0.8rem', color: '#856404' }}>
@@ -6545,7 +6545,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                                   A1: user | B1: apiKey | C1: status | D1: nickname
                                 </code>
                               </li>
-                              <li>保存后，点击下方"🔄 刷新池"按钮</li>
+                              <li>保存后，点击下方"<RefreshCw size={12} className="inline" /> 刷新池"按钮</li>
                             </ol>
                           </div>
                         </details>
@@ -6656,7 +6656,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       </p>
                       <details style={{ marginTop: '1rem', textAlign: 'left', fontSize: '0.8rem' }}>
                         <summary style={{ cursor: 'pointer', color: 'var(--primary-color)', marginBottom: '0.5rem' }}>
-                          📚 首次使用？查看设置步骤
+                          <BookOpen size={14} className="inline mr-1" /> 首次使用？查看设置步骤
                         </summary>
                         <div style={{
                           padding: '0.75rem',
@@ -6718,7 +6718,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
             {poolError && (
               <div className="error-message" style={{ marginTop: '10px', padding: '10px', background: '#ff000020', borderRadius: '4px', color: '#ff6b6b' }}>
-                ⚠️ {poolError}
+                <AlertTriangle size={14} className="inline mr-1" /> {poolError}
               </div>
             )}
 
@@ -6730,7 +6730,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 disabled={isRefreshing || (!useSharedPool && !storedUserEmail) || (useSharedPool && !user?.email)}
                 title={useSharedPool ? '从共享API池获取最新密钥' : (!storedUserEmail ? '请先在首页设置邮箱' : '从Google Sheet读取最新密钥列表')}
               >
-                {isRefreshing ? '刷新中...' : '🔄 刷新池'}
+                {isRefreshing ? '刷新中...' : <><RefreshCw size={14} className="inline mr-1" /> 刷新池</>}
               </button>
               <button
                 className="primary"
@@ -6760,7 +6760,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             onMouseDown={e => e.stopPropagation()}
           >
             <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.1rem', fontWeight: 600 }}>
-              {editingKey ? '✏️ 编辑API密钥' : (batchMode ? '📦 批量添加API密钥' : '➕ 添加新API密钥')}
+              {editingKey ? <><Edit size={14} className="inline mr-1" /> 编辑API密钥</> : (batchMode ? <><Package size={14} className="inline mr-1" /> 批量添加API密钥</> : <><PlusCircle size={14} className="inline mr-1" /> 添加新API密钥</>)}
             </h3>
 
             {/* 批量模式切换 - 仅在非编辑模式显示 */}
@@ -8809,7 +8809,7 @@ const App = () => {
                       {/* 版本切换区域 */}
                       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted-color)' }}>
-                          {language === 'zh' ? '🔄 版本切换' : '🔄 Version Switch'}
+                          {language === 'zh' ? <><RefreshCw size={14} className="inline mr-1" /> 版本切换</> : <><RefreshCw size={14} className="inline mr-1" /> Version Switch</>}
                         </label>
                         <div style={{
                           backgroundColor: 'var(--card-background, #2a2a2a)',
@@ -8838,7 +8838,7 @@ const App = () => {
                                 backgroundColor: 'rgba(77, 171, 255, 0.1)'
                               }}
                             >
-                              📦 v2.6.8 (12/30)
+                              <Package size={12} className="inline mr-1" /> v2.6.8 (12/30)
                             </a>
                             <a
                               href="https://ai-toolkit-b2b78--v2-5-1-2nti7xkx.web.app"
@@ -8853,7 +8853,7 @@ const App = () => {
                                 backgroundColor: 'rgba(77, 171, 255, 0.1)'
                               }}
                             >
-                              📦 v2.5.1 (12/21)
+                              <Package size={12} className="inline mr-1" /> v2.5.1 (12/21)
                             </a>
                           </div>
                         </div>
@@ -8940,20 +8940,20 @@ const App = () => {
               >
                 {usePool && apiPoolStatus ? (
                   <>
-                    🔄 API池
+                    <RefreshCw size={14} className="inline mr-1" /> API池
                     <span style={{ marginLeft: '4px', fontSize: '0.85em', opacity: 0.8 }}>
                       ({apiPoolStatus.current}/{apiPoolStatus.total})
                     </span>
                   </>
                 ) : apiKey ? (
                   <>
-                    🔑 手动密钥
+                    <Key size={14} className="inline mr-1" /> 手动密钥
                     <span style={{ marginLeft: '4px', fontSize: '0.75em', fontFamily: 'monospace', opacity: 0.7 }}>
                       {apiKey.substring(0, 6)}...
                     </span>
                   </>
                 ) : (
-                  <>🔑 {t('apiKeyButtonLabel')}</>
+                  <><Key size={14} className="inline mr-1" /> {t('apiKeyButtonLabel')}</>
                 )}
               </button>
               <button
@@ -8973,7 +8973,7 @@ const App = () => {
                 className="secondary-btn tutorial-btn"
                 title={language === 'zh' ? '查看帮助文档' : 'View help documentation'}
               >
-                ❓ {language === 'zh' ? '帮助' : 'Help'}
+                <HelpCircle size={14} className="inline mr-1" /> {language === 'zh' ? '帮助' : 'Help'}
               </button>
               <div className="language-selector model-selector">
                 <label style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>{language === 'zh' ? '文本模型' : 'Text Model'}</label>
@@ -9066,7 +9066,7 @@ const App = () => {
             <div className="preset-inline-controls">
               {/* 缩放控制 */}
               <div className="scale-control" title={language === 'zh' ? '界面缩放' : 'UI Scale'}>
-                <span className="scale-icon">🔍</span>
+                <Search size={16} className="scale-icon" />
                 <select
                   value={UI_SCALE_OPTIONS.includes(uiScale) ? uiScale : 'custom'}
                   onChange={(e) => {
