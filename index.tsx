@@ -58,7 +58,7 @@ import ImageRecognitionApp from '@/apps/ai-image-recognition/ImageRecognitionApp
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle } from 'lucide-react';
+import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle } from 'lucide-react';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
@@ -8567,7 +8567,7 @@ const App = () => {
                       : '点击设置API密钥'
                 }
               >
-                {usePool ? '🔄' : isKeySet ? '🔑' : '⚠️'}
+                {usePool ? <RefreshCw size={14} /> : isKeySet ? <Key size={14} /> : <AlertTriangle size={14} />}
                 {usePool && apiPoolStatus && (
                   <span className="api-pool-count">{apiPoolStatus.current}/{apiPoolStatus.total}</span>
                 )}
@@ -8663,7 +8663,7 @@ const App = () => {
                 title={language === 'zh' ? '帮助中心' : 'Help Center'}
                 style={{ fontSize: '16px' }}
               >
-                ❓
+                <HelpCircle size={16} />
               </button>
 
               {/* 设置按钮 - 弹出设置面板 */}
