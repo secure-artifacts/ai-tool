@@ -124,7 +124,6 @@ export interface CloudDataSource {
  */
 export const saveDataSourcesToCloud = async (sources: CloudDataSource[]): Promise<void> => {
     const userId = getUserId();
-    console.log('[CloudSync] Saving to cloud, userId:', userId, 'sources:', sources.length);
     if (!userId) throw new Error('用户未登录');
 
     const docRef = doc(db, DATA_SOURCES_COLLECTION, userId);
@@ -132,7 +131,6 @@ export const saveDataSourcesToCloud = async (sources: CloudDataSource[]): Promis
         sources,
         updatedAt: serverTimestamp()
     });
-    console.log('[CloudSync] Saved successfully');
 };
 
 /**
@@ -140,30 +138,23 @@ export const saveDataSourcesToCloud = async (sources: CloudDataSource[]): Promis
  */
 export const loadDataSourcesFromCloud = async (): Promise<CloudDataSource[]> => {
     const userId = getUserId();
-    console.log('[CloudSync] Loading from cloud, userId:', userId);
     if (!userId) {
-        console.log('[CloudSync] ❌ No userId - user not logged in');
         return [];
     }
 
     try {
-        console.log('[CloudSync] 📥 Fetching from Firestore...', DATA_SOURCES_COLLECTION, userId);
         const startTime = Date.now();
 
         const docRef = doc(db, DATA_SOURCES_COLLECTION, userId);
         const docSnap = await getDoc(docRef);
 
         const elapsed = Date.now() - startTime;
-        console.log('[CloudSync] ⏱️ Firestore read took', elapsed, 'ms');
 
         if (docSnap.exists()) {
             const rawData = docSnap.data();
-            console.log('[CloudSync] 📄 Raw data:', rawData);
             const data = rawData.sources || [];
-            console.log('[CloudSync] ✅ Loaded', data.length, 'sources from cloud');
             return data;
         }
-        console.log('[CloudSync] 📭 No data in cloud (document does not exist)');
         return [];
     } catch (error) {
         console.error('[CloudSync] ❌ Error loading from cloud:', error);
@@ -1186,7 +1177,6 @@ const expandSheetColumns = async (
         })
     });
 
-    console.log(`[Sheets] Expanded columns to ${targetColNum + 5} for sheet "${sheetName}"`);
 };
 
 /**
@@ -1228,7 +1218,6 @@ export const updateSingleCellInGoogleSheet = async (
     if (!response.ok) {
         const error = await response.json();
         if (error.error?.message?.includes('exceeds grid limits') || error.error?.message?.includes('Max columns')) {
-            console.log(`[Sheets] Expanding columns for ${column}...`);
             await expandSheetColumns(spreadsheetId, sheetName, column, accessToken);
             response = await tryWrite();
 

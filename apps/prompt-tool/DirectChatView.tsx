@@ -189,7 +189,6 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
             const previewText = sessionsWithMessages[0]?.messages[sessionsWithMessages[0].messages.length - 1]?.text?.slice(0, 100) || '';
             const totalMessages = sessionsWithMessages.reduce((sum, s) => sum + s.messages.length, 0);
 
-            console.log('[Project] Saving DirectChat state:', sessionsWithMessages.length, 'sessions,', totalMessages, 'messages');
             debouncedSaveProject(user.uid, 'desc-chat', projectId, stateToSave, {
                 preview: previewText,
                 itemCount: totalMessages
@@ -614,7 +613,6 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
 
             // 项目状态会自动保存
             if (user?.uid) {
-                console.log('[Project] Chat completed, state will be auto-saved');
             }
 
         } catch (error: any) {

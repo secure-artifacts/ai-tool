@@ -674,7 +674,6 @@ export const fetchWorkbookWithAuth = async (
 
     // Log detected IMPORTRANGE references
     if (allImportRangeRefs.length > 0) {
-        console.log('[Parser] Detected IMPORTRANGE references:', allImportRangeRefs);
     }
 
     onProgress?.(`完成！共加载 ${totalSheets} 个工作表`, 100);
@@ -867,28 +866,22 @@ export const fetchWorkbookSmart = async (
     onProgress?: (msg: string, percent?: number) => void,
     allowedSheetNames?: string[]
 ): Promise<XLSX.WorkBook> => {
-    console.log('[SmartLoader] 开始加载，accessToken:', accessToken ? '有' : '无');
 
     // Try API Key first (works for public spreadsheets, never expires)
     try {
         onProgress?.('尝试使用 API Key 加载...', 0);
         const wb = await fetchWorkbookWithApiKey(url, onProgress, allowedSheetNames);
-        console.log('[SmartLoader] ✅ Loaded with API Key (no login required)');
         return wb;
     } catch (apiKeyError) {
         const errorMsg = apiKeyError instanceof Error ? apiKeyError.message : '';
-        console.log('[SmartLoader] API Key 加载失败:', errorMsg);
 
         // If it's a private spreadsheet error
         if (errorMsg.includes('PRIVATE_SPREADSHEET')) {
-            console.log('[SmartLoader] 检测到私有表格，accessToken:', accessToken ? '有效' : '无效');
             // Try OAuth token if available
             if (accessToken) {
                 onProgress?.('表格为私有，使用登录凭证加载...', 0);
                 try {
-                    console.log('[SmartLoader] 尝试使用 OAuth 加载...');
                     const wb = await fetchWorkbookWithAuth(url, accessToken, onProgress, allowedSheetNames);
-                    console.log('[SmartLoader] ✅ Loaded with OAuth token');
                     return wb;
                 } catch (authError) {
                     console.error('[SmartLoader] OAuth 加载失败:', authError);
@@ -896,7 +889,6 @@ export const fetchWorkbookSmart = async (
                     throw new Error(`无法访问此表格。\n\n请选择以下方式之一：\n\n1. 🔄 重新登录 Google 账号\n\n2. 🌐 将表格设为公开\n   在表格设置中选择"知道链接的任何人可查看"\n\n3. 📧 共享给服务账号\n   将此邮箱添加为表格的查看者：\n   ${SERVICE_ACCOUNT_EMAIL}`);
                 }
             } else {
-                console.log('[SmartLoader] 无 accessToken，无法加载私有表格');
                 // No OAuth token, show all options
                 throw new Error(`无法访问此表格（表格为私有）。\n\n请选择以下方式之一：\n\n1. 🔄 登录 Google 账号\n\n2. 🌐 将表格设为公开\n   在表格设置中选择"知道链接的任何人可查看"\n\n3. 📧 共享给服务账号\n   将此邮箱添加为表格的查看者：\n   ${SERVICE_ACCOUNT_EMAIL}`);
             }

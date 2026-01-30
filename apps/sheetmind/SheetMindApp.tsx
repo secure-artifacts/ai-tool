@@ -141,7 +141,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         lastRefreshedAt: lastRefreshedAt || Date.now()
                     }, snapshot.parsedData, snapshot.parsedCacheKey);
                     if (success) {
-                        console.log(`[SmartCache] ✅ 已缓存到本地`);
                     }
 
                     // 本地仅保存元信息，避免 localStorage 体积过大
@@ -168,7 +167,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     const sizeInMB = dataStr.length / (1024 * 1024);
 
                     if (sizeInMB > 3) {
-                        console.log(`[Cache] 数据太大 (${sizeInMB.toFixed(1)}MB)，仅保存元数据`);
                         localStorage.setItem(STORAGE_KEY, JSON.stringify({
                             workbook: null,
                             fileName,
@@ -370,7 +368,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 if (cloudSnapshots.length > 0) {
                     snapshotsCloudLoadedRef.current = true;
                     setSnapshots(cloudSnapshots as ChartSnapshot[]);
-                    console.log('[Cloud Sync] Loaded snapshots from Firestore:', cloudSnapshots.length);
                 }
             } catch (err) {
                 console.error('[Cloud Sync] Failed to load snapshots:', err);
@@ -402,7 +399,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 try {
                     setSnapshotsSyncing(true);
                     await saveSnapshotsToCloud(snapshots as CloudChartSnapshot[]);
-                    console.log('[Cloud Sync] Snapshots saved to Firestore:', snapshots.length);
                 } catch (err) {
                     console.error('[Cloud Sync] Failed to save snapshots:', err);
                 } finally {
@@ -499,7 +495,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     useEffect(() => {
         parsedSheetCacheRef.current.clear();
         parsedSnapshotRef.current = {};
-        console.log('[SheetCache] 🗑️ Cache cleared (new workbook)');
     }, [workbook]);
 
     useEffect(() => {
@@ -513,7 +508,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         parsedData: parsed.parsedData,
                         parsedCacheKey: parsed.parsedCacheKey
                     };
-                    console.log(`[SheetCache] ✅ 恢复本地预解析缓存: ${parsed.parsedCacheKey}`);
                 }
             }
         } catch (e) {
@@ -535,7 +529,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         // Try cache first - instant switch! No loading state needed
         const cached = parsedSheetCacheRef.current.get(cacheKey);
         if (cached) {
-            console.log(`[SheetCache] ⚡ Cache hit: ${cacheKey}`);
             setData(cached);
             setIsParsingData(false);
             setIsRefreshing(false); // 缓存命中也要关闭加载状态
@@ -660,7 +653,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     // Cache the result
                     parsedSheetCacheRef.current.set(cacheKey, parsedData);
                     parsedSnapshotRef.current = { parsedData, parsedCacheKey: cacheKey };
-                    console.log(`[SheetCache] 💾 Cached: ${cacheKey} (${parsedData.rows.length} rows)`);
 
                     // Update data directly - isParsingData already controls the overlay
                     setData(parsedData);
@@ -685,17 +677,14 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         && estimatedCells < preparseCellLimit;
 
                     if (!shouldPreparse && !isMultiSheetMode && workbook.SheetNames && workbook.SheetNames.length > 1) {
-                        console.log('[SheetCache] ⏭️ Skip pre-parse (large dataset)');
                     }
 
                     if (shouldPreparse) {
                         const otherSheets = workbook.SheetNames.filter((name: string) => name !== currentSheetName);
-                        console.log(`[SheetCache] 🔄 Pre-parsing ${otherSheets.length} other sheets in background...`);
 
                         // Use requestIdleCallback to parse in background without blocking
                         const preParseNext = (index: number) => {
                             if (index >= otherSheets.length) {
-                                console.log(`[SheetCache] ✅ All ${otherSheets.length} sheets pre-parsed!`);
                                 return;
                             }
 
@@ -720,7 +709,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                     const preData = await parseSheetAsync(workbook, sheetName, fileName, { chunkSize: 500 });
                                     if (preData) {
                                         parsedSheetCacheRef.current.set(preCacheKey, preData);
-                                        console.log(`[SheetCache] 📦 Pre-cached: ${sheetName}`);
                                     }
                                 } catch (e) {
                                     console.warn(`[SheetCache] Failed to pre-parse ${sheetName}:`, e);
@@ -1019,7 +1007,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 e.preventDefault();
                 setAppendHtmlContent(htmlData);
                 setAppendPasteContent('[Google Sheets 数据已加载，点击“追加数据”继续]');
-                console.log('[Append] 检测到 Google Sheets HTML 格式');
             }
         };
 
@@ -1039,10 +1026,8 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             // Use HTML parsing if we have Google Sheets HTML, otherwise use string parsing
             let wb;
             if (appendHtmlContent) {
-                console.log('[Append] 使用 HTML 格式解析');
                 wb = await readWorkbookFromHtml(appendHtmlContent);
             } else {
-                console.log('[Append] 使用文本格式解析');
                 wb = await readWorkbookFromString(appendPasteContent);
             }
 
@@ -1055,32 +1040,14 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 return;
             }
 
-            // Debug: 输出解析结果
-            console.log('[Append] 解析结果:', {
-                columns: parsedData.columns,
-                rowCount: parsedData.rows.length,
-                sampleRow: parsedData.rows[0],
-                existingColumns: data.columns,
-                existingRowCount: data.rows.length
-            });
 
             // Merge with existing data - match by column name
             const existingColumns = data.columns;
             const pastedColumns = parsedData.columns;
 
-            // Find matching and new columns - 用更详细的比较
+            // Find matching and new columns
             const matchedColumns = pastedColumns.filter(h => existingColumns.includes(h));
             const newColumns = pastedColumns.filter(h => !existingColumns.includes(h) && h);
-
-            // Debug: 输出列名匹配情况
-            console.log('[Append] 列名匹配:', {
-                existingColumns,
-                pastedColumns,
-                matchedColumns,
-                newColumns,
-                // 检查空格问题
-                columnLengths: pastedColumns.map(c => ({ name: c, len: c.length, code: c.charCodeAt(0) }))
-            });
 
             // Create merged column list
             const allColumns = [...existingColumns, ...newColumns];
@@ -1231,7 +1198,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 const cached = cacheResult.data;
                 const hasParsedData = !!cached.parsedData;
                 setLoadProgress(hasParsedData ? '⚡ 秒读（含解析数据）...' : '⚡ 从本地缓存秒读...');
-                console.log(`[SmartCache] ✅ 从本地缓存加载 (缓存于 ${new Date(cached.cachedAt).toLocaleString()})`, hasParsedData ? '(含预解析数据)' : '');
 
                 applyCachedWorkbook({ ...cached, sourceUrl: source.url }, source.name);
                 setLoadProgress(null);
@@ -1257,7 +1223,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 return; // 直接返回，不需要阻塞网络请求
             } else {
                 setLoadProgress('🌐 缓存未命中，从云端加载...');
-                console.log('[SmartCache] 缓存未命中，从网络加载...');
             }
 
             // 无缓存或非 Electron：使用智能加载（优先 API Key，公开表格不需登录）

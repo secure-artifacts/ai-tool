@@ -832,7 +832,6 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                     binsCloudLoadedRef.current = true;
                     if (cloudBins.rowBins.length > 0) setRowBins(cloudBins.rowBins);
                     if (cloudBins.colBins.length > 0) setColBins(cloudBins.colBins);
-                    console.log('[Cloud Sync] Loaded dashboard bins from Firestore');
                 }
             } catch (err) {
                 console.error('[Cloud Sync] Failed to load dashboard bins:', err);
@@ -852,7 +851,6 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                 try {
                     setBinsSyncing(true);
                     await saveDashboardBinsToCloud({ rowBins, colBins });
-                    console.log('[Cloud Sync] Dashboard bins saved to Firestore');
                 } catch (err) {
                     console.error('[Cloud Sync] Failed to save dashboard bins:', err);
                 } finally {

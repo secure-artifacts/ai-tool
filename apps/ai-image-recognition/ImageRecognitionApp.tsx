@@ -173,14 +173,12 @@ async function retryWithBackoff<T>(
                 lastEmptyResult = result;
                 // 空结果时尝试轮换 API 密钥
                 if (!didRotate && onRotate) {
-                    console.log('[retryWithBackoff] Empty result, requesting API rotation...');
                     onRotate();
                     didRotate = true;
                 }
 
                 // 短暂延迟后重试
                 const delay = Math.min(initialDelayMs * Math.pow(1.5, attempt), 5000);
-                console.log(`[retryWithBackoff] Empty result, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
@@ -202,7 +200,6 @@ async function retryWithBackoff<T>(
             if (isQuotaError && attempt < maxRetries) {
                 // 第一次遇到配额错误时尝试轮换 API
                 if (!didRotate && onRotate) {
-                    console.log('[retryWithBackoff] Quota exceeded, requesting API rotation...');
                     onRotate();
                     didRotate = true;
                     // 轮换后立即重试，不等待
@@ -211,7 +208,6 @@ async function retryWithBackoff<T>(
 
                 // 指数退避：2s, 4s, 8s...
                 const delay = initialDelayMs * Math.pow(2, attempt);
-                console.log(`Rate limit hit, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 continue;
             }
@@ -364,7 +360,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 if (!urlToFetch || !urlToFetch.startsWith('http')) return;
 
                 try {
-                    console.log('[Workspace] Loading base64 for image:', img.id, 'from:', urlToFetch);
                     // 使用 fetchImageBlob 处理各种代理和跨域问题
                     const { blob, mimeType } = await fetchImageBlob(urlToFetch);
                     const base64 = await convertBlobToBase64(blob);
@@ -377,7 +372,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                                 : i
                         )
                     }));
-                    console.log('[Workspace] Loaded base64 for:', img.id);
                 } catch (error) {
                     console.error('[Workspace] Failed to load base64 for:', img.id, error);
                 }
@@ -420,7 +414,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             const tempProject = createLocalTempProject();
             if (!cancelled) {
                 setCurrentProject(tempProject);
-                console.log('[Project] Created new temp project:', tempProject.name);
             }
         };
 
@@ -451,7 +444,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
         // 空项目不保存
         if (state.images.length === 0) {
-            console.log('[Project] Skipping save - no images');
             return;
         }
 
@@ -500,7 +492,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             return;
         }
 
-        console.log(`[Project] State changed! Images: ${state.images.length}, Success: ${successCount}, Chats: ${totalChats}`)
         lastSavedStateRef.current = stateFingerprint;
 
         // 保存到项目
@@ -511,7 +502,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             if (projectId.startsWith('temp_')) {
                 // 防止重复创建项目的竞态条件
                 if (isCreatingProjectRef.current) {
-                    console.log('[Project] Already creating project, skipping...');
                     return;
                 }
 
@@ -523,7 +513,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     });
                     // 更新 currentProject 的 ID
                     setCurrentProject(prev => prev ? { ...prev, id: projectId } : null);
-                    console.log('[Project] Converted temp project to:', projectId);
                 } catch (error) {
                     console.error('[Project] Failed to create project:', error);
                     isCreatingProjectRef.current = false;
@@ -594,7 +583,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             const thumbnailUrl = state.images.find(img => img.gyazoUrl)?.gyazoUrl;
             const previewText = state.images[0]?.result?.slice(0, 100) || `${state.images.length} 张图片`;
 
-            console.log('[Project] Saving state with', cleanedImages.length, 'images to:', projectId);
             debouncedSaveProject(user.uid, 'image-recognition', projectId, stateToSave, {
                 preview: previewText,
                 itemCount: state.images.length,
@@ -611,11 +599,9 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         setCurrentProject(project);
 
         if (project.currentState && Object.keys(project.currentState).length > 0) {
-            console.log('[Project] Switching to:', project.name);
             restoreFromProject(project.currentState);
         } else {
             // 新项目，使用初始状态，但保留当前的 presets
-            console.log('[Project] New project, using initial state');
             setState(prev => ({
                 ...initialImageRecognitionState,
                 presets: prev.presets,
@@ -670,12 +656,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 // 默认预设始终使用代码中的最新版本，不被云端覆盖
                 const finalPresets = [...DEFAULT_PRESETS, ...cloudCustomPresets];
 
-                console.log('[Presets Cloud] 合并预设:', {
-                    defaults: DEFAULT_PRESETS.length,
-                    cloudCustom: cloudCustomPresets.length,
-                    total: finalPresets.length
-                });
-
                 // 更新状态和本地缓存
                 setState(prev => ({ ...prev, presets: finalPresets }));
                 savePresetsToStorage(finalPresets);
@@ -683,7 +663,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
                 // 保存合并后的预设到云端
                 await savePresetsToFirebase(user.uid, 'image-recognition', finalPresets);
-                console.log('[Presets Cloud] Synced merged presets to Firebase');
             } catch (error) {
                 console.error('[Presets Cloud] Failed to load presets:', error);
             }
@@ -704,7 +683,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         presetsSaveTimeoutRef.current = setTimeout(async () => {
             try {
                 await savePresetsToFirebase(user.uid, 'image-recognition', presets);
-                console.log('[Presets Cloud] Saved', presets.length, 'presets to Firebase');
             } catch (error) {
                 console.error('[Presets Cloud] Failed to save presets:', error);
             }
@@ -771,11 +749,9 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
     const classifyImage = async (base64Data: string, mimeType: string, prompt: string): Promise<string> => {
         return retryWithBackoff(async () => {
-            console.log('[classifyImage] Getting AI instance...');
             const ai = getAiInstance();
             const modelId = imageModel;
 
-            console.log('[classifyImage] Calling generateContent...');
             const response = await ai.models.generateContent({
                 model: modelId,
                 contents: {
@@ -796,13 +772,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 }
             });
 
-            console.log('[classifyImage] Success!');
             return response.text || "";
         }, 3, 2000, () => {
-            console.log('[classifyImage] Rotate API key requested!');
             if (onRotateApiKey) {
                 onRotateApiKey();
-                console.log('[classifyImage] onRotateApiKey called');
             } else {
                 console.warn('[classifyImage] onRotateApiKey is not defined!');
             }
@@ -1196,9 +1169,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [setImages]);
 
     const handleTextPaste = async (text: string) => {
-        console.log('[handleTextPaste] Input text:', text);
         const parsed = parsePasteInput(text);
-        console.log('[handleTextPaste] Parsed result:', JSON.stringify(parsed, null, 2));
         addFromUrls(parsed);
     };
 
@@ -1393,10 +1364,8 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
                 // 如果开启了纯净回复模式，在提示词末尾添加后缀
                 if (pureReplyMode) {
-                    console.log('[runAnalysis] Pure reply mode is ON, appending suffix');
                     effectivePrompt = effectivePrompt + PURE_REPLY_SUFFIX;
                 } else {
-                    console.log('[runAnalysis] Pure reply mode is OFF');
                 }
 
                 const result = await classifyImage(item.base64Data, item.mimeType, effectivePrompt);
@@ -1429,7 +1398,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     // 项目状态会自动保存，不再需要单独保存历史记录
                     const saveToHistory = () => {
                         // 项目系统会自动保存整个状态，包括识别结果
-                        console.log('[Project] Image recognition completed, state will be auto-saved');
                     };
 
                     if (uploadPromise) {
@@ -1886,7 +1854,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
             // 对话完成后项目状态会自动保存
             if (user?.uid) {
-                console.log('[Project] Chat completed, state will be auto-saved');
             }
         } catch (error: any) {
             console.error('Chat error:', error);
@@ -2301,7 +2268,6 @@ ${image.result}
 
             // 创新对话完成后项目状态会自动保存
             if (user?.uid) {
-                console.log('[Project] Innovation chat completed, state will be auto-saved');
             }
         } catch (error: any) {
             console.error('Innovation chat error:', error);
@@ -2959,7 +2925,6 @@ ${text}`;
                                             // 优先检查纯文本中是否有 =IMAGE() 公式
                                             const text = clipboardData.getData('text/plain');
                                             if (text && text.includes('=IMAGE')) {
-                                                console.log('[DropZone Paste] Detected =IMAGE formula, using text parser');
                                                 handleTextPaste(text);
                                                 return;
                                             }

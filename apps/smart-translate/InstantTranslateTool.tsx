@@ -83,10 +83,8 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
     // 加载历史记录
     const loadHistory = useCallback(async () => {
         if (!user?.uid) {
-            console.log('[History] Load skipped: no user');
             return;
         }
-        console.log('[History] Loading history...');
         setHistoryLoading(true);
         try {
             const project = await getOrCreateSharedProject(
@@ -94,9 +92,7 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
                 'smart-translate-instant',
                 '即时翻译记录'
             );
-            console.log('[History] Project loaded:', project.id, 'currentState:', project.currentState);
             const items = project.currentState?.items || [];
-            console.log('[History] Items count:', items.length);
             setHistoryItems(items);
         } catch (err) {
             console.error('[History] Failed to load history:', err);
@@ -157,7 +153,6 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
             return;
         }
 
-        console.log('[History] Will save in 5 seconds...');
 
         // 5 秒后自动保存
         autoSaveTimerRef.current = setTimeout(async () => {
@@ -165,13 +160,11 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
             const state = latestStateRef.current;
 
             if (!state.userId || !state.inputText.trim() || !state.outputText.trim()) {
-                console.log('[History] Save skipped: no content or user');
                 return;
             }
 
             const currentFingerprint = `${state.inputText}|||${state.outputText}|||${state.targetLanguage}`;
             if (currentFingerprint === lastSavedContentRef.current) {
-                console.log('[History] Save skipped: content unchanged');
                 return;
             }
 
@@ -192,7 +185,6 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
 
             // 1. 立即更新本地状态（用户立即看到）
             setHistoryItems(updatedItems);
-            console.log('[History] Added record locally, total:', updatedItems.length);
 
             // 2. 记录已保存的内容指纹
             lastSavedContentRef.current = currentFingerprint;
@@ -215,7 +207,6 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
                     preview: state.outputText.slice(0, 100),
                     itemCount: updatedItems.length
                 });
-                console.log('[History] Saving to Firestore...');
             } catch (err) {
                 console.error('[History] Failed to save to Firestore:', err);
             }

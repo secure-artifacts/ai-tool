@@ -52,9 +52,7 @@ function ScriptToolApp() {
 
     // clearSource: false = 保留原文（默认）, true = 删除原文
     const options: ProcessOptions = { clearSource, customPrefix: prefix };
-    console.log('Before processGrid:', { gridData, selection, tool, options });
     const { newGrid, updatedCols } = processGrid(gridData, selection, tool, options);
-    console.log('After processGrid:', { newGrid, updatedCols });
     setGridData(newGrid);
 
     // 标记原列为橙色（拆分操作时，且保留原文）

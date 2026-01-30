@@ -181,7 +181,6 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
             const fullWorkspace = await getWorkspace(user.uid, moduleId, workspace.id);
 
             if (fullWorkspace) {
-                console.log('[WorkspaceSwitcher] Loaded full workspace:', fullWorkspace.name, 'state:', !!fullWorkspace.state);
                 onWorkspaceChange(fullWorkspace);
             } else {
                 // 如果获取失败，使用列表中的工作区

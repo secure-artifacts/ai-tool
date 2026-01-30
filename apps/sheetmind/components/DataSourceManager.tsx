@@ -48,18 +48,14 @@ export const loadDataSources = (): DataSource[] => {
 export const saveDataSources = (sources: DataSource[]) => {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(sources));
-        console.log('[DataSources] Saved to localStorage:', sources.length);
         // Also sync to cloud if user is logged in (async, don't block)
         const loggedIn = isUserLoggedIn();
-        console.log('[DataSources] isUserLoggedIn:', loggedIn);
         if (loggedIn) {
             const cloudSources = sources.filter(source => source.type === 'google-sheets');
             if (cloudSources.length > 0) {
-                console.log('[DataSources] Triggering cloud sync...');
                 saveDataSourcesToCloud(cloudSources)
                     .then(() => {
                         localStorage.removeItem(PENDING_SYNC_KEY);
-                        console.log('[DataSources] Cloud sync success');
                     })
                     .catch(err => {
                         console.error('[DataSources] Cloud sync failed:', err);
@@ -219,7 +215,6 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                 const sheetNames = wb.SheetNames || [];
                 if (sheetNames.length > 0) {
                     parsedData = await parseMultipleSheetsAsync(wb, sheetNames, source.name, { chunkSize: 1000 });
-                    console.log('[Cache] Pre-parsed data with', parsedData?.rows?.length || 0, 'rows');
                 }
             } catch (parseErr) {
                 console.warn('[Cache] Pre-parse failed, will parse on load:', parseErr);
@@ -236,7 +231,6 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
 
             if (result.success) {
                 setCachedSourceIds(prev => new Set([...prev, source.id]));
-                console.log('[Cache] Source cached:', source.name);
             } else {
                 throw new Error(result.error);
             }
@@ -280,20 +274,16 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                 // 检查旧缓存是否有 parsedData
                 try {
                     const result = await (window as any).electronAPI.loadCache(cacheKey);
-                    console.log('[Cache] Checking existing cache for', source.name, 'result:', result?.success, 'hasParsedData:', !!(result?.data?.parsedData));
                     if (result && result.success && result.data) {
                         existingCache = result.data;
                         if (!existingCache.parsedData) {
                             // 旧缓存缺少预解析数据，需要升级
                             needsCache = true;
-                            console.log('[Cache] ⬆️ Upgrading cache for', source.name, '(missing parsedData)');
                         } else {
-                            console.log('[Cache] ✅ Cache already has parsedData:', source.name);
                         }
                     } else {
                         // 缓存加载失败，需要重新缓存
                         needsCache = true;
-                        console.log('[Cache] ⚠️ Failed to load cache for', source.name, ', will re-cache');
                     }
                 } catch (err) {
                     console.warn('[Cache] Failed to check existing cache:', err);
@@ -311,7 +301,6 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                 if (!wb) {
                     // 需要从网络加载，检查是否有登录
                     if (!accessToken) {
-                        console.log('[Cache] ⏭️ Skipping', source.name, '(not logged in, no existing cache)');
                         continue;
                     }
                     wb = await fetchWorkbookWithAuth(source.url, accessToken, () => { }, source.selectedSheets);
@@ -323,7 +312,6 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                     const sheetNames = wb.SheetNames || [];
                     if (sheetNames.length > 0) {
                         parsedData = await parseMultipleSheetsAsync(wb, sheetNames, source.name, { chunkSize: 1000 });
-                        console.log('[Cache] Pre-parsed data with', parsedData?.rows?.length || 0, 'rows');
                     }
                 } catch (parseErr) {
                     console.warn('[Cache] Pre-parse failed:', parseErr);
@@ -377,23 +365,18 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
     useEffect(() => {
         if (isOpen && !authLoading) {
             const localSources = loadDataSources();
-            console.log('[DataSourceManager] 本地数据:', localSources.length, '个');
             setSources(localSources);
 
             // Also try to load from cloud and merge if user is logged in
             const loggedIn = !!user;
-            console.log('[DataSourceManager] 用户已登录:', loggedIn);
 
             if (loggedIn) {
                 setIsSyncing(true);
-                console.log('[DataSourceManager] 开始从云端加载...');
                 loadDataSourcesFromCloud()
                     .then(cloudSources => {
-                        console.log('[DataSourceManager] 云端数据:', cloudSources.length, '个');
                         if (cloudSources.length > 0) {
                             // Merge cloud with local
                             const merged = mergeDataSources(localSources, cloudSources);
-                            console.log('[DataSourceManager] 合并后:', merged.length, '个');
                             setSources(merged);
                             // Save merged back to local
                             localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
@@ -415,7 +398,6 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                         setIsSyncing(false);
                     });
             } else {
-                console.log('[DataSourceManager] 用户未登录，跳过云端加载');
             }
 
             // 检查哪些数据源已经被缓存（仅Electron环境）
@@ -430,7 +412,6 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                             }
                         }
                         setCachedSourceIds(cachedIds);
-                        console.log('[Cache] Found cached sources:', cachedIds.size);
                     }
                 }).catch((err: any) => {
                     console.error('[Cache] Failed to check cache:', err);

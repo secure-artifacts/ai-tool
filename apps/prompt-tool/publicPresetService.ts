@@ -92,7 +92,6 @@ export async function sharePresetToPublic(
             createdByEmail: email    // 用于验证删除权限
         });
 
-        console.log('[PublicPreset] Preset shared successfully:', presetId);
         return true;
     } catch (error) {
         console.error('[PublicPreset] Failed to share preset:', error);
@@ -115,7 +114,6 @@ export async function deletePublicPreset(
         const presetRef = doc(db, COLLECTION_NAME, DOC_NAME, 'items', presetId);
         await deleteDoc(presetRef);
 
-        console.log('[PublicPreset] Preset deleted:', presetId);
         return true;
     } catch (error) {
         console.error('[PublicPreset] Failed to delete preset:', error);

@@ -151,7 +151,6 @@ async function retryOnEmpty<T>(
 
             if (attempt < maxRetries) {
                 const delay = Math.min(initialDelayMs * Math.pow(1.5, attempt), 5000);
-                console.log(`[retryOnEmpty] Empty result, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         } catch (error) {
@@ -333,7 +332,6 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
             if (projectId.startsWith('temp_')) {
                 // 防止重复创建项目的竞态条件
                 if (isCreatingProjectRef.current) {
-                    console.log('[Project] Already creating project, skipping...');
                     return;
                 }
 
@@ -385,7 +383,6 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
             const previewText = completedEntries[0]?.outputs[0]?.en?.slice(0, 100) || '';
             const totalOutputs = completedEntries.reduce((sum, e) => sum + e.outputs.length, 0);
 
-            console.log('[Project] Saving DescInnovator state:', completedEntries.length, 'entries,', totalOutputs, 'outputs');
             debouncedSaveProject(user.uid, 'desc-innovator', projectId, stateToSave, {
                 preview: previewText,
                 itemCount: totalOutputs
@@ -1419,7 +1416,6 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
                 // 项目状态会自动保存
                 if (user?.uid) {
-                    console.log('[Project] Innovation completed, state will be auto-saved');
                 }
 
             } catch (err: any) {

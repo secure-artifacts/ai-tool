@@ -1054,7 +1054,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 const currentYear = current.getFullYear();
 
                 if (targetMonth !== currentMonth || targetYear !== currentYear) {
-                    console.log(`[Calendar] 自动跳转到业务月份: ${targetYear}年${targetMonth + 1}月 (数据最新日期: ${latestDate?.toLocaleDateString()})`);
                     return new Date(targetYear, targetMonth, 1);
                 }
                 return current;
@@ -1503,7 +1502,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 const cloudPresets = await loadCategoryPresets(user.uid);
                 if (cloudPresets && cloudPresets.length > 0) {
                     setCustomPresets(cloudPresets);
-                    console.log('[Presets] Loaded', cloudPresets.length, 'custom presets from cloud');
                 }
             } catch (err) {
                 console.error('[Presets] Failed to load presets:', err);
@@ -1525,7 +1523,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
             const { saveCategoryPresets } = await import('@/services/firestoreService');
             await saveCategoryPresets(user.uid, presets);
-            console.log('[Presets] Saved', presets.length, 'presets to cloud');
         } catch (err) {
             console.error('[Presets] Failed to save presets:', err);
         }
@@ -1577,7 +1574,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     const categoriesMap = new Map<string, string>();
                     cloudCategories.forEach(c => categoriesMap.set(c.imageUrl, c.category));
                     setGalleryCategories(categoriesMap);
-                    console.log('[Categories] Loaded', cloudCategories.length, 'categories from cloud');
                 }
             } catch (err) {
                 console.error('[Categories] Failed to load categories:', err);
@@ -1601,7 +1597,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     const notesMap = new Map<string, GalleryNote>();
                     cloudNotes.forEach(n => notesMap.set(n.imageUrl, n));
                     setGalleryNotes(notesMap);
-                    console.log('[Notes] Loaded', cloudNotes.length, 'notes from cloud');
                 }
             } catch (err) {
                 console.error('[Notes] Failed to load notes:', err);
@@ -1685,7 +1680,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 });
                 return merged;
             });
-            console.log(`[SheetData] Loaded ${notesLoaded} notes from column "${noteColumn}"`);
         }
 
         if (newCategories.size > 0) {
@@ -1698,7 +1692,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 });
                 return merged;
             });
-            console.log(`[SheetData] Loaded ${categoriesLoaded} categories from column "${categoryColumn}"`);
         }
 
         if (notesLoaded > 0 || categoriesLoaded > 0) {
@@ -1788,7 +1781,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             if (isUserLoggedIn()) {
                 try {
                     await upsertGalleryNoteToCloud(note);
-                    console.log('[Notes] Saved note to cloud');
                 } catch (firebaseErr) {
                     console.warn('[Notes] Firebase save failed (permission issue?):', firebaseErr);
                     // Don't block - local state is already updated
@@ -1815,7 +1807,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             noteModal.currentNote,
                             accessToken
                         );
-                        console.log('[Notes] Synced note to Google Sheets ' + NOTE_COLUMN + noteModal.rowIndex);
                         setCopyFeedback('✅ 备注已保存并同步到表格');
                     } else {
                         setCopyFeedback('✅ 备注已保存（未登录Google，无法同步表格）');
@@ -1916,7 +1907,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         createdAt: Date.now(),
                         updatedAt: Date.now()
                     });
-                    console.log('[Category] Saved to cloud');
                 } catch (firebaseErr) {
                     console.warn('[Category] Firebase save failed:', firebaseErr);
                     // Don't block - local state is already updated
@@ -1943,7 +1933,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             selectedCategory,
                             accessToken
                         );
-                        console.log('[Category] Synced to Google Sheets ' + CATEGORY_COLUMN + categoryModal.rowIndex);
                         setCopyFeedback(`✅ 分类已保存并同步到表格`);
                     } else {
                         setCopyFeedback('✅ 分类已保存（未登录Google，无法同步表格）');
@@ -2208,7 +2197,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 try {
                     setConfigSyncing(true);
                     await saveCurrentGalleryConfigToCloud(config as unknown as Record<string, unknown>);
-                    console.log('[Cloud Sync] Gallery config saved to Firestore');
                 } catch (err) {
                     console.error('[Cloud Sync] Failed to save gallery config:', err);
                 } finally {
@@ -2239,7 +2227,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         const filtered = filterSharedUpdates(next);
                         return Object.keys(filtered).length > 0 ? { ...prev, ...filtered } : prev;
                     });
-                    console.log('[Cloud Sync] Loaded gallery config from Firestore');
                 }
             } catch (err) {
                 console.error('[Cloud Sync] Failed to load gallery config:', err);
@@ -2275,7 +2262,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         .map(c => sanitizeSavedConfigForCloud(c))
                         .filter((c): c is SavedGalleryConfig => !!c);
                     await saveGallerySavedConfigsToCloud(cloudFormat);
-                    console.log('[Cloud Sync] Saved configs synced to Firestore');
                 } catch (err) {
                     console.error('[Cloud Sync] Failed to sync saved configs:', err);
                 } finally {
@@ -2305,7 +2291,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         }));
                         return Array.from(merged.values()).sort((a, b) => b.createdAt - a.createdAt);
                     });
-                    console.log('[Cloud Sync] Loaded saved configs from Firestore:', cloudConfigs.length);
                 }
             } catch (err) {
                 console.error('[Cloud Sync] Failed to load saved configs:', err);
@@ -2716,14 +2701,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
         if (!imageColumnValid) {
             let imageCol = '';
-            console.log('[Gallery] Auto-detecting image column...');
-            console.log('[Gallery] Available columns:', effectiveData.columns);
 
             // 1️⃣ 优先级最高：查找包含 =IMAGE() 公式的列
             for (const col of effectiveData.columns) {
                 if (isImageFormulaColumn(effectiveData.rows, col)) {
                     const sample = effectiveData.rows.slice(0, 2).map(r => String(r[col] || '').substring(0, 60));
-                    console.log('[Gallery] ✨ Found IMAGE formula column:', col, 'Sample:', sample);
                     imageCol = col;
                     break;
                 }
@@ -2732,7 +2714,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             // 2️⃣ 其次：查找默认列名
             if (!imageCol && effectiveData.columns.includes(DEFAULT_IMAGE_COLUMN)) {
                 imageCol = DEFAULT_IMAGE_COLUMN;
-                console.log('[Gallery] Found default image column:', imageCol);
             }
 
             // 3️⃣ 最后：查找任何包含图片 URL 的列
@@ -2740,7 +2721,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 for (const col of effectiveData.columns) {
                     if (isLikelyImageColumn(effectiveData.rows, col)) {
                         const sample = effectiveData.rows.slice(0, 2).map(r => String(r[col] || '').substring(0, 60));
-                        console.log('[Gallery] Detected URL image column:', col, 'Sample:', sample);
                         imageCol = col;
                         break;
                     }
@@ -2748,11 +2728,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             }
 
             if (!imageCol) {
-                console.log('[Gallery] No image column detected automatically');
             }
             if (imageCol) updates.imageColumn = imageCol;
         } else {
-            console.log('[Gallery] Image column valid:', config.imageColumn, '✓ exists in data');
         }
 
         if (!config.linkColumn) {

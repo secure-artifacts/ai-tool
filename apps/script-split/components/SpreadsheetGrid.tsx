@@ -512,7 +512,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if ((window as any).electronAPI?.clipboardReadText) {
       try {
         text = (window as any).electronAPI.clipboardReadText() || '';
-        console.log('[SpreadsheetGrid] Keyboard paste using Electron API, got:', text.substring(0, 100));
       } catch (err) {
         console.warn('[SpreadsheetGrid] Electron clipboard failed:', err);
       }
@@ -522,7 +521,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if (!text) {
       try {
         text = await navigator.clipboard.readText();
-        console.log('[SpreadsheetGrid] Keyboard paste using browser API, got:', text.substring(0, 100));
       } catch (err) {
         console.warn('[SpreadsheetGrid] Browser clipboard failed:', err);
       }
@@ -565,7 +563,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     if ((window as any).electronAPI?.clipboardReadText) {
       try {
         text = (window as any).electronAPI.clipboardReadText() || '';
-        console.log('[SpreadsheetGrid] Using Electron clipboard API, got:', text.substring(0, 100));
       } catch (err) {
         console.warn('[SpreadsheetGrid] Electron clipboard failed:', err);
       }
@@ -574,7 +571,6 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     // 如果 Electron API 失败或为空，尝试浏览器剪贴板
     if (!text) {
       text = e.clipboardData?.getData('text/plain') || '';
-      console.log('[SpreadsheetGrid] Using browser clipboard, got:', text.substring(0, 100));
     }
 
     if (!text) {

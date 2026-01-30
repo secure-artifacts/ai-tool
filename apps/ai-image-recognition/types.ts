@@ -123,11 +123,6 @@ const loadPresetsFromStorage = (): Preset[] => {
 
                 // 保存合并后的列表
                 localStorage.setItem('ai-classifier-presets', JSON.stringify(merged));
-                console.log('[Presets] 合并预设:', {
-                    defaults: DEFAULT_PRESETS.length,
-                    localCustom: localCustomPresets.length,
-                    total: merged.length
-                });
                 return merged;
             }
         }

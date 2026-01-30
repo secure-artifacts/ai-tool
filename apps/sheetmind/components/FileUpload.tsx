@@ -47,24 +47,18 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
     useEffect(() => {
         const loadSources = async () => {
             setLoadingSources(true);
-            console.log('[FileUpload] Starting to load sources...');
             const local = loadDataSources();
-            console.log('[FileUpload] Local sources:', local.length);
 
             if (isUserLoggedIn()) {
-                console.log('[FileUpload] User logged in, loading from cloud...');
                 try {
                     const cloud = await loadDataSourcesFromCloud();
-                    console.log('[FileUpload] Cloud sources:', cloud.length);
                     const merged = mergeDataSources(local, cloud);
-                    console.log('[FileUpload] Merged sources:', merged.length);
                     setRecentSources(merged); // Show all sources
                 } catch (err) {
                     console.error('[FileUpload] Cloud load failed:', err);
                     setRecentSources(local);
                 }
             } else {
-                console.log('[FileUpload] User not logged in, using local only');
                 setRecentSources(local);
             }
             setLoadingSources(false);
@@ -83,7 +77,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
                             }
                         }
                         setCachedSourceIds(cachedIds);
-                        console.log('[Cache] Found cached sources:', cachedIds.size);
                     }
                 } catch (err) {
                     console.error('[Cache] Failed to check cache:', err);
@@ -341,7 +334,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
 
             if (result.success) {
                 setCachedSourceIds(prev => new Set([...prev, source.id]));
-                console.log('[Cache] Source cached:', source.name);
             } else {
                 throw new Error(result.error);
             }

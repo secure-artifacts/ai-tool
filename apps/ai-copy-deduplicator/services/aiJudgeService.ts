@@ -164,8 +164,6 @@ ${items.map(item => `[${item.index}] ${item.text}`).join('\n\n')}
         const responseText = result.text?.trim() || '{}';
 
         // 调试日志
-        console.log('=== AI 去重返回结果 ===');
-        console.log('原始返回:', responseText);
 
         // 解析 JSON
         let parsed: any;
@@ -182,9 +180,6 @@ ${items.map(item => `[${item.index}] ${item.text}`).join('\n\n')}
             }
         }
 
-        console.log('解析后:', parsed);
-        console.log('uniqueIndices:', parsed.uniqueIndices);
-        console.log('duplicateGroups:', parsed.duplicateGroups);
 
         // 构建结果
         // 支持新格式 uniqueItems 和旧格式 uniqueIndices

@@ -447,7 +447,6 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
         try {
             const docRef = doc(db, 'users', user.uid, 'settings', PRESETS_DOC_PATH);
             await setDoc(docRef, { presets: newPresets }, { merge: true });
-            console.log('[CopywritingView] Presets saved to Firebase');
         } catch (error) {
             console.error('[CopywritingView] Failed to save presets:', error);
         }

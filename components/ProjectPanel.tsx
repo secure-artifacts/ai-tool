@@ -167,7 +167,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                                 thumbnail: p.thumbnail
                             }));
                         setProjects(dedupeProjects(moduleProjects));
-                        console.log('[ProjectPanel] Loaded', moduleProjects.length, 'projects from email sync');
                     }
                     setIsLoading(false);
                 }
@@ -211,7 +210,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                                 }));
                             if (moduleProjects.length > 0) {
                                 setProjects(dedupeProjects(moduleProjects));
-                                console.log('[ProjectPanel] Loaded', moduleProjects.length, 'projects from email sync (fallback)');
                             }
                         }
                     }
@@ -276,31 +274,24 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
 
     // 操作：切换项目
     const handleSwitchProject = async (project: ProjectListItem) => {
-        console.log('[ProjectPanel] handleSwitchProject called for:', project.id, project.name);
 
         if (!effectiveUserId) {
-            console.log('[ProjectPanel] No effectiveUserId, aborting');
             return;
         }
 
         // 防止重复点击
         if (isSwitchingProject) {
-            console.log('[ProjectPanel] Already switching project, ignoring click');
             return;
         }
 
-        console.log('[ProjectPanel] Starting project switch...');
         setSwitchingProjectId(project.id);
         setIsSwitchingProject(true);
 
         try {
-            console.log('[ProjectPanel] Fetching full project data...');
             let fullProject = await getProject(effectiveUserId, moduleId, project.id);
-            console.log('[ProjectPanel] getProject result:', fullProject ? 'success' : 'null');
 
             // 如果 Firebase 无法获取项目，尝试从云同步获取或构建项目
             if (!fullProject) {
-                console.log('[ProjectPanel] Firebase project not found, trying cloud sync fallback...');
                 try {
                     const { getSavedSyncEmail, pullFromCloud } = await import('@/services/cloudSyncService');
                     const syncEmail = getSavedSyncEmail();
@@ -308,7 +299,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                         const cloudData = await pullFromCloud(syncEmail);
                         if (cloudData) {
                             // 从云同步数据构建完整项目对象
-                            console.log('[ProjectPanel] Cloud data found, constructing project from cloud sync...');
 
                             fullProject = {
                                 id: project.id,
@@ -335,7 +325,6 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
                                     pureReplyMode: cloudData.pureReplyMode ?? false
                                 }
                             } as any;
-                            console.log('[ProjectPanel] Built project from cloud sync with', cloudData.images?.length || 0, 'images');
                         }
                     }
                 } catch (cloudError) {
@@ -344,18 +333,13 @@ const ProjectPanel: React.FC<ProjectPanelProps> = ({
             }
 
             if (fullProject) {
-                console.log('[ProjectPanel] Setting active project...');
                 // 只有当 Firebase 有这个项目时才设置激活状态
                 try {
                     await setActiveProject(effectiveUserId, moduleId, project.id);
                 } catch (e) {
-                    console.log('[ProjectPanel] setActiveProject failed (may be cloud-only project):', e);
                 }
-                console.log('[ProjectPanel] Calling onProjectChange...');
                 onProjectChange(fullProject);
-                console.log('[ProjectPanel] Calling onClose...');
                 onClose();
-                console.log('[ProjectPanel] Switch complete!');
             } else {
                 console.error('[ProjectPanel] fullProject is null, cannot switch');
                 setError('无法加载项目数据');

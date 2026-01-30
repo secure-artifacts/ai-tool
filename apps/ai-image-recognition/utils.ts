@@ -32,7 +32,6 @@ export const processImageUrl = (url: string): string => {
         if (urlObj.hostname === 'gyazo.com' && urlObj.pathname.length > 1) {
             const gyazoId = urlObj.pathname.slice(1).split('/')[0];  // 去除开头的 / 并获取 ID
             if (gyazoId && /^[a-f0-9]+$/i.test(gyazoId)) {
-                console.log('[processImageUrl] Converting Gyazo share link to direct image:', gyazoId);
                 // 优先尝试 png 格式（截图最常见），fetchImageBlob 会负责重试其他格式
                 return `https://i.gyazo.com/${gyazoId}.png`;
             }
@@ -48,7 +47,6 @@ export const processImageUrl = (url: string): string => {
                 const imgurId = pathParts[0];
                 // Imgur IDs are alphanumeric, typically 5-7 characters
                 if (imgurId && /^[a-zA-Z0-9]+$/.test(imgurId) && imgurId.length >= 5 && imgurId.length <= 10) {
-                    console.log('[processImageUrl] Converting Imgur share link to direct image:', imgurId);
                     return `https://i.imgur.com/${imgurId}.jpg`;
                 }
             }
@@ -172,7 +170,6 @@ export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeTyp
                 if (response.ok) {
                     const blob = await response.blob();
                     if (blob.size > 100 && blob.type.startsWith('image/')) {
-                        console.log(`[fetchImageBlob] Gyazo image loaded: ${gyazoId}.${ext}`);
                         return { blob, mimeType: blob.type };
                     }
                 }
@@ -305,13 +302,10 @@ export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeTyp
     // 对于 Facebook CDN，先尝试 img 标签方式（用户浏览器可能有 session）
     if (isFb) {
         try {
-            console.log('[fetchImageBlob] Trying img+canvas method for Facebook CDN...');
             const blob = await tryLoadViaImage(url);
-            console.log('[fetchImageBlob] img+canvas method succeeded!');
             return { blob, mimeType: 'image/jpeg' };
         } catch (imgError) {
             errors.push({ url: `[img+canvas] ${url}`, error: imgError });
-            console.log('img+canvas method failed, trying fetch...', imgError);
         }
 
         // 然后尝试直接 fetch
@@ -320,7 +314,6 @@ export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeTyp
             return { blob, mimeType: blob.type };
         } catch (directError) {
             errors.push({ url: `[direct] ${url}`, error: directError });
-            console.log('Direct fetch failed for Facebook CDN, trying proxies...', directError);
         }
     }
 

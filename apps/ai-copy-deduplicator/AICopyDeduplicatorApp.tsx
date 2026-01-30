@@ -139,11 +139,6 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
             const parsedItems = parseInputText(state.inputText);
 
             // 调试：打印原始输入和解析结果
-            console.log('=== 文案去重调试 ===');
-            console.log('原始输入长度:', state.inputText.length);
-            console.log('包含制表符:', state.inputText.includes('\t'));
-            console.log('解析结果数量:', parsedItems.length);
-            console.log('解析结果:', parsedItems);
 
             if (parsedItems.length === 0) {
                 throw new Error('未检测到有效文案');
@@ -151,7 +146,6 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
 
             // 检测是否是双列模式
             const hasChinese = parsedItems.some(item => item.chinese);
-            console.log('双列模式（含中文）:', hasChinese);
 
             updateState({
                 processingProgress: 10,

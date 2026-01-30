@@ -110,7 +110,6 @@ export const saveWorkbookCache = async (
             // Electron: 保存到本地文件（无大小限制）
             const result = await window.electronCache.save(key, cacheData);
             if (result.success) {
-                console.log(`[SmartCache] Saved to local file: ${key}`);
                 return true;
             }
             console.error('[SmartCache] Failed to save to local file:', result.error);
@@ -118,7 +117,6 @@ export const saveWorkbookCache = async (
         } else {
             // 网页版: 使用 IndexedDB 保存完整数据
             await webCacheSet(key, cacheData);
-            console.log(`[SmartCache] Saved to IndexedDB: ${key}`);
             return true;
         }
     } catch (error) {
@@ -153,7 +151,6 @@ export const loadWorkbookCache = async (sourceUrl: string, sourceId?: string): P
                 const dsData = dsResult.data as any;
                 if (dsResult.success && dsData && dsData.workbook) {
                     const ds = dsData;
-                    console.log(`[SmartCache] ⚡ 从本地缓存秒读 (datasource_${sourceId})`, ds.parsedData ? '(含预解析数据)' : '');
                     return {
                         success: true,
                         data: {
@@ -179,7 +176,6 @@ export const loadWorkbookCache = async (sourceUrl: string, sourceId?: string): P
                             const cachedData = cacheResult.data as any;
                             // 匹配 URL
                             if (cachedData.source?.url === sourceUrl && cachedData.workbook) {
-                                console.log(`[SmartCache] ⚡ 从本地缓存秒读 (${file.key})`);
                                 return {
                                     success: true,
                                     data: {
@@ -202,7 +198,6 @@ export const loadWorkbookCache = async (sourceUrl: string, sourceId?: string): P
             const key = getCacheKey(sourceUrl);
             const result = await window.electronCache.load(key);
             if (result.success && result.data) {
-                console.log(`[SmartCache] Loaded from local file: ${key}`);
                 return { success: true, data: result.data as any };
             }
             return { success: false };
@@ -211,7 +206,6 @@ export const loadWorkbookCache = async (sourceUrl: string, sourceId?: string): P
             const key = getCacheKey(sourceUrl);
             const cached = await webCacheGet(key);
             if (cached) {
-                console.log(`[SmartCache] Loaded from IndexedDB: ${key}`);
                 return { success: true, data: cached as any };
             }
             // 兼容旧版 localStorage 缓存
@@ -219,7 +213,6 @@ export const loadWorkbookCache = async (sourceUrl: string, sourceId?: string): P
             if (legacy) {
                 const data = JSON.parse(legacy);
                 if (data && data.workbook) {
-                    console.log(`[SmartCache] Loaded from legacy localStorage: ${key}`);
                     await webCacheSet(key, data);
                     return { success: true, data };
                 }

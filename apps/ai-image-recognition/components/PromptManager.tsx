@@ -207,7 +207,6 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                     const finalPresets = [...presets, ...uniqueNewPresets];
                     saveToLocalStorage(finalPresets);
 
-                    console.log(`成功导入 ${uniqueNewPresets.length} 个预设。`);
                 } else {
                     console.warn("无效的文件格式。请导入导出的 .json 文件。");
                 }

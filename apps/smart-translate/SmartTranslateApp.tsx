@@ -110,7 +110,6 @@ async function retryOnEmpty<T>(
 
             if (attempt < maxRetries) {
                 const delay = Math.min(initialDelayMs * Math.pow(1.5, attempt), 5000);
-                console.log(`[retryOnEmpty] Empty result, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         } catch (error) {
@@ -1335,7 +1334,6 @@ const TranslateTool = ({
             if (projectId.startsWith('temp_')) {
                 // 防止重复创建项目的竞态条件
                 if (isCreatingProjectRef.current) {
-                    console.log('[Project] Already creating project, skipping...');
                     return;
                 }
 
@@ -1379,7 +1377,6 @@ const TranslateTool = ({
 
             const previewText = completedItems[0]?.translatedText?.slice(0, 100) || '';
 
-            console.log('[Project] Saving SmartTranslate batch state:', completedItems.length, 'items');
             debouncedSaveProject(user.uid, 'smart-translate', projectId, stateToSave, {
                 preview: previewText,
                 itemCount: completedItems.length
@@ -1760,7 +1757,6 @@ ${textToTranslate}
 
                         detectedLanguage = (detectResponse.text ?? '').trim().replace(/[。.，,\s]/g, '');
                     } catch (detectError) {
-                        console.log('Language detection failed:', detectError);
                     }
                 }
 
@@ -1791,7 +1787,6 @@ ${textToTranslate}
 
                 // 项目状态会自动保存
                 if (user?.uid) {
-                    console.log('[Project] Translation completed, state will be auto-saved');
                 }
 
             } catch (e: any) {
@@ -2137,7 +2132,6 @@ ${textToTranslate}
 
                     detectedLanguage = (detectResponse.text ?? '').trim().replace(/[。.，,\s]/g, '');
                 } catch (detectError) {
-                    console.log('Language detection failed:', detectError);
                 }
             }
 

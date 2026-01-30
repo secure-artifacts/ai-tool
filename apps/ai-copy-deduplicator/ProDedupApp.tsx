@@ -789,13 +789,10 @@ export function ProDedupApp() {
 
             // 加载分类
             const categories = await service.loadCategories();
-            console.log('分类:', categories);
 
             // 加载全部文案用于查重
             const allItems = await service.loadAllCategories();
-            console.log('加载的文案数量:', allItems.length);
             if (allItems.length > 0) {
-                console.log('第一条:', allItems[0]);
             }
 
             // 保存配置到 localStorage
@@ -833,7 +830,6 @@ export function ProDedupApp() {
             })));
 
             const engineSize = dedupEngine.getLibrarySize();
-            console.log(`库中实际加载: ${engineSize} 条，原始数据: ${allItems.length} 条`);
             showToast(`已连接！${categories.length} 个分类，引擎 ${engineSize} 条`);
         } catch (e) {
             console.error('连接失败:', e);

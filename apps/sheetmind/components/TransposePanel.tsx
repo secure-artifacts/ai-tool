@@ -662,7 +662,6 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                 try {
                     setHighlightRulesSyncing(true);
                     await saveTransposeHighlightRulesToCloud(highlightRules as CloudHighlightRule[]);
-                    console.log('[Cloud Sync] Highlight rules saved to Firestore');
                 } catch (err) {
                     console.error('[Cloud Sync] Failed to save highlight rules:', err);
                 } finally {
@@ -760,7 +759,6 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                 if (cloudRules.length > 0) {
                     // Cloud takes priority, merge with local if needed
                     setHighlightRules(cloudRules as HighlightRule[]);
-                    console.log('[Cloud Sync] Loaded highlight rules from Firestore:', cloudRules.length);
                 }
             } catch (err) {
                 console.error('[Cloud Sync] Failed to load highlight rules:', err);
@@ -1082,7 +1080,6 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                 try {
                     setDisplaySettingsSyncing(true);
                     await saveDisplaySettingsToCloud(displaySettings as CloudDisplaySettings);
-                    console.log('[Cloud Sync] Display settings saved to Firestore');
                 } catch (err) {
                     console.error('[Cloud Sync] Failed to save display settings:', err);
                 } finally {
@@ -1111,7 +1108,6 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                     if (cloudSettings.borderWidth !== undefined) setBorderWidth(cloudSettings.borderWidth);
                     if (cloudSettings.borderColor !== undefined) setBorderColor(cloudSettings.borderColor);
                     if (cloudSettings.columnRowHeights !== undefined) setColumnRowHeights(cloudSettings.columnRowHeights);
-                    console.log('[Cloud Sync] Loaded display settings from Firestore');
                 }
             } catch (err) {
                 console.error('[Cloud Sync] Failed to load display settings:', err);
