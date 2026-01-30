@@ -62,7 +62,7 @@ export const BoundaryLayer: React.FC<BoundaryLayerProps> = ({ boundaries, nodes,
                         stroke={rect.color || '#6366f1'}
                         strokeWidth={2}
                         strokeDasharray={rect.style === 'dashed' ? '8,4' : 'none'}
-                        style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                        className="pointer-events-auto cursor-pointer"
                         onClick={() => {
                             if (confirm(`删除边界 "${rect.label || '边界'}"？`)) {
                                 onRemove(rect.id);

@@ -3604,11 +3604,11 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                             <thead className="sticky top-0 z-10">
                                                 <tr>
                                                     {/* Row Number Header */}
-                                                    <th className="px-1 py-2 bg-[#f8f9fa] text-center text-[#80868b] font-medium text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-20" style={{ width: '32px', minWidth: '32px' }}>
+                                                    <th className="px-1 py-2 bg-[#f8f9fa] text-center text-[#80868b] font-medium text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-20" className="w-32px">
                                                         #
                                                     </th>
                                                     {/* A Column Header */}
-                                                    <th className="px-3 py-2 bg-orange-100 text-left text-orange-800 font-bold text-xs border-r border-b border-orange-200 sticky z-20 min-w-[150px]" style={{ left: '32px' }}>
+                                                    <th className="px-3 py-2 bg-orange-100 text-left text-orange-800 font-bold text-xs border-r border-b border-orange-200 sticky z-20 min-w-[150px]" className="left-32px">
                                                         A
                                                     </th>
                                                     {Array.from({ length: Math.max(...outputPlan.map(p => p.data.length), 1) }).map((_, i) => (
@@ -3663,7 +3663,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                                 {/* Row Number - click to select row, bottom border to resize */}
                                                                 <td
                                                                     className={`relative px-1 py-1 text-center text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-10 bg-[#f8f9fa] text-[#80868b] cursor-pointer select-none hover:bg-[#e8eaed] transition-colors ${selectionStart && selectionEnd && selectionStart.col === -2 && selectionEnd.col === -2 && rowIdx >= Math.min(selectionStart.row, selectionEnd.row) && rowIdx <= Math.max(selectionStart.row, selectionEnd.row) ? 'bg-blue-200' : ''}`}
-                                                                    style={{ width: '32px', minWidth: '32px' }}
+                                                                    className="w-32px"
                                                                     onMouseDown={(e) => {
                                                                         e.preventDefault();
                                                                         // Select entire row (col -2 means row selection mode)
@@ -3692,7 +3692,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                                 {/* A column (Label) - normal cell selection */}
                                                                 <td
                                                                     className={`px-2 py-1 text-xs border-r border-b ${color.border} sticky z-10 whitespace-nowrap ${color.header} ${color.text} cursor-cell select-none ${isCellSelected(rowIdx, -1) || (selectionStart?.col === -2 && selectionEnd?.col === -2 && rowIdx >= Math.min(selectionStart.row, selectionEnd.row) && rowIdx <= Math.max(selectionStart.row, selectionEnd.row)) ? 'bg-blue-100 ring-2 ring-inset ring-blue-500' : ''}`}
-                                                                    style={{ left: '32px' }}
+                                                                    className="left-32px"
                                                                     onMouseDown={(e) => handleCellMouseDown(rowIdx, -1, e)}
                                                                     onMouseEnter={() => handleCellMouseEnter(rowIdx, -1)}
                                                                     onMouseUp={handleCellMouseUp}

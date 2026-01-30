@@ -858,7 +858,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                     <div className="batch-image-grid staging-grid">
                         {activeSession.images.map((img) => (
                             <div key={img.id} className="batch-image-item-staging">
-                                <div className="batch-image-item" style={{ position: 'relative' }}>
+                                <div className="batch-image-item" className="pos-relative">
                                     <img src={img.imageData.url} alt={img.imageData.name} />
                                     <div className="batch-item-overlay">
                                         <div className="batch-item-info">

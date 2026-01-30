@@ -691,7 +691,7 @@ const PromptManager: React.FC<PromptManagerProps> = ({
             {isExpandedEditorOpen && createPortal(
                 <div
                     className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
-                    style={{ zIndex: 9999 }}
+                    className="z-max"
                     onClick={() => setIsExpandedEditorOpen(false)}
                 >
                     <div

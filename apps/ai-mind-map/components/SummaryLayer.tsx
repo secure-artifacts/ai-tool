@@ -80,7 +80,7 @@ export const SummaryLayer: React.FC<SummaryLayerProps> = ({ summaries, nodes, on
                         fill={`${data.color || '#f59e0b'}20`}
                         stroke={data.color || '#f59e0b'}
                         strokeWidth={1.5}
-                        style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                        className="pointer-events-auto cursor-pointer"
                         onClick={() => {
                             if (confirm(`删除概括 "${data.label}"？`)) {
                                 onRemove(data.id);
