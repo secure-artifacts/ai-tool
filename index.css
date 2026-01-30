@@ -9937,3 +9937,101 @@ textarea:focus-visible {
 .m-0 {
   margin: 0;
 }
+
+/* ============================================
+   🔧 ScriptToolApp 组件样式
+   ============================================ */
+
+/* 前缀弹窗遮罩 */
+.prefix-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+/* 前缀弹窗内容 */
+.prefix-modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 360px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.prefix-modal-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.prefix-modal-desc {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.prefix-modal-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.prefix-modal-input:focus {
+  border-color: #3b82f6;
+}
+
+.prefix-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.prefix-modal-btn-cancel {
+  padding: 10px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.prefix-modal-btn-confirm {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #22c55e;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.prefix-modal-btn-confirm.disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+/* Switch 开关状态 */
+.switch-on {
+  transform: translateX(18px);
+}
+
+.switch-off {
+  transform: translateX(2px);
+}

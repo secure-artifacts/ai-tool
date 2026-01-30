@@ -296,12 +296,10 @@ function ScriptToolApp() {
               <button
                 onClick={() => setClearSource(!clearSource)}
                 title={clearSource ? '拆分后删除原始文案' : '拆分后保留原始文案（默认）'}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${clearSource ? 'bg-red-500' : 'bg-slate-300'
-                  }`}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${clearSource ? 'bg-red-500' : 'bg-slate-300'}`}
               >
                 <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform`}
-                  style={{ transform: clearSource ? 'translateX(18px)' : 'translateX(2px)' }}
+                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${clearSource ? 'switch-on' : 'switch-off'}`}
                 />
               </button>
             </div>
@@ -334,35 +332,10 @@ function ScriptToolApp() {
 
       {/* 自定义前缀弹窗 */}
       {showPrefixModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 9999
-          }}
-          onClick={() => setShowPrefixModal(false)}
-        >
-          <div
-            style={{
-              background: 'white',
-              borderRadius: '12px',
-              padding: '24px',
-              minWidth: '360px',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: '0 0 16px', fontSize: '18px', fontWeight: 600, color: '#1e293b' }}>
-              添加序号前缀
-            </h3>
-            <p style={{ margin: '0 0 16px', fontSize: '14px', color: '#64748b' }}>
+        <div className="prefix-modal-overlay" onClick={() => setShowPrefixModal(false)}>
+          <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="prefix-modal-title">添加序号前缀</h3>
+            <p className="prefix-modal-desc">
               输入要添加的前缀内容。例如输入 "prompt"，将生成 prompt-1、prompt-2...
             </p>
             <input
@@ -370,18 +343,7 @@ function ScriptToolApp() {
               value={customPrefix}
               onChange={(e) => setCustomPrefix(e.target.value)}
               placeholder="输入前缀，如: prompt, step, item"
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                border: '2px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '16px',
-                outline: 'none',
-                marginBottom: '16px',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-              onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+              className="prefix-modal-input"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && customPrefix.trim()) {
                   handleConfirmPrefix();
@@ -389,35 +351,17 @@ function ScriptToolApp() {
               }}
               autoFocus
             />
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <div className="prefix-modal-actions">
               <button
                 onClick={() => setShowPrefixModal(false)}
-                style={{
-                  padding: '10px 20px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  background: 'white',
-                  color: '#64748b',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: 'pointer'
-                }}
+                className="prefix-modal-btn-cancel"
               >
                 取消
               </button>
               <button
                 onClick={handleConfirmPrefix}
                 disabled={!customPrefix.trim()}
-                style={{
-                  padding: '10px 20px',
-                  border: 'none',
-                  borderRadius: '8px',
-                  background: customPrefix.trim() ? '#22c55e' : '#94a3b8',
-                  color: 'white',
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: customPrefix.trim() ? 'pointer' : 'not-allowed'
-                }}
+                className={`prefix-modal-btn-confirm ${!customPrefix.trim() ? 'disabled' : ''}`}
               >
                 确定添加
               </button>
