@@ -58,7 +58,7 @@ import ImageRecognitionApp from '@/apps/ai-image-recognition/ImageRecognitionApp
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle } from 'lucide-react';
+import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot } from 'lucide-react';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
@@ -8393,7 +8393,7 @@ const App = () => {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <span>🌐</span>
+                <Globe size={16} className="text-blue-400" />
                 <span style={{ fontWeight: 600, color: 'var(--on-surface-color)' }}>网站版</span>
                 {appEdition === 'website' && <span style={{ color: 'var(--primary-color)', fontSize: '0.7rem' }}>当前</span>}
               </div>
@@ -8422,7 +8422,7 @@ const App = () => {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <span>🤖</span>
+                <Bot size={16} className="text-purple-400" />
                 <span style={{ fontWeight: 600, color: 'var(--on-surface-color)' }}>AI Studio版</span>
                 {appEdition === 'aistudio' && <span style={{ color: '#667eea', fontSize: '0.7rem' }}>当前</span>}
               </div>
