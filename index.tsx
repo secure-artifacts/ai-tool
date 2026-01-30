@@ -6144,13 +6144,13 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             className={activeTab === 'manual' ? 'tab-active' : ''}
             onClick={() => setActiveTab('manual')}
           >
-            🔑 手动输入
+            <Key size={14} className="inline mr-1" /> 手动输入
           </button>
           <button
             className={activeTab === 'pool' ? 'tab-active' : ''}
             onClick={() => setActiveTab('pool')}
           >
-            🔄 API池管理
+            <RefreshCw size={14} className="inline mr-1" /> API池管理
           </button>
         </div>
 
