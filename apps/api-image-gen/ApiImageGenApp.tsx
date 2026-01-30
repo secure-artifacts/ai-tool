@@ -99,8 +99,6 @@ const ApiImageGenApp: React.FC = () => {
     const [batchRows, setBatchRows] = useState<BatchInputRow[]>([
         { id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }
     ]);
-    const [pasteText, setPasteText] = useState('');
-    const [showPasteModal, setShowPasteModal] = useState(false);
 
     // 拖拽模式：merge=多图合并到一行, split=一图一行
     const [dragMode, setDragMode] = useState<DragMode>('split');
@@ -121,11 +119,9 @@ const ApiImageGenApp: React.FC = () => {
 
             // 检查是否在输入框中
             const target = e.target as HTMLElement;
-            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-                return; // 让输入框正常处理粘贴
-            }
+            const isInInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
 
-            // 1. 检查是否有图片文件
+            // 1. 检查是否有图片文件 (优先级最高，无论焦点在哪都处理)
             const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
             if (files.length > 0) {
                 e.preventDefault();
@@ -149,19 +145,23 @@ const ApiImageGenApp: React.FC = () => {
             const html = e.clipboardData.getData('text/html');
             const plainText = e.clipboardData.getData('text/plain');
 
-            // 检测是否有可解析的内容
+            // 检测是否有可解析的特殊内容
             const hasHtmlContent = html && (
                 html.includes('<img') ||
                 html.includes('<table') ||
                 html.includes('<tr')
             );
-            const hasTextContent = plainText && (
+            const hasSpecialTextContent = plainText && (
                 plainText.includes('=IMAGE') ||
-                plainText.includes('http') ||
-                plainText.includes('\t') // Tab 分隔的数据
+                (plainText.includes('\t') && plainText.includes('\n')) // 多行 Tab 分隔的数据
             );
 
-            if (hasHtmlContent || hasTextContent) {
+            // 如果在输入框中且没有特殊内容，让输入框正常处理
+            if (isInInput && !hasHtmlContent && !hasSpecialTextContent) {
+                return;
+            }
+
+            if (hasHtmlContent || hasSpecialTextContent) {
                 e.preventDefault();
                 await handleSheetsPaste(html || '', plainText || '');
                 return;
@@ -329,32 +329,6 @@ const ApiImageGenApp: React.FC = () => {
             promptInstruction: generateDefaultInstruction(validCount)
         });
     }, [updateState]);
-
-    // 从粘贴文本批量添加行
-    const handlePasteImport = useCallback(() => {
-        if (!pasteText.trim()) return;
-
-        const lines = pasteText.split('\n').filter(line => line.trim());
-        const newRows: BatchInputRow[] = lines.map((line, index) => {
-            // 尝试解析 Tab 分隔的数据 (从 Google Sheets 复制)
-            const parts = line.split('\t');
-            const prompt = parts[0]?.trim() || line.trim();
-            const folder = parts[1]?.trim() || '';
-
-            return {
-                id: `row-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
-                images: [],
-                imageUrls: [],
-                prompt,
-                downloadFolder: folder,
-                status: 'ready' as const
-            };
-        });
-
-        setBatchRows(prev => [...prev.filter(r => r.prompt.trim() || r.images.length > 0), ...newRows]);
-        setPasteText('');
-        setShowPasteModal(false);
-    }, [pasteText]);
 
     // 将批量输入行添加到队列
     const handleAddBatchToQueue = useCallback(() => {
@@ -666,15 +640,6 @@ const ApiImageGenApp: React.FC = () => {
                                         />
                                         <span className="text-sm text-slate-700">自动下载</span>
                                     </label>
-                                </div>
-                                <div className="flex items-end gap-2">
-                                    <button
-                                        onClick={() => setShowPasteModal(true)}
-                                        className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm flex items-center gap-1 hover:bg-slate-200"
-                                    >
-                                        <ClipboardPaste size={14} />
-                                        粘贴导入
-                                    </button>
                                 </div>
                             </div>
 
@@ -1038,48 +1003,7 @@ const ApiImageGenApp: React.FC = () => {
                 </div>
             </div>
 
-            {/* 粘贴导入弹窗 */}
-            {showPasteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 overflow-hidden">
-                        <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50">
-                            <div className="flex items-center gap-2">
-                                <ClipboardPaste size={18} className="text-blue-500" />
-                                <span className="font-medium">从 Google Sheets 粘贴导入</span>
-                            </div>
-                            <button onClick={() => setShowPasteModal(false)} className="text-slate-400 hover:text-slate-600">
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="p-4 space-y-4">
-                            <p className="text-sm text-slate-600">
-                                从 Google Sheets 复制多行数据，每行一个 prompt。支持 Tab 分隔的两列数据（第一列 prompt，第二列文件夹名）。
-                            </p>
-                            <textarea
-                                value={pasteText}
-                                onChange={(e) => setPasteText(e.target.value)}
-                                placeholder={`粘贴示例:\nA beautiful sunset over mountains\nA cute cat playing with yarn\nModern minimalist architecture\n\n或 Tab 分隔:\nA beautiful sunset\tsunset_folder\nA cute cat\tcat_folder`}
-                                className="w-full h-48 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <div className="flex justify-end gap-2">
-                                <button
-                                    onClick={() => setShowPasteModal(false)}
-                                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                                >
-                                    取消
-                                </button>
-                                <button
-                                    onClick={handlePasteImport}
-                                    disabled={!pasteText.trim()}
-                                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-                                >
-                                    导入 ({pasteText.split('\n').filter(l => l.trim()).length} 行)
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+
         </div>
     );
 };
