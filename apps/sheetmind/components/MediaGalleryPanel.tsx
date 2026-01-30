@@ -6517,7 +6517,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
                                         }`}
                                 >
-                                    🖼️ 原始比例
+                                    <Image size={14} className="inline mr-1" /> 原始比例
                                 </button>
                             </div>
                             {/* Label Overlay Toggle */}
@@ -10242,7 +10242,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         {/* 收藏夹列表 */}
                         <div className="mb-4">
                             <div className="px-2 py-1 text-[10px] font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1">
-                                ⭐ 收藏夹
+                                <Star size={12} className="inline mr-1" /> 收藏夹
                             </div>
                             <div className="space-y-1 max-h-40 overflow-y-auto">
                                 {favoriteFolders.map(folder => (
@@ -10399,7 +10399,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         >
                             {/* Header */}
                             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-                                <h3 className="text-sm font-semibold text-slate-800">📋 数据详情</h3>
+                                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1"><Info size={14} /> 数据详情</h3>
                                 <button
                                     onClick={() => setSelectedRow(null)}
                                     className="p-1 hover:bg-slate-200 rounded"

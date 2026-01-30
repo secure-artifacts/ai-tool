@@ -56,7 +56,8 @@ import {
     Star,
     Tag,
     X,
-    AlertCircle
+    AlertCircle,
+    Sparkles
 } from 'lucide-react';
 
 // Types
@@ -2597,7 +2598,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                     onClick={e => e.stopPropagation()}
                     title={strVal}
                 >
-                    🔗 链接
+                    <Link2 size={12} className="inline mr-1" /> 链接
                 </a>
             );
         }
@@ -2699,7 +2700,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                             </div>
                             <div className="bg-slate-50 rounded-lg p-2 border border-slate-200">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-semibold text-slate-700">⭐ 收藏 / 媒体标签</span>
+                                    <span className="text-xs font-semibold text-slate-700"><Star size={12} className="inline mr-1" /> 收藏 / 媒体标签</span>
                                     <button
                                         onClick={() => setShowFavoritesPanel(prev => !prev)}
                                         className="text-[10px] text-slate-500 hover:text-slate-700"
@@ -3181,14 +3182,14 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                     {/* 警告：只有一个分组 */}
                                     {stats.groups === 1 && (
                                         <div className="mt-2 text-xs text-amber-600 flex items-center gap-1.5">
-                                            <span className="text-amber-500">⚠️</span>
+                                            <AlertCircle size={14} className="text-amber-500" />
                                             <span>分组列只有一个唯一值，建议选择其他列进行分组</span>
                                         </div>
                                     )}
                                     {/* 警告：全部为空值 */}
                                     {stats.groups === 1 && groups[0]?.key === '(空)' && (
                                         <div className="mt-2 text-xs text-red-600 flex items-center gap-1.5">
-                                            <span className="text-red-500">⚠️</span>
+                                            <AlertCircle size={14} className="text-red-500" />
                                             <span>分组列数据全为空，请检查数据或选择其他列</span>
                                         </div>
                                     )}
@@ -3197,7 +3198,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
 
                             {/* === 显示设置 === */}
                             <div className="border-t border-slate-200 pt-3">
-                                <div className="text-xs font-semibold text-slate-700 mb-2">🎨 显示设置</div>
+                                <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-1"><Sparkles size={12} /> 显示设置</div>
                                 <div className="space-y-3">
                                     {/* Reset to Defaults Button */}
                                     <button

@@ -6,7 +6,9 @@ import React, { useState, useMemo, useRef, useEffect, useTransition, useCallback
 import {
     Settings, Layers, Calendar, Image, Filter,
     ArrowUpDown, Sparkles, ChevronDown, ChevronUp, Plus, Trash2,
-    Check, ArrowUp, ArrowDown, X, Eye, EyeOff, Copy, Maximize2, Minimize2
+    Check, ArrowUp, ArrowDown, X, Eye, EyeOff, Copy, Maximize2, Minimize2,
+    RefreshCw, Link, Save, ClipboardList, FileText, UserCheck, BarChart2,
+    CheckCircle, XCircle, AlertTriangle, FolderOpen
 } from 'lucide-react';
 import {
     SharedConfig,
@@ -228,10 +230,10 @@ const CopyTransposedDataButton: React.FC<{ data: SheetData }> = ({ data }) => {
                 }`}
         >
             {copyStatus === 'success'
-                ? `✅ 已复制 ${data.rows.length} 行`
+                ? <><CheckCircle size={12} className="inline mr-1" /> 已复制 {data.rows.length} 行</>
                 : copyStatus === 'error'
-                    ? '❌ 复制失败'
-                    : `📋 复制转置后数据（${data.rows.length} 行）`
+                    ? <><XCircle size={12} className="inline mr-1" /> 复制失败</>
+                    : <><ClipboardList size={12} className="inline mr-1" /> 复制转置后数据（{data.rows.length} 行）</>
             }
         </button>
     );
@@ -569,7 +571,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                 <div className="border-b border-purple-100 bg-purple-50/50 px-3 py-1.5">
                     <label className="flex items-center justify-between cursor-pointer">
                         <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
-                            🔄 转置数据
+                            <RefreshCw size={12} className="inline mr-1" /> 转置数据
                             <span className="text-[9px] text-slate-500 font-normal">
                                 （横向→纵向）
                             </span>
@@ -588,12 +590,12 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                     {config.transposeData && (
                         <>
                             <p className="text-[9px] text-purple-600 mt-1">
-                                ✅ 已启用：第一列作为字段名，其他列作为记录
+                                <CheckCircle size={10} className="inline mr-1" /> 已启用：第一列作为字段名，其他列作为记录
                             </p>
                             {/* Merge Columns Sub-toggle */}
                             <label className="flex items-center justify-between cursor-pointer mt-2 pt-1.5 border-t border-purple-200">
                                 <span className="text-[10px] text-slate-600 flex items-center gap-1">
-                                    🔗 合并同名列
+                                    <Link size={10} className="inline mr-1" /> 合并同名列
                                     <span className="text-[8px] text-slate-400">
                                         (如[1.X]和[2.Y]合并)
                                     </span>
@@ -729,7 +731,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             }}
                                             className="text-[10px] px-2 py-1 rounded border border-blue-200 text-blue-600 hover:bg-blue-50"
                                         >
-                                            💾 下载文件
+                                            <Save size={10} className="inline mr-1" /> 下载文件
                                         </button>
                                     </>
                                 ) : (
@@ -759,8 +761,8 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         >
                                             应用导入
                                         </button>
-                                        <label className="text-[10px] px-2 py-1 rounded border border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer">
-                                            📁 选择文件
+                                        <label className="text-[10px] px-2 py-1 rounded border border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer flex items-center gap-1">
+                                            <FolderOpen size={10} /> 选择文件
                                             <input
                                                 type="file"
                                                 accept=".json"
@@ -816,7 +818,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         }
                                     }}
                                     className={`px-2 py-1 text-[10px] rounded border ${config.groupColumn?.includes('类型') ? 'bg-indigo-500 text-white border-indigo-600' : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'}`}
-                                >📝 按类型</button>
+                                ><FileText size={10} className="inline mr-1" /> 按类型</button>
                                 <button
                                     onClick={() => {
                                         const likeCol = data.columns.find(c => c.includes('点赞') || c.includes('贴文点赞量'));
@@ -838,7 +840,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         }
                                     }}
                                     className={`px-2 py-1 text-[10px] rounded border ${config.groupColumn?.includes('作者') || config.groupColumn?.includes('账号') ? 'bg-indigo-500 text-white border-indigo-600' : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'}`}
-                                >✍️ 按作者</button>
+                                ><UserCheck size={10} className="inline mr-1" /> 按作者</button>
                                 {config.groupColumn && (
                                     <button
                                         onClick={() => updateConfig({ groupColumn: '', groupBinning: false, groupLevels: [], groupColumns: [] })}
@@ -884,7 +886,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                     onClick={() => setShowTreeGroupModal(true)}
                                     className="ml-auto px-2 py-0.5 text-[10px] rounded bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:from-indigo-600 hover:to-purple-600 flex items-center gap-1"
                                 >
-                                    📊 树状视图配置
+                                    <BarChart2 size={10} className="inline mr-1" /> 树状视图配置
                                 </button>
                             </div>
 
@@ -1947,7 +1949,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         });
                                     }}
                                     className="px-2 py-1 text-[10px] bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-blue-700"
-                                >📝 贴文类型</button>
+                                ><FileText size={10} className="inline mr-1" /> 贴文类型</button>
                                 <button
                                     onClick={() => {
                                         const numCol = data.columns.find(c => c.includes('点赞') || c.includes('播放') || c.includes('粉丝') || c.includes('贴文点赞量'));
@@ -1983,7 +1985,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         }]
                                     })}
                                     className="px-2 py-1 text-[10px] bg-slate-50 hover:bg-slate-100 rounded border border-slate-200 text-slate-700"
-                                >✅ 非空</button>
+                                ><CheckCircle size={10} className="inline mr-1" /> 非空</button>
                                 {(config.customFilters.length > 0 || config.dateStart || config.dateEnd) && (
                                     <button
                                         onClick={() => updateConfig({ customFilters: [], dateStart: '', dateEnd: '' })}
@@ -2031,9 +2033,9 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             <span className="text-[10px] text-blue-600 font-medium">
                                                 {cf.column ? (
                                                     <>
-                                                        {cf.column.includes('类型') ? '📝 贴文类型' :
-                                                            cf.column.includes('点赞') || cf.column.includes('播放') || cf.column.includes('粉丝') ? '🔢 数字筛选' :
-                                                                cf.operator === 'notEmpty' || cf.operator === 'isEmpty' ? '✅ 非空筛选' :
+                                                        {cf.column.includes('类型') ? <><FileText size={10} className="inline mr-1" />贴文类型</> :
+                                                            cf.column.includes('点赞') || cf.column.includes('播放') || cf.column.includes('粉丝') ? '数字筛选' :
+                                                                cf.operator === 'notEmpty' || cf.operator === 'isEmpty' ? <><CheckCircle size={10} className="inline mr-1" />非空筛选</> :
                                                                     cf.column}
                                                         <span className="text-blue-400 ml-1">({columnType === 'number' ? '数字' : '文本'})</span>
                                                     </>
