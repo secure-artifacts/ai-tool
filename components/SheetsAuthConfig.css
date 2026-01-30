@@ -407,3 +407,190 @@
         color: #f1f5f9;
     }
 }
+
+/* GAS 提示框 */
+.gas-tip {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
+    border-radius: 8px;
+    border: 1px solid #c8e6c9;
+    font-size: 12px;
+    color: #2e7d32;
+}
+
+.gas-tip-header {
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.gas-tip-desc {
+    font-size: 11px;
+    color: #388e3c;
+}
+
+.gas-tip-link {
+    margin-top: 6px;
+    font-size: 10px;
+}
+
+.gas-tip-btn {
+    background: none;
+    border: none;
+    color: #1565c0;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+    font-size: 10px;
+}
+
+/* GAS 指南弹窗 */
+.gas-guide-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.gas-guide-modal {
+    background: #1e1e1e;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 700px;
+    max-height: 85vh;
+    overflow: auto;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    color: #e0e0e0;
+}
+
+.gas-guide-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    border-bottom: 1px solid #444;
+    padding-bottom: 12px;
+}
+
+.gas-guide-title {
+    margin: 0;
+    font-size: 18px;
+    color: #fff;
+}
+
+.gas-guide-close-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #aaa;
+}
+
+.gas-guide-close-btn:hover {
+    color: #fff;
+}
+
+.gas-guide-content {
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.gas-advantage-box {
+    background: rgba(76, 175, 80, 0.2);
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.gas-advantage-label {
+    color: #81c784;
+}
+
+.gas-advantage-text {
+    color: #c8e6c9;
+}
+
+.gas-section-title {
+    margin: 16px 0 8px;
+    color: #64b5f6;
+}
+
+.gas-steps-list {
+    padding-left: 20px;
+    margin: 0;
+    color: #bbb;
+}
+
+.gas-code-highlight {
+    background: #333;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #ffd54f;
+}
+
+.gas-warning-text {
+    color: #ef5350;
+}
+
+.gas-copy-btn {
+    padding: 4px 12px;
+    background: #4caf50;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.gas-copy-btn:hover {
+    background: #43a047;
+}
+
+.gas-code-block {
+    background: #0d1117;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 10px;
+    overflow: auto;
+    max-height: 200px;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+}
+
+.gas-warning-box {
+    margin-top: 16px;
+    padding: 10px;
+    background: rgba(255, 152, 0, 0.1);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+    font-size: 11px;
+    color: #ffb74d;
+}
+
+.gas-guide-footer {
+    margin-top: 20px;
+    text-align: right;
+}
+
+.gas-close-btn {
+    padding: 8px 20px;
+    background: #1565c0;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.gas-close-btn:hover {
+    background: #1976d2;
+}

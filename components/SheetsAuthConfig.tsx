@@ -203,34 +203,18 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                 </div>
 
                 {/* GAS 提示 */}
-                <div className="gas-tip" style={{
-                    marginTop: '12px',
-                    padding: '10px 12px',
-                    background: 'linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%)',
-                    borderRadius: '8px',
-                    border: '1px solid #c8e6c9',
-                    fontSize: '12px',
-                    color: '#2e7d32'
-                }}>
-                    <div style={{ fontWeight: 600, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div className="gas-tip">
+                    <div className="gas-tip-header">
                         <span>💡</span>
                         <span>文案查重/文本库推荐</span>
                     </div>
-                    <div style={{ fontSize: '11px', color: '#388e3c' }}>
+                    <div className="gas-tip-desc">
                         使用 <strong>GAS (Google Apps Script)</strong> 方式，在文本库设置中配置 Web App URL 即可读写表格，无需复杂配置
                     </div>
-                    <div style={{ marginTop: '6px', fontSize: '10px' }}>
+                    <div className="gas-tip-link">
                         <button
                             onClick={() => setShowGasGuide(true)}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#1565c0',
-                                textDecoration: 'underline',
-                                cursor: 'pointer',
-                                padding: 0,
-                                fontSize: '10px'
-                            }}
+                            className="gas-tip-btn"
                         >
                             📖 查看 GAS 部署指南
                         </button>
@@ -392,7 +376,7 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
                 </div>
                 <div className="info-note" style={{ marginTop: '8px', borderTop: '1px dashed #d4a574', paddingTop: '8px' }}>
                     <strong>💡 获取帮助：</strong>
-                    <ul style={{ marginTop: '4px', marginBottom: '0' }}>
+                    <ul className="mt-1 mb-0">
                         <li>需要创建 <strong>Service Account</strong> 或 <strong>OAuth</strong>？可联系技术员协助配置</li>
                         <li><strong>文案查重/文本库设置</strong>：推荐使用 <strong>GAS (Google Apps Script)</strong> 方式，在文本库设置中配置 Web App URL 即可读写表格，无需复杂认证</li>
                     </ul>
@@ -403,57 +387,34 @@ export const SheetsAuthConfig: React.FC<Props> = ({ onClose, onConfigChanged }) 
             {showGasGuide && (
                 <div
                     className="gas-guide-overlay"
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: 'rgba(0,0,0,0.7)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 10000
-                    }}
                     onClick={() => setShowGasGuide(false)}
                 >
                     <div
                         className="gas-guide-modal"
-                        style={{
-                            background: '#1e1e1e',
-                            borderRadius: '12px',
-                            width: '90%',
-                            maxWidth: '700px',
-                            maxHeight: '85vh',
-                            overflow: 'auto',
-                            padding: '20px',
-                            boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-                            color: '#e0e0e0'
-                        }}
                         onClick={e => e.stopPropagation()}
                     >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid #444', paddingBottom: '12px' }}>
-                            <h3 style={{ margin: 0, fontSize: '18px', color: '#fff' }}>📖 GAS (Google Apps Script) 部署指南</h3>
+                        <div className="gas-guide-header">
+                            <h3 className="gas-guide-title">📖 GAS (Google Apps Script) 部署指南</h3>
                             <button
                                 onClick={() => setShowGasGuide(false)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa' }}
+                                className="gas-guide-close-btn"
                             >
                                 <X size={20} />
                             </button>
                         </div>
 
-                        <div style={{ fontSize: '13px', lineHeight: '1.6' }}>
-                            <div style={{ background: 'rgba(76, 175, 80, 0.2)', padding: '12px', borderRadius: '8px', marginBottom: '16px', border: '1px solid rgba(76, 175, 80, 0.3)' }}>
-                                <strong style={{ color: '#81c784' }}>✅ GAS 优势：</strong>
-                                <span style={{ color: '#c8e6c9' }}>无需复杂认证配置，支持读写，适合个人使用</span>
+                        <div className="gas-guide-content">
+                            <div className="gas-advantage-box">
+                                <strong className="gas-advantage-label">✅ GAS 优势：</strong>
+                                <span className="gas-advantage-text">无需复杂认证配置，支持读写，适合个人使用</span>
                             </div>
 
-                            <h4 style={{ margin: '16px 0 8px', color: '#64b5f6' }}>🔧 部署步骤</h4>
-                            <ol style={{ paddingLeft: '20px', margin: 0, color: '#bbb' }}>
-                                <li className="mb-2">在 Google Sheets 中点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>扩展程序</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Apps Script</code></li>
+                            <h4 className="gas-section-title">🔧 部署步骤</h4>
+                            <ol className="gas-steps-list">
+                                <li className="mb-2">在 Google Sheets 中点击 <code className="gas-code-highlight">扩展程序</code> → <code className="gas-code-highlight">Apps Script</code></li>
                                 <li className="mb-2">删除默认代码，<strong style={{ color: '#fff' }}>粘贴下方脚本代码</strong></li>
-                                <li className="mb-2">点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>新建部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Web 应用</code></li>
-                                <li className="mb-2"><span style={{ color: '#ef5350' }}>⚠️ 「谁可以访问」必须选择「任何人」</span></li>
+                                <li className="mb-2">点击 <code className="gas-code-highlight">部署</code> → <code className="gas-code-highlight">新建部署</code> → <code className="gas-code-highlight">Web 应用</code></li>
+                                <li className="mb-2"><span className="gas-warning-text">⚠️ 「谁可以访问」必须选择「任何人」</span></li>
                                 <li className="mb-2">首次需授权：高级 → 转至 xxx → 允许</li>
                                 <li>复制 Web App URL，粘贴到文案查重页面</li>
                             </ol>
@@ -542,21 +503,12 @@ function doPost(e) {
                                         navigator.clipboard.writeText(code);
                                         alert('✅ 脚本代码已复制到剪贴板！');
                                     }}
-                                    style={{ padding: '4px 12px', background: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                                    className="gas-copy-btn"
                                 >
                                     复制代码
                                 </button>
                             </h4>
-                            <pre style={{
-                                background: '#0d1117',
-                                padding: '12px',
-                                borderRadius: '8px',
-                                fontSize: '10px',
-                                overflow: 'auto',
-                                maxHeight: '200px',
-                                color: '#c9d1d9',
-                                border: '1px solid #30363d'
-                            }}>
+                            <pre className="gas-code-block">
                                 {`/**
  * ITEN 文本库 GAS 服务 - 精简版
  * 部署为 Web App 后，将 URL 粘贴到文案查重中使用
@@ -600,15 +552,15 @@ function doPost(e) {
 }`}
                             </pre>
 
-                            <div style={{ marginTop: '16px', padding: '10px', background: 'rgba(255, 152, 0, 0.1)', borderRadius: '6px', border: '1px solid rgba(255, 152, 0, 0.3)', fontSize: '11px', color: '#ffb74d' }}>
+                            <div className="gas-warning-box">
                                 ⚠️ 点击「复制代码」获取完整脚本，上方仅显示部分代码
                             </div>
                         </div>
 
-                        <div style={{ marginTop: '20px', textAlign: 'right' }}>
+                        <div className="gas-guide-footer">
                             <button
                                 onClick={() => setShowGasGuide(false)}
-                                style={{ padding: '8px 20px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                                className="gas-close-btn"
                             >
                                 关闭
                             </button>
