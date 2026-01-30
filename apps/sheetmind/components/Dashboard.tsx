@@ -1652,7 +1652,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                             <div className="flex items-center gap-3">
                                 <h3 className="font-bold text-slate-700">配置工作台</h3>
                                 <div className="text-xs text-slate-400 px-2 py-1 bg-slate-50 rounded flex items-center gap-2">
-                                    {isProcessing && <span className="animate-spin">⏳</span>}
+                                    {isProcessing && <Loader2 size={12} className="animate-spin" />}
                                     {data.rows.length > 5000 && <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={12} /> 大数据</span>}
                                     {breakdownCol ? '堆叠模式' : `Top ${maxItems}`} | 总计: {processedData.totalValue.toLocaleString()} | 行数: {data.rows.length.toLocaleString()}
                                 </div>

@@ -6623,7 +6623,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         {effectiveTranspose && (
                             <div className="border-t border-purple-200 pt-3 bg-purple-50 -mx-4 px-4 pb-3">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-xs text-purple-700 font-medium">🔄 转置数据已启用</span>
+                                    <span className="text-xs text-purple-700 font-medium flex items-center gap-1"><RefreshCw size={12} /> 转置数据已启用</span>
                                 </div>
                                 <p className="text-[10px] text-purple-600 mt-1">
                                     第一列作为字段名，其他列作为记录。在顶部「配置」按钮中可关闭。
@@ -6891,7 +6891,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             </div>
                                             <div className="space-y-1">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-[10px] text-blue-500">📄 表格:</span>
+                                                    <span className="text-[10px] text-blue-500 flex items-center gap-1"><FileText size={10} /> 表格:</span>
                                                     <span className="text-[11px] text-blue-800 font-medium truncate flex-1" title={data.fileName}>
                                                         {data.fileName}
                                                     </span>
@@ -9250,7 +9250,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 {/* Classification Groups Row */}
                                                                 {dragTargetTypes.classification && (
                                                                     <div className="flex flex-wrap gap-2 mb-2">
-                                                                        <span className="text-xs text-purple-600 font-medium self-center mr-1">📁 分组:</span>
+                                                                        <span className="text-xs text-purple-600 font-medium self-center mr-1 flex items-center gap-1"><FolderOpen size={12} /> 分组:</span>
                                                                         {/* 使用 categoryOptions 作为分组目标 */}
                                                                         {config.categoryOptions.length > 0 ? (
                                                                             config.categoryOptions.map((option) => (
@@ -9278,7 +9278,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 </div>
                                                                             ))
                                                                         ) : (
-                                                                            <span className="text-xs text-amber-600">⚠️ 请先在「媒体标签」设置中添加分类选项</span>
+                                                                            <span className="text-xs text-amber-600 flex items-center gap-1"><AlertCircle size={12} /> 请先在「媒体标签」设置中添加分类选项</span>
                                                                         )}
                                                                         {/* Custom groups added by user */}
                                                                         {customGroups.map((customGroup, groupIdx) => (
@@ -9344,7 +9344,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 {/* Favorites Drop Zone Row (无分组模式) */}
                                                                 {dragTargetTypes.favorites && (
                                                                     <div className="flex flex-wrap gap-2 mb-2">
-                                                                        <span className="text-xs text-amber-600 font-medium self-center mr-1">⭐ 收藏:</span>
+                                                                        <span className="text-xs text-amber-600 font-medium self-center mr-1 flex items-center gap-1"><Star size={12} /> 收藏:</span>
                                                                         {favoriteFolders.map(folder => {
                                                                             const folderCount = favorites.filter(f => f.folderId === folder.id || (!f.folderId && folder.id === favoriteFolders[0]?.id)).length;
                                                                             return (
@@ -11183,7 +11183,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                     <br />
                                     <span className="text-slate-400 text-xs">登录后数据将自动同步到云端</span>
                                     <br />
-                                    <span className="text-slate-400 text-xs">💡 高级登录需要 Sheets 写入权限，适合需要同步/入库功能的用户；普通用户选择“普通登录”即可。</span>
+                                    <span className="text-slate-400 text-xs flex items-center gap-1"><Lightbulb size={12} /> 高级登录需要 Sheets 写入权限，适合需要同步/入库功能的用户；普通用户选择“普通登录”即可。</span>
                                     <br />
                                     <span className="text-slate-400 text-xs">如需权限可联系软件提供人申请，或使用普通模式登录并选择其他验证方式实现表格写入。</span>
                                 </p>
@@ -11692,7 +11692,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             <div className={`text-xs ${effectiveGroupColumns[0] ? 'text-slate-500' : 'text-red-500 font-medium'}`}>
                                 {effectiveGroupColumns[0]
                                     ? `当前: 按 "${effectiveGroupColumns[0]}" 分组`
-                                    : '⚠️ 未设置分组列 - 将把所有图片作为一个组导出'
+                                    : <><AlertCircle size={12} className="inline mr-1" /> 未设置分组列 - 将把所有图片作为一个组导出</>
                                 }
                             </div>
 
