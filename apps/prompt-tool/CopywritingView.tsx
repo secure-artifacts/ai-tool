@@ -36,7 +36,13 @@ import {
     RotateCw,
     ClipboardCopy,
     Eye,
-    FolderOpen
+    FolderOpen,
+    Package,
+    Mic,
+    Tag,
+    FileEdit,
+    Search,
+    Lightbulb
 } from 'lucide-react';
 import { PresetManager, CopywritingPreset as PresetType } from './PresetManager';
 
@@ -1913,7 +1919,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         }`}
                                     title="标准模式：文案改写 + 翻译"
                                 >
-                                    📝 标准
+                                    <FileEdit size={10} className="inline mr-0.5" /> 标准
                                 </button>
                                 <button
                                     onClick={() => {
@@ -1926,7 +1932,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         }`}
                                     title="人声模式：ElevenLabs 配音标注"
                                 >
-                                    🎙️ 人声
+                                    <Mic size={10} className="inline mr-0.5" /> 人声
                                 </button>
                                 <button
                                     onClick={() => {
@@ -1939,7 +1945,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         }`}
                                     title="分类模式：按规则输出分类结果"
                                 >
-                                    🏷️ 分类
+                                    <Tag size={10} className="inline mr-0.5" /> 分类
                                 </button>
                             </div>
                             {/* 显示差异开关 - 仅标准模式 */}
@@ -1952,7 +1958,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         }`}
                                     title={showDiff ? '关闭差异高亮' : '显示原文与改写结果的差异'}
                                 >
-                                    {showDiff ? '🔍 差异显示中' : '🔍 显示差异'}
+                                    {showDiff ? <><Search size={10} className="inline mr-0.5" /> 差异显示中</> : <><Search size={10} className="inline mr-0.5" /> 显示差异</>}
                                 </button>
                             )}
                             {/* 批次处理设置 */}
@@ -1965,7 +1971,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         }`}
                                     title={`批次处理：每次 ${batchSize} 条（点击设置）`}
                                 >
-                                    📦 批次×{batchSize}
+                                    <Package size={10} className="inline mr-0.5" /> 批次×{batchSize}
                                 </button>
                                 {showBatchSettings && (
                                     <div className="absolute top-full left-0 mt-1 bg-zinc-800 border border-zinc-700 rounded-lg p-2 shadow-lg z-50 min-w-[180px]">
@@ -1994,8 +2000,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         <div className="text-[9px] text-zinc-500 mt-1">
                                             {batchSize === 1 ? '单条模式：每条文案单独调用API，结果更精准' : `批次模式：${batchSize}条/次，大幅减少API调用次数`}
                                         </div>
-                                        <div className="text-[8px] text-zinc-600 mt-1 border-t border-zinc-700 pt-1">
-                                            💡 提示：批次越大，API调用越少，速度越快，但单条结果精度可能略降。推荐分类任务用批次模式，改写任务用单条模式。
+                                        <div className="text-[8px] text-zinc-600 mt-1 border-t border-zinc-700 pt-1 flex items-start gap-1">
+                                            <Lightbulb size={10} className="shrink-0 mt-0.5" /> 提示：批次越大，API调用越少，速度越快，但单条结果精度可能略降。推荐分类任务用批次模式，改写任务用单条模式。
                                         </div>
                                         <div className="flex justify-between mt-2">
                                             <button
