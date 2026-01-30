@@ -29,7 +29,9 @@ import {
     ClipboardPaste,
     FolderDown,
     Merge,
-    Split
+    Split,
+    Settings,
+    RotateCcw
 } from 'lucide-react';
 import {
     WorkflowState,
@@ -690,6 +692,43 @@ const ApiImageGenApp: React.FC = () => {
                                         </button>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* 固定指令设置（第二步的 AI 指令） */}
+                            <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                <button
+                                    onClick={() => setShowInstructionEditor(!showInstructionEditor)}
+                                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                                        <Settings size={14} />
+                                        <span>固定指令 (第二步)</span>
+                                        <span className="text-xs text-slate-400">图片+用户指令 → 此指令 → 生成描述词</span>
+                                    </div>
+                                    {showInstructionEditor ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                </button>
+                                {showInstructionEditor && (
+                                    <div className="p-3 space-y-2 bg-white">
+                                        <div className="flex items-center justify-between">
+                                            <p className="text-xs text-slate-500">
+                                                这个指令会和用户输入的图片/文本一起发送给 AI，用于生成描述词
+                                            </p>
+                                            <button
+                                                onClick={() => updateState({ promptInstruction: generateDefaultInstruction(state.promptCount) })}
+                                                className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                                            >
+                                                <RotateCcw size={12} />
+                                                重置为默认
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            value={state.promptInstruction}
+                                            onChange={(e) => updateState({ promptInstruction: e.target.value })}
+                                            className="w-full h-40 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500"
+                                            placeholder="输入用于生成描述词的固定指令..."
+                                        />
+                                    </div>
+                                )}
                             </div>
 
                             {/* 表格 */}
