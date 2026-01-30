@@ -8,7 +8,7 @@ import {
     ArrowUpDown, Sparkles, ChevronDown, ChevronUp, Plus, Trash2,
     Check, ArrowUp, ArrowDown, X, Eye, EyeOff, Copy, Maximize2, Minimize2,
     RefreshCw, Link, Save, ClipboardList, FileText, UserCheck, BarChart2,
-    CheckCircle, XCircle, AlertTriangle, FolderOpen
+    CheckCircle, XCircle, AlertTriangle, FolderOpen, Hash, FolderTree
 } from 'lucide-react';
 import {
     SharedConfig,
@@ -916,7 +916,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                     <div className="flex items-center justify-between mb-1.5">
                                         <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-800">
                                             <span className="inline-block w-1.5 h-3 rounded-sm bg-indigo-500" />
-                                            📁 层级分组配置
+                                            <FolderTree size={12} className="inline mr-1" /> 层级分组配置
                                         </label>
                                         <button
                                             onClick={() => updateConfig({ groupLevels: [], groupColumns: [], groupColumn: '' })}
@@ -949,7 +949,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                         {/* 层级头部 */}
                                                         <div className="flex items-center justify-between px-2 py-1.5 bg-gradient-to-r from-indigo-50 to-white border-b border-indigo-100">
                                                             <div className="flex items-center gap-2 min-w-0">
-                                                                <span className="text-lg">📂</span>
+                                                                <FolderOpen size={18} className="text-indigo-500" />
                                                                 <span className="text-[10px] font-semibold text-indigo-700 whitespace-nowrap">
                                                                     {idx === 0 ? '一级分组' : idx === 1 ? '二级分组' : idx === 2 ? '三级分组' : `${idx + 1}级`}
                                                                 </span>
@@ -1960,7 +1960,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         });
                                     }}
                                     className="px-2 py-1 text-[10px] bg-purple-50 hover:bg-purple-100 rounded border border-purple-200 text-purple-700"
-                                >🔢 数字筛选</button>
+                                ><Hash size={12} className="inline mr-1" /> 数字筛选</button>
                                 {config.dateColumn && (
                                     <button
                                         onClick={() => {
@@ -1976,7 +1976,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             ? 'bg-sky-500 text-white border-sky-600'
                                             : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-700'
                                             }`}
-                                    >📅 日期筛选{config.dateStart || config.dateEnd ? ' ✓' : ''}</button>
+                                    ><Calendar size={12} className="inline mr-1" /> 日期筛选{config.dateStart || config.dateEnd ? ' ✓' : ''}</button>
                                 )}
                                 <button
                                     onClick={() => updateConfig({
@@ -1998,7 +1998,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                             {config.dateColumn && (config.dateStart || config.dateEnd) && (
                                 <div className="p-2 bg-sky-50 rounded-lg border border-sky-200">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-sky-700">📅</span>
+                                        <Calendar size={10} className="text-sky-700" />
                                         <input
                                             type="date"
                                             value={config.dateStart}
@@ -2203,7 +2203,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
 
                             {/* === 数字筛选 === */}
                             <div className="border-t border-slate-200 pt-3 mt-3">
-                                <div className="text-xs font-semibold text-slate-700 mb-2">🔢 数字筛选 ({config.numFilters.length})</div>
+                                <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-1"><Hash size={12} /> 数字筛选 ({config.numFilters.length})</div>
                                 <div className="space-y-2">
                                     {config.numFilters.map((filter, idx) => (
                                         <div key={filter.id} className="bg-emerald-50 rounded p-2 space-y-1.5">
@@ -2387,7 +2387,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             }
                                         }}
                                         className="px-2 py-1 text-[10px] bg-teal-50 hover:bg-teal-100 rounded border border-teal-200 text-teal-700"
-                                    >📅 日期↓</button>
+                                    ><Calendar size={12} className="inline mr-1" /> 日期↓</button>
                                     {config.sortRules.length > 0 && (
                                         <button
                                             onClick={() => updateConfig({ sortRules: [] })}
