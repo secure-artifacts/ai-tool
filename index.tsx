@@ -58,6 +58,7 @@ import ImageRecognitionApp from '@/apps/ai-image-recognition/ImageRecognitionApp
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle } from 'lucide-react';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
@@ -3547,7 +3548,7 @@ const TemplateBuilderView: React.FC<{
             marginTop: '1rem'
           }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-              <span style={{ fontSize: '1.5rem' }}>💡</span>
+              <Lightbulb size={24} className="text-amber-400" />
               <div style={{ flex: 1 }}>
                 <h4 style={{
                   margin: '0 0 0.75rem 0',
@@ -3569,12 +3570,12 @@ const TemplateBuilderView: React.FC<{
                   </p>
 
                   <p style={{ margin: '0 0 0.75rem 0' }}>
-                    <strong style={{ color: 'var(--text-color)' }}>📋 使用前提：</strong>
+                    <ClipboardList size={14} className="inline mr-1" /><strong style={{ color: 'var(--text-color)' }}>使用前提：</strong>
                     需要对每类特定图片类型的描述要求进行整理，形成规范化的指令（组内总结整理），然后填入到对应图片类型的模块中。
                   </p>
 
                   <p style={{ margin: '0 0 0.75rem 0' }}>
-                    <strong style={{ color: 'var(--text-color)' }}>✨ 核心优势：</strong>
+                    <Sparkles size={14} className="inline mr-1" /><strong style={{ color: 'var(--text-color)' }}>核心优势：</strong>
                   </p>
                   <ul style={{
                     margin: '0 0 0.75rem 1.25rem',
@@ -3588,7 +3589,7 @@ const TemplateBuilderView: React.FC<{
                   </ul>
 
                   <p style={{ margin: '0', opacity: 0.9 }}>
-                    <strong style={{ color: 'var(--text-color)' }}>💡 提示：</strong>
+                    <Lightbulb size={14} className="inline mr-1 text-amber-400" /><strong style={{ color: 'var(--text-color)' }}>提示：</strong>
                     如果偏好为不同图片类型使用独立模版，也可以创建多个版本进行切换，根据实际使用场景灵活选择。
                   </p>
                 </div>
@@ -5331,7 +5332,7 @@ const ImageStudioTool: React.FC<{
       {images.length === 0 ? (
         <FileUploader onFileSelect={(file) => handleImageSelect(file as File)} multiple={true}>
           <div className="uploader-content">
-            <span>🖼️</span>
+            <Image size={24} />
             <p>{t('uploadSingleImage')}</p>
             <div className="upload-buttons">
               <button type="button" className="secondary-btn" onClick={(e) => {
@@ -5369,10 +5370,10 @@ const ImageStudioTool: React.FC<{
                   onClick={() => setState(prev => ({ ...prev, activeImageId: img.id }))}
                 >
                   <img src={img.url} alt="thumbnail" />
-                  {img.status === 'queued' && <div className="status-indicator queued">🕒 {t('statusQueued')}</div>}
-                  {img.status === 'processing' && <div className="status-indicator processing"><span>⏳</span> {t('statusProcessing')}</div>}
-                  {img.status === 'success' && <div className="status-indicator success">✅ {t('statusSuccess')}</div>}
-                  {img.status === 'error' && <div className="status-indicator error">❌ {t('statusError')}</div>}
+                  {img.status === 'queued' && <div className="status-indicator queued"><Clock size={14} /> {t('statusQueued')}</div>}
+                  {img.status === 'processing' && <div className="status-indicator processing"><Loader2 size={14} className="animate-spin" /> {t('statusProcessing')}</div>}
+                  {img.status === 'success' && <div className="status-indicator success"><Check size={14} /> {t('statusSuccess')}</div>}
+                  {img.status === 'error' && <div className="status-indicator error"><X size={14} /> {t('statusError')}</div>}
                   <button
                     className="remove-item-btn"
                     onClick={(e) => {
@@ -5417,7 +5418,7 @@ const ImageStudioTool: React.FC<{
                           disabled={isLoading}
                           title={t('editInMagicCanvas') || 'Edit in Magic Canvas'}
                         >
-                          🎨 {t('editInMagicCanvas') || 'Edit in Magic Canvas'}
+                          <Palette size={14} className="inline mr-1" /> {t('editInMagicCanvas') || 'Edit in Magic Canvas'}
                         </button>
                       )}
                       <div className="history-controls">
@@ -6221,7 +6222,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               color: 'var(--on-surface-color)',
               lineHeight: 1.5
             }}>
-              💡 <strong>建议：</strong>添加至少 5 个以上的 API Key 进行轮换，否则容易出现配额不足报错
+              <Lightbulb size={14} className="inline mr-1 text-amber-400" /><strong>建议：</strong>添加至少 5 个以上的 API Key 进行轮换，否则容易出现配额不足报错
             </div>
 
             {/* API池开关 */}
@@ -6506,7 +6507,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       {keysError.includes('ApiKeys') || keysError.includes('表格') ? (
                         <details style={{ fontSize: '0.8rem', color: '#856404' }}>
                           <summary style={{ cursor: 'pointer', marginBottom: '0.5rem', fontWeight: 500 }}>
-                            💡 如何解决？点击查看设置步骤
+                            <Lightbulb size={14} className="inline mr-1" /> 如何解决？点击查看设置步骤
                           </summary>
                           <div style={{
                             padding: '0.75rem',
@@ -6647,7 +6648,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       color: 'var(--text-muted-color)'
                     }}>
                       <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', fontWeight: 500, color: 'var(--text-color)' }}>
-                        📋 还没有API密钥
+                        <ClipboardList size={14} className="inline mr-1" /> 还没有API密钥
                       </p>
                       <p style={{ margin: '0 0 1rem 0', fontSize: '0.85rem', lineHeight: '1.6' }}>
                         点击上方"+ 添加密钥"开始添加您的API密钥
@@ -6855,7 +6856,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               )}
               {batchMode && (
                 <small style={{ color: 'var(--text-muted-color)', fontSize: '0.75rem', display: 'block', marginTop: '0.25rem' }}>
-                  💡 可以直接粘贴多个密钥，每行一个。支持格式: "密钥" 或 "密钥 备注" 或 "密钥,备注"
+                  <Lightbulb size={12} className="inline mr-1" /> 可以直接粘贴多个密钥，每行一个。支持格式: "密钥" 或 "密钥 备注" 或 "密钥,备注"
                 </small>
               )}
             </div>
@@ -7159,7 +7160,7 @@ const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string
               marginTop: '4px',
               opacity: 0.7
             }}>
-              💡 旧版本可能缺少新功能
+              <Lightbulb size={12} className="inline mr-1" /> 旧版本可能缺少新功能
             </div>
           </div>
         </>
@@ -8442,14 +8443,14 @@ const App = () => {
               marginBottom: '0.75rem'
             }}>
               <div style={{ fontWeight: 600, marginBottom: '0.4rem', color: 'var(--on-surface-color)' }}>
-                📋 AI图片识别 · 提示词工具 · 智能翻译
+                <ClipboardList size={12} className="inline mr-1" /> AI图片识别 · 提示词工具 · 智能翻译
               </div>
               <div style={{ fontSize: '0.65rem', color: 'var(--text-muted-color)', marginBottom: '0.3rem' }}>
                 三大功能区共同支持：
               </div>
               ✓ 项目历史管理<br />
               ✓ 两个版本记录自动同步<br />
-              💡 登录账号邮箱即可保存及同步记录
+              <Lightbulb size={12} className="inline mr-1" /> 登录账号邮箱即可保存及同步记录
             </div>
 
             {/* 关闭按钮 */}
