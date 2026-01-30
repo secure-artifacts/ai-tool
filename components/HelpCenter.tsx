@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { BookOpen, Search, X } from 'lucide-react';
 
 interface HelpCenterProps {
     isOpen: boolean;
@@ -556,14 +557,14 @@ export const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose, languag
                 {/* 头部 */}
                 <div className="help-center-header">
                     <div className="help-center-title">
-                        <span className="help-center-icon">📖</span>
+                        <span className="help-center-icon"><BookOpen size={24} /></span>
                         <div>
                             <h2>帮助中心</h2>
                             <p className="help-center-subtitle">AI 创作工具包使用指南</p>
                         </div>
                     </div>
                     <div className="help-center-search">
-                        <span className="search-icon">🔍</span>
+                        <Search size={14} className="search-icon" />
                         <input
                             type="text"
                             placeholder="搜索帮助..."
@@ -571,7 +572,7 @@ export const HelpCenter: React.FC<HelpCenterProps> = ({ isOpen, onClose, languag
                             onChange={e => setSearchQuery(e.target.value)}
                         />
                     </div>
-                    <button className="help-center-close" onClick={onClose}>✕</button>
+                    <button className="help-center-close" onClick={onClose}><X size={18} /></button>
                 </div>
 
                 <div className="help-center-body">

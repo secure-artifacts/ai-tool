@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { submitFeedback } from '../services/feedbackService';
+import { Lightbulb, Bug, Check, X } from 'lucide-react';
 
 interface FeedbackModalProps {
     onClose: () => void;
@@ -41,13 +42,13 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, userEmail }) => 
         <div className="modal-backdrop" onClick={onClose}>
             <div className="modal-content feedback-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-header">
-                    <h2>💡 建议反馈</h2>
-                    <button onClick={onClose} className="modal-close-btn" aria-label="关闭">✕</button>
+                    <h2><Lightbulb size={18} className="inline mr-1" /> 建议反馈</h2>
+                    <button onClick={onClose} className="modal-close-btn" aria-label="关闭"><X size={16} /></button>
                 </div>
 
                 {success ? (
                     <div className="feedback-success">
-                        <div className="success-icon">✓</div>
+                        <div className="success-icon"><Check size={24} /></div>
                         <p>感谢您的反馈！我们已收到您的建议。</p>
                     </div>
                 ) : (
@@ -60,14 +61,14 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ onClose, userEmail }) => 
                                     className={`type-btn ${feedbackType === 'suggestion' ? 'active' : ''}`}
                                     onClick={() => setFeedbackType('suggestion')}
                                 >
-                                    💡 功能建议
+                                    <Lightbulb size={14} className="inline mr-1" /> 功能建议
                                 </button>
                                 <button
                                     type="button"
                                     className={`type-btn ${feedbackType === 'bug' ? 'active' : ''}`}
                                     onClick={() => setFeedbackType('bug')}
                                 >
-                                    🐛 Bug 反馈
+                                    <Bug size={14} className="inline mr-1" /> Bug 反馈
                                 </button>
                             </div>
                         </div>
