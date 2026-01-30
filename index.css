@@ -9700,3 +9700,23 @@ textarea:focus-visible {
   padding: 4px;
   font-size: 12px;
 }
+
+/* ============================================
+   📋 表单通用样式
+   ============================================ */
+
+.form-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 0.9rem;
+}
+
+.form-separator {
+  border-color: var(--border-color);
+  opacity: 0.5;
+}
+
+/* 隐藏样式（display: none） */
+.d-none {
+  display: none;
+}

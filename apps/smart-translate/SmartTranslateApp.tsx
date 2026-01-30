@@ -2391,7 +2391,7 @@ ${textToTranslate}
                             multiple
                             accept="image/*"
                             ref={fileInputRef}
-                            style={{ display: 'none' }}
+                            className="d-none"
                             onChange={e => handleFiles(e.target.files)}
                         />
                         <button
@@ -2566,7 +2566,7 @@ ${textToTranslate}
                                         multiple
                                         accept="image/*"
                                         ref={fileInputRef}
-                                        style={{ display: 'none' }}
+                                        className="d-none"
                                         onChange={e => handleFiles(e.target.files)}
                                     />
                                     <button
@@ -2632,7 +2632,7 @@ ${textToTranslate}
                                             multiple
                                             accept="image/*"
                                             ref={fileInputRef}
-                                            style={{ display: 'none' }}
+                                            className="d-none"
                                             onChange={e => handleFiles(e.target.files)}
                                         />
                                         <button
@@ -2890,7 +2890,7 @@ const ApiKeyModal: React.FC<{
                 {allowApiKeySettings && (
                     <>
                         <div className="form-group">
-                            <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>Google Gemini API Key</label>
+                            <label className="form-label">Google Gemini API Key</label>
                             <input
                                 ref={inputRef}
                                 type="password"
@@ -2900,10 +2900,10 @@ const ApiKeyModal: React.FC<{
                             />
                         </div>
 
-                        <hr style={{ borderColor: 'var(--border-color)', opacity: 0.5 }} />
+                        <hr className="form-separator" />
 
                         <div className="form-group">
-                            <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>{t('gyazoTokenLabel')}</label>
+                            <label className="form-label">{t('gyazoTokenLabel')}</label>
                             <input
                                 type="password"
                                 placeholder={t('gyazoTokenPlaceholder')}
@@ -2913,12 +2913,12 @@ const ApiKeyModal: React.FC<{
                             />
                         </div>
 
-                        <hr style={{ borderColor: 'var(--border-color)', opacity: 0.5 }} />
+                        <hr className="form-separator" />
                     </>
                 )}
 
                 <div className="form-group batch-language-config">
-                    <label style={{ display: 'block', marginBottom: '5px', fontSize: '0.9rem' }}>
+                    <label className="form-label">
                         {t('batchLanguagesLabel')}
                     </label>
                     <div className="batch-language-hint">{t('batchLanguagesHint')}</div>
