@@ -499,7 +499,7 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                     {(unmatchedBase.length > 0 || unmatchedMatch.length > 0) && (
                         <div className="border-t border-slate-100 px-3 py-2 bg-amber-50">
                             <div className="text-xs text-amber-700">
-                                <span className="font-medium">⚠️ 未匹配项：</span>
+                                <span className="font-medium flex items-center gap-1"><AlertCircle size={12} /> 未匹配项：</span>
                                 {unmatchedBase.length > 0 && <span className="ml-2">基准列 {unmatchedBase.length} 行未找到匹配</span>}
                                 {unmatchedMatch.length > 0 && <span className="ml-2">待匹配列 {unmatchedMatch.length} 行未被使用</span>}
                             </div>

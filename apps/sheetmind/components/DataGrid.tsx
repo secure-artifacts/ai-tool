@@ -126,7 +126,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
                   (e.target as HTMLImageElement).style.display = 'none';
                   const parent = (e.target as HTMLImageElement).parentElement;
                   if (parent) {
-                    parent.innerHTML = '<span class="text-blue-600 text-xs">🖼️ 图片</span>';
+                    parent.innerHTML = '<span class="text-blue-600 text-xs">[图片]</span>';
                   }
                 }}
               />

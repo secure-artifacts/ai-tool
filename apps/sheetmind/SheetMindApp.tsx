@@ -11,7 +11,7 @@ import MediaGalleryPanel from './components/MediaGalleryPanel';
 import DataSourceManager, { addDataSource, loadDataSources, DataSource } from './components/DataSourceManager';
 import UnifiedSettingsPanel from './components/UnifiedSettingsPanel';
 import { SharedConfig, getDefaultSharedConfig } from './types/sharedConfig';
-import { Table, BarChart4, ChevronDown, RotateCw, X, MessageSquare, GalleryHorizontalEnd, PanelRightClose, PanelRightOpen, BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Trash2, FolderOpen, ArrowRightLeft, Image, Database, Cloud, Loader2, Filter, Copy, Eye, EyeOff, Layers, Check, HardDrive, Settings, MoveVertical, ClipboardPlus, Plus } from 'lucide-react';
+import { Table, BarChart4, ChevronDown, RotateCw, X, MessageSquare, GalleryHorizontalEnd, PanelRightClose, PanelRightOpen, BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Trash2, FolderOpen, ArrowRightLeft, Image, Database, Cloud, Loader2, Filter, Copy, Eye, EyeOff, Layers, Check, HardDrive, Settings, MoveVertical, ClipboardPlus, Plus, BarChart2, Lightbulb } from 'lucide-react';
 import { parseSheetAsync, parseMultipleSheetsAsync, fetchWorkbookFromUrl, fetchWorkbookWithAuth, fetchWorkbookSmart, filterWorkbook, getServiceAccountEmail } from './utils/parser';
 import { getGoogleAccessToken } from '@/services/authService';
 import { GoogleGenAI } from "@google/genai";
@@ -1576,7 +1576,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 {/* Show reload prompt for large data */}
                                 {needsReload && sourceUrl && (
                                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-8 text-center">
-                                        <h3 className="text-lg font-bold text-amber-800 mb-2">📊 上次加载的大数据表格</h3>
+                                        <h3 className="text-lg font-bold text-amber-800 mb-2 flex items-center justify-center gap-2"><BarChart2 size={20} /> 上次加载的大数据表格</h3>
                                         <p className="text-amber-700 text-sm mb-4">
                                             由于数据量较大，需要重新加载。点击下方按钮继续使用。
                                         </p>
@@ -1883,7 +1883,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 autoFocus
                             />
                             <p className="text-xs text-slate-400 mt-2">
-                                💡 提示：当前表格有 {data?.columns.length || 0} 列，{data?.rows.length || 0} 行
+                                <Lightbulb size={12} className="inline mr-1" /> 提示：当前表格有 {data?.columns.length || 0} 列，{data?.rows.length || 0} 行
                             </p>
                         </div>
                         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex justify-end gap-2">
