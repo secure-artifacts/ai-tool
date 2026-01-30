@@ -2965,11 +2965,11 @@ const DescInnovationTool: React.FC<{
                     <span className={`desc-status-chip ${entry.status}`}>{statusLabels[entry.status]}</span>
                     <div className="desc-entry-actions">
                       <button
-                        className="secondary-btn"
+                        className="secondary-btn tooltip-bottom"
                         type="button"
                         onClick={() => toggleEntryCollapse(entry.id)}
                         aria-expanded={!isEntryCollapsed}
-                        title={entryToggleLabel}
+                        data-tip={entryToggleLabel}
                         aria-label={entryToggleLabel}
                       >
                         {isEntryCollapsed ? '折叠' : '展开'}
@@ -5417,7 +5417,8 @@ const ImageStudioTool: React.FC<{
                             }
                           }}
                           disabled={isLoading}
-                          title={t('editInMagicCanvas') || 'Edit in Magic Canvas'}
+                          data-tip={t('editInMagicCanvas') || 'Edit in Magic Canvas'}
+                          className="secondary-btn tooltip-bottom"
                         >
                           <Palette size={14} className="inline mr-1" /> {t('editInMagicCanvas') || 'Edit in Magic Canvas'}
                         </button>
@@ -5487,11 +5488,11 @@ const ImageStudioTool: React.FC<{
                   </label>
                 </div>
                 <button
-                  className="secondary-btn"
+                  className="secondary-btn tooltip-bottom"
                   style={{ marginLeft: 'auto', marginRight: '1rem', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
                   onClick={() => handleBatchEdit('')}
                   disabled={isLoading || images.length === 0}
-                  title="Process all images with their current prompts"
+                  data-tip="Process all images with their current prompts"
                 >
                   ▶ {t('startBatch')}
                 </button>
@@ -5527,8 +5528,8 @@ const ImageStudioTool: React.FC<{
                       <span>{tabLabel}</span>
                       {cat.isDeletable && (
                         <div className="tab-actions">
-                          <button className="rename-tab-btn" onClick={(e) => { e.stopPropagation(); setState(prev => ({ ...prev, renamingCategoryId: cat.id })); }} title={t('renameCategory')}>✏️</button>
-                          <button className="delete-tab-btn" onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} title={t('deleteCategory')}>&times;</button>
+                          <button className="rename-tab-btn tooltip-bottom" onClick={(e) => { e.stopPropagation(); setState(prev => ({ ...prev, renamingCategoryId: cat.id })); }} data-tip={t('renameCategory')}>✏️</button>
+                          <button className="delete-tab-btn tooltip-bottom" onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.id); }} data-tip={t('deleteCategory')}>&times;</button>
                         </div>
                       )}
                     </button>
@@ -5542,7 +5543,7 @@ const ImageStudioTool: React.FC<{
                     placeholder={t('categoryInputPlaceholder')}
                   />
                 ) : (
-                  <button className="add-tab-btn" onClick={() => setState(prev => ({ ...prev, isAddingNewCategory: true }))} title={t('addCategory')}>+</button>
+                  <button className="add-tab-btn tooltip-bottom" onClick={() => setState(prev => ({ ...prev, isAddingNewCategory: true }))} data-tip={t('addCategory')}>+</button>
                 )}
               </div>
               <div className="portrait-tab-content">
@@ -5588,12 +5589,12 @@ const ImageStudioTool: React.FC<{
                       {activeCategory.presets.find(p => p.prompt === (activeImage?.prompt || customPrompts[activeCategory.id])) && (
                         <>
                           <button
-                            className="edit-preset-btn"
+                            className="edit-preset-btn tooltip-bottom"
                             onClick={() => {
                               const currentPreset = activeCategory.presets.find(p => p.prompt === (activeImage?.prompt || customPrompts[activeCategory.id]));
                               if (currentPreset) setState(prev => ({ ...prev, editingPreset: { categoryId: activeCategory.id, presetId: currentPreset.id } }));
                             }}
-                            title={t('editPreset')}
+                            data-tip={t('editPreset')}
                             style={{ padding: '0.5rem' }}
                           >
                             ✏️
@@ -5652,7 +5653,7 @@ const ImageStudioTool: React.FC<{
                         }}
                         disabled={isLoading}
                       />
-                      <button className="add-preset-btn" title={t('addPreset')} onClick={() => handleAddPreset(activeCategory.id)} disabled={isLoading || !(activeImage?.prompt || customPrompts[activeCategory.id] || '').trim()}>+</button>
+                      <button className="add-preset-btn tooltip-bottom" data-tip={t('addPreset')} onClick={() => handleAddPreset(activeCategory.id)} disabled={isLoading || !(activeImage?.prompt || customPrompts[activeCategory.id] || '').trim()}>+</button>
                       <button onClick={() => handleSingleEdit(activeImage?.prompt || customPrompts[activeCategory.id] || '')} disabled={isLoading || !(activeImage?.prompt || customPrompts[activeCategory.id] || '').trim() || !activeImage}>{t('execute')}</button>
                     </div>
                   </div>
@@ -6595,7 +6596,8 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                               cursor: 'pointer'
                             }}
                             onClick={() => handleToggleStatus(key.apiKey, key.status)}
-                            title="点击切换状态"
+                            data-tip="点击切换状态"
+                            className="tooltip-bottom"
                           >
                             {key.status === 'active' ? '✓ 激活' : '✗ 禁用'}
                           </span>
@@ -6725,10 +6727,10 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <div className="modal-footer">
               <button className="secondary-btn" onClick={onClose}>{t('cancel')}</button>
               <button
-                className="secondary-btn"
+                className="secondary-btn tooltip-bottom"
                 onClick={handleRefreshPool}
                 disabled={isRefreshing || (!useSharedPool && !storedUserEmail) || (useSharedPool && !user?.email)}
-                title={useSharedPool ? '从共享API池获取最新密钥' : (!storedUserEmail ? '请先在首页设置邮箱' : '从Google Sheet读取最新密钥列表')}
+                data-tip={useSharedPool ? '从共享API池获取最新密钥' : (!storedUserEmail ? '请先在首页设置邮箱' : '从Google Sheet读取最新密钥列表')}
               >
                 {isRefreshing ? '刷新中...' : <><RefreshCw size={14} className="inline mr-1" /> 刷新池</>}
               </button>
@@ -7078,7 +7080,8 @@ const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string
         }}
         onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
         onMouseLeave={(e) => e.currentTarget.style.opacity = showMenu ? '1' : '0.6'}
-        title="点击查看版本历史"
+        data-tip="点击查看版本历史"
+        className="tooltip-bottom"
       >
         v{currentVersion}
         {buildTime && <span style={{ marginLeft: '4px', opacity: 0.7 }}>({buildTime})</span>}
@@ -8520,7 +8523,8 @@ const App = () => {
           }}
           onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
           onMouseLeave={e => (e.currentTarget.style.opacity = '0.3')}
-          title="显示工具栏"
+          data-tip="显示工具栏"
+          className="tooltip-bottom"
         >
           ▼ 显示工具栏
         </button>
@@ -8531,9 +8535,9 @@ const App = () => {
             className="header-toggle-btn"
             onClick={() => setIsPresetControlsExpanded(!isPresetControlsExpanded)}
             aria-label={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
-            title={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
+            data-tip={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
           >
-            <span className="hand-icon" style={{ transform: isPresetControlsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }}>👉</span>
+            <span className="hand-icon tooltip-bottom" style={{ transform: isPresetControlsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }}>👉</span>
           </button>
 
           {/* 折叠时显示的快捷工具栏 */}
@@ -8545,8 +8549,8 @@ const App = () => {
                   <button
                     key={item.tool}
                     onClick={() => setActiveTool(item.tool)}
-                    className={`collapsed-nav-btn ${activeTool === item.tool ? 'active' : ''}`}
-                    title={t(item.labelKey)}
+                    className={`collapsed-nav-btn tooltip-bottom ${activeTool === item.tool ? 'active' : ''}`}
+                    data-tip={t(item.labelKey)}
                   >
                     <span className={`material-icons nav-icon-${item.tool}`}>{NAV_ICON_NAMES[item.tool]}</span>
                   </button>
@@ -8559,8 +8563,8 @@ const App = () => {
               {/* API 状态指示 */}
               <button
                 onClick={() => setShowApiKeyModal(true)}
-                className={`collapsed-api-btn ${isKeySet ? (usePool ? 'pool' : 'manual') : 'not-set'}`}
-                title={
+                className={`collapsed-api-btn tooltip-bottom ${isKeySet ? (usePool ? 'pool' : 'manual') : 'not-set'}`}
+                data-tip={
                   usePool && apiPoolStatus
                     ? `API池模式 (${apiPoolStatus.current}/${apiPoolStatus.total})`
                     : apiKey
@@ -8580,8 +8584,8 @@ const App = () => {
               {/* 用户账号按钮 - 点击打开登录/账号弹窗 */}
               <button
                 onClick={() => setShowLoginModal(true)}
-                className={`collapsed-login-btn ${user ? 'logged-in' : ''}`}
-                title={user ? (user.email || '账号设置') : (language === 'zh' ? '登录' : 'Login')}
+                className={`collapsed-login-btn tooltip-bottom ${user ? 'logged-in' : ''}`}
+                data-tip={user ? (user.email || '账号设置') : (language === 'zh' ? '登录' : 'Login')}
                 style={{ padding: user?.photoURL ? '2px' : undefined }}
               >
                 {user ? (
@@ -8634,8 +8638,8 @@ const App = () => {
                     }
                     setShowEditionTooltip(!showEditionTooltip);
                   }}
-                  className={`collapsed-edition-btn ${appEdition}`}
-                  title={appEdition === 'website' ? '网站版' : 'AI Studio版'}
+                  className={`collapsed-edition-btn tooltip-bottom ${appEdition}`}
+                  data-tip={appEdition === 'website' ? '网站版' : 'AI Studio版'}
                   style={{
                     padding: '0.3rem 0.5rem',
                     fontSize: '0.7rem',
@@ -8660,8 +8664,8 @@ const App = () => {
               {/* 📖 帮助按钮 */}
               <button
                 onClick={() => setShowHelpCenter(true)}
-                className="collapsed-settings-btn"
-                title={language === 'zh' ? '帮助中心' : 'Help Center'}
+                className="collapsed-settings-btn tooltip-bottom"
+                data-tip={language === 'zh' ? '帮助中心' : 'Help Center'}
                 style={{ fontSize: '16px' }}
               >
                 <HelpCircle size={16} />
@@ -8681,8 +8685,8 @@ const App = () => {
                     }
                     setShowSettingsPanel(!showSettingsPanel);
                   }}
-                  className="collapsed-settings-btn"
-                  title={language === 'zh' ? '设置 (模型/缩放)' : 'Settings (Model/Scale)'}
+                  className="collapsed-settings-btn tooltip-bottom"
+                  data-tip={language === 'zh' ? '设置 (模型/缩放)' : 'Settings (Model/Scale)'}
                 >
                   <Settings size={16} />
                 </button>
@@ -8775,8 +8779,8 @@ const App = () => {
                               <option value="custom">{uiScale}%</option>
                             )}
                           </select>
-                          <button className="collapsed-step-btn" onClick={() => setUiScale(Math.max(50, uiScale - 1))} title="-1%">−</button>
-                          <button className="collapsed-step-btn" onClick={() => setUiScale(Math.min(400, uiScale + 1))} title="+1%">+</button>
+                          <button className="collapsed-step-btn tooltip-bottom" onClick={() => setUiScale(Math.max(50, uiScale - 1))} data-tip="-1%">−</button>
+                          <button className="collapsed-step-btn tooltip-bottom" onClick={() => setUiScale(Math.min(400, uiScale + 1))} data-tip="+1%">+</button>
                         </div>
                       </div>
                       <div style={{ marginTop: '0.75rem' }}>
@@ -8801,8 +8805,8 @@ const App = () => {
                               <option value="custom">{fontScale}%</option>
                             )}
                           </select>
-                          <button className="collapsed-step-btn" onClick={() => setFontScale(Math.max(50, fontScale - 1))} title="-1%">−</button>
-                          <button className="collapsed-step-btn" onClick={() => setFontScale(Math.min(200, fontScale + 1))} title="+1%">+</button>
+                          <button className="collapsed-step-btn tooltip-bottom" onClick={() => setFontScale(Math.max(50, fontScale - 1))} data-tip="-1%">−</button>
+                          <button className="collapsed-step-btn tooltip-bottom" onClick={() => setFontScale(Math.min(200, fontScale + 1))} data-tip="+1%">+</button>
                         </div>
                       </div>
 
@@ -8885,7 +8889,8 @@ const App = () => {
                 }}
                 onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
                 onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
-                title="隐藏工具栏"
+                data-tip="隐藏工具栏"
+                className="tooltip-bottom"
               >
                 ⏏
               </button>
@@ -8901,16 +8906,16 @@ const App = () => {
 
           {/* 查看更新按钮 */}
           <button
-            className="view-update-btn"
+            className="view-update-btn tooltip-bottom"
             onClick={() => setShowUpdateNotice(true)}
-            title={language === 'zh' ? '查看最新更新' : 'View Updates'}
+            data-tip={language === 'zh' ? '查看最新更新' : 'View Updates'}
           >
             <span className="update-icon">🎉</span>
             <span className="update-text">
               {language === 'zh' ? '更新 (01/29)' : 'Updates (01/29)'}
             </span>
           </button>
-        </div>
+        </div >
       )}
 
       {/* 整个 Header - 可折叠 */}
@@ -8921,7 +8926,7 @@ const App = () => {
             <div className="header-controls">
               <button
                 onClick={() => setShowApiKeyModal(true)}
-                className="secondary-btn api-key-btn"
+                className="secondary-btn api-key-btn tooltip-bottom"
                 style={{
                   background: isKeySet
                     ? (usePool && apiPoolStatus ? '#4caf5020' : '#4dabff20')
@@ -8930,7 +8935,7 @@ const App = () => {
                     ? (usePool && apiPoolStatus ? '#4caf50' : '#4dabff')
                     : '#ff0000'
                 }}
-                title={
+                data-tip={
                   usePool && apiPoolStatus
                     ? `使用API池自动轮换 (${apiPoolStatus.current}/${apiPoolStatus.total})`
                     : apiKey
@@ -8958,8 +8963,8 @@ const App = () => {
               </button>
               <button
                 onClick={() => setShowFeedbackModal(true)}
-                className="secondary-btn feedback-btn"
-                title="帮助我们改进产品，您的意见将收集到我们的公开建议表中"
+                className="secondary-btn feedback-btn tooltip-bottom"
+                data-tip="帮助我们改进产品，您的意见将收集到我们的公开建议表中"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path>
@@ -8970,8 +8975,8 @@ const App = () => {
               </button>
               <button
                 onClick={() => setShowHelpCenter(true)}
-                className="secondary-btn tutorial-btn"
-                title={language === 'zh' ? '查看帮助文档' : 'View help documentation'}
+                className="secondary-btn tutorial-btn tooltip-bottom"
+                data-tip={language === 'zh' ? '查看帮助文档' : 'View help documentation'}
               >
                 <HelpCircle size={14} className="inline mr-1" /> {language === 'zh' ? '帮助' : 'Help'}
               </button>
@@ -9005,8 +9010,8 @@ const App = () => {
                   });
                   setShowEditionTooltip(!showEditionTooltip);
                 }}
-                className={`secondary-btn edition-btn ${appEdition}`}
-                title={appEdition === 'website' ? '网站版 - 点击切换' : 'AI Studio版 - 点击切换'}
+                className={`secondary-btn edition-btn tooltip-bottom ${appEdition}`}
+                data-tip={appEdition === 'website' ? '网站版 - 点击切换' : 'AI Studio版 - 点击切换'}
                 style={{
                   padding: '0.3rem 0.6rem',
                   fontSize: '0.75rem',
@@ -9028,20 +9033,21 @@ const App = () => {
                 <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   {/* 云端同步状态 */}
                   {cloudSyncStatus === 'syncing' && (
-                    <span style={{ fontSize: '0.75rem', color: '#4dabff', animation: 'pulse 1s infinite' }} title={language === 'zh' ? '正在同步...' : 'Syncing...'}>
+                    <span className="tooltip-bottom" style={{ fontSize: '0.75rem', color: '#4dabff', animation: 'pulse 1s infinite' }} data-tip={language === 'zh' ? '正在同步...' : 'Syncing...'}>
                       ☁️
                     </span>
                   )}
                   {cloudSyncStatus === 'loading' && (
-                    <span style={{ fontSize: '0.75rem', color: '#ffd700' }} title={language === 'zh' ? '加载云端设置...' : 'Loading...'}>
+                    <span className="tooltip-bottom" style={{ fontSize: '0.75rem', color: '#ffd700' }} data-tip={language === 'zh' ? '加载云端设置...' : 'Loading...'}>
                       ⏳
                     </span>
                   )}
                   <img
                     src={user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.email || 'U')}&background=4dabff&color=fff&size=32`}
                     alt="avatar"
+                    className="tooltip-bottom"
                     style={{ width: '28px', height: '28px', borderRadius: '50%', cursor: 'pointer' }}
-                    title={`${user.email || ''}\n${language === 'zh' ? '点击退出登录' : 'Click to sign out'}`}
+                    data-tip={`${user.email || ''}\n${language === 'zh' ? '点击退出登录' : 'Click to sign out'}`}
                     onClick={() => {
                       if (confirm(language === 'zh' ? '确定要退出登录吗？' : 'Sign out?')) {
                         signOut();
@@ -9065,7 +9071,7 @@ const App = () => {
           <div className="preset-controls-section">
             <div className="preset-inline-controls">
               {/* 缩放控制 */}
-              <div className="scale-control" title={language === 'zh' ? '界面缩放' : 'UI Scale'}>
+              <div className="scale-control tooltip-bottom" data-tip={language === 'zh' ? '界面缩放' : 'UI Scale'}>
                 <Search size={16} className="scale-icon" />
                 <select
                   value={UI_SCALE_OPTIONS.includes(uiScale) ? uiScale : 'custom'}
@@ -9084,16 +9090,16 @@ const App = () => {
                   )}
                 </select>
                 <button
-                  className="scale-step-btn"
+                  className="scale-step-btn tooltip-bottom"
                   onClick={() => setUiScale(Math.max(50, uiScale - 1))}
-                  title="-1%"
+                  data-tip="-1%"
                 >
                   −
                 </button>
                 <button
-                  className="scale-step-btn"
+                  className="scale-step-btn tooltip-bottom"
                   onClick={() => setUiScale(Math.min(400, uiScale + 1))}
-                  title="+1%"
+                  data-tip="+1%"
                 >
                   +
                 </button>
@@ -9108,21 +9114,21 @@ const App = () => {
                       setUiScale(val);
                     }
                   }}
-                  className="scale-input"
-                  title={language === 'zh' ? '手动输入缩放比例 (50-400)' : 'Manual input (50-400)'}
+                  className="scale-input tooltip-bottom"
+                  data-tip={language === 'zh' ? '手动输入缩放比例 (50-400)' : 'Manual input (50-400)'}
                 />
                 {uiScale !== 100 && (
                   <button
-                    className="scale-reset"
+                    className="scale-reset tooltip-bottom"
                     onClick={() => setUiScale(100)}
-                    title={language === 'zh' ? '重置缩放' : 'Reset'}
+                    data-tip={language === 'zh' ? '重置缩放' : 'Reset'}
                   >
                     ↺
                   </button>
                 )}
               </div>
               {/* 文字大小控制 */}
-              <div className="scale-control" title={language === 'zh' ? '文字大小' : 'Font Size'}>
+              <div className="scale-control tooltip-bottom" data-tip={language === 'zh' ? '文字大小' : 'Font Size'}>
                 <span className="scale-icon">🔤</span>
                 <select
                   value={FONT_SCALE_OPTIONS.includes(fontScale) ? fontScale : 'custom'}
@@ -9141,16 +9147,16 @@ const App = () => {
                   )}
                 </select>
                 <button
-                  className="scale-step-btn"
+                  className="scale-step-btn tooltip-bottom"
                   onClick={() => setFontScale(Math.max(50, fontScale - 1))}
-                  title="-1%"
+                  data-tip="-1%"
                 >
                   −
                 </button>
                 <button
-                  className="scale-step-btn"
+                  className="scale-step-btn tooltip-bottom"
                   onClick={() => setFontScale(Math.min(200, fontScale + 1))}
-                  title="+1%"
+                  data-tip="+1%"
                 >
                   +
                 </button>
@@ -9165,14 +9171,14 @@ const App = () => {
                       setFontScale(val);
                     }
                   }}
-                  className="scale-input"
-                  title={language === 'zh' ? '手动输入文字大小 (50-200)' : 'Manual input (50-200)'}
+                  className="scale-input tooltip-bottom"
+                  data-tip={language === 'zh' ? '手动输入文字大小 (50-200)' : 'Manual input (50-200)'}
                 />
                 {fontScale !== 100 && (
                   <button
-                    className="scale-reset"
+                    className="scale-reset tooltip-bottom"
                     onClick={() => setFontScale(100)}
-                    title={language === 'zh' ? '重置文字大小' : 'Reset'}
+                    data-tip={language === 'zh' ? '重置文字大小' : 'Reset'}
                   >
                     ↺
                   </button>
@@ -9219,7 +9225,7 @@ const App = () => {
             ))}
           </nav>
         </div>
-      </header>
+      </header >
       <DescChineseProvider entries={descState.entries} textModel={textModel}>
         <main>
           {renderTool()}
