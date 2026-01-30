@@ -763,27 +763,14 @@ export const InputPanel: React.FC = () => {
                             </div>
                             {/* 自定义 Prompt 编辑器 */}
                             {aiPromptMode === 'custom' && showCustomPromptEditor && (
-                                <div style={{ marginTop: '12px' }}>
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        marginBottom: '8px'
-                                    }}>
-                                        <span style={{ fontSize: '12px', color: '#888' }}>
+                                <div className="custom-prompt-editor">
+                                    <div className="custom-prompt-header">
+                                        <span className="custom-prompt-hint">
                                             使用 {'{text}'} 或 {'{input}'} 代表用户输入
                                         </span>
                                         <button
                                             onClick={() => setAiCustomPrompt(DEFAULT_CUSTOM_PROMPT)}
-                                            style={{
-                                                fontSize: '11px',
-                                                padding: '2px 6px',
-                                                borderRadius: '4px',
-                                                background: 'transparent',
-                                                border: '1px solid rgba(255,255,255,0.2)',
-                                                color: '#888',
-                                                cursor: 'pointer'
-                                            }}
+                                            className="custom-prompt-reset-btn"
                                         >
                                             重置为默认
                                         </button>
@@ -792,19 +779,7 @@ export const InputPanel: React.FC = () => {
                                         value={aiCustomPrompt}
                                         onChange={(e) => setAiCustomPrompt(e.target.value)}
                                         placeholder="输入你的自定义 Prompt..."
-                                        style={{
-                                            width: '100%',
-                                            minHeight: '150px',
-                                            padding: '10px',
-                                            borderRadius: '8px',
-                                            border: '1px solid rgba(255,255,255,0.15)',
-                                            background: 'rgba(0,0,0,0.3)',
-                                            color: '#fff',
-                                            fontSize: '12px',
-                                            fontFamily: 'monospace',
-                                            lineHeight: 1.5,
-                                            resize: 'vertical'
-                                        }}
+                                        className="custom-prompt-textarea"
                                     />
                                 </div>
                             )}
@@ -852,17 +827,13 @@ export const InputPanel: React.FC = () => {
                             className="generate-btn primary"
                             onClick={handleTextGenerate}
                             disabled={isLoading || !textInput.trim()}
-                            style={{
-                                position: 'relative',
-                                overflow: 'hidden'
-                            }}
                         >
                             {isLoading ? (
                                 <>
                                     <span className="spinner"></span>
                                     {streamProgress.isStreaming ? (
                                         <span>
-                                            🌳 正在生成... <strong style={{ color: '#22c55e' }}>{streamProgress.nodeCount}</strong> 个节点
+                                            🌳 正在生成... <strong className="stream-node-count">{streamProgress.nodeCount}</strong> 个节点
                                         </span>
                                     ) : (
                                         <span>正在生成...</span>
