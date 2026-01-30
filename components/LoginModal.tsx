@@ -335,23 +335,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                 </button>
 
                                 {/* 高级登录说明 */}
-                                <div style={{
-                                    padding: '0.5rem 0.75rem',
-                                    borderRadius: '6px',
-                                    backgroundColor: 'rgba(52, 168, 83, 0.1)',
-                                    fontSize: '0.75rem',
-                                    color: 'var(--text-muted-color)',
-                                    marginBottom: '1rem',
-                                    lineHeight: 1.4
-                                }}>
+                                <div className="login-advanced-hint">
                                     💡 高级登录需要 Sheets 写入权限，适合需要同步/入库功能的用户。
                                     普通用户选择"普通登录"即可。
                                 </div>
 
-                                <div style={{ display: 'flex', alignItems: 'center', margin: '1rem 0' }}>
-                                    <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }} />
-                                    <span style={{ padding: '0 1rem', color: 'var(--on-surface-color)', opacity: 0.5 }}>{texts.or}</span>
-                                    <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--border-color)' }} />
+                                <div className="login-or-divider">
+                                    <div className="login-or-divider-line" />
+                                    <span className="login-or-divider-text">{texts.or}</span>
+                                    <div className="login-or-divider-line" />
                                 </div>
                             </>
                         )}
@@ -365,15 +357,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                     onChange={(e) => setEmail(e.target.value)}
                                     placeholder={texts.email}
                                     required
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--border-color)',
-                                        backgroundColor: 'var(--background-color)',
-                                        color: 'var(--on-surface-color)',
-                                        fontSize: '1rem'
-                                    }}
+                                    className="login-input"
                                 />
                             </div>
 
@@ -387,43 +371,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                         placeholder={texts.password}
                                         required
                                         minLength={6}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.75rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--border-color)',
-                                            backgroundColor: 'var(--background-color)',
-                                            color: 'var(--on-surface-color)',
-                                            fontSize: '1rem'
-                                        }}
+                                        className="login-input"
                                     />
                                 </div>
                             )}
 
                             {/* 错误提示 */}
                             {error && (
-                                <div style={{
-                                    padding: '0.75rem',
-                                    borderRadius: '8px',
-                                    backgroundColor: 'rgba(244, 67, 54, 0.1)',
-                                    color: '#f44336',
-                                    marginBottom: '1rem',
-                                    fontSize: '0.875rem'
-                                }}>
+                                <div className="login-error-box">
                                     ❌ {error}
                                 </div>
                             )}
 
                             {/* 成功提示 */}
                             {success && (
-                                <div style={{
-                                    padding: '0.75rem',
-                                    borderRadius: '8px',
-                                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                                    color: '#4caf50',
-                                    marginBottom: '1rem',
-                                    fontSize: '0.875rem'
-                                }}>
+                                <div className="login-success-box">
                                     ✅ {success}
                                 </div>
                             )}
@@ -431,18 +393,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                             <button
                                 type="submit"
                                 disabled={isSubmitting}
-                                style={{
-                                    width: '100%',
-                                    padding: '0.75rem',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    backgroundColor: 'var(--primary-color)',
-                                    color: 'white',
-                                    fontSize: '1rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    opacity: isSubmitting ? 0.7 : 1
-                                }}
+                                className="login-submit-btn"
                             >
                                 {isSubmitting ? '...' : (
                                     mode === 'login' ? texts.loginBtn :
@@ -453,33 +404,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                         </form>
 
                         {/* 切换模式按钮 */}
-                        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
+                        <div className="login-mode-switch">
                             {mode === 'login' && (
                                 <>
                                     <button
                                         onClick={() => { setMode('reset'); setError(null); setSuccess(null); }}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: 'var(--text-muted-color)',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            textDecoration: 'underline'
-                                        }}
+                                        className="login-link-btn muted"
                                     >
                                         {texts.forgotPassword}
                                     </button>
                                     <br />
                                     <button
                                         onClick={() => { setMode('register'); setError(null); setSuccess(null); }}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: 'var(--primary-color)',
-                                            cursor: 'pointer',
-                                            marginTop: '0.5rem',
-                                            fontSize: '0.875rem'
-                                        }}
+                                        className="login-link-btn primary"
                                     >
                                         {texts.switchToRegister}
                                     </button>
@@ -489,28 +426,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                 <>
                                     <button
                                         onClick={() => { setMode('reset'); setError(null); setSuccess(null); }}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: 'var(--text-muted-color)',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            textDecoration: 'underline'
-                                        }}
+                                        className="login-link-btn muted"
                                     >
                                         {texts.forgotPassword}
                                     </button>
                                     <br />
                                     <button
                                         onClick={() => { setMode('login'); setError(null); setSuccess(null); }}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: 'var(--primary-color)',
-                                            cursor: 'pointer',
-                                            marginTop: '0.5rem',
-                                            fontSize: '0.875rem'
-                                        }}
+                                        className="login-link-btn primary"
                                     >
                                         {texts.switchToLogin}
                                     </button>
@@ -519,13 +442,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                             {mode === 'reset' && (
                                 <button
                                     onClick={() => { setMode('login'); setError(null); setSuccess(null); }}
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        color: 'var(--primary-color)',
-                                        cursor: 'pointer',
-                                        fontSize: '0.875rem'
-                                    }}
+                                    className="login-link-btn primary"
                                 >
                                     {texts.backToLogin}
                                 </button>

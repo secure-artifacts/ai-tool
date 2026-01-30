@@ -257,3 +257,113 @@
     width: 20px;
     height: 20px;
 }
+
+/* 高级登录说明 */
+.login-advanced-hint {
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    background-color: rgba(52, 168, 83, 0.1);
+    font-size: 0.75rem;
+    color: var(--text-muted-color);
+    margin-bottom: 1rem;
+    line-height: 1.4;
+}
+
+/* 分隔符（或分隔线） */
+.login-or-divider {
+    display: flex;
+    align-items: center;
+    margin: 1rem 0;
+}
+
+.login-or-divider-line {
+    flex: 1;
+    height: 1px;
+    background-color: var(--border-color);
+}
+
+.login-or-divider-text {
+    padding: 0 1rem;
+    color: var(--on-surface-color);
+    opacity: 0.5;
+}
+
+/* 表单输入框 */
+.login-input {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background-color: var(--background-color);
+    color: var(--on-surface-color);
+    font-size: 1rem;
+}
+
+.login-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+/* 错误提示框 */
+.login-error-box {
+    padding: 0.75rem;
+    border-radius: 8px;
+    background-color: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+}
+
+/* 成功提示框 */
+.login-success-box {
+    padding: 0.75rem;
+    border-radius: 8px;
+    background-color: rgba(76, 175, 80, 0.1);
+    color: #4caf50;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+}
+
+/* 提交按钮 */
+.login-submit-btn {
+    width: 100%;
+    padding: 0.75rem;
+    border-radius: 8px;
+    border: none;
+    background-color: var(--primary-color);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.login-submit-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* 模式切换区域 */
+.login-mode-switch {
+    margin-top: 1rem;
+    text-align: center;
+}
+
+/* 链接按钮 */
+.login-link-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.login-link-btn.muted {
+    color: var(--text-muted-color);
+    font-size: 0.8rem;
+    text-decoration: underline;
+}
+
+.login-link-btn.primary {
+    color: var(--primary-color);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+}
