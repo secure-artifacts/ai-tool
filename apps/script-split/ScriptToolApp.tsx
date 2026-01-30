@@ -295,8 +295,8 @@ function ScriptToolApp() {
               <span className="text-xs text-slate-500">删除原文</span>
               <button
                 onClick={() => setClearSource(!clearSource)}
-                title={clearSource ? '拆分后删除原始文案' : '拆分后保留原始文案（默认）'}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${clearSource ? 'bg-red-500' : 'bg-slate-300'}`}
+                data-tip={clearSource ? '拆分后删除原始文案' : '拆分后保留原始文案（默认）'}
+                className={`tooltip-bottom relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${clearSource ? 'bg-red-500' : 'bg-slate-300'}`}
               >
                 <span
                   className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${clearSource ? 'switch-on' : 'switch-off'}`}
@@ -377,9 +377,9 @@ const ToolButton: React.FC<{ icon: React.ReactNode; label: string; tooltip?: str
   <button
     onClick={onClick}
     disabled={disabled}
-    title={tooltip || label}
+    data-tip={tooltip || label}
     className={`
-      flex items-center gap-2 px-3 py-2 transition-colors text-xs font-medium whitespace-nowrap
+      tooltip-bottom flex items-center gap-2 px-3 py-2 transition-colors text-xs font-medium whitespace-nowrap
       ${disabled
         ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400'
         : 'hover:bg-green-50 text-slate-700 hover:text-green-700'

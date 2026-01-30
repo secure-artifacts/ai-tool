@@ -35,8 +35,8 @@ export const PromptDisplay: React.FC<{ title: string; text: string }> = ({ title
                 <span className="prompt-title">{title}</span>
                 <button
                     onClick={handleCopy}
-                    className="copy-btn"
-                    title="复制"
+                    className="copy-btn tooltip-bottom"
+                    data-tip="复制"
                 >
                     {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
                 </button>
@@ -99,8 +99,8 @@ export const PromptTabs: React.FC<{ prompts: ExpertPrompt[] }> = ({ prompts }) =
                         <span className="prompt-section-title">English</span>
                         <button
                             onClick={() => handleCopy(activePrompt.englishPrompt, `en-${activeTab}`)}
-                            className="copy-btn-small"
-                            title="Copy English prompt"
+                            className="copy-btn-small tooltip-bottom"
+                            data-tip="Copy English prompt"
                         >
                             {copied === `en-${activeTab}` ? (
                                 <Check className="w-3.5 h-3.5 text-green-400" />
@@ -118,8 +118,8 @@ export const PromptTabs: React.FC<{ prompts: ExpertPrompt[] }> = ({ prompts }) =
                         <span className="prompt-section-title">中文</span>
                         <button
                             onClick={() => handleCopy(activePrompt.chinesePrompt, `zh-${activeTab}`)}
-                            className="copy-btn-small"
-                            title="Copy Chinese prompt"
+                            className="copy-btn-small tooltip-bottom"
+                            data-tip="Copy Chinese prompt"
                         >
                             {copied === `zh-${activeTab}` ? (
                                 <Check className="w-3.5 h-3.5 text-green-400" />
@@ -331,7 +331,7 @@ export const ToolHeader: React.FC<ToolHeaderProps> = ({
             <div className="tool-header-actions">
                 {actions}
                 {onReset && (
-                    <button onClick={onReset} className="reset-btn" title="重置">
+                    <button onClick={onReset} className="reset-btn tooltip-bottom" data-tip="重置">
                         重置
                     </button>
                 )}

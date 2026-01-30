@@ -251,8 +251,8 @@ export default function CompactToolbar({
                 <div className="relative shrink-0" ref={presetDropdownRef}>
                     <button
                         onClick={() => setIsPresetDropdownOpen(!isPresetDropdownOpen)}
-                        className={`flex items-center gap-1.5 ${iconBtn} w-auto px-2 text-xs text-zinc-300 hover:text-white bg-zinc-900 border-zinc-700 hover:border-zinc-600`}
-                        title="选择预设指令"
+                        className={`flex items-center gap-1.5 ${iconBtn} w-auto px-2 text-xs text-zinc-300 hover:text-white bg-zinc-900 border-zinc-700 hover:border-zinc-600 tooltip-bottom`}
+                        data-tip="选择预设指令"
                     >
                         <span>预设</span>
                         <ChevronDown size={12} className={`transition-transform duration-200 ${isPresetDropdownOpen ? 'rotate-180' : ''}`} />
@@ -267,16 +267,16 @@ export default function CompactToolbar({
                                     <button
                                         onClick={handleSyncLoad}
                                         disabled={isSyncing || !userName}
-                                        className={`p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700 transition-colors disabled:opacity-30 ${syncState?.op === 'load' && syncState.status === 'success' ? 'text-emerald-400' : ''}`}
-                                        title="云端加载"
+                                        className={`p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700 transition-colors disabled:opacity-30 tooltip-bottom ${syncState?.op === 'load' && syncState.status === 'success' ? 'text-emerald-400' : ''}`}
+                                        data-tip="云端加载"
                                     >
                                         {syncState?.op === 'load' && syncState.status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <CloudDownload size={14} />}
                                     </button>
                                     <button
                                         onClick={handleSyncSave}
                                         disabled={isSyncing || !userName}
-                                        className={`p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700 transition-colors disabled:opacity-30 ${syncState?.op === 'save' && syncState.status === 'success' ? 'text-emerald-400' : ''}`}
-                                        title="保存云端"
+                                        className={`p-1 rounded text-zinc-400 hover:text-emerald-400 hover:bg-zinc-700 transition-colors disabled:opacity-30 tooltip-bottom ${syncState?.op === 'save' && syncState.status === 'success' ? 'text-emerald-400' : ''}`}
+                                        data-tip="保存云端"
                                     >
                                         {syncState?.op === 'save' && syncState.status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <CloudUpload size={14} />}
                                     </button>
@@ -320,8 +320,8 @@ export default function CompactToolbar({
                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-1 bg-zinc-700 px-1 rounded shadow-sm">
                                                     <button
                                                         onClick={(e) => handleDeletePreset(preset.id, e)}
-                                                        className="text-zinc-400 hover:text-red-400 p-1 hover:bg-zinc-600 rounded"
-                                                        title="删除"
+                                                        className="text-zinc-400 hover:text-red-400 p-1 hover:bg-zinc-600 rounded tooltip-bottom"
+                                                        data-tip="删除"
                                                     >
                                                         <Trash2 size={12} />
                                                     </button>
@@ -402,7 +402,7 @@ export default function CompactToolbar({
                         onChange={(e) => setPrompt(e.target.value)}
                         onFocus={() => setShowPromptPopup(true)}
                         placeholder="指令..."
-                        title={prompt || '输入识别指令'}
+                        data-tip={prompt || '输入识别指令'}
                         style={{ width: '80px', padding: '4px 8px', fontSize: '0.625rem' }}
                         className="bg-zinc-900 border border-zinc-700 text-zinc-200 rounded focus:outline-none focus:border-emerald-500"
                     />
@@ -459,17 +459,17 @@ export default function CompactToolbar({
                 )}
                 {showClearConfirm && (
                     <div className="flex gap-0.5 shrink-0">
-                        <button onClick={() => { setImages([]); setShowClearConfirm(false); }} className="px-1.5 py-0.5 bg-red-600 text-white text-[0.5625rem] rounded" title="确认清空">清</button>
-                        <button onClick={() => setShowClearConfirm(false)} className="px-1.5 py-0.5 bg-zinc-700 text-white text-[0.5625rem] rounded" title="取消">✗</button>
+                        <button onClick={() => { setImages([]); setShowClearConfirm(false); }} className="px-1.5 py-0.5 bg-red-600 text-white text-[0.5625rem] rounded tooltip-bottom" data-tip="确认清空">清</button>
+                        <button onClick={() => setShowClearConfirm(false)} className="px-1.5 py-0.5 bg-zinc-700 text-white text-[0.5625rem] rounded tooltip-bottom" data-tip="取消">✗</button>
                     </div>
                 )}
 
                 {/* 状态 */}
                 <div className="flex items-center gap-1 text-xs font-mono shrink-0">
-                    <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded cursor-default tooltip-bottom" title="待处理">⏳{pendingCount}</span>
-                    <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded cursor-default tooltip-bottom" title="成功">✓{successCount}</span>
-                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded cursor-default tooltip-bottom" title="失败">✗{errorCount}</span>
-                    <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded cursor-default tooltip-bottom" title="总数">Σ{totalCount}</span>
+                    <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded cursor-default tooltip-bottom" data-tip="待处理">⏳{pendingCount}</span>
+                    <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded cursor-default tooltip-bottom" data-tip="成功">✓{successCount}</span>
+                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded cursor-default tooltip-bottom" data-tip="失败">✗{errorCount}</span>
+                    <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded cursor-default tooltip-bottom" data-tip="总数">Σ{totalCount}</span>
                 </div>
 
                 {/* 分隔线 */}
