@@ -579,7 +579,9 @@ nav button.active {
   gap: 1.5rem;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 隐藏水平滚动条 */
 }
 
 .subemail-tool .subemail-form {
@@ -4195,6 +4197,8 @@ body.dark .prompt-tab-btn:hover {
   flex-direction: column;
   gap: 1rem;
   min-height: 80vh;
+  overflow-x: hidden;
+  /* 隐藏水平滚动条 */
 }
 
 .script-tool-app header,
@@ -10035,6 +10039,7 @@ textarea:focus-visible {
 .switch-off {
   transform: translateX(2px);
 }
+
 /* ============================================
    🎯 通用工具类 (Utility Classes)
    ============================================ */
