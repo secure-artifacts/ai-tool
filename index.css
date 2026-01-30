@@ -9813,3 +9813,30 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
 }
+
+/* ============================================
+   🧪 ExpertSelector 组件样式
+   ============================================ */
+
+.expert-selector-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text-color);
+  font-weight: 500;
+}
+
+.expert-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.expert-option-label {
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.expert-option-label.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

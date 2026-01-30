@@ -34,24 +34,14 @@ export const ExpertSelector: React.FC<ExpertSelectorProps> = ({
 
     return (
         <div className="expert-selector-multi">
-            <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                color: 'var(--text-color)',
-                fontWeight: 500
-            }}>
+            <label className="expert-selector-label">
                 1. 选择AI绘画专家模型 (可多选):
             </label>
-            <div className="expert-options" style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '8px'
-            }}>
+            <div className="expert-options">
                 {EXPERT_OPTIONS.map(expert => (
                     <div
                         key={expert}
-                        className="expert-option"
-                        className="flex items-center"
+                        className="expert-option flex items-center"
                     >
                         <input
                             id={`expert-${expert}`}
@@ -60,15 +50,11 @@ export const ExpertSelector: React.FC<ExpertSelectorProps> = ({
                             checked={selectedExperts.includes(expert)}
                             onChange={() => handleToggle(expert)}
                             disabled={disabled}
-                            style={{ marginRight: '4px' }}
+                            className="mr-1"
                         />
                         <label
                             htmlFor={`expert-${expert}`}
-                            style={{
-                                cursor: disabled ? 'not-allowed' : 'pointer',
-                                opacity: disabled ? 0.5 : 1,
-                                fontSize: '0.9rem'
-                            }}
+                            className={`expert-option-label ${disabled ? 'disabled' : ''}`}
                             title={expertDescriptions[expert]}
                         >
                             {expert}
