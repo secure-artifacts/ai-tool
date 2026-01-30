@@ -4798,6 +4798,10 @@ const ImageStudioTool: React.FC<{
 
       const offscreenCanvas = document.createElement('canvas');
       const ctx = offscreenCanvas.getContext('2d');
+      if (!ctx) {
+        reject("Failed to get canvas context");
+        return;
+      }
       const img = new Image();
       img.onload = () => {
         offscreenCanvas.width = img.naturalWidth;
