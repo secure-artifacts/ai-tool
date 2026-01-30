@@ -6092,7 +6092,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             <button
                                 onClick={(e) => { e.stopPropagation(); setSelectedRow(row); }}
                                 className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40`}
-                                title="查看详情"
+                                data-tip="查看详情" className="tooltip-bottom"
                             >
                                 <Info size={buttonSize} className="text-white" />
                             </button>
@@ -6100,7 +6100,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                 <button
                                     onClick={(e) => { e.stopPropagation(); openExternalUrl(link); }}
                                     className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40`}
-                                    title="打开链接"
+                                    data-tip="打开链接" className="tooltip-bottom"
                                 >
                                     <ExternalLink size={buttonSize} className="text-white" />
                                 </button>
@@ -6153,7 +6153,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                     <button
                                         onClick={() => setShowConfig(false)}
                                         className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600 hover:text-slate-800 transition"
-                                        title="收起配置面板"
+                                        data-tip="收起配置面板" className="tooltip-bottom"
                                     >
                                         <X size={16} />
                                     </button>
@@ -6272,14 +6272,14 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         <button
                                             onClick={copyDataToClipboard}
                                             className="w-full py-1.5 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600 flex items-center justify-center gap-1"
-                                            title="复制筛选后的数据到剪贴板，可粘贴到谷歌表格"
+                                            data-tip="复制筛选后的数据到剪贴板，可粘贴到谷歌表格" className="tooltip-bottom"
                                         >
                                             <Download size={10} /> 复制到剪贴板 ({processedRows.length}行)
                                         </button>
                                         <button
                                             onClick={() => setCopyViewModal({ ...copyViewModal, open: true })}
                                             className="w-full py-1.5 text-[10px] bg-purple-500 text-white rounded hover:bg-purple-600 flex items-center justify-center gap-1"
-                                            title="复制当前分组视图布局（分组名+缩略图网格）"
+                                            data-tip="复制当前分组视图布局（分组名+缩略图网格）" className="tooltip-bottom"
                                         >
                                             <Image size={10} /> 复制视图布局
                                         </button>
@@ -6481,7 +6481,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             matrixColColumn: config.matrixRowColumn
                                         })}
                                         className="mt-1 w-full py-1 text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 flex items-center justify-center gap-1"
-                                        title="互换行列"
+                                        data-tip="互换行列" className="tooltip-bottom"
                                     >
                                         ↔️ 行列互换
                                     </button>
@@ -6697,7 +6697,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             <button
                                                 onClick={() => updateConfig({ categoryOptions: getDefaultConfig().categoryOptions })}
                                                 className="text-[9px] text-slate-600 hover:text-slate-700 flex items-center gap-0.5"
-                                                title="恢复默认预设"
+                                                data-tip="恢复默认预设" className="tooltip-bottom"
                                             >
                                                 <RotateCcw size={10} /> 恢复默认预设
                                             </button>
@@ -6712,7 +6712,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                     setShowPresetEditor(true);
                                                 }}
                                                 className="text-[9px] text-purple-600 hover:text-purple-700 flex items-center gap-0.5"
-                                                title="保存当前分类为预设"
+                                                data-tip="保存当前分类为预设" className="tooltip-bottom"
                                             >
                                                 <Plus size={10} /> 保存为预设
                                             </button>
@@ -7069,7 +7069,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             ? 'bg-purple-100 text-purple-700 border border-purple-300'
                                             : 'bg-slate-100 hover:bg-purple-50 text-slate-600 hover:text-purple-600'
                                             }`}
-                                        title="开启分类模式：可拖拽图片到不同分类"
+                                        data-tip="开启分类模式：可拖拽图片到不同分类" className="tooltip-bottom"
                                     >
                                         <Layers size={12} />
                                         {classificationMode ? `分类中 (${selectedForClassification.size})` : '分类'}
@@ -7084,7 +7084,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 setTimeout(() => setCopyFeedback(null), 1500);
                                             }}
                                             className="px-2 py-1 text-xs rounded flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors"
-                                            title="取消全选"
+                                            data-tip="取消全选" className="tooltip-bottom"
                                         >
                                             ✕ 取消选择
                                         </button>
@@ -7109,7 +7109,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         <button
                                             onClick={() => updateConfig({ searchKeyword: '' })}
                                             className="absolute right-1.5 text-slate-400 hover:text-slate-600 p-0.5"
-                                            title="清除搜索"
+                                            data-tip="清除搜索" className="tooltip-bottom"
                                         >
                                             <X size={12} />
                                         </button>
@@ -7318,7 +7318,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 ? 'bg-amber-500 text-white border-amber-500'
                                                 : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
                                                 } ${dragOverTarget === `folder-${folder.id}` ? 'ring-2 ring-green-400 ring-offset-1 scale-105 bg-green-50' : ''}`}
-                                            title="双击编辑 | 右键更多选项"
+                                            data-tip="双击编辑 | 右键更多选项" className="tooltip-bottom"
                                         >
                                             {folder.emoji || '📁'} {folder.name} ({getFavoritesInFolder(folder.id).length})
                                         </button>
@@ -7451,7 +7451,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                     } ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
                                                 style={{ width: config.thumbnailSize + 40 }}
                                                 onClick={() => toggleFavoriteSelection(fav.id)}
-                                                title="拖拽到其他收藏夹可移动"
+                                                data-tip="拖拽到其他收藏夹可移动" className="tooltip-bottom"
                                             >
                                                 {/* Selection checkbox */}
                                                 <div className={`absolute top-2 left-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selectedFavorites.has(fav.id)
@@ -7542,7 +7542,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                         <button
                                                             onClick={() => toggleFavorite(fav.imageUrl, fav.rowData)}
                                                             className="px-2 py-1 text-[10px] bg-red-50 text-red-600 hover:bg-red-100 rounded"
-                                                            title="取消收藏"
+                                                            data-tip="取消收藏" className="tooltip-bottom"
                                                         >
                                                             <Trash2 size={10} />
                                                         </button>
@@ -8294,7 +8294,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
                                                                                             : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                             }`}
-                                                                                        title="拖拽图片到此分类"
+                                                                                        data-tip="拖拽图片到此分类" className="tooltip-bottom"
                                                                                     >
                                                                                         {option}
                                                                                     </div>
@@ -8336,7 +8336,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
                                                                                         : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                         }`}
-                                                                                    title="点击跳转到该分组，拖拽图片到此改变分类"
+                                                                                    data-tip="点击跳转到该分组，拖拽图片到此改变分类" className="tooltip-bottom"
                                                                                 >
                                                                                     {targetGroup}
                                                                                     <span className="ml-1 text-xs opacity-70">
@@ -8402,7 +8402,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }}
                                                                                         disabled={groupIdx === 0}
                                                                                         className={`p-1 rounded ${groupIdx === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-green-600 hover:bg-green-100'}`}
-                                                                                        title="上移"
+                                                                                        data-tip="上移" className="tooltip-bottom"
                                                                                     >
                                                                                         ▲
                                                                                     </button>
@@ -8419,7 +8419,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }}
                                                                                         disabled={groupIdx === customGroups.length - 1}
                                                                                         className={`p-1 rounded ${groupIdx === customGroups.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-green-600 hover:bg-green-100'}`}
-                                                                                        title="下移"
+                                                                                        data-tip="下移" className="tooltip-bottom"
                                                                                     >
                                                                                         ▼
                                                                                     </button>
@@ -8431,7 +8431,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             }
                                                                                         }}
                                                                                         className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
-                                                                                        title="删除分组"
+                                                                                        data-tip="删除分组" className="tooltip-bottom"
                                                                                     >
                                                                                         ✕
                                                                                     </button>
@@ -8492,7 +8492,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                 : 'bg-green-200 border-green-500 text-green-800 scale-105'   // 图片拖入
                                                                                             : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                         }`}
-                                                                                    title="双击编辑 | 拖拽调整顺序"
+                                                                                    data-tip="双击编辑 | 拖拽调整顺序" className="tooltip-bottom"
                                                                                 >
                                                                                     ✨ {customGroup}
                                                                                 </div>
@@ -8545,7 +8545,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             <button
                                                                                 onClick={() => setShowNewGroupInput(true)}
                                                                                 className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400 transition-colors flex items-center gap-1"
-                                                                                title="添加新分组"
+                                                                                data-tip="添加新分组" className="tooltip-bottom"
                                                                             >
                                                                                 <Plus size={14} />
                                                                                 新分组
@@ -8634,7 +8634,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         ? 'bg-amber-200 border-amber-500 text-amber-800 scale-105'
                                                                                         : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
                                                                                         }`}
-                                                                                    title="点击切换收藏夹视图，拖拽添加收藏"
+                                                                                    data-tip="点击切换收藏夹视图，拖拽添加收藏" className="tooltip-bottom"
                                                                                 >
                                                                                     ❤️ {folder.name}
                                                                                     <span className="ml-1 text-xs opacity-70">({folderCount})</span>
@@ -8650,7 +8650,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 }]);
                                                                             }}
                                                                             className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 hover:border-amber-400 transition-colors flex items-center gap-1"
-                                                                            title="添加新收藏夹"
+                                                                            data-tip="添加新收藏夹" className="tooltip-bottom"
                                                                         >
                                                                             <Plus size={14} />
                                                                             新收藏
@@ -8716,7 +8716,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
                                                                                         : 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
                                                                                         }`}
-                                                                                    title="点击切换媒体标签视图，拖拽添加标签"
+                                                                                    data-tip="点击切换媒体标签视图，拖拽添加标签" className="tooltip-bottom"
                                                                                 >
                                                                                     <Tag size={10} className="inline mr-1" /> {category}
                                                                                     <span className="ml-1 text-xs opacity-70">({tagCount})</span>
@@ -8732,7 +8732,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 }
                                                                             }}
                                                                             className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center gap-1"
-                                                                            title="添加新标签"
+                                                                            data-tip="添加新标签" className="tooltip-bottom"
                                                                         >
                                                                             <Plus size={14} />
                                                                             新标签
@@ -9272,7 +9272,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
                                                                                         : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                         }`}
-                                                                                    title="拖拽图片到此分类"
+                                                                                    data-tip="拖拽图片到此分类" className="tooltip-bottom"
                                                                                 >
                                                                                     {option}
                                                                                 </div>
@@ -9300,7 +9300,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     ? 'bg-green-200 border-green-500 text-green-800 scale-105'
                                                                                     : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                     }`}
-                                                                                title="拖拽图片到此自定义分组"
+                                                                                data-tip="拖拽图片到此自定义分组" className="tooltip-bottom"
                                                                             >
                                                                                 ✨ {customGroup}
                                                                             </div>
@@ -9333,7 +9333,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             <button
                                                                                 onClick={() => setShowNewGroupInput(true)}
                                                                                 className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-slate-300 text-slate-500 hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition-all"
-                                                                                title="添加新分组"
+                                                                                data-tip="添加新分组" className="tooltip-bottom"
                                                                             >
                                                                                 + 新分组
                                                                             </button>
@@ -11684,7 +11684,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             setCopyViewModal({ ...copyViewModal, columnsPerRow: Math.min(200, Math.max(1, val)) });
                                         }}
                                         className="w-14 h-8 px-2 text-sm text-center border border-slate-300 rounded-lg focus:border-purple-500 focus:outline-none"
-                                        title="自定义数量"
+                                        data-tip="自定义数量" className="tooltip-bottom"
                                     />
                                 </div>
                             </div>

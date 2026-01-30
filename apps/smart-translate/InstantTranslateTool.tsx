@@ -638,7 +638,7 @@ Rules:
                 <button
                     className="swap-btn"
                     onClick={handleSwapLanguages}
-                    title="交换语言"
+                    data-tip="交换语言" className="tooltip-bottom"
                 >
                     ⇄
                 </button>
@@ -709,17 +709,17 @@ Rules:
                             <button
                                 className="icon-btn"
                                 onClick={() => fileInputRef.current?.click()}
-                                title="上传图片识别文字"
+                                data-tip="上传图片识别文字" className="tooltip-bottom"
                             >
                                 📷
                             </button>
 
                             {inputText && (
                                 <>
-                                    <button className="icon-btn" onClick={clearInput} title="清空文本">
+                                    <button data-tip="清空文本" className="icon-btn tooltip-bottom" onClick={clearInput} >
                                         ✕
                                     </button>
-                                    <button className="icon-btn" onClick={() => handleCopy(inputText)} title="复制原文">
+                                    <button className="icon-btn tooltip-bottom" onClick={() => handleCopy(inputText)} data-tip="复制原文">
                                         📋
                                     </button>
                                 </>
@@ -751,7 +751,7 @@ Rules:
                                 <button
                                     className={`icon-btn copy-btn ${copied ? 'copied' : ''}`}
                                     onClick={() => handleCopy(outputText)}
-                                    title="复制译文"
+                                    data-tip="复制译文" className="tooltip-bottom"
                                 >
                                     {copied ? '✓' : '📋'}
                                 </button>
@@ -826,7 +826,7 @@ Rules:
                                             navigator.clipboard.writeText(item.translatedText || '');
                                         }}
                                         className="history-item-copy-btn"
-                                        title="复制译文"
+                                        data-tip="复制译文" className="tooltip-bottom"
                                     >
                                         📋
                                     </button>

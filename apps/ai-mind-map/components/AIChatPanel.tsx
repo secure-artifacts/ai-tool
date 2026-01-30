@@ -182,7 +182,7 @@ export const AIChatPanel: React.FC = () => {
                     <span>AI 创意搭子</span>
                 </div>
                 {messages.length > 0 && (
-                    <button className="clear-btn" onClick={handleClear} title="清空对话">
+                    <button data-tip="清空对话" className="clear-btn tooltip-bottom" onClick={handleClear} >
                         <Trash2 size={16} />
                     </button>
                 )}

@@ -1531,7 +1531,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 <button
                                     onClick={() => setShowAppendModal(true)}
                                     className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors flex items-center gap-1 text-xs"
-                                    title="追加粘贴数据到当前表格"
+                                    data-tip="追加粘贴数据到当前表格" className="tooltip-bottom"
                                 >
                                     <Plus size={16} />
                                     <span className="hidden sm:inline">追加</span>
@@ -1664,7 +1664,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                                         onClick={() => switchGalleryTab(tab.id)}
                                                         onDoubleClick={() => handleRenameGalleryTab(tab.id)}
                                                         className="text-xs font-medium whitespace-nowrap"
-                                                        title="双击重命名"
+                                                        data-tip="双击重命名" className="tooltip-bottom"
                                                     >
                                                         {tab.name}
                                                     </button>
@@ -1676,7 +1676,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                                             handleDeleteGalleryTab(tab.id);
                                                         }}
                                                         className={`p-0.5 rounded ${activeGalleryTabId === tab.id ? 'hover:bg-white/20' : 'hover:bg-slate-100'}`}
-                                                        title="关闭标签页"
+                                                        data-tip="关闭标签页" className="tooltip-bottom"
                                                     >
                                                         <X size={12} />
                                                     </button>
@@ -1754,7 +1754,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 {snapshotsSyncing ? (
                                     <Loader2 size={12} className="animate-spin text-blue-500" />
                                 ) : isUserLoggedIn() && snapshots.length > 0 ? (
-                                    <span title="已云同步"><Cloud size={12} className="text-green-500" /></span>
+                                    <span data-tip="已云同步" className="tooltip-bottom"><Cloud size={12} className="text-green-500" /></span>
                                 ) : null}
                             </button>
                         </div>

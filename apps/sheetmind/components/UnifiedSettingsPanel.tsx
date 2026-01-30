@@ -1011,7 +1011,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                         updateConfig({ groupLevels: newLevels.length > 0 ? newLevels : [] });
                                                                     }}
                                                                     className="p-0.5 text-red-400 hover:text-red-600"
-                                                                    title="删除此层级及所有子层级"
+                                                                    data-tip="删除此层级及所有子层级" className="tooltip-bottom"
                                                                 >
                                                                     <X size={12} />
                                                                 </button>
@@ -1472,7 +1472,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                     }}
                                                                     disabled={groupIndex === 0}
                                                                     className={`p-0.5 rounded ${groupIndex === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'}`}
-                                                                    title="上移"
+                                                                    data-tip="上移" className="tooltip-bottom"
                                                                 >
                                                                     <ChevronUp size={10} />
                                                                 </button>
@@ -1485,7 +1485,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                     }}
                                                                     disabled={groupIndex === config.textGroupBins.length - 1}
                                                                     className={`p-0.5 rounded ${groupIndex === config.textGroupBins.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'}`}
-                                                                    title="下移"
+                                                                    data-tip="下移" className="tooltip-bottom"
                                                                 >
                                                                     <ChevronDown size={10} />
                                                                 </button>
@@ -1507,7 +1507,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                     textGroupBins: config.textGroupBins.filter(g => g.id !== group.id)
                                                                 })}
                                                                 className="text-red-400 hover:text-red-600 p-1"
-                                                                title="删除分组"
+                                                                data-tip="删除分组" className="tooltip-bottom"
                                                             >
                                                                 <X size={12} />
                                                             </button>
@@ -2523,7 +2523,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                     updateConfig({ highlightRules: newRules });
                                                 }}
                                                 className="w-12 px-1 py-1 text-[10px] text-slate-800 bg-white border border-slate-200 rounded"
-                                                title="边框粗细"
+                                                data-tip="边框粗细" className="tooltip-bottom"
                                             >
                                                 <option value="1">1px</option>
                                                 <option value="2">2px</option>

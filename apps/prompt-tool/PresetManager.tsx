@@ -439,7 +439,7 @@ export function PresetManager({
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleDuplicatePreset(preset); }}
                                         className="p-1 text-zinc-500 hover:text-zinc-300"
-                                        title="复制为自定义预设"
+                                        data-tip="复制为自定义预设" className="tooltip-bottom"
                                     >
                                         <Copy className="w-4 h-4" />
                                     </button>
@@ -528,14 +528,14 @@ export function PresetManager({
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); startEditing(preset); }}
                                                     className="p-1 text-zinc-500 hover:text-amber-400"
-                                                    title="编辑"
+                                                    data-tip="编辑" className="tooltip-bottom"
                                                 >
                                                     <Edit3 className="w-4 h-4" />
                                                 </button>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); handleDuplicatePreset(preset); }}
                                                     className="p-1 text-zinc-500 hover:text-zinc-300"
-                                                    title="复制"
+                                                    data-tip="复制" className="tooltip-bottom"
                                                 >
                                                     <Copy className="w-4 h-4" />
                                                 </button>
@@ -543,7 +543,7 @@ export function PresetManager({
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); setShowShareModal(preset); setShareDisplayName(user.displayName || ''); }}
                                                         className="p-1 text-zinc-500 hover:text-blue-400"
-                                                        title="分享到公共库"
+                                                        data-tip="分享到公共库" className="tooltip-bottom"
                                                     >
                                                         <Share2 className="w-4 h-4" />
                                                     </button>
@@ -551,7 +551,7 @@ export function PresetManager({
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); setConfirmDelete(preset.id); }}
                                                     className="p-1 text-zinc-500 hover:text-red-400"
-                                                    title="删除"
+                                                    data-tip="删除" className="tooltip-bottom"
                                                 >
                                                     <Trash2 className="w-4 h-4" />
                                                 </button>
@@ -655,7 +655,7 @@ export function PresetManager({
                                                 });
                                             }}
                                             className="p-1 text-zinc-500 hover:text-zinc-300"
-                                            title="复制为自定义预设"
+                                            data-tip="复制为自定义预设" className="tooltip-bottom"
                                         >
                                             <Copy className="w-4 h-4" />
                                         </button>
@@ -664,7 +664,7 @@ export function PresetManager({
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); setConfirmDeletePublic(preset.id); }}
                                                 className="p-1 text-zinc-500 hover:text-red-400"
-                                                title="删除"
+                                                data-tip="删除" className="tooltip-bottom"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </button>

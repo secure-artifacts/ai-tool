@@ -1481,21 +1481,21 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'innovator' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到创新模式 - 批量创新提示词"
+                                        data-tip="切换到创新模式 - 批量创新提示词" className="tooltip-bottom"
                                     >
                                         创新模式
                                     </button>
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'chat' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'chat' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到普通模式 - 直接对话"
+                                        data-tip="切换到普通模式 - 直接对话" className="tooltip-bottom"
                                     >
                                         普通模式
                                     </button>
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'copywriting' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'copywriting' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到文案改写模式 - 批量改写文案"
+                                        data-tip="切换到文案改写模式 - 批量改写文案" className="tooltip-bottom"
                                     >
                                         文案改写
                                     </button>
@@ -1533,21 +1533,21 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'innovator' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到创新模式 - 批量创新提示词"
+                                        data-tip="切换到创新模式 - 批量创新提示词" className="tooltip-bottom"
                                     >
                                         创新模式
                                     </button>
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'chat' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'chat' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到普通模式 - 直接对话"
+                                        data-tip="切换到普通模式 - 直接对话" className="tooltip-bottom"
                                     >
                                         普通模式
                                     </button>
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'copywriting' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'copywriting' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到文案改写模式 - 批量改写文案"
+                                        data-tip="切换到文案改写模式 - 批量改写文案" className="tooltip-bottom"
                                     >
                                         文案改写
                                     </button>
@@ -1585,21 +1585,21 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'innovator' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到创新模式 - 批量创新提示词"
+                                        data-tip="切换到创新模式 - 批量创新提示词" className="tooltip-bottom"
                                     >
                                         创新模式
                                     </button>
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'chat' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'chat' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到普通模式 - 直接对话"
+                                        data-tip="切换到普通模式 - 直接对话" className="tooltip-bottom"
                                     >
                                         普通模式
                                     </button>
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'copywriting' }))}
                                         className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${state.activeTab === 'copywriting' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}`}
-                                        title="切换到文案改写模式 - 批量改写文案"
+                                        data-tip="切换到文案改写模式 - 批量改写文案" className="tooltip-bottom"
                                     >
                                         文案改写
                                     </button>
@@ -1614,7 +1614,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     <button
                                         onClick={() => setShowProjectPanel(true)}
                                         className="flex items-center justify-center w-7 h-7 rounded-md text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 transition-colors"
-                                        title="项目管理"
+                                        data-tip="项目管理" className="tooltip-bottom"
                                     >
                                         📁
                                     </button>
@@ -1680,7 +1680,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             <button
                                                 onClick={handlePreview}
                                                 className="h-20 w-full flex flex-col items-center justify-center gap-1 text-xs font-medium text-zinc-400 hover:text-purple-400 bg-zinc-950 border border-zinc-700 hover:border-purple-500/50 rounded-lg transition-colors"
-                                                title="预览完整AI指令"
+                                                data-tip="预览完整AI指令" className="tooltip-bottom"
                                             >
                                                 <Eye size={18} />
                                                 <span>预览</span>
@@ -1730,7 +1730,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             <div className="flex justify-between items-center">
                                                 <label className="text-xs font-medium text-zinc-500 flex items-center gap-1"><Files size={12} /> 批量添加</label>
                                                 {state.bulkInput && (
-                                                    <button onClick={() => setState(prev => ({ ...prev, bulkInput: '' }))} className="text-[0.625rem] text-zinc-500 hover:text-zinc-300" title="清空输入框">清空</button>
+                                                    <button onClick={() => setState(prev => ({ ...prev, bulkInput: '' }))} data-tip="清空输入框" className="text-[0.625rem] text-zinc-500 hover:text-zinc-300 tooltip-bottom" >清空</button>
                                                 )}
                                             </div>
                                             <textarea
@@ -1747,7 +1747,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                     onClick={() => handleAddEntries('single')}
                                                     disabled={!state.bulkInput.trim()}
                                                     className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-600 rounded text-xs font-medium transition-colors disabled:opacity-50 flex items-center"
-                                                    title="将内容作为单条记录添加"
+                                                    data-tip="将内容作为单条记录添加" className="tooltip-bottom"
                                                 >
                                                     <Plus size={14} className="mr-1" /> 单条
                                                 </button>
@@ -1755,7 +1755,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                     onClick={() => handleAddEntries('batch')}
                                                     disabled={!state.bulkInput.trim()}
                                                     className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white border border-purple-500 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:bg-zinc-800 disabled:border-zinc-700 flex items-center"
-                                                    title="按换行分割添加多条记录"
+                                                    data-tip="按换行分割添加多条记录" className="tooltip-bottom"
                                                 >
                                                     <List size={14} className="mr-1" /> 批量
                                                 </button>
@@ -1770,7 +1770,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 onClick={processQueue}
                                                 disabled={state.entries.length === 0}
                                                 className="h-10 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-bold text-sm shadow-lg shadow-purple-900/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:bg-zinc-800 disabled:shadow-none"
-                                                title="开始对队列中的提示词进行 AI 创新"
+                                                data-tip="开始对队列中的提示词进行 AI 创新" className="tooltip-bottom"
                                             >
                                                 <Zap size={16} fill="currentColor" /> 开始创新
                                             </button>
@@ -1787,7 +1787,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 <button
                                                     onClick={handleStop}
                                                     className="bg-zinc-800 hover:bg-red-900/50 hover:text-red-200 text-zinc-400 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1"
-                                                    title="停止处理并清除队列"
+                                                    data-tip="停止处理并清除队列" className="tooltip-bottom"
                                                 >
                                                     <Square size={14} fill="currentColor" /> 停止
                                                 </button>
@@ -1799,7 +1799,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 onClick={handleRegenerateAll}
                                                 disabled={state.isProcessing || state.entries.length === 0}
                                                 className="py-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 hover:text-blue-300 border border-blue-500/20 rounded-lg text-[0.625rem] transition-colors flex items-center justify-center gap-1 disabled:opacity-30"
-                                                title="重置所有任务并重新生成"
+                                                data-tip="重置所有任务并重新生成" className="tooltip-bottom"
                                             >
                                                 <RotateCw size={12} /> 全部重做
                                             </button>
@@ -1807,7 +1807,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 onClick={handleRetryAllFailed}
                                                 disabled={state.isProcessing || state.entries.filter(e => e.status === 'error').length === 0}
                                                 className="py-1.5 bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 hover:text-amber-300 border border-amber-500/20 rounded-lg text-[0.625rem] transition-colors flex items-center justify-center gap-1 disabled:opacity-30"
-                                                title="重试所有失败的任务"
+                                                data-tip="重试所有失败的任务" className="tooltip-bottom"
                                             >
                                                 <RotateCw size={12} /> 重试失败 ({state.entries.filter(e => e.status === 'error').length})
                                             </button>
@@ -1815,7 +1815,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 onClick={handleClearEntries}
                                                 disabled={state.entries.length === 0}
                                                 className="py-1.5 bg-transparent border border-red-900/30 hover:bg-red-900/10 text-red-400/80 hover:text-red-400 rounded-lg text-[0.625rem] transition-colors flex items-center justify-center gap-1 disabled:opacity-30"
-                                                title="清空所有任务和结果"
+                                                data-tip="清空所有任务和结果" className="tooltip-bottom"
                                             >
                                                 <Trash2 size={12} /> 清空列表
                                             </button>
@@ -1839,14 +1839,14 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 <button
                                                     onClick={() => setState(prev => ({ ...prev, viewLanguage: 'en' }))}
                                                     className={`px-2 py-1 rounded text-xs font-medium transition-all ${state.viewLanguage === 'en' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                    title="显示英文结果"
+                                                    data-tip="显示英文结果" className="tooltip-bottom"
                                                 >
                                                     English
                                                 </button>
                                                 <button
                                                     onClick={() => setState(prev => ({ ...prev, viewLanguage: 'zh' }))}
                                                     className={`px-2 py-1 rounded text-xs font-medium transition-all ${state.viewLanguage === 'zh' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
-                                                    title="显示中文结果"
+                                                    data-tip="显示中文结果" className="tooltip-bottom"
                                                 >
                                                     中文
                                                 </button>
@@ -1860,7 +1860,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                     handleCopy(allOutputs, 'all-en');
                                                 }}
                                                 className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors flex items-center gap-1.5 border border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title="复制所有英文创新结果"
+                                                data-tip="复制所有英文创新结果" className="tooltip-bottom"
                                             >
                                                 {copiedId === 'all-en' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                                                 {copiedId === 'all-en' ? <span className="text-emerald-400">已复制英文</span> : 'All EN'}
@@ -1872,7 +1872,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                     handleCopy(allOutputs, 'all-zh');
                                                 }}
                                                 className="text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors flex items-center gap-1.5 border border-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title="复制所有中文创新结果"
+                                                data-tip="复制所有中文创新结果" className="tooltip-bottom"
                                             >
                                                 {copiedId === 'all-zh' ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                                                 {copiedId === 'all-zh' ? <span className="text-emerald-400">已复制中文</span> : 'All ZH'}
@@ -1883,7 +1883,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 disabled={!hasOutputs}
                                                 onClick={handleExportAll}
                                                 className="text-xs px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 hover:text-purple-300 rounded-md transition-colors flex items-center gap-1.5 border border-purple-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title="导出所有创新结果和对话记录"
+                                                data-tip="导出所有创新结果和对话记录" className="tooltip-bottom"
                                             >
                                                 <Download size={12} />
                                                 导出全部
@@ -1978,7 +1978,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                         <button
                                                             onClick={() => handleRegenerateEntry(entry.id)}
                                                             className="p-1 ml-1 hover:bg-zinc-800 rounded text-blue-400 hover:text-blue-300 transition-colors"
-                                                            title="重新生成此条"
+                                                            data-tip="重新生成此条" className="tooltip-bottom"
                                                         >
                                                             <RotateCw size={12} />
                                                         </button>
@@ -1987,7 +1987,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                         <button
                                                             onClick={() => toggleEntrySettings(entry.id)}
                                                             className={`p-1 rounded transition-colors ${entry.showSettings ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'}`}
-                                                            title="单独设置 (Requirement)"
+                                                            data-tip="单独设置 (Requirement)" className="tooltip-bottom"
                                                         >
                                                             <SlidersHorizontal size={14} />
                                                         </button>
@@ -2087,7 +2087,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                         <button
                                                                             onClick={() => handleCopy(entry.source, `src-${entry.id}`)}
                                                                             className="p-1 hover:bg-zinc-800 rounded text-zinc-500 hover:text-zinc-300 transition-colors"
-                                                                            title="复制原始词"
+                                                                            data-tip="复制原始词" className="tooltip-bottom"
                                                                         >
                                                                             {copiedId === `src-${entry.id}` ? <Check size={12} /> : <Copy size={12} />}
                                                                         </button>
@@ -2124,7 +2124,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                     <button
                                                                                         onClick={() => applyLastOriginChatToSource(entry.id)}
                                                                                         className="text-[0.625rem] px-2 py-0.5 bg-emerald-900/50 hover:bg-emerald-800/50 text-emerald-300 hover:text-emerald-200 rounded border border-emerald-700/50 transition-colors"
-                                                                                        title="将AI的最后回复应用到原始提示词"
+                                                                                        data-tip="将AI的最后回复应用到原始提示词" className="tooltip-bottom"
                                                                                     >
                                                                                         应用到提示词
                                                                                     </button>
@@ -2172,7 +2172,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                         <button
                                                                                             onClick={() => removeOriginChatAttachment(entry.id, i)}
                                                                                             className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                                                            title="删除图片"
+                                                                                            data-tip="删除图片" className="tooltip-bottom"
                                                                                         >
                                                                                             <X size={8} />
                                                                                         </button>
@@ -2185,7 +2185,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                             <button
                                                                                 onClick={() => handleOriginChatFileSelect(entry.id)}
                                                                                 className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg border border-zinc-700 transition-colors"
-                                                                                title="上传参考图"
+                                                                                data-tip="上传参考图" className="tooltip-bottom"
                                                                             >
                                                                                 <ImageIcon size={16} />
                                                                             </button>
@@ -2243,7 +2243,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                     handleCopy(text, `${entry.id}-all-en`);
                                                                                 }}
                                                                                 className="text-[0.625rem] px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 flex items-center gap-1 transition-colors"
-                                                                                title="Copy All English Results"
+                                                                                data-tip="Copy All English Results" className="tooltip-bottom"
                                                                             >
                                                                                 {copiedId === `${entry.id}-all-en` ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
                                                                                 {copiedId === `${entry.id}-all-en` ? <span className="text-emerald-400 font-bold">已复制英文</span> : 'EN'}
@@ -2254,7 +2254,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                     handleCopy(text, `${entry.id}-all-zh`);
                                                                                 }}
                                                                                 className="text-[0.625rem] px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 flex items-center gap-1 transition-colors"
-                                                                                title="Copy All Chinese Results"
+                                                                                data-tip="Copy All Chinese Results" className="tooltip-bottom"
                                                                             >
                                                                                 {copiedId === `${entry.id}-all-zh` ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
                                                                                 {copiedId === `${entry.id}-all-zh` ? <span className="text-emerald-400 font-bold">已复制中文</span> : 'ZH'}
@@ -2292,7 +2292,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                         <div
                                                                                             className="p-3 cursor-pointer hover:bg-zinc-700/30 transition-colors relative"
                                                                                             onDoubleClick={() => setExpandedOutput({ en: output.en, zh: output.zh, mode: itemViewMode })}
-                                                                                            title="双击放大查看"
+                                                                                            data-tip="双击放大查看" className="tooltip-bottom"
                                                                                         >
                                                                                             <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words pr-20 leading-relaxed">
                                                                                                 {displayText}
@@ -2333,7 +2333,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                                         <button
                                                                                                             onClick={() => handleCopyChatHistory(entry.id, output.id)}
                                                                                                             className="text-[0.625rem] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded flex items-center gap-1 transition-colors"
-                                                                                                            title="复制对话记录"
+                                                                                                            data-tip="复制对话记录" className="tooltip-bottom"
                                                                                                         >
                                                                                                             {copiedId === `chat-${output.id}` ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
                                                                                                             {copiedId === `chat-${output.id}` ? '已复制' : '复制对话'}
@@ -2387,7 +2387,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                                     <button
                                                                                                         onClick={() => handleChatFileSelect(entry.id, output.id)}
                                                                                                         className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded border border-zinc-700 transition-colors"
-                                                                                                        title="上传图片"
+                                                                                                        data-tip="上传图片" className="tooltip-bottom"
                                                                                                     >
                                                                                                         <ImageIcon size={14} />
                                                                                                     </button>
@@ -2449,7 +2449,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                             <button
                                                                                                 onClick={() => handleCopy(output.en, `${entry.id}-${outIdx}-en`)}
                                                                                                 className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors relative flex items-center gap-1"
-                                                                                                title="Copy English"
+                                                                                                data-tip="Copy English" className="tooltip-bottom"
                                                                                             >
                                                                                                 {copiedId === `${entry.id}-${outIdx}-en` ? (
                                                                                                     <span className="text-[0.5rem] font-bold text-emerald-400">已复制英文</span>
@@ -2465,7 +2465,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                                                             <button
                                                                                                 onClick={() => handleCopy(output.zh || output.en, `${entry.id}-${outIdx}-zh`)}
                                                                                                 className="p-1.5 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white transition-colors relative flex items-center gap-1"
-                                                                                                title="Copy Chinese"
+                                                                                                data-tip="Copy Chinese" className="tooltip-bottom"
                                                                                             >
                                                                                                 {copiedId === `${entry.id}-${outIdx}-zh` ? (
                                                                                                     <span className="text-[0.5rem] font-bold text-emerald-400">已复制中文</span>
@@ -2552,7 +2552,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     <button
                                         onClick={() => setExpandedOutput(prev => prev ? { ...prev, mode: prev.mode === 'en' ? 'zh' : 'en' } : null)}
                                         className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all border border-zinc-700"
-                                        title="切换中英文"
+                                        data-tip="切换中英文" className="tooltip-bottom"
                                     >
                                         <ArrowLeftRight size={12} />
                                         <span className={expandedOutput.mode === 'en' ? 'text-emerald-400' : 'text-zinc-500'}>EN</span>

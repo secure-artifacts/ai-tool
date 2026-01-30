@@ -702,7 +702,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
           <div
             className="w-10 h-8 flex-shrink-0 border-r border-b border-slate-300 bg-slate-100 z-30 sticky left-0 cursor-pointer"
             onClick={selectAllGrid}
-            title="全选"
+            data-tip="全选" className="tooltip-bottom"
           ></div>
           {Array.from({ length: colCount }).map((_, c) => {
             const isColActive = selection && selection.start.col === c && selection.end.col === c && selection.start.row === 0 && selection.end.row === rowCount - 1;

@@ -2625,7 +2625,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                         <button
                             onClick={() => setShowLeftPanel(false)}
                             className="absolute -right-3 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-indigo-500 hover:bg-indigo-600 border border-indigo-400 rounded-r-full shadow-md transition-colors flex items-center justify-center"
-                            title="收起设置面板"
+                            data-tip="收起设置面板" className="tooltip-bottom"
                         >
                             <ChevronLeft size={14} className="text-white" />
                         </button>
@@ -2676,7 +2676,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                         updateConfig({ dataColumns: newCols });
                                                     }}
                                                     className="p-0.5 hover:bg-indigo-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                                                    title="上移"
+                                                    data-tip="上移" className="tooltip-bottom"
                                                 >
                                                     <ChevronUp size={12} className="text-indigo-500" />
                                                 </button>
@@ -2689,7 +2689,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                         updateConfig({ dataColumns: newCols });
                                                     }}
                                                     className="p-0.5 hover:bg-indigo-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                                                    title="下移"
+                                                    data-tip="下移" className="tooltip-bottom"
                                                 >
                                                     <ChevronDown size={12} className="text-indigo-500" />
                                                 </button>
@@ -2763,7 +2763,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                             <button
                                                                 onClick={() => deleteFavoriteFolder(folder.id)}
                                                                 className="text-red-400 hover:text-red-600"
-                                                                title="删除收藏夹"
+                                                                data-tip="删除收藏夹" className="tooltip-bottom"
                                                             >
                                                                 <X size={10} />
                                                             </button>
@@ -2836,7 +2836,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                         <button
                                                             onClick={() => setFavorites(prev => prev.filter(f => f.id !== fav.id))}
                                                             className="text-red-400 hover:text-red-600"
-                                                            title="移除"
+                                                            data-tip="移除" className="tooltip-bottom"
                                                         >
                                                             <X size={10} />
                                                         </button>
@@ -2958,9 +2958,9 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                         {cloudSyncing ? (
                                             <Loader2 size={10} className="animate-spin text-indigo-500" />
                                         ) : cloudSyncEnabled ? (
-                                            <span title="已连接云端"><Cloud size={10} className="text-green-500" /></span>
+                                            <span data-tip="已连接云端" className="tooltip-bottom"><Cloud size={10} className="text-green-500" /></span>
                                         ) : (
-                                            <span title="未登录，仅本地保存"><CloudOff size={10} className="text-slate-400" /></span>
+                                            <span data-tip="未登录，仅本地保存" className="tooltip-bottom"><CloudOff size={10} className="text-slate-400" /></span>
                                         )}
                                     </span>
                                     <button
@@ -2994,7 +2994,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                     setEditingPresetId(preset.id);
                                                     setEditingPresetName(preset.name);
                                                 }}
-                                                title="点击加载 | 双击重命名"
+                                                data-tip="点击加载 | 双击重命名" className="tooltip-bottom"
                                             >
                                                 {editingPresetId === preset.id ? (
                                                     <input
@@ -3329,7 +3329,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                 value={borderColor}
                                                 onChange={(e) => setBorderColor(e.target.value)}
                                                 className="w-5 h-5 rounded cursor-pointer border border-slate-300"
-                                                title="边框颜色"
+                                                data-tip="边框颜色" className="tooltip-bottom"
                                             />
                                         </div>
                                     </div>
@@ -3372,7 +3372,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                     <button
                         onClick={() => setShowLeftPanel(true)}
                         className="w-6 h-full bg-white border-r border-slate-200 hover:bg-indigo-50 transition-colors flex items-center justify-center shrink-0"
-                        title="展开设置面板"
+                        data-tip="展开设置面板" className="tooltip-bottom"
                     >
                         <ChevronRight size={14} className="text-slate-500" />
                     </button>
@@ -3498,7 +3498,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                                                 <div
                                                                                     className="absolute -bottom-3 left-0 right-0 h-6 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-20"
                                                                                     onMouseDown={(e) => handleRowResizeStart(col, rowHeight, e)}
-                                                                                    title="拖拽调整行高"
+                                                                                    data-tip="拖拽调整行高" className="tooltip-bottom"
                                                                                 >
                                                                                     <div className="w-8 h-1 bg-indigo-500 rounded-full" />
                                                                                 </div>

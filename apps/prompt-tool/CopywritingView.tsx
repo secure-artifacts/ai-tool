@@ -1917,7 +1917,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         ? 'bg-amber-600 text-white border-amber-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
                                         }`}
-                                    title="标准模式：文案改写 + 翻译"
+                                    data-tip="标准模式：文案改写 + 翻译" className="tooltip-bottom"
                                 >
                                     <FileEdit size={10} className="inline mr-0.5" /> 标准
                                 </button>
@@ -1930,7 +1930,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         ? 'bg-purple-600 text-white border-purple-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
                                         }`}
-                                    title="人声模式：ElevenLabs 配音标注"
+                                    data-tip="人声模式：ElevenLabs 配音标注" className="tooltip-bottom"
                                 >
                                     <Mic size={10} className="inline mr-0.5" /> 人声
                                 </button>
@@ -1943,7 +1943,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         ? 'bg-cyan-600 text-white border-cyan-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
                                         }`}
-                                    title="分类模式：按规则输出分类结果"
+                                    data-tip="分类模式：按规则输出分类结果" className="tooltip-bottom"
                                 >
                                     <Tag size={10} className="inline mr-0.5" /> 分类
                                 </button>
@@ -2051,7 +2051,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 onClick={handleSavePreset}
                                 disabled={presetLoading || !instructions.some(i => i.trim())}
                                 className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded transition-colors text-amber-500 hover:text-amber-400 hover:bg-amber-900/20 disabled:opacity-50"
-                                title="保存当前指令为预设"
+                                data-tip="保存当前指令为预设" className="tooltip-bottom"
                             >
                                 <Save size={10} /> 保存
                             </button>
@@ -2059,7 +2059,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                             <button
                                 onClick={() => setShowPresetManager(true)}
                                 className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded transition-colors text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
-                                title="管理预设"
+                                data-tip="管理预设" className="tooltip-bottom"
                             >
                                 <FolderOpen size={10} /> 管理
                             </button>
@@ -2083,7 +2083,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         onChange={(e) => updateInstruction(idx, e.target.value)}
                                         onDoubleClick={() => setEditingInstructionIndex(idx)}
                                         placeholder="输入改写指令..."
-                                        title="双击弹框编辑"
+                                        data-tip="双击弹框编辑" className="tooltip-bottom"
                                         className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 placeholder-zinc-600 resize-none min-h-[36px]"
                                         rows={2}
                                     />
@@ -2095,7 +2095,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         ? 'text-amber-400 bg-amber-900/30'
                                         : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
                                         }`}
-                                    title="选择预设"
+                                    data-tip="选择预设" className="tooltip-bottom"
                                 >
                                     <ChevronDown size={12} />
                                 </button>
@@ -2540,7 +2540,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                         <button
                                                                             onClick={(e) => { e.stopPropagation(); handleRetryInstruction(item.id, idx); }}
                                                                             className="p-1 text-amber-400 hover:bg-amber-900/20 rounded transition-colors"
-                                                                            title="重试该指令"
+                                                                            data-tip="重试该指令" className="tooltip-bottom"
                                                                         >
                                                                             <RotateCw size={12} />
                                                                         </button>
@@ -2549,7 +2549,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                         <button
                                                                             onClick={(e) => { e.stopPropagation(); toggleInstructionChat(item.id, idx); }}
                                                                             className={`p-1 rounded transition-colors ${result.chatOpen ? 'text-amber-400 bg-amber-900/20' : 'text-zinc-500 hover:text-amber-400'}`}
-                                                                            title="对话修改"
+                                                                            data-tip="对话修改" className="tooltip-bottom"
                                                                         >
                                                                             <MessageSquare size={12} />
                                                                         </button>
@@ -2718,7 +2718,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                 ? 'text-purple-400 bg-purple-500/10'
                                                 : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
                                                 }`}
-                                            title="单条设置"
+                                            data-tip="单条设置" className="tooltip-bottom"
                                         >
                                             <Settings2 size={14} />
                                         </button>
@@ -2728,7 +2728,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             <button
                                                 onClick={() => handleProcessSingleItem(item)}
                                                 className="p-1.5 text-purple-400 hover:bg-purple-900/20 rounded transition-colors"
-                                                title="单条处理"
+                                                data-tip="单条处理" className="tooltip-bottom"
                                             >
                                                 <Play size={14} />
                                             </button>
@@ -2738,7 +2738,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         <button
                                             onClick={() => handleDeleteItem(item.id)}
                                             className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
-                                            title="删除"
+                                            data-tip="删除" className="tooltip-bottom"
                                         >
                                             <X size={14} />
                                         </button>

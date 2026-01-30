@@ -144,7 +144,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                         <button
                             className="toolbar-btn-v2"
                             onClick={(e) => { e.stopPropagation(); handleAddSibling(); }}
-                            title="添加话题 (Enter)"
+                            data-tip="添加话题 (Enter)" className="tooltip-bottom"
                         >
                             <GitCommit className="toolbar-icon rotate-90" size={16} />
                             <span className="toolbar-label">话题</span>
@@ -154,7 +154,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     <button
                         className="toolbar-btn-v2"
                         onClick={(e) => { e.stopPropagation(); handleAddChild(); }}
-                        title="添加子主题 (Tab)"
+                        data-tip="添加子主题 (Tab)" className="tooltip-bottom"
                     >
                         <GitBranch className="toolbar-icon" size={16} />
                         <span className="toolbar-label">子主题</span>
@@ -168,7 +168,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                             // 简化：提示用户当前暂不支持关系连线的可视化
                             alert('关系连线功能已启用！\n使用方法：先添加关系，导出时会包含关系数据。\n可视化渲染正在开发中...');
                         }}
-                        title="关系连线（开发中）"
+                        data-tip="关系连线（开发中）" className="tooltip-bottom"
                     >
                         <Link2 className="toolbar-icon" size={16} />
                         <span className="toolbar-label">关系</span>
@@ -185,7 +185,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                                 useMindMapStore.getState().addBoundary(nodeIds, `${node.label} 边界`);
                             }
                         }}
-                        title="添加边界"
+                        data-tip="添加边界" className="tooltip-bottom"
                     >
                         <BoxSelect className="toolbar-icon" size={16} />
                         <span className="toolbar-label">边界</span>
@@ -206,7 +206,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                                 alert('需要先有子节点才能添加概括');
                             }
                         }}
-                        title="添加概括"
+                        data-tip="添加概括" className="tooltip-bottom"
                     >
                         <Braces className="toolbar-icon" size={16} />
                         <span className="toolbar-label">概括</span>
@@ -216,7 +216,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     <button
                         className="toolbar-btn-v2 ai-btn"
                         onClick={(e) => { e.stopPropagation(); openAiExpand(data.id as string); }}
-                        title="AI 扩展"
+                        data-tip="AI 扩展" className="tooltip-bottom"
                     >
                         <Sparkles className="toolbar-icon" size={16} />
                         <span className="toolbar-label">AI</span>
@@ -241,7 +241,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     <button
                         className="toolbar-btn-v2 edit-btn"
                         onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-                        title="编辑文本 (F2)"
+                        data-tip="编辑文本 (F2)" className="tooltip-bottom"
                     >
                         <Edit2 className="toolbar-icon" size={16} />
                         <span className="toolbar-label">编辑</span>
@@ -251,7 +251,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                         <button
                             className="toolbar-btn-v2 delete-btn"
                             onClick={(e) => { e.stopPropagation(); deleteNode(data.id as string); }}
-                            title="删除 (Delete)"
+                            data-tip="删除 (Delete)" className="tooltip-bottom"
                         >
                             <Trash2 className="toolbar-icon" size={16} />
                             <span className="toolbar-label">删除</span>

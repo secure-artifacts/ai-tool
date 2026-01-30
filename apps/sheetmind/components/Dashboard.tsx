@@ -1191,21 +1191,21 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                     )}
                 </h2>
                 <div className="flex flex-wrap gap-2 bg-white p-1 rounded-lg border border-slate-200 shadow-sm">
-                    <button title="柱状图" onClick={() => setChartType('bar')} className={`p-2 rounded ${chartType === 'bar' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 size={20} /></button>
-                    <button title="条形图" onClick={() => setChartType('bar-horizontal')} className={`p-2 rounded ${chartType === 'bar-horizontal' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><BarChart3 className="rotate-90" size={20} /></button>
-                    <button title="折线图" onClick={() => setChartType('line')} className={`p-2 rounded ${chartType === 'line' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><LineChartIcon size={20} /></button>
-                    <button title="面积图" onClick={() => setChartType('area')} className={`p-2 rounded ${chartType === 'area' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><Activity size={20} /></button>
-                    <button title="饼图" onClick={() => setChartType('pie')} className={`p-2 rounded ${chartType === 'pie' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><PieChartIcon size={20} /></button>
-                    <button title="雷达图" onClick={() => setChartType('radar')} className={`p-2 rounded ${chartType === 'radar' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><Hexagon size={20} /></button>
-                    <button title="散点图" onClick={() => setChartType('scatter')} className={`p-2 rounded ${chartType === 'scatter' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><ScatterIcon size={20} /></button>
-                    <button title="漏斗图" onClick={() => setChartType('funnel')} className={`p-2 rounded ${chartType === 'funnel' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><FunnelIcon size={20} /></button>
-                    <button title="树形图" onClick={() => setChartType('treemap')} className={`p-2 rounded ${chartType === 'treemap' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'}`}><BoxSelect size={20} /></button>
+                    <button data-tip="柱状图" onClick={() => setChartType('bar')} className={`p-2 rounded ${chartType === 'bar' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><BarChart3 size={20} /></button>
+                    <button data-tip="条形图" onClick={() => setChartType('bar-horizontal')} className={`p-2 rounded ${chartType === 'bar-horizontal' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><BarChart3 className="rotate-90" size={20} /></button>
+                    <button data-tip="折线图" onClick={() => setChartType('line')} className={`p-2 rounded ${chartType === 'line' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><LineChartIcon size={20} /></button>
+                    <button data-tip="面积图" onClick={() => setChartType('area')} className={`p-2 rounded ${chartType === 'area' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><Activity size={20} /></button>
+                    <button data-tip="饼图" onClick={() => setChartType('pie')} className={`p-2 rounded ${chartType === 'pie' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><PieChartIcon size={20} /></button>
+                    <button data-tip="雷达图" onClick={() => setChartType('radar')} className={`p-2 rounded ${chartType === 'radar' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><Hexagon size={20} /></button>
+                    <button data-tip="散点图" onClick={() => setChartType('scatter')} className={`p-2 rounded ${chartType === 'scatter' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><ScatterIcon size={20} /></button>
+                    <button data-tip="漏斗图" onClick={() => setChartType('funnel')} className={`p-2 rounded ${chartType === 'funnel' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><FunnelIcon size={20} /></button>
+                    <button data-tip="树形图" onClick={() => setChartType('treemap')} className={`p-2 rounded ${chartType === 'treemap' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><BoxSelect size={20} /></button>
                     <div className="w-px bg-slate-200 mx-1"></div>
-                    <button title="透视表" onClick={() => setChartType('pivot')} className={`p-2 rounded ${chartType === 'pivot' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:bg-slate-50'}`}><Table2 size={20} /></button>
+                    <button data-tip="透视表" onClick={() => setChartType('pivot')} className={`p-2 rounded ${chartType === 'pivot' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><Table2 size={20} /></button>
                     <div className="w-px bg-slate-200 mx-1"></div>
                     {/* 智能推荐按钮 */}
                     <button
-                        title="智能推荐"
+                        data-tip="智能推荐" className="tooltip-bottom"
                         onClick={handleSmartAnalyze}
                         disabled={isAnalyzing}
                         className="px-3 py-1.5 rounded bg-gradient-to-r from-violet-500 to-purple-600 text-white font-medium text-sm flex items-center gap-1.5 hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm disabled:opacity-50"
@@ -1348,13 +1348,13 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                             <div className="flex gap-1">
                                 <button
                                     onClick={exportPreset}
-                                    title="导出预设"
+                                    data-tip="导出预设" className="tooltip-bottom"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1"
                                 >
                                     <Download size={12} className="inline mr-1" /> 导出
                                 </button>
                                 <label
-                                    title="导入预设"
+                                    data-tip="导入预设" className="tooltip-bottom"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1 cursor-pointer"
                                 >
                                     <Upload size={12} className="inline mr-1" /> 导入

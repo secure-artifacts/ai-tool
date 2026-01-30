@@ -113,7 +113,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
               rel="noopener noreferrer"
               className="block cursor-pointer"
               onClick={(e) => e.stopPropagation()}
-              title="点击在新窗口打开原图"
+              data-tip="点击在新窗口打开原图" className="tooltip-bottom"
             >
               <img
                 src={`https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}&w=80&h=80&fit=cover`}
@@ -139,7 +139,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-blue-600 hover:text-blue-800 cursor-pointer transition-colors"
               onClick={(e) => e.stopPropagation()}
-              title="点击在新窗口打开原图"
+              data-tip="点击在新窗口打开原图" className="tooltip-bottom"
             >
               <Image size={16} />
               <span className="text-xs truncate max-w-[100px] underline">图片链接</span>
@@ -178,7 +178,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
             rel="noopener noreferrer"
             className="block cursor-pointer"
             onClick={(e) => e.stopPropagation()}
-            title="点击在新窗口打开原图"
+            data-tip="点击在新窗口打开原图" className="tooltip-bottom"
           >
             <img
               src={`https://images.weserv.nl/?url=${encodeURIComponent(stringVal)}&w=80&h=80&fit=cover`}
@@ -307,7 +307,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
             onClick={() => setPage(0)}
             disabled={page === 0}
             className="px-2 py-1 bg-white border rounded hover:bg-slate-100 disabled:opacity-50 text-xs"
-            title="第一页"
+            data-tip="第一页" className="tooltip-bottom"
           >
             ««
           </button>
@@ -358,7 +358,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
             onClick={() => setPage(totalPages - 1)}
             disabled={page >= totalPages - 1}
             className="px-2 py-1 bg-white border rounded hover:bg-slate-100 disabled:opacity-50 text-xs"
-            title="最后一页"
+            data-tip="最后一页" className="tooltip-bottom"
           >
             »»
           </button>

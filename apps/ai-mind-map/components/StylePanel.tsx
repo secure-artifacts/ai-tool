@@ -189,7 +189,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             type="color"
                                             value={selectedNode.style?.borderColor || '#000000'}
                                             onChange={(e) => handleUpdateNodeStyle({ borderColor: e.target.value })}
-                                            title="边框颜色"
+                                            data-tip="边框颜色" className="tooltip-bottom"
                                         />
                                         <select
                                             value={selectedNode.style?.borderStyle || 'solid'}
@@ -226,8 +226,8 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             type="number"
                                             value={selectedNode.style?.fontSize || 14}
                                             onChange={(e) => handleUpdateNodeStyle({ fontSize: Number(e.target.value) })}
-                                            className="w-60"
-                                            title="字号"
+                                            className="w-60 tooltip-bottom"
+                                            data-tip="字号"
                                         />
                                         <button
                                             className={`icon-btn ${selectedNode.style?.fontWeight === 'bold' ? 'active' : ''}`}
@@ -257,7 +257,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                             type="color"
                                             value={selectedNode.style?.color || '#000000'}
                                             onChange={(e) => handleUpdateNodeStyle({ color: e.target.value })}
-                                            title="文本颜色"
+                                            data-tip="文本颜色" className="tooltip-bottom"
                                         />
                                     </div>
                                 </div>
@@ -375,7 +375,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                     <option value="straight">直线</option>
                                     <option value="step">折线</option>
                                 </select>
-                                <div className="control-row" className="mt-2">
+                                <div className="control-row mt-2">
                                     <span>颜色</span>
                                     <input
                                         type="color"
@@ -383,7 +383,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                         onChange={(e) => handleUpdateMapStyle({ lineColor: e.target.value })}
                                     />
                                 </div>
-                                <div className="control-row" className="mt-2">
+                                <div className="control-row mt-2">
                                     <label>
                                         <input
                                             type="checkbox"
@@ -393,7 +393,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({ onClose }) => {
                                         彩虹线条
                                     </label>
                                 </div>
-                                <div className="control-row" className="mt-2 items-center">
+                                <div className="control-row mt-2 items-center">
                                     <span>宽度</span>
                                     <input
                                         type="range"

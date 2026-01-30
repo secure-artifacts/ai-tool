@@ -837,19 +837,19 @@ export const Toolbar: React.FC = () => {
             <div className="toolbar">
                 {/* ===== 文件操作 ===== */}
                 <div className="toolbar-section">
-                    <button className="toolbar-btn" onClick={() => setShowNewMapModal(true)} title="新建思维导图">
+                    <button className="toolbar-btn tooltip-bottom" onClick={() => setShowNewMapModal(true)} data-tip="新建思维导图">
                         <FilePlus size={16} />
                         <span className="label">新建</span>
                     </button>
-                    <button className="toolbar-btn" onClick={() => setShowTemplatePicker(true)} title="从模板创建">
+                    <button className="toolbar-btn tooltip-bottom" onClick={() => setShowTemplatePicker(true)} data-tip="从模板创建">
                         <FileText size={16} />
                         <span className="label">模板</span>
                     </button>
-                    <button className="toolbar-btn" onClick={() => setShowMapsModal(true)} title="打开思维导图">
+                    <button className="toolbar-btn tooltip-bottom" onClick={() => setShowMapsModal(true)} data-tip="打开思维导图">
                         <FolderOpen size={16} />
                         <span className="label">打开</span>
                     </button>
-                    <button className="toolbar-btn" onClick={saveCurrentMap} disabled={!currentMap} title="保存">
+                    <button data-tip="保存" className="toolbar-btn tooltip-bottom" disabled={!currentMap} >
                         <Save size={16} />
                         <span className="label">保存</span>
                     </button>
@@ -859,11 +859,11 @@ export const Toolbar: React.FC = () => {
 
                 {/* ===== 编辑操作 (WiseMapping 风格) ===== */}
                 <div className="toolbar-section">
-                    <button className="toolbar-btn" onClick={undo} disabled={!canUndo} title="撤销 (⌘Z / Ctrl+Z)">
+                    <button data-tip="撤销 (⌘Z / Ctrl+Z)" className="toolbar-btn tooltip-bottom" disabled={!canUndo} >
                         <Undo2 size={16} />
                         <span className="label">撤销</span>
                     </button>
-                    <button className="toolbar-btn" onClick={redo} disabled={!canRedo} title="重做 (⌘Y / Ctrl+Y)">
+                    <button data-tip="重做 (⌘Y / Ctrl+Y)" className="toolbar-btn tooltip-bottom" disabled={!canRedo} >
                         <Redo2 size={16} />
                         <span className="label">重做</span>
                     </button>
@@ -873,7 +873,7 @@ export const Toolbar: React.FC = () => {
 
                 {/* ===== 节点操作 (WiseMapping 风格) ===== */}
                 <div className="toolbar-section">
-                    <button className="toolbar-btn primary" onClick={handleAddChild} disabled={!selectedNodeId} title="添加子节点 (Tab)">
+                    <button data-tip="添加子节点 (Tab)" className="toolbar-btn primary tooltip-bottom" disabled={!selectedNodeId} >
                         <Plus size={16} />
                         <span className="label">子节点</span>
                     </button>
@@ -886,16 +886,16 @@ export const Toolbar: React.FC = () => {
                             }
                         }}
                         disabled={!selectedNode || !selectedNode.parentId}
-                        title="添加兄弟节点 (Enter)"
+                        data-tip="添加兄弟节点 (Enter)" className="tooltip-bottom"
                     >
                         <Plus size={16} />
                         <span className="label">兄弟</span>
                     </button>
-                    <button className="toolbar-btn" onClick={handleEditNode} disabled={!selectedNode} title="编辑节点 (F2)">
+                    <button data-tip="编辑节点 (F2)" className="toolbar-btn tooltip-bottom" disabled={!selectedNode} >
                         <Pencil size={16} />
                         <span className="label">编辑</span>
                     </button>
-                    <button className="toolbar-btn danger" onClick={handleDeleteNode} disabled={!selectedNode || selectedNodeId === currentMap?.rootId} title="删除节点 (Delete)">
+                    <button className="toolbar-btn danger tooltip-bottom" onClick={handleDeleteNode} disabled={!selectedNode || selectedNodeId === currentMap?.rootId} data-tip="删除节点 (Delete)">
                         <Trash2 size={16} />
                         <span className="label">删除</span>
                     </button>
@@ -905,11 +905,11 @@ export const Toolbar: React.FC = () => {
 
                 {/* ===== 视图操作 ===== */}
                 <div className="toolbar-section">
-                    <button className="toolbar-btn" onClick={() => setShowSearch(true)} disabled={!currentMap} title="搜索节点 (⌘F / Ctrl+F)">
+                    <button className="toolbar-btn tooltip-bottom" onClick={() => setShowSearch(true)} disabled={!currentMap} data-tip="搜索节点 (⌘F / Ctrl+F)">
                         <Search size={16} />
                         <span className="label">搜索</span>
                     </button>
-                    <button className="toolbar-btn" onClick={handleFitView} disabled={!currentMap} title="回到中心 (⌘0 / Ctrl+0)">
+                    <button data-tip="回到中心 (⌘0 / Ctrl+0)" className="toolbar-btn tooltip-bottom" disabled={!currentMap} >
                         <Target size={16} />
                         <span className="label">居中</span>
                     </button>
@@ -920,12 +920,12 @@ export const Toolbar: React.FC = () => {
                             setTimeout(() => window.dispatchEvent(new CustomEvent('mindmap-fit-view')), 100);
                         }}
                         disabled={!currentMap}
-                        title="整理布局"
+                        data-tip="整理布局" className="tooltip-bottom"
                     >
                         <Sparkles size={16} />
                         <span className="label">整理</span>
                     </button>
-                    <button className={`toolbar-btn ${showOutline ? 'active' : ''}`} onClick={toggleOutline} title="大纲视图">
+                    <button className={`toolbar-btn ${showOutline ? 'active' : ''} tooltip-bottom`} onClick={toggleOutline} data-tip="大纲视图" >
                         <List size={16} />
                         <span className="label">大纲</span>
                     </button>
@@ -940,7 +940,7 @@ export const Toolbar: React.FC = () => {
                             ref={expandTriggerRef}
                             className={`ai-tools-trigger-v2 ${expandMenuOpen ? 'open' : ''}`}
                             onClick={toggleExpandMenu}
-                            title="展开/收起"
+                            data-tip="展开/收起" className="tooltip-bottom"
                         >
                             <List size={14} className="trigger-icon" />
                             <span>展开/收起</span>
@@ -989,7 +989,7 @@ export const Toolbar: React.FC = () => {
                             ref={layoutTriggerRef}
                             className={`ai-tools-trigger-v2 ${layoutMenuOpen ? 'open' : ''}`}
                             onClick={toggleLayoutMenu}
-                            title="布局方向"
+                            data-tip="布局方向" className="tooltip-bottom"
                         >
                             <span className="trigger-icon layout-emoji">{currentLayout?.icon || '🧭'}</span>
                             <span>{currentLayout?.label || '布局方向'}</span>
@@ -1054,19 +1054,19 @@ export const Toolbar: React.FC = () => {
 
                 {/* ===== 导入导出 ===== */}
                 <div className="toolbar-section">
-                    <button className="toolbar-btn" onClick={() => setShowExportModal(true)} disabled={!currentMap} title="导出">
+                    <button className="toolbar-btn tooltip-bottom" onClick={() => setShowExportModal(true)} disabled={!currentMap} data-tip="导出">
                         <Download size={16} />
                         <span className="label">导出</span>
                     </button>
-                    <button className="toolbar-btn" onClick={handleImport} title="导入">
+                    <button data-tip="导入" className="toolbar-btn tooltip-bottom" onClick={handleImport} >
                         <Upload size={16} />
                         <span className="label">导入</span>
                     </button>
-                    <button className="toolbar-btn" onClick={() => setShowSearch(true)} disabled={!currentMap} title="搜索节点 (Ctrl+F)">
+                    <button className="toolbar-btn tooltip-bottom" onClick={() => setShowSearch(true)} disabled={!currentMap} data-tip="搜索节点 (Ctrl+F)">
                         <Search size={16} />
                         <span className="label">搜索</span>
                     </button>
-                    <button className={`toolbar-btn ${copySuccess ? 'success' : ''}`} onClick={handleCopyMarkdown} disabled={!currentMap} title="复制 Markdown">
+                    <button className={`toolbar-btn ${copySuccess ? 'success' : ''} tooltip-bottom`} onClick={handleCopyMarkdown} disabled={!currentMap} data-tip="复制 Markdown" >
                         {copySuccess ? <Check size={16} /> : <Copy size={16} />}
                         <span className="label">{copySuccess ? '已复制' : '复制'}</span>
                     </button>
@@ -1079,7 +1079,7 @@ export const Toolbar: React.FC = () => {
                     <button
                         className="toolbar-btn theme-toggle"
                         onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
-                        title="切换主题"
+                        data-tip="切换主题" className="tooltip-bottom"
                     >
                         {themeMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
                     </button>

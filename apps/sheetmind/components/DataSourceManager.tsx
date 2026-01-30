@@ -1222,7 +1222,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                         <button
                                                             onClick={() => handleSelectSource(source)}
                                                             className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-md"
-                                                            title="使用此数据源"
+                                                            data-tip="使用此数据源" className="tooltip-bottom"
                                                         >
                                                             <Check size={16} />
                                                         </button>
@@ -1232,14 +1232,14 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                             <button
                                                                 onClick={() => handleRefreshSourceName(source)}
                                                                 className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md"
-                                                                title="刷新表格名称"
+                                                                data-tip="刷新表格名称" className="tooltip-bottom"
                                                             >
                                                                 <RefreshCw size={16} />
                                                             </button>
                                                             <button
                                                                 onClick={() => handleEditSheets(source)}
                                                                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
-                                                                title="修改导入的分页"
+                                                                data-tip="修改导入的分页" className="tooltip-bottom"
                                                             >
                                                                 <Settings2 size={16} />
                                                             </button>
@@ -1249,7 +1249,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                         <button
                                                             onClick={() => openBackupModal(source)}
                                                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
-                                                            title="备份到 Google Sheets（覆盖写入）"
+                                                            data-tip="备份到 Google Sheets（覆盖写入）" className="tooltip-bottom"
                                                         >
                                                             <CloudUpload size={16} />
                                                         </button>
@@ -1272,7 +1272,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                             target="_blank"
                                                             rel="noopener noreferrer"
                                                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
-                                                            title="在新窗口打开"
+                                                            data-tip="在新窗口打开" className="tooltip-bottom"
                                                         >
                                                             <ExternalLink size={16} />
                                                         </a>
@@ -1296,7 +1296,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                         <button
                                                             onClick={() => setConfirmDelete(source.id)}
                                                             className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md"
-                                                            title="删除"
+                                                            data-tip="删除" className="tooltip-bottom"
                                                         >
                                                             <Trash2 size={16} />
                                                         </button>
@@ -1323,7 +1323,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                 ? 'bg-blue-100 text-blue-600'
                                                 : 'bg-green-100 text-green-600 hover:bg-green-200'
                                                 }`}
-                                            title="点击立即同步"
+                                            data-tip="点击立即同步" className="tooltip-bottom"
                                         >
                                             {isSyncing ? (
                                                 <>
@@ -1349,7 +1349,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                             onClick={handleBatchCache}
                                             disabled={batchCaching}
                                             className="flex items-center gap-1 px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 rounded-lg transition-colors disabled:opacity-50"
-                                            title="批量缓存所有数据源到本地"
+                                            data-tip="批量缓存所有数据源到本地" className="tooltip-bottom"
                                         >
                                             {batchCaching ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
                                             批量缓存

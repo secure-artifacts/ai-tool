@@ -140,7 +140,7 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                             e.stopPropagation();
                             onAddNode?.(nodeId);
                         }}
-                        title="添加子节点"
+                        data-tip="添加子节点" className="tooltip-bottom"
                     >
                         <Plus size={12} />
                     </button>
@@ -169,7 +169,7 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                         e.stopPropagation();
                         onAddNode?.(rootId);
                     }}
-                    title="添加新列"
+                    data-tip="添加新列" className="tooltip-bottom"
                 >
                     <Plus size={16} /> 添加列
                 </button>
@@ -200,7 +200,7 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                                         e.stopPropagation();
                                         onAddNode?.(columnId);
                                     }}
-                                    title="添加单元格"
+                                    data-tip="添加单元格" className="tooltip-bottom"
                                 >
                                     <Plus size={14} />
                                 </button>
@@ -248,7 +248,7 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                                                         e.stopPropagation();
                                                         onAddNode?.(cellId);
                                                     }}
-                                                    title="添加子项"
+                                                    data-tip="添加子项" className="tooltip-bottom"
                                                 >
                                                     <Plus size={12} />
                                                 </button>
