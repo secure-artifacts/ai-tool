@@ -781,7 +781,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           );
           const pool = new ApiKeyPool(sharedKeys.map(k => k.apiKey), nicknames);
           setApiPool(pool);
-          console.log('[ApiProvider] 共享 API 池加载成功');
+          // console.log('[ApiProvider] 共享 API 池加载成功');
           return;
         }
 
@@ -801,7 +801,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           if (userPool.hasKeys()) {
             setApiPool(userPool as any);
-            console.log('[ApiProvider] 用户个人 Firebase API池加载成功');
+            // console.log('[ApiProvider] 用户个人 Firebase API池加载成功');
             return;
           }
         }
@@ -820,7 +820,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         if (pool.hasKeys()) {
           setApiPool(pool);
-          console.log('[ApiProvider] Google Sheets API池刷新成功');
+          // console.log('[ApiProvider] Google Sheets API池刷新成功');
           return;
         }
       }
@@ -841,12 +841,12 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const rotateApiKey = () => {
     if (apiPool && apiPool.hasKeys()) {
       const currentKey = apiPool.getCurrentKey();
-      console.log(`[rotateApiKey] 当前密钥: ${currentKey.substring(0, 15)}...`);
+      // console.log(`[rotateApiKey] 当前密钥: ${currentKey.substring(0, 15)}...`);
 
       apiPool.rotateToNext();
 
       const newKey = apiPool.getCurrentKey();
-      console.log(`[rotateApiKey] 轮换后密钥: ${newKey.substring(0, 15)}...`);
+      // console.log(`[rotateApiKey] 轮换后密钥: ${newKey.substring(0, 15)}...`);
 
       // 触发组件重新渲染（不创建新对象，保留 currentIndex）
       setApiPoolUpdateCounter(c => c + 1);
@@ -912,7 +912,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               rotateApiKey();
 
               if (apiPool.hasKeys()) { // Check if a new key is available after rotation
-                console.log('[Auto-Rotate] Automatically switched to the next API key, retrying request...');
+                // console.log('[Auto-Rotate] Automatically switched to the next API key, retrying request...');
                 // Retry with the new key
                 const newInstance = getAiInstance();
                 const newMethod = (newInstance as any)[methodName]?.bind(newInstance);
@@ -971,7 +971,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 }
 
                 rotateApiKey();
-                console.log(`[Auto-Rotate] 切换到下一个 Key，准备第 ${attempt + 2} 次尝试...`);
+                // console.log(`[Auto-Rotate] 切换到下一个 Key，准备第 ${attempt + 2} 次尝试...`);
                 continue;
               }
 
@@ -1016,7 +1016,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 }
 
                 rotateApiKey();
-                console.log(`[Auto-Rotate Stream] 切换到下一个 Key，准备第 ${attempt + 2} 次尝试...`);
+                // console.log(`[Auto-Rotate Stream] 切换到下一个 Key，准备第 ${attempt + 2} 次尝试...`);
                 continue;
               }
 
@@ -2724,7 +2724,7 @@ const DescInnovationTool: React.FC<{
           for (let i = 0; i < iterations; i++) {
             if (cancelRef.current) break;
             await waitIfPaused();
-            console.log(`🤖 [Desc Tool] Using AI model: ${textModel}`);
+            // console.log(`🤖 [Desc Tool] Using AI model: ${textModel}`);
             const response = await ai.models.generateContent({
               model: textModel,
               contents: { parts: [{ text: `${promptTemplate}\n\n原始描述词：${entry.source.trim()}` }] },
@@ -3830,9 +3830,9 @@ const TemplateBuilderTool: React.FC<{
     setSyncMessage(null);
 
     try {
-      console.log('Syncing templates for user:', user);
+      // console.log('Syncing templates for user:', user);
       const rows = await fetchUserPresetsFromSheet(user, SHARED_PRESET_SHEET_CONFIG);
-      console.log('Fetched rows from sheet:', rows);
+      // console.log('Fetched rows from sheet:', rows);
 
       // 1. Find the State Row (TemplateBuilder)
       let stateRows = extractScopedRows(rows, PRESET_SCOPE_TEMPLATE)
@@ -3847,14 +3847,14 @@ const TemplateBuilderTool: React.FC<{
       }
 
       if (!stateRows.length) {
-        console.log('No matching state rows found');
+        // console.log('No matching state rows found');
         setSyncMessage(t('presetSheetEmpty'));
         return;
       }
 
       // Get the latest state row
       const latestStateRow = stateRows[stateRows.length - 1];
-      console.log('Latest state row:', latestStateRow);
+      // console.log('Latest state row:', latestStateRow);
 
       let parsedState: { templates: SavedTemplateVersion[]; activeTemplate: SavedTemplateVersion } | null = null;
 
@@ -3863,7 +3863,7 @@ const TemplateBuilderTool: React.FC<{
 
         // Check for V2 format (Split Rows)
         if (payload && payload.version === 'v2' && payload.batchId) {
-          console.log('Detected V2 format with batchId:', payload.batchId);
+          // console.log('Detected V2 format with batchId:', payload.batchId);
           const targetBatchId = payload.batchId;
 
           // Find all TemplateItem rows
@@ -3879,7 +3879,7 @@ const TemplateBuilderTool: React.FC<{
             .map((t, index) => sanitizeTemplateVersionFromSheet(t, index))
             .filter((t): t is SavedTemplateVersion => !!t);
 
-          console.log('Matched V2 templates:', matchedTemplates);
+          // console.log('Matched V2 templates:', matchedTemplates);
 
           if (matchedTemplates.length > 0) {
             // Reorder based on templateIds in state payload if available
@@ -3909,7 +3909,7 @@ const TemplateBuilderTool: React.FC<{
 
         // Fallback to V1 parsing if V2 failed or not detected
         if (!parsedState) {
-          console.log('Falling back to V1 parsing');
+          // console.log('Falling back to V1 parsing');
           parsedState = parseTemplateSheetPayload(payload);
         }
       } catch (e) {
@@ -3978,8 +3978,8 @@ const TemplateBuilderTool: React.FC<{
     }
 
     const rows = buildTemplateSheetRows(state);
-    console.log('Saving template rows:', rows);
-    console.log('Current state savedTemplates:', state.savedTemplates);
+    // console.log('Saving template rows:', rows);
+    // console.log('Current state savedTemplates:', state.savedTemplates);
 
     if (!rows.length) {
       setSaveError(t('presetSaveNoData'));
@@ -5006,7 +5006,7 @@ const ImageStudioTool: React.FC<{
 
     try {
       const ai = getAiInstance();
-      console.log(`🎨 [Image Studio] Using AI model: ${imageModel}, resolution: ${imageResolution}`);
+      // console.log(`🎨 [Image Studio] Using AI model: ${imageModel}, resolution: ${imageResolution}`);
       const response = await ai.models.generateContent({
         model: imageModel,
         contents: { parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
@@ -5809,13 +5809,13 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       return;
     }
 
-    console.log('[loadApiKeys] 开始加载，用户:', storedUserEmail);
+    // console.log('[loadApiKeys] 开始加载，用户:', storedUserEmail);
     setIsLoadingKeys(true);
     setKeysError(null);
     try {
       const { fetchUserApiKeys } = await import('./services/apiKeyManagementService');
       const keys = await fetchUserApiKeys(storedUserEmail);
-      console.log('[loadApiKeys] 获取到密钥:', keys);
+      // console.log('[loadApiKeys] 获取到密钥:', keys);
 
       setApiKeys(keys.map(k => ({
         apiKey: k.apiKey,
@@ -5823,7 +5823,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         nickname: k.nickname
       })));
 
-      console.log('[loadApiKeys] setApiKeys完成，数量:', keys.length);
+      // console.log('[loadApiKeys] setApiKeys完成，数量:', keys.length);
     } catch (error: any) {
       console.error('[loadApiKeys] 错误:', error);
       setKeysError(error.message || '加载API密钥失败');
@@ -7399,7 +7399,7 @@ const App = () => {
           if (settings.language) setLanguage(settings.language);
           if (settings.textModel) setTextModel(settings.textModel);
           if (settings.imageModel) setImageModel(settings.imageModel);
-          console.log('[Cloud Sync] Loaded settings from Firestore:', settings);
+          // console.log('[Cloud Sync] Loaded settings from Firestore:', settings);
           setTimeout(() => { cloudSyncRef.current = false; }, 500);
         }
         setCloudSyncStatus('success');
@@ -7432,7 +7432,7 @@ const App = () => {
           textModel,
           imageModel
         });
-        console.log('[Cloud Sync] Settings saved to Firestore');
+        // console.log('[Cloud Sync] Settings saved to Firestore');
         setCloudSyncStatus('success');
       } catch (error) {
         console.error('[Cloud Sync] Failed to save settings:', error);
@@ -7465,7 +7465,7 @@ const App = () => {
       if (presetUser !== normalizedEmail) {
         setPresetUser(normalizedEmail);
         localStorage.setItem('app_preset_user', normalizedEmail);
-        console.log('[Preset] Auto-set presetUser from login:', normalizedEmail);
+        // console.log('[Preset] Auto-set presetUser from login:', normalizedEmail);
       }
     }
   }, [user?.email]);
@@ -7680,7 +7680,7 @@ const App = () => {
       const currentSyncEmail = getSavedSyncEmail();
       // 如果云同步邮箱未设置，或者与登录邮箱不同，则自动设置
       if (!currentSyncEmail || currentSyncEmail !== user.email.toLowerCase()) {
-        console.log('[Email Sync] Auto-setting sync email to:', user.email);
+        // console.log('[Email Sync] Auto-setting sync email to:', user.email);
         saveSyncEmail(user.email);
         setEmailSyncStatus('idle');
       }
@@ -7712,7 +7712,7 @@ const App = () => {
             }
 
             if (allProjects.length > 0) {
-              console.log('[Email Sync] Syncing', allProjects.length, 'projects to email cloud sync');
+              // console.log('[Email Sync] Syncing', allProjects.length, 'projects to email cloud sync');
               debouncedPush(user.email, {
                 images: extractSyncableData(imageRecognitionState.images),
                 projects: allProjects,
@@ -7751,7 +7751,7 @@ const App = () => {
 
     setEmailSyncStatus('syncing');
     emailSyncTimeoutRef.current = setTimeout(() => {
-      console.log('[Email Sync] Auto pushing', successImages.length, 'images with full state...');
+      // console.log('[Email Sync] Auto pushing', successImages.length, 'images with full state...');
       debouncedPush(syncEmail, {
         images: extractSyncableData(imageRecognitionState.images),
         prompt: imageRecognitionState.prompt,
@@ -7791,13 +7791,13 @@ const App = () => {
     const initPull = async () => {
       try {
         setEmailSyncStatus('syncing');
-        console.log('[Email Sync] Initial pull for:', syncEmail);
+        // console.log('[Email Sync] Initial pull for:', syncEmail);
         const cloudData = await pullFromCloud(syncEmail);
         if (cloudData) {
-          console.log('[Email Sync] Cloud data found:', {
-            images: cloudData.images?.length || 0,
-            prompt: cloudData.prompt ? 'yes' : 'no'
-          });
+          // console.log('[Email Sync] Cloud data found:', {
+          //   images: cloudData.images?.length || 0,
+          //   prompt: cloudData.prompt ? 'yes' : 'no'
+          // });
 
           setImageRecognitionState(prev => {
             // 始终合并云端数据（智能合并，不会覆盖本地更新的数据）
@@ -7828,7 +7828,7 @@ const App = () => {
             setLanguage(cloudData.settings.language as 'zh' | 'en');
           }
 
-          console.log('[Email Sync] Merged cloud data with local state');
+          // console.log('[Email Sync] Merged cloud data with local state');
         }
         setEmailSyncStatus('success');
       } catch (error) {
@@ -7885,7 +7885,7 @@ const App = () => {
             savedTemplates: cloudTemplates.savedTemplates,
             activeVersionId: cloudTemplates.activeVersionId || prev.activeVersionId
           }));
-          console.log('[Cloud Sync] Loaded templates from Firestore:', cloudTemplates.savedTemplates.length);
+          // console.log('[Cloud Sync] Loaded templates from Firestore:', cloudTemplates.savedTemplates.length);
         }
       } catch (error) {
         console.error('[Cloud Sync] Failed to load templates:', error);
@@ -7910,7 +7910,7 @@ const App = () => {
           savedTemplates: templateBuilderState.savedTemplates,
           activeVersionId: templateBuilderState.activeVersionId
         });
-        console.log('[Cloud Sync] Templates saved to Firestore');
+        // console.log('[Cloud Sync] Templates saved to Firestore');
       } catch (error) {
         console.error('[Cloud Sync] Failed to save templates:', error);
       }
@@ -7940,7 +7940,7 @@ const App = () => {
             nextPresetId: cloudPresets.nextPresetId || prev.nextPresetId,
             nextCategoryId: cloudPresets.nextCategoryId || prev.nextCategoryId
           }));
-          console.log('[Cloud Sync] Loaded presets from Firestore');
+          // console.log('[Cloud Sync] Loaded presets from Firestore');
         }
       } catch (error) {
         console.error('[Cloud Sync] Failed to load presets:', error);
@@ -7967,7 +7967,7 @@ const App = () => {
           nextPresetId: imageStudioState.nextPresetId,
           nextCategoryId: imageStudioState.nextCategoryId
         });
-        console.log('[Cloud Sync] Presets saved to Firestore');
+        // console.log('[Cloud Sync] Presets saved to Firestore');
       } catch (error) {
         console.error('[Cloud Sync] Failed to save presets:', error);
       }
@@ -7995,7 +7995,7 @@ const App = () => {
             ...prev,
             presets: cloudPresets.map(p => ({ id: p.id, name: p.name, text: p.text }))
           }));
-          console.log('[Cloud Sync] Loaded recognition presets from Firestore:', cloudPresets.length);
+          // console.log('[Cloud Sync] Loaded recognition presets from Firestore:', cloudPresets.length);
         }
       } catch (error) {
         console.error('[Cloud Sync] Failed to load recognition presets:', error);
@@ -8025,7 +8025,7 @@ const App = () => {
             createdAt: Date.now()
           }))
         );
-        console.log('[Cloud Sync] Recognition presets saved to Firestore');
+        // console.log('[Cloud Sync] Recognition presets saved to Firestore');
       } catch (error) {
         console.error('[Cloud Sync] Failed to save recognition presets:', error);
       }

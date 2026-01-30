@@ -43,7 +43,7 @@ export async function saveUserApiPool(userId: string, keys: UserApiKeyEntry[]): 
             keys,
             updatedAt: serverTimestamp()
         });
-        console.log('[User API Pool] Saved to Firebase');
+        // console.log('[User API Pool] Saved to Firebase');
     } catch (error) {
         console.error('[User API Pool] Failed to save:', error);
         throw error;
@@ -91,7 +91,7 @@ export class UserApiKeyPool {
         this.keys = await loadUserApiPool(userId);
         this.currentIndex = 0;
         this.failedKeys.clear();
-        console.log(`[User API Pool] Loaded ${this.keys.length} keys for user ${userId}`);
+        // console.log(`[User API Pool] Loaded ${this.keys.length} keys for user ${userId}`);
     }
 
     /**
@@ -164,7 +164,7 @@ export class UserApiKeyPool {
     rotateToNext(): void {
         if (this.keys.length <= 1) return;
         this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-        console.log(`[User API Pool] Rotated to key ${this.currentIndex + 1}/${this.keys.length}`);
+        // console.log(`[User API Pool] Rotated to key ${this.currentIndex + 1}/${this.keys.length}`);
     }
 
     /**

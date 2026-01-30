@@ -82,7 +82,7 @@ export class FirebaseApiKeyPool {
         this.keys = await loadSharedApiPool();
         this.currentIndex = 0;
         this.failedKeys.clear();
-        console.log(`[Firebase API Pool] Loaded ${this.keys.length} API keys`);
+        // console.log(`[Firebase API Pool] Loaded ${this.keys.length} API keys`);
     }
 
     /**
@@ -91,7 +91,7 @@ export class FirebaseApiKeyPool {
     subscribeToUpdates(onUpdate?: () => void): void {
         this.unsubscribe = subscribeToSharedApiPool((keys) => {
             this.keys = keys;
-            console.log(`[Firebase API Pool] Updated: ${keys.length} keys`);
+            // console.log(`[Firebase API Pool] Updated: ${keys.length} keys`);
             onUpdate?.();
         });
     }
@@ -145,7 +145,7 @@ export class FirebaseApiKeyPool {
     rotateToNext(): void {
         if (this.keys.length <= 1) return;
         this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-        console.log(`[Firebase API Pool] Rotated to key ${this.currentIndex + 1}/${this.keys.length}`);
+        // console.log(`[Firebase API Pool] Rotated to key ${this.currentIndex + 1}/${this.keys.length}`);
     }
 
     /**

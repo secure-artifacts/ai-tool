@@ -84,13 +84,13 @@ export const signInWithGoogleBasic = async (): Promise<UserCredential> => {
  * Sign in with Google popup - 高级模式（读写，带 Sheets 权限）
  */
 export const signInWithGoogleAdvanced = async (): Promise<UserCredential> => {
-    console.log('[Auth] 开始高级登录...');
+    // console.log('[Auth] 开始高级登录...');
     const result = await signInWithPopup(auth, googleProviderAdvanced);
-    console.log('[Auth] 弹窗登录完成，提取 credential...');
+    // console.log('[Auth] 弹窗登录完成，提取 credential...');
     // Extract and store the OAuth access token
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    console.log('[Auth] credential:', credential ? '存在' : '不存在');
-    console.log('[Auth] accessToken:', credential?.accessToken ? '存在' : '不存在');
+    // console.log('[Auth] credential:', credential ? '存在' : '不存在');
+    // console.log('[Auth] accessToken:', credential?.accessToken ? '存在' : '不存在');
     if (credential?.accessToken) {
         storedAccessToken = credential.accessToken;
         // Persist to localStorage for longer sessions
@@ -100,8 +100,8 @@ export const signInWithGoogleAdvanced = async (): Promise<UserCredential> => {
             // Set expiry to 55 minutes from now (slightly before actual expiry)
             localStorage.setItem(ACCESS_TOKEN_EXPIRY_KEY, String(Date.now() + 55 * 60 * 1000));
             localStorage.setItem(LOGIN_MODE_KEY, 'advanced');
-            console.log('[Auth] ✅ Token 已保存到 localStorage');
-            console.log('[Auth] Token 前缀:', credential.accessToken.substring(0, 20) + '...');
+            // console.log('[Auth] ✅ Token 已保存到 localStorage');
+            // console.log('[Auth] Token 前缀:', credential.accessToken.substring(0, 20) + '...');
         } catch (e) {
             console.warn('Failed to persist access token:', e);
         }

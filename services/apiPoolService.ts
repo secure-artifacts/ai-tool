@@ -123,7 +123,7 @@ export class ApiKeyPool {
         this.currentIndex = 0;
         this.failedKeys.clear();
 
-        console.log(`[ApiKeyPool] 加载了 ${this.keys.length} 个API密钥`);
+        // console.log(`[ApiKeyPool] 加载了 ${this.keys.length} 个API密钥`);
     }
 
     /**
@@ -166,7 +166,7 @@ export class ApiKeyPool {
         if (this.keys.length <= 1) return;
 
         this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-        console.log(`[ApiKeyPool] 轮换到下一个密钥 (${this.currentIndex + 1}/${this.keys.length})`);
+        // console.log(`[ApiKeyPool] 轮换到下一个密钥 (${this.currentIndex + 1}/${this.keys.length})`);
     }
 
     /**
@@ -219,6 +219,6 @@ export class ApiKeyPool {
      */
     clearFailedMarks(): void {
         this.failedKeys.clear();
-        console.log('[ApiKeyPool] 已清除所有失败标记');
+        // console.log('[ApiKeyPool] 已清除所有失败标记');
     }
 }

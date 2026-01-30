@@ -247,7 +247,7 @@ export const createProject = async (
     // 创建项目
     await setDoc(docRef, project);
 
-    console.log(`[ProjectService] Created project: ${projectId} for module: ${input.moduleId}`);
+    // console.log(`[ProjectService] Created project: ${projectId} for module: ${input.moduleId}`);
     return projectId;
 };
 
@@ -391,7 +391,7 @@ export const saveProjectState = async (
         });
     }
 
-    console.log(`[ProjectService] Saved state for project: ${projectId}`);
+    // console.log(`[ProjectService] Saved state for project: ${projectId}`);
 };
 
 /**
@@ -410,7 +410,7 @@ export const setActiveProject = async (
         updatedAt: serverTimestamp()
     });
 
-    console.log(`[ProjectService] Activated project: ${projectId}`);
+    // console.log(`[ProjectService] Activated project: ${projectId}`);
 };
 
 /**
@@ -447,7 +447,7 @@ export const renameProject = async (
         name: newName,
         updatedAt: serverTimestamp()
     });
-    console.log(`[ProjectService] Renamed project: ${projectId} to: ${newName}`);
+    // console.log(`[ProjectService] Renamed project: ${projectId} to: ${newName}`);
 };
 
 /**
@@ -468,7 +468,7 @@ export const toggleProjectStar = async (
         updatedAt: serverTimestamp()
     });
 
-    console.log(`[ProjectService] Toggled star for project: ${projectId}, now: ${newStarred}`);
+    // console.log(`[ProjectService] Toggled star for project: ${projectId}, now: ${newStarred}`);
     return newStarred;
 };
 
@@ -490,7 +490,7 @@ export const toggleProjectPin = async (
         updatedAt: serverTimestamp()
     });
 
-    console.log(`[ProjectService] Toggled pin for project: ${projectId}, now: ${newPinned}`);
+    // console.log(`[ProjectService] Toggled pin for project: ${projectId}, now: ${newPinned}`);
     return newPinned;
 };
 
@@ -508,7 +508,7 @@ export const updateProjectTags = async (
         tags,
         updatedAt: serverTimestamp()
     });
-    console.log(`[ProjectService] Updated tags for project: ${projectId}`);
+    // console.log(`[ProjectService] Updated tags for project: ${projectId}`);
 };
 
 /**
@@ -533,7 +533,7 @@ export const deleteProject = async (
     batch.delete(docRef);
 
     await batch.commit();
-    console.log(`[ProjectService] Deleted project: ${projectId}`);
+    // console.log(`[ProjectService] Deleted project: ${projectId}`);
 };
 
 /**
@@ -612,7 +612,7 @@ export const createVersion = async (
     // 清理旧的自动保存版本（保留最近10个）
     await cleanupOldAutoSaveVersions(userId, moduleId, projectId);
 
-    console.log(`[ProjectService] Created version: ${versionId} for project: ${projectId}`);
+    // console.log(`[ProjectService] Created version: ${versionId} for project: ${projectId}`);
     return versionId;
 };
 
@@ -693,7 +693,7 @@ export const restoreVersion = async (
         itemCount: version.itemCount
     });
 
-    console.log(`[ProjectService] Restored to version: ${versionId}`);
+    // console.log(`[ProjectService] Restored to version: ${versionId}`);
 };
 
 /**
@@ -750,7 +750,7 @@ export const deleteVersion = async (
         });
     }
 
-    console.log(`[ProjectService] Deleted version: ${versionId}`);
+    // console.log(`[ProjectService] Deleted version: ${versionId}`);
 };
 
 /**
@@ -783,7 +783,7 @@ const cleanupOldAutoSaveVersions = async (
     });
 
     await batch.commit();
-    console.log(`[ProjectService] Cleaned up ${versionsToDelete.length} old auto-save versions`);
+    // console.log(`[ProjectService] Cleaned up ${versionsToDelete.length} old auto-save versions`);
 };
 
 // ============= 数据清理 =============
@@ -881,12 +881,12 @@ export const getOrCreateSharedProject = async (
         }
 
         if (projectSnap.exists()) {
-            console.log('[ProjectService] Found shared project:', fixedProjectId, 'has currentState:', !!projectSnap.data().currentState);
+            // console.log('[ProjectService] Found shared project:', fixedProjectId, 'has currentState:', !!projectSnap.data().currentState);
             return { id: projectSnap.id, ...projectSnap.data() } as Project;
         }
 
         // 不存在则创建（使用固定 ID）
-        console.log('[ProjectService] Creating shared project:', fixedProjectId);
+        // console.log('[ProjectService] Creating shared project:', fixedProjectId);
         const now = serverTimestamp();
         const projectData = {
             moduleId,

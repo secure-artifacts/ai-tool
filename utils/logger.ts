@@ -11,7 +11,7 @@ export const logger = {
      */
     debug: (...args: unknown[]) => {
         if (isDev) {
-            console.log('[DEBUG]', ...args);
+            // console.log('[DEBUG]', ...args);
         }
     },
 
@@ -20,7 +20,7 @@ export const logger = {
      */
     info: (...args: unknown[]) => {
         if (isDev) {
-            console.log('[INFO]', ...args);
+            // console.log('[INFO]', ...args);
         }
     },
 

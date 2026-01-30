@@ -79,10 +79,10 @@ export async function fetchUserApiKeys(userName: string): Promise<ApiKeyRow[]> {
     const firebaseUserId = getFirebaseUserId();
     if (firebaseUserId) {
         try {
-            console.log('[ApiKeyService] 尝试从 Firebase 读取...');
+            // console.log('[ApiKeyService] 尝试从 Firebase 读取...');
             const firebaseKeys = await loadUserApiPool(firebaseUserId);
             if (firebaseKeys.length > 0) {
-                console.log('[ApiKeyService] 从 Firebase 读取到', firebaseKeys.length, '个密钥');
+                // console.log('[ApiKeyService] 从 Firebase 读取到', firebaseKeys.length, '个密钥');
                 return firebaseKeys.map(k => ({
                     user: normalizedUser,
                     apiKey: k.apiKey,
@@ -91,7 +91,7 @@ export async function fetchUserApiKeys(userName: string): Promise<ApiKeyRow[]> {
                 }));
             } else {
                 // Firebase 没有数据，尝试从 Google Sheets 迁移
-                console.log('[ApiKeyService] Firebase 无数据，检查 Google Sheets 是否有数据需要迁移...');
+                // console.log('[ApiKeyService] Firebase 无数据，检查 Google Sheets 是否有数据需要迁移...');
             }
         } catch (firebaseError) {
             console.warn('[ApiKeyService] Firebase 读取失败，回退到 Google Sheets:', firebaseError);
@@ -102,14 +102,14 @@ export async function fetchUserApiKeys(userName: string): Promise<ApiKeyRow[]> {
     const csvUrl = `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(DEFAULT_SHEET_NAME)}&_=${Date.now()}`;
 
     try {
-        console.log('[ApiKeyService] 使用CSV方式读取 Google Sheets');
+        // console.log('[ApiKeyService] 使用CSV方式读取 Google Sheets');
         const response = await fetch(csvUrl);
         if (!response.ok) {
             throw new Error(`读取API密钥失败: ${response.statusText}`);
         }
 
         const csvText = await response.text();
-        console.log('[ApiKeyService] CSV前200字符:', csvText.substring(0, 200));
+        // console.log('[ApiKeyService] CSV前200字符:', csvText.substring(0, 200));
 
         // 解析CSV
         const lines = csvText.split('\n').filter(line => line.trim());
@@ -125,7 +125,7 @@ export async function fetchUserApiKeys(userName: string): Promise<ApiKeyRow[]> {
             // 简单的CSV解析（处理带引号的字段）
             const fields = parseCSVLine(line);
 
-            console.log(`[ApiKeyService] 第${i}行解析:`, fields);
+            // console.log(`[ApiKeyService] 第${i}行解析:`, fields);
 
             if (fields.length >= 2) {
                 const user = getSafeString(fields[0]).toLowerCase();
@@ -139,7 +139,7 @@ export async function fetchUserApiKeys(userName: string): Promise<ApiKeyRow[]> {
                 const status = getSafeString(fields[2]) || 'active';
                 const nickname = getSafeString(fields[3]);
 
-                console.log(`[ApiKeyService] 用户: "${user}", 密钥: "${apiKey}", 状态: "${status}"`);
+                // console.log(`[ApiKeyService] 用户: "${user}", 密钥: "${apiKey}", 状态: "${status}"`);
 
                 // 只返回匹配当前用户的密钥
                 if (user === normalizedUser && apiKey && !isLikelyHeaderValue(apiKey)) {
@@ -153,19 +153,19 @@ export async function fetchUserApiKeys(userName: string): Promise<ApiKeyRow[]> {
             }
         }
 
-        console.log('[ApiKeyService] 最终解析的密钥数量:', rows.length);
+        // console.log('[ApiKeyService] 最终解析的密钥数量:', rows.length);
 
         // 自动迁移到 Firebase（如果用户已登录且 Firebase 无数据）
         if (rows.length > 0 && firebaseUserId) {
             try {
-                console.log('[ApiKeyService] 🔄 自动迁移 Google Sheets 数据到 Firebase...');
+                // console.log('[ApiKeyService] 🔄 自动迁移 Google Sheets 数据到 Firebase...');
                 const keysToMigrate: UserApiKeyEntry[] = rows.map(r => ({
                     apiKey: r.apiKey,
                     nickname: r.nickname,
                     status: (r.status as 'active' | 'disabled' | 'quota_exceeded') || 'active'
                 }));
                 await saveUserApiPool(firebaseUserId, keysToMigrate);
-                console.log('[ApiKeyService] ✅ 自动迁移完成！已将', rows.length, '个密钥迁移到 Firebase');
+                // console.log('[ApiKeyService] ✅ 自动迁移完成！已将', rows.length, '个密钥迁移到 Firebase');
             } catch (migrateError) {
                 console.warn('[ApiKeyService] 自动迁移失败:', migrateError);
             }
@@ -272,7 +272,7 @@ export async function saveApiKeys(userName: string, apiKeys: Omit<ApiKeyRow, 'us
             try {
                 // 发送同步开始事件
                 window.dispatchEvent(new CustomEvent('sheetSyncStatus', { detail: 'syncing' }));
-                console.log('[ApiKeyService] 🔄 后台同步到 Google Sheets...');
+                // console.log('[ApiKeyService] 🔄 后台同步到 Google Sheets...');
 
                 await fetch(SUBMIT_URL, {
                     method: 'POST',
@@ -281,7 +281,7 @@ export async function saveApiKeys(userName: string, apiKeys: Omit<ApiKeyRow, 'us
                     body: JSON.stringify(payload)
                 });
 
-                console.log('[ApiKeyService] ✅ 后台同步到 Google Sheets 完成');
+                // console.log('[ApiKeyService] ✅ 后台同步到 Google Sheets 完成');
                 // 发送同步完成事件
                 window.dispatchEvent(new CustomEvent('sheetSyncStatus', { detail: 'done' }));
 
@@ -301,14 +301,14 @@ export async function saveApiKeys(userName: string, apiKeys: Omit<ApiKeyRow, 'us
 
     if (firebaseUserId) {
         try {
-            console.log('[ApiKeyService] 保存到 Firebase...');
+            // console.log('[ApiKeyService] 保存到 Firebase...');
             const firebaseKeys: UserApiKeyEntry[] = apiKeys.map(k => ({
                 apiKey: k.apiKey,
                 nickname: k.nickname,
                 status: (k.status as 'active' | 'disabled' | 'quota_exceeded') || 'active'
             }));
             await saveUserApiPool(firebaseUserId, firebaseKeys);
-            console.log('[ApiKeyService] ✅ 已保存到 Firebase');
+            // console.log('[ApiKeyService] ✅ 已保存到 Firebase');
 
             // 后台异步同步到 Google Sheets（不阻塞用户操作）
             syncToGoogleSheets();
@@ -319,7 +319,7 @@ export async function saveApiKeys(userName: string, apiKeys: Omit<ApiKeyRow, 'us
     }
 
     // 仅在 Firebase 失败或未登录时，才同步保存到 Google Sheets
-    console.log('[saveApiKeys] 保存到 Google Sheets，用户:', normalizedUser, '密钥数量:', apiKeys.length);
+    // console.log('[saveApiKeys] 保存到 Google Sheets，用户:', normalizedUser, '密钥数量:', apiKeys.length);
 
     try {
         const payload = {
@@ -343,7 +343,7 @@ export async function saveApiKeys(userName: string, apiKeys: Omit<ApiKeyRow, 'us
             body: JSON.stringify(payload)
         });
 
-        console.log('[saveApiKeys] ✅ 请求已发送到 Google Sheets');
+        // console.log('[saveApiKeys] ✅ 请求已发送到 Google Sheets');
 
     } catch (error) {
         console.error('[saveApiKeys] 保存API密钥失败:', error);
@@ -420,7 +420,7 @@ export async function deleteApiKey(userName: string, apiKey: string): Promise<vo
         const firebaseUserId = getFirebaseUserId();
         if (firebaseUserId) {
             await saveUserApiPool(firebaseUserId, []);
-            console.log('[ApiKeyService] ✅ 已清空所有 API 密钥');
+            // console.log('[ApiKeyService] ✅ 已清空所有 API 密钥');
             return;
         }
     }

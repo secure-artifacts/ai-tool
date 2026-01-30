@@ -182,7 +182,7 @@ export const smartCompress = async (
 
     // 压缩
     const compressed = await compressImage(source, options);
-    console.log(`[ImageCompression] Compressed: ${formatBytes(compressed.originalSize)} → ${formatBytes(compressed.compressedSize)}`);
+    // console.log(`[ImageCompression] Compressed: ${formatBytes(compressed.originalSize)} → ${formatBytes(compressed.compressedSize)}`);
 
     return compressed.dataUrl;
 };

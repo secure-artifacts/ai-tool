@@ -149,7 +149,7 @@ export const createWorkspace = async (
     // 创建新项目
     await setDoc(docRef, workspace);
 
-    console.log(`[WorkspaceService] Created workspace: ${workspaceId} for module: ${input.moduleId}`);
+    // console.log(`[WorkspaceService] Created workspace: ${workspaceId} for module: ${input.moduleId}`);
     return workspaceId;
 };
 
@@ -247,7 +247,7 @@ export const saveState = async (
     }
 
     await updateDoc(docRef, updates);
-    console.log(`[WorkspaceService] Saved state for workspace: ${workspaceId}`);
+    // console.log(`[WorkspaceService] Saved state for workspace: ${workspaceId}`);
 };
 
 /**
@@ -268,7 +268,7 @@ export const setActiveWorkspace = async (
         updatedAt: serverTimestamp()
     });
 
-    console.log(`[WorkspaceService] Activated workspace: ${workspaceId}`);
+    // console.log(`[WorkspaceService] Activated workspace: ${workspaceId}`);
 };
 
 /**
@@ -306,7 +306,7 @@ export const renameWorkspace = async (
         'preview.title': newName,
         updatedAt: serverTimestamp()
     });
-    console.log(`[WorkspaceService] Renamed workspace: ${workspaceId} to: ${newName}`);
+    // console.log(`[WorkspaceService] Renamed workspace: ${workspaceId} to: ${newName}`);
 };
 
 /**
@@ -319,7 +319,7 @@ export const deleteWorkspace = async (
 ): Promise<void> => {
     const docRef = getWorkspaceDoc(userId, moduleId, workspaceId);
     await deleteDoc(docRef);
-    console.log(`[WorkspaceService] Deleted workspace: ${workspaceId}`);
+    // console.log(`[WorkspaceService] Deleted workspace: ${workspaceId}`);
 };
 
 /**

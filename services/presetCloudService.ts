@@ -77,7 +77,7 @@ export const loadPresetsFromCloud = async (
             if (newDefaults.length > 0) {
                 // 有新的默认预设，合并并保存
                 const merged = [...newDefaults.map(p => ({ ...p, isDefault: true })), ...cloudPresets];
-                console.log(`[PresetCloud] 合并了 ${newDefaults.length} 个新默认预设`);
+                // console.log(`[PresetCloud] 合并了 ${newDefaults.length} 个新默认预设`);
 
                 // 异步保存到云端
                 savePresetsToCloud(userId, merged);
@@ -92,7 +92,7 @@ export const loadPresetsFromCloud = async (
             return cloudPresets;
         } else {
             // 用户没有云端数据，使用默认预设
-            console.log('[PresetCloud] 用户无云端数据，使用默认预设');
+            // console.log('[PresetCloud] 用户无云端数据，使用默认预设');
             const defaultsWithFlag = defaultPresets.map(p => ({ ...p, isDefault: true }));
 
             // 保存到云端
@@ -131,7 +131,7 @@ export const savePresetsToCloud = async (
         };
 
         await setDoc(docRef, data, { merge: false });
-        console.log(`[PresetCloud] 已保存 ${presets.length} 个预设到云端`);
+        // console.log(`[PresetCloud] 已保存 ${presets.length} 个预设到云端`);
 
         // 同时更新本地缓存
         savePresetsToLocal(presets);
@@ -152,7 +152,7 @@ export const debouncedSaveToCloud = (
     savePresetsToLocal(presets);
 
     if (!userId) {
-        console.log('[PresetCloud] 用户未登录，仅保存到本地');
+        // console.log('[PresetCloud] 用户未登录，仅保存到本地');
         return;
     }
 
@@ -222,7 +222,7 @@ export const loadPresetsFromLocal = (defaultPresets: CloudPreset[]): CloudPreset
                 if (newDefaults.length > 0) {
                     const merged = [...newDefaults.map(p => ({ ...p, isDefault: true })), ...parsed];
                     savePresetsToLocal(merged);
-                    console.log(`[PresetCloud] 本地合并了 ${newDefaults.length} 个新默认预设`);
+                    // console.log(`[PresetCloud] 本地合并了 ${newDefaults.length} 个新默认预设`);
                     return merged;
                 }
                 return parsed;

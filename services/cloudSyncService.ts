@@ -290,7 +290,7 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
         syncData = buildData();
         size = estimateSize(syncData);
         if (size <= MAX_SAFE_SIZE) {
-            console.log('[CloudSync] 删除 recentHistory 后符合限制');
+            // console.log('[CloudSync] 删除 recentHistory 后符合限制');
             return syncData;
         }
 
@@ -302,7 +302,7 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
         }
 
         if (size <= MAX_SAFE_SIZE) {
-            console.log(`[CloudSync] 裁剪图片到 ${currentImages.length} 张后符合限制`);
+            // console.log(`[CloudSync] 裁剪图片到 ${currentImages.length} 张后符合限制`);
             return syncData;
         }
 
@@ -320,7 +320,7 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
         syncData = buildData();
         size = estimateSize(syncData);
         if (size <= MAX_SAFE_SIZE) {
-            console.log('[CloudSync] 删除 presets 后符合限制');
+            // console.log('[CloudSync] 删除 presets 后符合限制');
             return syncData;
         }
 
@@ -329,7 +329,7 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
         syncData = buildData();
         size = estimateSize(syncData);
         if (size <= MAX_SAFE_SIZE) {
-            console.log('[CloudSync] 删除 projects 后符合限制');
+            // console.log('[CloudSync] 删除 projects 后符合限制');
             return syncData;
         }
 
@@ -346,7 +346,7 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
     // 构建最终数据
     const finalSyncData = buildFinalSyncData();
     const finalSize = estimateSize(finalSyncData);
-    console.log(`[CloudSync] 最终数据大小: ${(finalSize / 1024).toFixed(0)}KB`);
+    // console.log(`[CloudSync] 最终数据大小: ${(finalSize / 1024).toFixed(0)}KB`);
 
     try {
         await setDoc(docRef, {
@@ -357,7 +357,7 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
 
         const imagesArr = finalSyncData.images as unknown[] | undefined;
         const projectsArr = finalSyncData.projects as unknown[] | undefined;
-        console.log(`[CloudSync] ✅ 推送成功: ${imagesArr?.length || 0} 张图片, ${projectsArr?.length || 0} 个项目`);
+        // console.log(`[CloudSync] ✅ 推送成功: ${imagesArr?.length || 0} 张图片, ${projectsArr?.length || 0} 个项目`);
 
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -383,12 +383,12 @@ export const pullFromCloud = async (email: string): Promise<SyncData | null> => 
     const docSnap = await getDoc(docRef);
 
     if (!docSnap.exists()) {
-        console.log('[CloudSync] 云端无数据');
+        // console.log('[CloudSync] 云端无数据');
         return null;
     }
 
     const data = docSnap.data() as SyncData;
-    console.log(`[CloudSync] ✅ 拉取成功: ${data.images?.length || 0} 张图片`);
+    // console.log(`[CloudSync] ✅ 拉取成功: ${data.images?.length || 0} 张图片`);
     return data;
 };
 
@@ -431,7 +431,7 @@ export const mergeData = (local: SyncData, remote: SyncData): SyncData => {
     // 按 updatedAt 降序排序
     merged.images.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    console.log(`[CloudSync] 合并完成: ${merged.images.length} 张图片`);
+    // console.log(`[CloudSync] 合并完成: ${merged.images.length} 张图片`);
     return merged;
 };
 

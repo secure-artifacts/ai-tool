@@ -64,7 +64,7 @@ export const saveSession = async (
     userId: string,
     input: CreateSessionInput
 ): Promise<string> => {
-    console.log(`[HistoryService] Starting save for ${input.moduleId}, userId: ${userId}`);
+    // console.log(`[HistoryService] Starting save for ${input.moduleId}, userId: ${userId}`);
 
     if (!userId) {
         console.error('[HistoryService] No userId provided!');
@@ -119,11 +119,11 @@ export const saveSession = async (
         };
 
         const docRef = doc(db, 'users', userId, 'history', input.moduleId, 'sessions', sessionId);
-        console.log(`[HistoryService] Saving to path: users/${userId}/history/${input.moduleId}/sessions/${sessionId}`);
+        // console.log(`[HistoryService] Saving to path: users/${userId}/history/${input.moduleId}/sessions/${sessionId}`);
 
         await setDoc(docRef, session);
 
-        console.log(`[HistoryService] ✅ Successfully saved session ${sessionId} for ${input.moduleId}`);
+        // console.log(`[HistoryService] ✅ Successfully saved session ${sessionId} for ${input.moduleId}`);
         return sessionId;
     } catch (error: any) {
         console.error(`[HistoryService] ❌ Failed to save session:`, error);
@@ -199,7 +199,7 @@ export const deleteSession = async (
 ): Promise<void> => {
     const docRef = doc(db, 'users', userId, 'history', moduleId, 'sessions', sessionId);
     await deleteDoc(docRef);
-    console.log(`[HistoryService] Deleted session ${sessionId}`);
+    // console.log(`[HistoryService] Deleted session ${sessionId}`);
 };
 
 /**
@@ -228,7 +228,7 @@ export const clearAllSessions = async (
         deleted++;
     }
 
-    console.log(`[HistoryService] Cleared ${deleted} sessions for ${moduleId}`);
+    // console.log(`[HistoryService] Cleared ${deleted} sessions for ${moduleId}`);
     return deleted;
 };
 
