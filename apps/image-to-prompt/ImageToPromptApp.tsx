@@ -867,30 +867,12 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                         </div>
                                     </div>
                                     <button
-                                        className="delete-img-btn"
+                                        className="delete-img-btn-absolute"
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             handleDeleteImage(img.id);
                                         }}
                                         title={t('deleteImage') || '删除图片'}
-                                        style={{
-                                            position: 'absolute',
-                                            top: '5px',
-                                            right: '5px',
-                                            zIndex: 100,
-                                            width: '24px',
-                                            height: '24px',
-                                            borderRadius: '50%',
-                                            background: 'rgba(0,0,0,0.6)',
-                                            color: 'white',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: '16px',
-                                            padding: 0
-                                        }}
                                     >×</button>
                                 </div>
                                 <textarea
@@ -1241,7 +1223,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
             <textarea
                 ref={globalPasteTextareaRef}
                 onPaste={handleGlobalPaste}
-                style={{ position: 'absolute', left: '-9999px', top: 0, width: '1px', height: '1px', opacity: 0 }}
+                className="visually-hidden"
                 aria-hidden="true"
             />
 
@@ -1279,23 +1261,13 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
                 {/* 功能更新提示 */}
                 {showDeprecationWarning && (
-                    <div style={{
-                        background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(16, 185, 129, 0.1))',
-                        border: '2px solid rgba(34, 197, 94, 0.5)',
-                        borderRadius: '16px',
-                        padding: '24px 32px',
-                        marginBottom: '24px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '24px',
-                        position: 'relative'
-                    }}>
+                    <div className="feature-update-banner">
                         <Sparkles size={48} className="text-primary" />
                         <div style={{ flex: 1 }}>
-                            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: '20px', marginBottom: '8px' }}>
+                            <div className="feature-update-title">
                                 功能已更新
                             </div>
-                            <div style={{ color: 'rgba(34, 197, 94, 0.9)', fontSize: '14px', lineHeight: 1.6 }}>
+                            <div className="feature-update-desc">
                                 此功能已合并「<strong>创艺魔盒</strong>」最新版本，支持灵感融合等新功能。<br /><br />
                                 您也可以使用顶部工具栏这个工具旁边的「<strong>AI 图片识别</strong>」工具。<br />
                                 1. 支持自定义选择或者输入识别（反推）指令、识别结果管理、云端同步、对话、历史记录、一键创新等更多高级功能。<br />
@@ -1309,19 +1281,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                     localStorage.setItem(STORAGE_KEYS.HIDE_DEPRECATION_WARNING, 'true');
                                 } catch { }
                             }}
-                            style={{
-                                position: 'absolute',
-                                top: '12px',
-                                right: '12px',
-                                background: 'rgba(34, 197, 94, 0.2)',
-                                border: '1px solid rgba(34, 197, 94, 0.4)',
-                                borderRadius: '6px',
-                                color: '#22c55e',
-                                padding: '6px 12px',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                fontWeight: 500
-                            }}
+                            className="feature-update-dismiss-btn"
                         >
                             知道了
                         </button>
@@ -1330,18 +1290,11 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
                 {/* 错误提示 */}
                 {error && (
-                    <div style={{
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.3)',
-                        borderRadius: '8px',
-                        padding: '12px 16px',
-                        marginBottom: '16px',
-                        color: '#ef4444'
-                    }}>
-                        {error}
+                    <div className="error-alert-box">
+                        <span>{error}</span>
                         <button
                             onClick={() => setError(null)}
-                            style={{ marginLeft: '12px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+                            className="error-alert-dismiss"
                         >
                             ×
                         </button>
@@ -1355,43 +1308,18 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
             {/* 系统指令查看模态框 */}
             {showSystemInstructionModal && (
                 <div
-                    className="modal-overlay"
+                    className="generic-modal-overlay"
                     onClick={() => setShowSystemInstructionModal(false)}
-                    style={{
-                        position: 'fixed',
-                        inset: 0,
-                        background: 'rgba(0,0,0,0.7)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 10000
-                    }}
                 >
                     <div
-                        className="modal-content"
+                        className="generic-modal-content"
                         onClick={(e) => e.stopPropagation()}
-                        style={{
-                            background: 'var(--secondary-bg-color)',
-                            borderRadius: '16px',
-                            padding: '24px',
-                            maxWidth: '800px',
-                            maxHeight: '80vh',
-                            overflow: 'auto'
-                        }}
                     >
                         <h3 className="mb-4">{t('systemInstruction') || '系统指令'}</h3>
-                        <pre style={{
-                            whiteSpace: 'pre-wrap',
-                            fontSize: '0.85rem',
-                            background: 'var(--control-bg-color)',
-                            padding: '16px',
-                            borderRadius: '8px',
-                            maxHeight: '400px',
-                            overflow: 'auto'
-                        }}>
+                        <pre className="code-preview-block">
                             {getEffectiveInstruction(selectedExperts, false)}
                         </pre>
-                        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <div className="generic-modal-footer">
                             <button
                                 className="btn btn-secondary"
                                 onClick={() => copyToClipboard(getEffectiveInstruction(selectedExperts, false))}
