@@ -23,7 +23,12 @@ import {
     Sparkles,
     Lightbulb,
     TrendingUp,
-    Calendar
+    Calendar,
+    Download,
+    Upload,
+    BarChart2,
+    Grid,
+    AlertTriangle
 } from 'lucide-react';
 import {
     isUserLoggedIn,
@@ -1255,9 +1260,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                 >
                                     <div className="flex items-start gap-3">
                                         <div className={`p-2 rounded-lg ${rec.icon === 'pie' ? 'bg-green-100 text-green-600' :
-                                                rec.icon === 'trend' ? 'bg-blue-100 text-blue-600' :
-                                                    rec.icon === 'distribution' ? 'bg-orange-100 text-orange-600' :
-                                                        'bg-violet-100 text-violet-600'
+                                            rec.icon === 'trend' ? 'bg-blue-100 text-blue-600' :
+                                                rec.icon === 'distribution' ? 'bg-orange-100 text-orange-600' :
+                                                    'bg-violet-100 text-violet-600'
                                             }`}>
                                             {rec.icon === 'pie' ? <PieChartIcon size={18} /> :
                                                 rec.icon === 'trend' ? <TrendingUp size={18} /> :
@@ -1345,13 +1350,13 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                     title="导出预设"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1"
                                 >
-                                    ⬇️ 导出
+                                    <Download size={12} className="inline mr-1" /> 导出
                                 </button>
                                 <label
                                     title="导入预设"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1 cursor-pointer"
                                 >
-                                    ⬆️ 导入
+                                    <Upload size={12} className="inline mr-1" /> 导入
                                     <input
                                         type="file"
                                         ref={importPresetRef}
@@ -1495,13 +1500,13 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                     onClick={() => setChartDisplayMode('total')}
                                                     className={`text-[10px] px-2 py-1 rounded ${chartDisplayMode === 'total' ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
                                                 >
-                                                    📊 总和
+                                                    <BarChart2 size={12} className="inline mr-1" /> 总和
                                                 </button>
                                                 <button
                                                     onClick={() => setChartDisplayMode('faceted')}
                                                     className={`text-[10px] px-2 py-1 rounded ${chartDisplayMode === 'faceted' ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
                                                 >
-                                                    🔲 分面 (多图)
+                                                    <Grid size={12} className="inline mr-1" /> 分面 (多图)
                                                 </button>
                                                 <button
                                                     onClick={() => {
@@ -1648,7 +1653,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                 <h3 className="font-bold text-slate-700">配置工作台</h3>
                                 <div className="text-xs text-slate-400 px-2 py-1 bg-slate-50 rounded flex items-center gap-2">
                                     {isProcessing && <span className="animate-spin">⏳</span>}
-                                    {data.rows.length > 5000 && <span className="text-amber-500">⚠️ 大数据</span>}
+                                    {data.rows.length > 5000 && <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={12} /> 大数据</span>}
                                     {breakdownCol ? '堆叠模式' : `Top ${maxItems}`} | 总计: {processedData.totalValue.toLocaleString()} | 行数: {data.rows.length.toLocaleString()}
                                 </div>
                             </div>
@@ -1725,7 +1730,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                 {processedData.tableData.length > 100 && (
                                                     <tr className="bg-amber-50">
                                                         <td colSpan={processedData.breakdownKeys.length + 2} className="px-4 py-3 text-center text-amber-700 border border-slate-200 text-sm">
-                                                            ⚠️ 仅显示前 100 行，共 {processedData.tableData.length.toLocaleString()} 行。请使用筛选或导出完整数据。
+                                                            <AlertTriangle size={14} className="inline mr-1" /> 仅显示前 100 行，共 {processedData.tableData.length.toLocaleString()} 行。请使用筛选或导出完整数据。
                                                         </td>
                                                     </tr>
                                                 )}
@@ -1938,7 +1943,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                     {processedData.tableData.length > 200 && (
                                         <tr className="bg-amber-50">
                                             <td colSpan={3 + processedData.breakdownKeys.length} className="px-4 py-3 text-center text-amber-700 text-sm">
-                                                ⚠️ 仅显示前 200 行，共 {processedData.tableData.length.toLocaleString()} 行
+                                                <AlertTriangle size={14} className="inline mr-1" /> 仅显示前 200 行，共 {processedData.tableData.length.toLocaleString()} 行
                                             </td>
                                         </tr>
                                     )}
