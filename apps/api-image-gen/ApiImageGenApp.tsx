@@ -1,6 +1,6 @@
 // API 生图 - 主组件 (表格批量模式)
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
     Upload,
     Image as ImageIcon,
@@ -27,7 +27,9 @@ import {
     Pause,
     Table2,
     ClipboardPaste,
-    FolderDown
+    FolderDown,
+    Merge,
+    Split
 } from 'lucide-react';
 import {
     WorkflowState,
@@ -46,15 +48,24 @@ import {
     generateImage,
     downloadImage
 } from './services/imageGenService';
+import {
+    parseSheetsPaste,
+    fetchImageAsFile,
+    extractUrlsFromHtml
+} from './utils';
 
 // 批量输入行类型
 interface BatchInputRow {
     id: string;
     images: File[];
+    imageUrls: string[]; // 用于显示远程图片
     prompt: string;
     downloadFolder: string;
-    status: 'pending' | 'ready' | 'added';
+    status: 'pending' | 'ready' | 'added' | 'loading';
 }
+
+// 拖拽模式
+type DragMode = 'merge' | 'split';
 
 // 初始状态
 const initialState: WorkflowState = {
@@ -84,23 +95,178 @@ const ApiImageGenApp: React.FC = () => {
 
     // 批量输入表格数据
     const [batchRows, setBatchRows] = useState<BatchInputRow[]>([
-        { id: `row-${Date.now()}`, images: [], prompt: '', downloadFolder: '', status: 'pending' }
+        { id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }
     ]);
     const [pasteText, setPasteText] = useState('');
     const [showPasteModal, setShowPasteModal] = useState(false);
 
+    // 拖拽模式：merge=多图合并到一行, split=一图一行
+    const [dragMode, setDragMode] = useState<DragMode>('split');
+    const [isDragging, setIsDragging] = useState(false);
+
     const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+    const dropzoneRef = useRef<HTMLDivElement>(null);
 
     // 更新状态
     const updateState = useCallback((updates: Partial<WorkflowState>) => {
         setState(prev => ({ ...prev, ...updates }));
     }, []);
 
+    // 处理全局粘贴事件 (支持 Google Sheets 图片+文本)
+    useEffect(() => {
+        const handlePaste = async (e: ClipboardEvent) => {
+            if (!e.clipboardData) return;
+
+            // 检查是否在输入框中
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+                return; // 让输入框正常处理粘贴
+            }
+
+            // 1. 检查是否有图片文件
+            const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
+            if (files.length > 0) {
+                e.preventDefault();
+                handleBulkImageDrop(files);
+                return;
+            }
+
+            // 2. 检查 clipboard items (某些浏览器的图片粘贴方式)
+            const items = Array.from(e.clipboardData.items || []);
+            const imageItems = items.filter(item => item.type.startsWith('image/'));
+            if (imageItems.length > 0) {
+                const imageFiles = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
+                if (imageFiles.length > 0) {
+                    e.preventDefault();
+                    handleBulkImageDrop(imageFiles);
+                    return;
+                }
+            }
+
+            // 3. 检查 HTML (Google Sheets 复制的图片会以 HTML 形式存在)
+            const html = e.clipboardData.getData('text/html');
+            const plainText = e.clipboardData.getData('text/plain');
+
+            if (html && (html.includes('<img') || plainText.includes('=IMAGE'))) {
+                e.preventDefault();
+                await handleSheetsPaste(html, plainText);
+                return;
+            }
+
+            // 4. 检查纯文本中的 =IMAGE 公式或 URL
+            if (plainText && (plainText.includes('=IMAGE') || plainText.includes('http'))) {
+                e.preventDefault();
+                await handleSheetsPaste('', plainText);
+            }
+        };
+
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+    }, [dragMode]);
+
+    // 处理 Google Sheets 粘贴
+    const handleSheetsPaste = async (html: string, plainText: string) => {
+        const parsed = parseSheetsPaste(html, plainText);
+        if (parsed.length === 0) return;
+
+        // 创建新行
+        const newRows: BatchInputRow[] = parsed.map((item, index) => ({
+            id: `row-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+            images: [],
+            imageUrls: item.imageUrl ? [item.imageUrl] : [],
+            prompt: item.prompt,
+            downloadFolder: '',
+            status: 'loading' as const
+        }));
+
+        setBatchRows(prev => [...prev.filter(r => r.prompt.trim() || r.images.length > 0 || r.imageUrls.length > 0), ...newRows]);
+
+        // 异步下载图片
+        for (const row of newRows) {
+            if (row.imageUrls.length > 0) {
+                const file = await fetchImageAsFile(row.imageUrls[0]);
+                setBatchRows(prev => prev.map(r => {
+                    if (r.id !== row.id) return r;
+                    return {
+                        ...r,
+                        images: file ? [file] : [],
+                        status: 'ready' as const
+                    };
+                }));
+            } else {
+                setBatchRows(prev => prev.map(r =>
+                    r.id === row.id ? { ...r, status: 'ready' as const } : r
+                ));
+            }
+        }
+    };
+
+    // 批量拖拽图片处理
+    const handleBulkImageDrop = useCallback((files: File[]) => {
+        const imageFiles = files.filter(f => f.type.startsWith('image/'));
+        if (imageFiles.length === 0) return;
+
+        if (dragMode === 'merge') {
+            // 合并模式：所有图片添加到第一个空行或新建一行
+            setBatchRows(prev => {
+                const emptyRowIndex = prev.findIndex(r => r.images.length === 0 && !r.prompt.trim());
+                if (emptyRowIndex >= 0) {
+                    return prev.map((r, i) =>
+                        i === emptyRowIndex
+                            ? { ...r, images: [...r.images, ...imageFiles], status: 'ready' as const }
+                            : r
+                    );
+                } else {
+                    return [...prev, {
+                        id: `row-${Date.now()}-merge`,
+                        images: imageFiles,
+                        imageUrls: [],
+                        prompt: '',
+                        downloadFolder: '',
+                        status: 'ready' as const
+                    }];
+                }
+            });
+        } else {
+            // 分离模式：每张图一行
+            const newRows: BatchInputRow[] = imageFiles.map((file, index) => ({
+                id: `row-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+                images: [file],
+                imageUrls: [],
+                prompt: '',
+                downloadFolder: '',
+                status: 'ready' as const
+            }));
+            setBatchRows(prev => [...prev.filter(r => r.prompt.trim() || r.images.length > 0), ...newRows]);
+        }
+    }, [dragMode]);
+
+    // 拖拽事件处理
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        if (files.length > 0) {
+            handleBulkImageDrop(files);
+        }
+    }, [handleBulkImageDrop]);
+
     // 添加新行
     const handleAddRow = useCallback(() => {
         setBatchRows(prev => [
             ...prev,
-            { id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, images: [], prompt: '', downloadFolder: '', status: 'pending' }
+            { id: `row-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }
         ]);
     }, []);
 
@@ -149,6 +315,7 @@ const ApiImageGenApp: React.FC = () => {
             return {
                 id: `row-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 5)}`,
                 images: [],
+                imageUrls: [],
                 prompt,
                 downloadFolder: folder,
                 status: 'ready' as const
@@ -209,7 +376,7 @@ const ApiImageGenApp: React.FC = () => {
     // 清空批量输入
     const handleClearBatch = useCallback(() => {
         setBatchRows([
-            { id: `row-${Date.now()}`, images: [], prompt: '', downloadFolder: '', status: 'pending' }
+            { id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }
         ]);
     }, []);
 
@@ -342,7 +509,7 @@ const ApiImageGenApp: React.FC = () => {
     const handleReset = () => {
         if (confirm('确定要清空所有内容吗？')) {
             setState(initialState);
-            setBatchRows([{ id: `row-${Date.now()}`, images: [], prompt: '', downloadFolder: '', status: 'pending' }]);
+            setBatchRows([{ id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }]);
             setIsProcessingQueue(false);
             pauseRef.current = false;
             setIsPaused(false);
@@ -471,6 +638,55 @@ const ApiImageGenApp: React.FC = () => {
                                 </div>
                             </div>
 
+                            {/* 拖拽区域 */}
+                            <div
+                                ref={dropzoneRef}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isDragging
+                                        ? 'border-blue-500 bg-blue-50'
+                                        : 'border-slate-300 hover:border-slate-400'
+                                    }`}
+                            >
+                                <div className="flex items-center justify-center gap-4">
+                                    <Upload size={24} className={isDragging ? 'text-blue-500' : 'text-slate-400'} />
+                                    <div className="text-left">
+                                        <p className={`text-sm font-medium ${isDragging ? 'text-blue-600' : 'text-slate-600'}`}>
+                                            拖拽图片到此处，或直接粘贴 (Ctrl+V)
+                                        </p>
+                                        <p className="text-xs text-slate-400">
+                                            支持从 Google Sheets 复制图片+文本
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-1 ml-4 border-l border-slate-200 pl-4">
+                                        <span className="text-xs text-slate-500 mr-2">拖拽模式:</span>
+                                        <button
+                                            onClick={() => setDragMode('split')}
+                                            className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${dragMode === 'split'
+                                                    ? 'bg-blue-500 text-white'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                }`}
+                                            title="每张图片创建一个任务"
+                                        >
+                                            <Split size={12} />
+                                            一图一行
+                                        </button>
+                                        <button
+                                            onClick={() => setDragMode('merge')}
+                                            className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${dragMode === 'merge'
+                                                    ? 'bg-blue-500 text-white'
+                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                }`}
+                                            title="所有图片合并到一个任务"
+                                        >
+                                            <Merge size={12} />
+                                            合并到一行
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* 表格 */}
                             <div className="border border-slate-200 rounded-lg overflow-hidden">
                                 <table className="w-full">
@@ -512,7 +728,7 @@ const ApiImageGenApp: React.FC = () => {
                                                             <Plus size={14} />
                                                         </button>
                                                         <input
-                                                            ref={el => fileInputRefs.current[row.id] = el}
+                                                            ref={el => { fileInputRefs.current[row.id] = el; }}
                                                             type="file"
                                                             multiple
                                                             accept="image/*"
@@ -541,8 +757,8 @@ const ApiImageGenApp: React.FC = () => {
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     <span className={`text-xs px-2 py-0.5 rounded ${row.status === 'added' ? 'bg-green-100 text-green-600' :
-                                                            row.status === 'ready' ? 'bg-blue-100 text-blue-600' :
-                                                                'bg-slate-100 text-slate-500'
+                                                        row.status === 'ready' ? 'bg-blue-100 text-blue-600' :
+                                                            'bg-slate-100 text-slate-500'
                                                         }`}>
                                                         {row.status === 'added' ? '已添加' : row.status === 'ready' ? '就绪' : '待填'}
                                                     </span>
@@ -638,8 +854,8 @@ const ApiImageGenApp: React.FC = () => {
                                                 <button
                                                     onClick={handleTogglePause}
                                                     className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 ${isPaused
-                                                            ? 'bg-green-500 text-white hover:bg-green-600'
-                                                            : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                                                        ? 'bg-green-500 text-white hover:bg-green-600'
+                                                        : 'bg-yellow-500 text-white hover:bg-yellow-600'
                                                         }`}
                                                 >
                                                     {isPaused ? <Play size={18} /> : <Pause size={18} />}
