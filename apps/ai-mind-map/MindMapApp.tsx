@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { BookOpen, Download, Bot, Tag, Palette, Settings } from 'lucide-react';
 import { MindMapCanvas } from './components/MindMapCanvas';
 import { Toolbar } from './components/Toolbar';
 import { AIPanel } from './components/AIPanel';
@@ -114,37 +115,37 @@ export const MindMapApp: React.FC<MindMapAppProps> = ({ getAiInstance }) => {
                         className={`tab-btn ${activePanel === 'menu' ? 'active' : ''}`}
                         onClick={() => setActivePanel(activePanel === 'menu' ? null : 'menu')}
                     >
-                        📚 菜单
+                        <BookOpen size={14} className="inline mr-1" /> 菜单
                     </button>
                     <button
                         className={`tab-btn ${activePanel === 'input' ? 'active' : ''}`}
                         onClick={() => setActivePanel(activePanel === 'input' ? null : 'input')}
                     >
-                        📥 输入
+                        <Download size={14} className="inline mr-1" /> 输入
                     </button>
                     <button
                         className={`tab-btn ${activePanel === 'ai' ? 'active' : ''}`}
                         onClick={() => setActivePanel(activePanel === 'ai' ? null : 'ai')}
                     >
-                        🤖 AI 助手
+                        <Bot size={14} className="inline mr-1" /> AI 助手
                     </button>
                     <button
                         className={`tab-btn ${activePanel === 'marker' ? 'active' : ''}`}
                         onClick={() => setActivePanel(activePanel === 'marker' ? null : 'marker')}
                     >
-                        🏷️ 标记
+                        <Tag size={14} className="inline mr-1" /> 标记
                     </button>
                     <button
                         className={`tab-btn ${activePanel === 'style' ? 'active' : ''}`}
                         onClick={() => setActivePanel(activePanel === 'style' ? null : 'style')}
                     >
-                        🎨 样式
+                        <Palette size={14} className="inline mr-1" /> 样式
                     </button>
                     <button
                         className={`tab-btn ${activePanel === 'settings' ? 'active' : ''}`}
                         onClick={() => setActivePanel(activePanel === 'settings' ? null : 'settings')}
                     >
-                        ⚙️ 设置
+                        <Settings size={14} className="inline mr-1" /> 设置
                     </button>
                 </nav>
             </header>
