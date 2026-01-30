@@ -9197,7 +9197,7 @@ const App = () => {
               <button className="secondary-btn" onClick={() => presetImportRef.current?.click()}>{t('presetGlobalImport')}</button>
               <input type="file" ref={presetImportRef} style={{ display: 'none' }} accept=".json" onChange={handleGlobalImportPresets} />
               <button className="secondary-btn" onClick={handleGlobalExportPresets}>{t('presetGlobalExport')}</button>
-              <span className="preset-warning-notice">⚠️ 注意：如果要添加预设或者编辑预设，关闭前或者编辑后一定要导出预设，或者填写邮箱账号实现云同步预设，否则下次打开将全部恢复默认。</span>
+              <span className="preset-warning-notice"><AlertTriangle size={14} className="inline mr-1" /> 注意：如果要添加预设或者编辑预设，关闭前或者编辑后一定要导出预设，或者填写邮箱账号实现云同步预设，否则下次打开将全部恢复默认。</span>
               {presetUser && !isValidPresetUser(presetUser) && <span className="preset-status error">{t('presetUserMustBeGmail')}</span>}
 
               {presetNotice && <span className="preset-status success">{presetNotice}</span>}
