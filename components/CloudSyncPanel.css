@@ -1,0 +1,166 @@
+/**
+ * CloudSyncPanel 组件样式
+ */
+
+/* 主容器 */
+.cloud-sync-panel {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: var(--surface-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    z-index: 10001;
+}
+
+/* 标题栏 */
+.cloud-sync-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.cloud-sync-title {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--on-surface-color);
+}
+
+.cloud-sync-close-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: var(--on-surface-color);
+    opacity: 0.6;
+}
+
+.cloud-sync-close-btn:hover {
+    opacity: 1;
+}
+
+/* 未登录提示 */
+.cloud-sync-login-prompt {
+    padding: 1rem;
+    background-color: rgba(255, 193, 7, 0.1);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.cloud-sync-login-prompt p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--on-surface-color);
+}
+
+.cloud-sync-login-btn {
+    margin-top: 0.75rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    border: none;
+    background-color: var(--primary-color);
+    color: white;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.cloud-sync-login-btn:hover {
+    opacity: 0.9;
+}
+
+/* 用户信息卡片 */
+.cloud-sync-user-card {
+    padding: 0.75rem;
+    background-color: rgba(76, 175, 80, 0.1);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.cloud-sync-user-icon {
+    font-size: 1.2rem;
+}
+
+.cloud-sync-user-label {
+    font-size: 0.75rem;
+    color: var(--text-muted-color);
+}
+
+.cloud-sync-user-email {
+    font-size: 0.9rem;
+    color: var(--on-surface-color);
+    font-weight: 500;
+}
+
+/* 同步状态卡片 */
+.cloud-sync-status-card {
+    padding: 0.75rem;
+    background-color: var(--background-color);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.cloud-sync-status-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+.cloud-sync-status-row:last-child {
+    margin-bottom: 0;
+}
+
+.cloud-sync-status-label {
+    color: var(--text-muted-color);
+}
+
+.cloud-sync-status-value {
+    color: var(--on-surface-color);
+}
+
+/* 错误提示 */
+.cloud-sync-error {
+    padding: 0.5rem;
+    background-color: rgba(244, 67, 54, 0.1);
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    color: #f44336;
+}
+
+/* 操作按钮组 */
+.cloud-sync-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.cloud-sync-btn {
+    flex: 1;
+    padding: 0.6rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.cloud-sync-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.cloud-sync-btn-secondary {
+    border: 1px solid var(--border-color);
+    background-color: transparent;
+    color: var(--on-surface-color);
+}
+
+.cloud-sync-btn-primary {
+    border: none;
+    background-color: var(--primary-color);
+    color: white;
+}

@@ -16,6 +16,7 @@ import {
     extractSyncableData,
     mergeCloudDataToImages,
 } from '@/services/cloudSyncService';
+import './CloudSyncPanel.css';
 
 interface CloudSyncPanelProps {
     onClose: () => void;
@@ -186,63 +187,24 @@ const CloudSyncPanel: React.FC<CloudSyncPanelProps> = ({
     };
 
     return (
-        <div className="cloud-sync-panel" style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            backgroundColor: 'var(--surface-color)',
-            borderRadius: '12px',
-            padding: '1.5rem',
-            minWidth: '320px',
-            maxWidth: '400px',
-            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
-            zIndex: 10001
-        }}>
+        <div className="cloud-sync-panel">
             {/* 标题栏 */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--on-surface-color)' }}>
+            <div className="cloud-sync-header">
+                <h3 className="cloud-sync-title">
                     {getStatusIcon()} 云同步
                 </h3>
-                <button
-                    onClick={onClose}
-                    style={{
-                        background: 'transparent',
-                        border: 'none',
-                        fontSize: '1.2rem',
-                        cursor: 'pointer',
-                        color: 'var(--on-surface-color)',
-                        opacity: 0.6
-                    }}
-                >
+                <button onClick={onClose} className="cloud-sync-close-btn">
                     ×
                 </button>
             </div>
 
             {/* 未登录提示 */}
             {!user && (
-                <div style={{
-                    padding: '1rem',
-                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                    borderRadius: '8px',
-                    marginBottom: '1rem',
-                    textAlign: 'center'
-                }}>
-                    <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--on-surface-color)' }}>
-                        请先登录以启用云同步
-                    </p>
+                <div className="cloud-sync-login-prompt">
+                    <p>请先登录以启用云同步</p>
                     <button
                         onClick={() => { onClose(); onShowLogin?.(); }}
-                        style={{
-                            marginTop: '0.75rem',
-                            padding: '0.5rem 1rem',
-                            borderRadius: '6px',
-                            border: 'none',
-                            backgroundColor: 'var(--primary-color)',
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontSize: '0.9rem'
-                        }}
+                        className="cloud-sync-login-btn"
                     >
                         登录
                     </button>
@@ -253,110 +215,61 @@ const CloudSyncPanel: React.FC<CloudSyncPanelProps> = ({
             {user && (
                 <>
                     {/* 用户信息 */}
-                    <div style={{
-                        padding: '0.75rem',
-                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                        borderRadius: '8px',
-                        marginBottom: '1rem'
-                    }}>
+                    <div className="cloud-sync-user-card">
                         <div className="flex items-center gap-2">
-                            <span style={{ fontSize: '1.2rem' }}>👤</span>
+                            <span className="cloud-sync-user-icon">👤</span>
                             <div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted-color)' }}>同步账号</div>
-                                <div style={{ fontSize: '0.9rem', color: 'var(--on-surface-color)', fontWeight: 500 }}>
-                                    {syncEmail}
-                                </div>
+                                <div className="cloud-sync-user-label">同步账号</div>
+                                <div className="cloud-sync-user-email">{syncEmail}</div>
                             </div>
                         </div>
                     </div>
 
                     {/* 同步状态 */}
-                    <div style={{
-                        padding: '0.75rem',
-                        backgroundColor: 'var(--background-color)',
-                        borderRadius: '8px',
-                        marginBottom: '1rem'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                            <span style={{ color: 'var(--text-muted-color)' }}>本地数据</span>
-                            <span style={{ color: 'var(--on-surface-color)' }}>{images.length} 条</span>
+                    <div className="cloud-sync-status-card">
+                        <div className="cloud-sync-status-row">
+                            <span className="cloud-sync-status-label">本地数据</span>
+                            <span className="cloud-sync-status-value">{images.length} 条</span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-                            <span style={{ color: 'var(--text-muted-color)' }}>云端数据</span>
-                            <span style={{ color: 'var(--on-surface-color)' }}>
+                        <div className="cloud-sync-status-row">
+                            <span className="cloud-sync-status-label">云端数据</span>
+                            <span className="cloud-sync-status-value">
                                 {cloudImageCount !== null ? `${cloudImageCount} 条` : '未知'}
                             </span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                            <span style={{ color: 'var(--text-muted-color)' }}>上次同步</span>
-                            <span style={{ color: 'var(--on-surface-color)' }}>{formatTime(lastSyncAt)}</span>
+                        <div className="cloud-sync-status-row">
+                            <span className="cloud-sync-status-label">上次同步</span>
+                            <span className="cloud-sync-status-value">{formatTime(lastSyncAt)}</span>
                         </div>
                     </div>
 
                     {/* 错误提示 */}
                     {error && (
-                        <div style={{
-                            padding: '0.5rem',
-                            backgroundColor: 'rgba(244, 67, 54, 0.1)',
-                            borderRadius: '6px',
-                            marginBottom: '1rem',
-                            fontSize: '0.8rem',
-                            color: '#f44336'
-                        }}>
+                        <div className="cloud-sync-error">
                             ❌ {error}
                         </div>
                     )}
 
                     {/* 操作按钮 */}
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div className="cloud-sync-actions">
                         <button
                             onClick={handlePull}
                             disabled={status === 'syncing'}
-                            style={{
-                                flex: 1,
-                                padding: '0.6rem',
-                                borderRadius: '6px',
-                                border: '1px solid var(--border-color)',
-                                backgroundColor: 'transparent',
-                                color: 'var(--on-surface-color)',
-                                cursor: 'pointer',
-                                fontSize: '0.85rem',
-                                opacity: status === 'syncing' ? 0.6 : 1
-                            }}
+                            className="cloud-sync-btn cloud-sync-btn-secondary"
                         >
                             ⬇️ 拉取
                         </button>
                         <button
                             onClick={handlePush}
                             disabled={status === 'syncing'}
-                            style={{
-                                flex: 1,
-                                padding: '0.6rem',
-                                borderRadius: '6px',
-                                border: '1px solid var(--border-color)',
-                                backgroundColor: 'transparent',
-                                color: 'var(--on-surface-color)',
-                                cursor: 'pointer',
-                                fontSize: '0.85rem',
-                                opacity: status === 'syncing' ? 0.6 : 1
-                            }}
+                            className="cloud-sync-btn cloud-sync-btn-secondary"
                         >
                             ⬆️ 推送
                         </button>
                         <button
                             onClick={handleSync}
                             disabled={status === 'syncing'}
-                            style={{
-                                flex: 1,
-                                padding: '0.6rem',
-                                borderRadius: '6px',
-                                border: 'none',
-                                backgroundColor: 'var(--primary-color)',
-                                color: 'white',
-                                cursor: 'pointer',
-                                fontSize: '0.85rem',
-                                opacity: status === 'syncing' ? 0.6 : 1
-                            }}
+                            className="cloud-sync-btn cloud-sync-btn-primary"
                         >
                             {status === 'syncing' ? '同步中...' : '🔄 同步'}
                         </button>
