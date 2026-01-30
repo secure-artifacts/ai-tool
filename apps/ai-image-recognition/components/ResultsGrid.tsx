@@ -1471,7 +1471,7 @@ const InnovationPanel = ({
                 {item.result && (
                     <div className="p-2.5 bg-zinc-800/30 rounded-lg border border-zinc-700/30">
                         <div className="text-[0.625rem] text-zinc-500 mb-1.5 font-medium">原始识别结果：</div>
-                        <div className="text-xs text-zinc-300 leading-relaxed line-clamp-3" title={item.result}>
+                        <div className="text-xs text-zinc-300 leading-relaxed line-clamp-3 tooltip-bottom" data-tip={item.result}>
                             {item.result}
                         </div>
                     </div>
@@ -2189,7 +2189,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     ? 'text-emerald-400 bg-emerald-900/20'
                                                     : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
                                                 }`}
-                                            title={getLinkTitle(item)}
+                                            data-tip={getLinkTitle(item)}
                                         >
                                             {item.isUploadingToGyazo ? <Loader2 size={12} className="animate-spin" /> : (isCopied(item.id, 'link') ? <Check size={12} /> : <Link size={12} />)}
                                         </button>
@@ -2200,7 +2200,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 ? 'text-emerald-400 bg-emerald-900/20'
                                                 : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
                                                 }`}
-                                            title={getFormulaTitle(item)}
+                                            data-tip={getFormulaTitle(item)}
                                         >
                                             {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                         </button>
@@ -2310,7 +2310,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         {/* Status Icon */}
                                         <div className="flex-shrink-0">
                                             {item.status === 'success' && (
-                                                <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center" title="识别成功">
+                                                <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center tooltip-bottom" data-tip="识别成功">
                                                     <div className="w-2 h-2 rounded-full bg-emerald-400" />
                                                 </div>
                                             )}
@@ -2319,15 +2319,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         {/* Result Text (last message) */}
                                         <div className="flex-1 min-w-0">
                                             {item.chatHistory.length > 0 ? (
-                                                <div className="text-sm text-zinc-200 truncate" title={item.chatHistory[item.chatHistory.length - 1].text}>
+                                                <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.chatHistory[item.chatHistory.length - 1].text}>
                                                     {item.chatHistory[item.chatHistory.length - 1].text}
                                                 </div>
                                             ) : item.result ? (
-                                                <div className="text-sm text-zinc-200 truncate" title={item.result}>
+                                                <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.result}>
                                                     {item.result}
                                                 </div>
                                             ) : (
-                                                <div className="text-xs text-zinc-500 truncate" title={item.originalInput}>
+                                                <div className="text-xs text-zinc-500 truncate tooltip-bottom" data-tip={item.originalInput}>
                                                     {item.originalInput}
                                                 </div>
                                             )}
@@ -2343,8 +2343,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 toggleMinimize(item.id);
                                                 onToggleChat?.(item.id);
                                             }}
-                                            className="p-1 text-blue-400 hover:text-blue-300 hover:bg-zinc-800 rounded transition-colors"
-                                            title="展开对话"
+                                            className="p-1 text-blue-400 hover:text-blue-300 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                            data-tip="展开对话"
                                         >
                                             <ChevronDown size={12} />
                                         </button>
@@ -2352,11 +2352,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         <button
                                             onClick={() => copyImage(item)}
                                             disabled={!item.imageUrl}
-                                            className={`p-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isCopied(item.id, 'image')
+                                            className={`p-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'image')
                                                 ? 'text-emerald-400 bg-emerald-900/20'
                                                 : 'text-zinc-500 hover:text-purple-400 hover:bg-zinc-800'
                                                 }`}
-                                            title={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
+                                            data-tip={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
                                         >
                                             {isCopied(item.id, 'image') ? <Check size={12} /> : <ImageIcon size={12} />}
                                         </button>
@@ -2369,7 +2369,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     ? 'text-emerald-400 bg-emerald-900/20'
                                                     : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
                                                 }`}
-                                            title={getLinkTitle(item)}
+                                            data-tip={getLinkTitle(item)}
                                         >
                                             {item.isUploadingToGyazo ? <Loader2 size={12} className="animate-spin" /> : (isCopied(item.id, 'link') ? <Check size={12} /> : <Link size={12} />)}
                                         </button>
@@ -2380,7 +2380,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 ? 'text-emerald-400 bg-emerald-900/20'
                                                 : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
                                                 }`}
-                                            title={getFormulaTitle(item)}
+                                            data-tip={getFormulaTitle(item)}
                                         >
                                             {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                         </button>
@@ -2388,30 +2388,30 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             <>
                                                 <button
                                                     onClick={() => copyResult(item)}
-                                                    className={`p-1 rounded transition-colors ${isCopied(item.id, 'result')
+                                                    className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                                         }`}
-                                                    title="复制结果"
+                                                    data-tip="复制结果"
                                                 >
                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                 </button>
                                                 {onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
-                                                        className={`p-1 rounded transition-colors ${sentToDescIds?.includes(item.id)
+                                                        className={`p-1 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
                                                             ? 'text-emerald-300 bg-emerald-700/20 border border-emerald-500/40'
                                                             : 'text-blue-300 hover:text-white hover:bg-blue-500/30'
                                                             }`}
-                                                        title={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
+                                                        data-tip={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
                                                     >
                                                         {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                                     </button>
                                                 )}
                                                 <button
                                                     onClick={() => onRetry(item.id)}
-                                                    className="p-1 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
-                                                    title="重新识别"
+                                                    className="p-1 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                                    data-tip="重新识别"
                                                 >
                                                     <RotateCw size={12} />
                                                 </button>
@@ -2419,8 +2419,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         )}
                                         <button
                                             onClick={() => onRemove(item.id)}
-                                            className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
-                                            title="删除"
+                                            className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors tooltip-bottom"
+                                            data-tip="删除"
                                         >
                                             <Trash2 size={12} />
                                         </button>
@@ -2476,7 +2476,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         <div className="flex-1 p-3 flex flex-col min-w-0 relative">
                                                             {/* Metadata Header */}
                                                             <div className="flex justify-between items-start mb-2 border-b border-zinc-800 pb-2">
-                                                                <div className="text-xs text-zinc-500 font-mono truncate max-w-[90%]" title={item.originalInput}>
+                                                                <div className="text-xs text-zinc-500 font-mono truncate max-w-[90%] tooltip-bottom" data-tip={item.originalInput}>
                                                                     {item.originalInput}
                                                                 </div>
                                                             </div>
@@ -2496,8 +2496,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         {item.status === 'error' ? (
                                                             <button
                                                                 onClick={() => onRetry(item.id)}
-                                                                className={`${!item.isChatOpen ? 'p-1.5 hover:text-white hover:bg-red-500/20' : 'p-1.5 hover:bg-zinc-800'} text-red-400 rounded transition-colors`}
-                                                                title="重试下载/识别"
+                                                                className={`tooltip-bottom ${!item.isChatOpen ? 'p-1.5 hover:text-white hover:bg-red-500/20' : 'p-1.5 hover:bg-zinc-800'} text-red-400 rounded transition-colors`}
+                                                                data-tip="重试下载/识别"
                                                             >
                                                                 <RotateCw size={12} />
                                                             </button>
@@ -2506,11 +2506,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 <button
                                                                     onClick={() => copyImage(item)}
                                                                     disabled={!item.imageUrl}
-                                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isCopied(item.id, 'image')
+                                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'image')
                                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                                         : 'text-zinc-500 hover:text-purple-400 hover:bg-zinc-800'
                                                                         }`}
-                                                                    title={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
+                                                                    data-tip={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
                                                                 >
                                                                     {isCopied(item.id, 'image') ? <Check size={12} /> : <ImageIcon size={12} />}
                                                                 </button>
@@ -2523,7 +2523,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                             ? 'text-emerald-400 bg-emerald-900/20'
                                                                             : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
                                                                         }`}
-                                                                    title={getLinkTitle(item)}
+                                                                    data-tip={getLinkTitle(item)}
                                                                 >
                                                                     {item.isUploadingToGyazo ? <Loader2 size={12} className="animate-spin" /> : (isCopied(item.id, 'link') ? <Check size={12} /> : <Link size={12} />)}
                                                                 </button>
@@ -2534,18 +2534,18 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                                         : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
                                                                         }`}
-                                                                    title={getFormulaTitle(item)}
+                                                                    data-tip={getFormulaTitle(item)}
                                                                 >
                                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                                 </button>
                                                                 <button
                                                                     onClick={() => copyResult(item)}
                                                                     disabled={item.status !== 'success'}
-                                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isCopied(item.id, 'result')
+                                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'result')
                                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                                         : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                                                         }`}
-                                                                    title={item.status === 'success' ? '复制识别结果' : '暂无结果'}
+                                                                    data-tip={item.status === 'success' ? '复制识别结果' : '暂无结果'}
                                                                 >
                                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                                 </button>
@@ -2553,11 +2553,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 {item.status === 'success' && onSendToDesc && (
                                                                     <button
                                                                         onClick={() => onSendToDesc(item.id)}
-                                                                        className={`p-1.5 rounded transition-colors ${sentToDescIds?.includes(item.id)
+                                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
                                                                             ? 'text-emerald-300 bg-emerald-700/20 border border-emerald-500/40'
                                                                             : 'text-blue-300 hover:text-white hover:bg-blue-500/30'
                                                                             }`}
-                                                                        title={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
+                                                                        data-tip={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
                                                                     >
                                                                         {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                                                     </button>
@@ -2566,13 +2566,13 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 {item.status === 'success' && onToggleChat && (
                                                                     <button
                                                                         onClick={() => onToggleChat(item.id)}
-                                                                        className={`p-1.5 rounded transition-colors ${item.isChatOpen
+                                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isChatOpen
                                                                             ? 'text-blue-400 bg-blue-500/30 ring-2 ring-blue-400/50'
                                                                             : (item.chatHistory.length > 1
                                                                                 ? 'text-blue-400 bg-blue-900/20'
                                                                                 : 'text-blue-400 hover:bg-zinc-800')
                                                                             }`}
-                                                                        title={item.chatHistory.length > 1 ? "继续对话 (已有记录)" : "继续对话"}
+                                                                        data-tip={item.chatHistory.length > 1 ? "继续对话 (已有记录)" : "继续对话"}
                                                                     >
                                                                         <MessageCircle size={12} fill={!item.isChatOpen && item.chatHistory.length > 1 ? "currentColor" : "none"} fillOpacity={!item.isChatOpen && item.chatHistory.length > 1 ? 0.2 : 0} />
                                                                     </button>
@@ -2581,13 +2581,13 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 {item.status === 'success' && onToggleInnovation && (
                                                                     <button
                                                                         onClick={() => onToggleInnovation(item.id)}
-                                                                        className={`p-1.5 rounded transition-colors ${item.isInnovationOpen
+                                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isInnovationOpen
                                                                             ? 'text-pink-400 bg-pink-500/30 ring-2 ring-pink-400/50'
                                                                             : (hasInnovationOutputs
                                                                                 ? 'text-pink-400 bg-pink-900/20'
                                                                                 : 'text-pink-400 hover:bg-zinc-800')
                                                                             }`}
-                                                                        title={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
+                                                                        data-tip={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
                                                                     >
                                                                         <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
                                                                     </button>
@@ -2595,8 +2595,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 {item.status === 'success' && (
                                                                     <button
                                                                         onClick={() => onRetry(item.id)}
-                                                                        className="p-1.5 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors"
-                                                                        title="重新识别"
+                                                                        className="p-1.5 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                                                        data-tip="重新识别"
                                                                     >
                                                                         <RotateCw size={12} />
                                                                     </button>
@@ -2608,8 +2608,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         {!hasPanelOpen && (
                                                             <button
                                                                 onClick={() => onRemove(item.id)}
-                                                                className={`p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors`}
-                                                                title="删除此图片"
+                                                                className={`p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors tooltip-bottom`}
+                                                                data-tip="删除此图片"
                                                             >
                                                                 <Trash2 size={12} />
                                                             </button>
@@ -2754,7 +2754,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     {/* Status Icon */}
                                     <div className="flex-shrink-0">
                                         {item.status === 'success' && (
-                                            <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center" title="识别成功">
+                                            <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center tooltip-bottom" data-tip="识别成功">
                                                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
                                             </div>
                                         )}
@@ -2763,15 +2763,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     {/* Result Text */}
                                     <div className="flex-1 min-w-0">
                                         {item.chatHistory.length > 0 ? (
-                                            <div className="text-sm text-zinc-200 truncate" title={item.chatHistory[item.chatHistory.length - 1].text}>
+                                            <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.chatHistory[item.chatHistory.length - 1].text}>
                                                 {item.chatHistory[item.chatHistory.length - 1].text}
                                             </div>
                                         ) : item.result ? (
-                                            <div className="text-sm text-zinc-200 truncate" title={item.result}>
+                                            <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.result}>
                                                 {item.result}
                                             </div>
                                         ) : (
-                                            <div className="text-xs text-zinc-500 truncate" title={item.originalInput}>
+                                            <div className="text-xs text-zinc-500 truncate tooltip-bottom" data-tip={item.originalInput}>
                                                 {item.originalInput}
                                             </div>
                                         )}
@@ -2785,19 +2785,19 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             toggleMinimize(item.id);
                                             onToggleChat?.(item.id);
                                         }}
-                                        className="p-1 text-blue-400 hover:text-blue-300 hover:bg-zinc-800 rounded transition-colors"
-                                        title="展开对话"
+                                        className="p-1 text-blue-400 hover:text-blue-300 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
+                                        data-tip="展开对话"
                                     >
                                         <ChevronDown size={12} />
                                     </button>
                                     <button
                                         onClick={() => copyImage(item)}
                                         disabled={!item.imageUrl}
-                                        className={`p-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${isCopied(item.id, 'image')
+                                        className={`p-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'image')
                                             ? 'text-emerald-400 bg-emerald-900/20'
                                             : 'text-zinc-500 hover:text-purple-400 hover:bg-zinc-800'
                                             }`}
-                                        title={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
+                                        data-tip={item.imageUrl ? '复制图片到剪贴板' : '无图片'}
                                     >
                                         {isCopied(item.id, 'image') ? <Check size={12} /> : <ImageIcon size={12} />}
                                     </button>
@@ -2808,7 +2808,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             ? 'text-emerald-400 bg-emerald-900/20'
                                             : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
                                             }`}
-                                        title={getLinkTitle(item)}
+                                        data-tip={getLinkTitle(item)}
                                     >
                                         {isCopied(item.id, 'link') ? <Check size={12} /> : <Link size={12} />}
                                     </button>
@@ -2819,18 +2819,18 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             ? 'text-emerald-400 bg-emerald-900/20'
                                             : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
                                             }`}
-                                        title={getFormulaTitle(item)}
+                                        data-tip={getFormulaTitle(item)}
                                     >
                                         {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                     </button>
                                     {item.status === 'success' && (
                                         <button
                                             onClick={() => copyResult(item)}
-                                            className={`p-1 rounded transition-colors ${isCopied(item.id, 'result')
+                                            className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
                                                 ? 'text-emerald-400 bg-emerald-900/20'
                                                 : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                                 }`}
-                                            title="复制结果"
+                                            data-tip="复制结果"
                                         >
                                             {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                         </button>
@@ -2838,19 +2838,19 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     {item.status === 'success' && onSendToDesc && (
                                         <button
                                             onClick={() => onSendToDesc(item.id)}
-                                            className={`p-1 rounded transition-colors ${sentToDescIds?.includes(item.id)
+                                            className={`p-1 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
                                                 ? 'text-emerald-300 bg-emerald-700/20 border border-emerald-500/40'
                                                 : 'text-blue-300 hover:text-white hover:bg-blue-500/30'
                                                 }`}
-                                            title={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
+                                            data-tip={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
                                         >
                                             {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                         </button>
                                     )}
                                     <button
                                         onClick={() => onRemove(item.id)}
-                                        className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors"
-                                        title="删除"
+                                        className="p-1 text-zinc-600 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors tooltip-bottom"
+                                        data-tip="删除"
                                     >
                                         <Trash2 size={12} />
                                     </button>
@@ -2903,16 +2903,16 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     {/* 内容区域 */}
                                     {!item.isChatOpen && (
                                         <div className="flex-1 p-3 flex flex-col gap-2 overflow-hidden bg-zinc-900">
-                                            <div className="text-[0.625rem] text-zinc-500 font-mono truncate border-b border-zinc-800 pb-2 mb-1" title={item.originalInput}>
+                                            <div className="text-[0.625rem] text-zinc-500 font-mono truncate border-b border-zinc-800 pb-2 mb-1 tooltip-bottom" data-tip={item.originalInput}>
                                                 {item.originalInput}
                                             </div>
 
                                             <div className="flex-1 overflow-y-auto custom-scrollbar">
                                                 {item.status === 'success' ? (
                                                     <div
-                                                        className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed px-1 cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative"
+                                                        className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed px-1 cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative tooltip-bottom"
                                                         onDoubleClick={() => setExpandedResultItem(item)}
-                                                        title="双击放大窗口查看结果"
+                                                        data-tip="双击放大窗口查看结果"
                                                     >
                                                         {item.chatHistory.length > 0
                                                             ? item.chatHistory[item.chatHistory.length - 1].text
@@ -2924,8 +2924,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         {/* 放大提示图标 */}
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); setExpandedResultItem(item); }}
-                                                            className="absolute top-0 right-0 p-1 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/result:opacity-100 transition-opacity"
-                                                            title="点击放大查看"
+                                                            className="absolute top-0 right-0 p-1 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/result:opacity-100 transition-opacity tooltip-bottom"
+                                                            data-tip="点击放大查看"
                                                         >
                                                             <Maximize2 size={12} />
                                                         </button>
@@ -2952,11 +2952,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 {/* 复制按钮组 */}
                                                 <button
                                                     onClick={() => copyImage(item)}
-                                                    className={`p-1.5 rounded transition-colors ${isCopied(item.id, 'image')
+                                                    className={`p-1.5 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'image')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-400 hover:text-purple-400 hover:bg-zinc-800'
                                                         }`}
-                                                    title="复制图片"
+                                                    data-tip="复制图片"
                                                     disabled={!item.imageUrl}
                                                 >
                                                     {isCopied(item.id, 'image') ? <Check size={12} /> : <ImageIcon size={12} />}
@@ -2969,39 +2969,39 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                             ? 'text-emerald-400 bg-emerald-900/20'
                                                             : 'text-zinc-400 hover:text-blue-400 hover:bg-zinc-800'
                                                         }`}
-                                                    title={item.isUploadingToGyazo ? '上传中...' : '复制链接'}
+                                                    data-tip={item.isUploadingToGyazo ? '上传中...' : '复制链接'}
                                                 >
                                                     {item.isUploadingToGyazo ? <Loader2 size={12} className="animate-spin" /> : (isCopied(item.id, 'link') ? <Check size={12} /> : <Link size={12} />)}
                                                 </button>
                                                 <button
                                                     onClick={() => copyFormula(item)}
-                                                    className={`p-1.5 rounded transition-colors ${isCopied(item.id, 'formula')
+                                                    className={`p-1.5 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'formula')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-400 hover:text-orange-400 hover:bg-zinc-800'
                                                         }`}
-                                                    title="复制公式"
+                                                    data-tip="复制公式"
                                                 >
                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                 </button>
                                                 <button
                                                     onClick={() => copyResult(item)}
                                                     disabled={item.status !== 'success'}
-                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 ${isCopied(item.id, 'result')
+                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 tooltip-bottom ${isCopied(item.id, 'result')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
                                                         }`}
-                                                    title="复制结果"
+                                                    data-tip="复制结果"
                                                 >
                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                 </button>
                                                 {item.status === 'success' && onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
-                                                        className={`p-1.5 rounded transition-colors ${sentToDescIds?.includes(item.id)
+                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
                                                             ? 'text-emerald-300 bg-emerald-700/20 border border-emerald-500/40'
                                                             : 'text-blue-300 hover:text-white hover:bg-blue-500/30'
                                                             }`}
-                                                        title={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
+                                                        data-tip={sentToDescIds?.includes(item.id) ? '已发送' : '发送到提示词创新'}
                                                     >
                                                         {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                                     </button>
@@ -3010,11 +3010,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 {item.status === 'success' && onToggleChat && (
                                                     <button
                                                         onClick={() => onToggleChat(item.id)}
-                                                        className={`p-1.5 rounded transition-colors ${item.isChatOpen
+                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isChatOpen
                                                             ? 'text-blue-400 bg-blue-500/30 ring-2 ring-blue-400/50'
                                                             : 'text-blue-400 hover:bg-zinc-800'
                                                             }`}
-                                                        title="继续对话"
+                                                        data-tip="继续对话"
                                                     >
                                                         <MessageCircle size={12} />
                                                     </button>
@@ -3023,13 +3023,13 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 {item.status === 'success' && onToggleInnovation && (
                                                     <button
                                                         onClick={() => onToggleInnovation(item.id)}
-                                                        className={`p-1.5 rounded transition-colors ${item.isInnovationOpen
+                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isInnovationOpen
                                                             ? 'text-pink-400 bg-pink-500/30 ring-2 ring-pink-400/50'
                                                             : (hasInnovationOutputs
                                                                 ? 'text-pink-400 bg-pink-900/20'
                                                                 : 'text-pink-400 hover:bg-zinc-800')
                                                             }`}
-                                                        title={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
+                                                        data-tip={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
                                                     >
                                                         <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
                                                     </button>
@@ -3037,8 +3037,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 {item.status === 'success' && (
                                                     <button
                                                         onClick={() => onRetry(item.id)}
-                                                        className="p-1.5 text-zinc-500 hover:text-emerald-400 transition-colors rounded hover:bg-zinc-800"
-                                                        title="重新识别"
+                                                        className="p-1.5 text-zinc-500 hover:text-emerald-400 transition-colors rounded hover:bg-zinc-800 tooltip-bottom"
+                                                        data-tip="重新识别"
                                                     >
                                                         <RotateCw size={12} />
                                                     </button>
