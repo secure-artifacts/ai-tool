@@ -9257,6 +9257,11 @@ textarea:focus-visible {
   margin-left: auto;
 }
 
+/* Text color utilities */
+.text-white {
+  color: #fff;
+}
+
 /* ============================================
    🔐 Login Modal Styles
    ============================================ */

@@ -28,6 +28,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/firebase/index';
 
+// 复用 SheetsAuthConfig 的 GAS 样式
+import '@/components/SheetsAuthConfig.css';
+
 // ==================== 类型 ====================
 
 interface ProDedupState {
@@ -1149,9 +1152,9 @@ export function ProDedupApp() {
                             {/* GAS 模式 */}
                             {state.authMode === 'gas' && (
                                 <div className="gas-config">
-                                    <div className="auth-mode-tip" className="mb-2">
+                                    <div className="auth-mode-tip mb-2">
                                         📖 <strong>部署步骤：</strong>
-                                        <ol style={{ margin: '4px 0 0 16px', padding: 0, fontSize: '10px' }}>
+                                        <ol className="gas-sidebar-steps">
                                             <li>在 Google Sheets 中打开 扩展程序 → Apps Script</li>
                                             <li>粘贴 GAS 脚本代码（见项目 docs/gas 目录）</li>
                                             <li>部署 → 新建部署 → Web 应用（任何人可访问）</li>
@@ -1159,7 +1162,8 @@ export function ProDedupApp() {
                                         </ol>
                                         <button
                                             onClick={() => setShowGasGuide(true)}
-                                            style={{ marginTop: '8px', padding: '4px 8px', fontSize: '10px', background: '#1565c0', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                                            className="gas-tip-btn"
+                                            style={{ marginTop: '8px' }}
                                         >
                                             📖 查看详细部署指南
                                         </button>
@@ -1169,7 +1173,7 @@ export function ProDedupApp() {
                                         placeholder="GAS Web App URL"
                                         value={state.gasWebAppUrl}
                                         onChange={e => updateState({ gasWebAppUrl: e.target.value })}
-                                        style={{ marginBottom: '8px', width: '100%', padding: '6px 8px', borderRadius: '4px', border: '1px solid #444', background: '#222', color: '#fff', fontSize: '11px' }}
+                                        className="gas-url-input"
                                     />
                                 </div>
                             )}
@@ -1198,7 +1202,6 @@ export function ProDedupApp() {
                                     className="gas-connect-btn"
                                     onClick={() => connectToSheet('')}
                                     disabled={state.isLoadingSheet || !state.gasWebAppUrl.trim()}
-                                    style={{ width: '100%', padding: '8px', background: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
                                 >
                                     {state.isLoadingSheet ? <Loader2 size={12} className="spinning" /> : '连接 GAS'}
                                 </button>
@@ -1858,29 +1861,29 @@ export function ProDedupApp() {
 
             {/* GAS 部署指南弹窗 */}
             {showGasGuide && (
-                <div className="pro-modal-overlay" onClick={() => setShowGasGuide(false)}>
-                    <div className="pro-modal gas-guide-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '700px', maxHeight: '85vh', overflow: 'auto', background: '#1e1e1e', color: '#e0e0e0' }}>
-                        <div className="pro-modal-header" style={{ borderBottom: '1px solid #444', paddingBottom: '12px' }}>
-                            <h3 style={{ color: '#fff' }}>📖 GAS (Google Apps Script) 部署指南</h3>
-                            <button onClick={() => setShowGasGuide(false)}><X size={16} /></button>
+                <div className="gas-guide-overlay" onClick={() => setShowGasGuide(false)}>
+                    <div className="gas-guide-modal" onClick={e => e.stopPropagation()}>
+                        <div className="gas-guide-header">
+                            <h3 className="gas-guide-title">📖 GAS (Google Apps Script) 部署指南</h3>
+                            <button onClick={() => setShowGasGuide(false)} className="gas-guide-close-btn"><X size={16} /></button>
                         </div>
-                        <div className="pro-modal-body" style={{ fontSize: '13px', lineHeight: '1.6' }}>
-                            <div style={{ background: 'rgba(76, 175, 80, 0.2)', padding: '12px', borderRadius: '8px', marginBottom: '16px', border: '1px solid rgba(76, 175, 80, 0.3)' }}>
-                                <strong style={{ color: '#81c784' }}>✅ GAS 优势：</strong>
-                                <span style={{ color: '#c8e6c9' }}>无需复杂认证配置，支持读写，适合个人使用</span>
+                        <div className="gas-guide-content">
+                            <div className="gas-advantage-box">
+                                <strong className="gas-advantage-label">✅ GAS 优势：</strong>
+                                <span className="gas-advantage-text">无需复杂认证配置，支持读写，适合个人使用</span>
                             </div>
 
-                            <h4 style={{ margin: '16px 0 8px', color: '#64b5f6' }}>🔧 部署步骤</h4>
-                            <ol style={{ paddingLeft: '20px', margin: 0, color: '#bbb' }}>
-                                <li className="mb-2">在 Google Sheets 中点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>扩展程序</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Apps Script</code></li>
-                                <li className="mb-2">删除默认代码，<strong style={{ color: '#fff' }}>粘贴下方脚本代码</strong></li>
-                                <li className="mb-2">点击 <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>新建部署</code> → <code style={{ background: '#333', padding: '2px 6px', borderRadius: '3px', color: '#ffd54f' }}>Web 应用</code></li>
-                                <li className="mb-2"><span style={{ color: '#ef5350' }}>⚠️ 「谁可以访问」必须选择「任何人」</span></li>
+                            <h4 className="gas-section-title">🔧 部署步骤</h4>
+                            <ol className="gas-steps-list">
+                                <li className="mb-2">在 Google Sheets 中点击 <code className="gas-code-highlight">扩展程序</code> → <code className="gas-code-highlight">Apps Script</code></li>
+                                <li className="mb-2">删除默认代码，<strong className="text-white">粘贴下方脚本代码</strong></li>
+                                <li className="mb-2">点击 <code className="gas-code-highlight">部署</code> → <code className="gas-code-highlight">新建部署</code> → <code className="gas-code-highlight">Web 应用</code></li>
+                                <li className="mb-2"><span className="gas-warning-text">⚠️ 「谁可以访问」必须选择「任何人」</span></li>
                                 <li className="mb-2">首次需授权：高级 → 转至 xxx → 允许</li>
                                 <li>复制 Web App URL，粘贴到上方输入框</li>
                             </ol>
 
-                            <h4 style={{ margin: '20px 0 8px', color: '#64b5f6', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <h4 className="gas-section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 📋 GAS 脚本代码
                                 <button
                                     onClick={() => {
@@ -1964,21 +1967,12 @@ function doPost(e) {
                                         navigator.clipboard.writeText(code);
                                         showToast('✅ 脚本代码已复制到剪贴板！');
                                     }}
-                                    style={{ padding: '4px 12px', background: '#4caf50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
+                                    className="gas-copy-btn"
                                 >
                                     复制代码
                                 </button>
                             </h4>
-                            <pre style={{
-                                background: '#0d1117',
-                                padding: '12px',
-                                borderRadius: '8px',
-                                fontSize: '10px',
-                                overflow: 'auto',
-                                maxHeight: '200px',
-                                color: '#c9d1d9',
-                                border: '1px solid #30363d'
-                            }}>
+                            <pre className="gas-code-block">
                                 {`/**
  * ITEN 文本库 GAS 服务 - 精简版
  */
@@ -2000,7 +1994,7 @@ function doGet(e) {
 }`}
                             </pre>
 
-                            <div style={{ marginTop: '16px', padding: '10px', background: 'rgba(255, 152, 0, 0.1)', borderRadius: '6px', border: '1px solid rgba(255, 152, 0, 0.3)', fontSize: '11px', color: '#ffb74d' }}>
+                            <div className="gas-warning-box">
                                 ⚠️ 点击「复制代码」获取完整脚本，上方仅显示部分代码
                             </div>
                         </div>
