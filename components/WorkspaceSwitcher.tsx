@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
     Workspace,
@@ -268,7 +269,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
                 onClick={() => setIsOpen(!isOpen)}
                 disabled={isLoading}
             >
-                <span className="workspace-icon">📁</span>
+                <span className="workspace-icon">⋮</span>
                 <span className="workspace-name">
                     {isLoading ? '加载中...' : (activeWorkspace?.name || '选择项目')}
                 </span>
@@ -301,7 +302,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
                                     />
                                 ) : (
                                     <>
-                                        <span className="workspace-item-icon">📁</span>
+                                        <span className="workspace-item-icon">⋮</span>
                                         <span className="workspace-item-name">{workspace.name}</span>
                                         {workspace.id === activeWorkspace?.id && (
                                             <span className="workspace-item-check">✓</span>
@@ -315,7 +316,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
                                                 onClick={(e) => startRename(e, workspace)}
                                                 title="重命名"
                                             >
-                                                ✏️
+                                                <Pencil size={12} />
                                             </button>
                                             {workspaces.length > 1 && (
                                                 <button
@@ -323,7 +324,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
                                                     onClick={(e) => handleDelete(e, workspace.id)}
                                                     title="删除"
                                                 >
-                                                    🗑️
+                                                    <Trash2 size={12} />
                                                 </button>
                                             )}
                                         </div>
@@ -340,7 +341,7 @@ export const WorkspaceSwitcher: React.FC<WorkspaceSwitcherProps> = ({
                         className="workspace-add-btn"
                         onClick={handleCreate}
                     >
-                        <span>➕</span>
+                        <Plus size={14} />
                         <span>新建项目</span>
                     </button>
                 </div>

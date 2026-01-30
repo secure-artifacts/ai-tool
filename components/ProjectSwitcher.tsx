@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Plus, LayoutList, Folder, Pin, Star, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
     ModuleId,
@@ -121,7 +122,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
     if (!user) {
         return (
             <div className="project-switcher disabled">
-                <span className="project-switcher-icon">📁</span>
+                <span className="project-switcher-icon">⋮</span>
                 <span className="project-switcher-name">请先登录</span>
             </div>
         );
@@ -183,7 +184,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                             className="project-switcher-action"
                             onClick={handleQuickCreate}
                         >
-                            <span>➕</span>
+                            <Plus size={14} />
                             <span>新建项目</span>
                         </button>
                         <button
@@ -193,7 +194,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                                 onOpenFullPanel();
                             }}
                         >
-                            <span>📋</span>
+                            <LayoutList size={14} />
                             <span>管理所有项目</span>
                         </button>
                     </div>

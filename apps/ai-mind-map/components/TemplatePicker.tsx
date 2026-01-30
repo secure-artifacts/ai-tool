@@ -2,6 +2,7 @@
 // 模板选择器组件
 // ============================================
 import { useState } from 'react';
+import { ClipboardList, Plus } from 'lucide-react';
 import { MIND_MAP_TEMPLATES, TEMPLATE_CATEGORIES, cloneTemplateData } from '../templates';
 import type { MindMapTemplate } from '../templates';
 import type { MindMapData } from '../types';
@@ -34,7 +35,7 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({ isOpen, onClose,
                 {/* 头部 */}
                 <div className="template-picker-header">
                     <div className="header-title">
-                        <span className="title-icon">📋</span>
+                        <ClipboardList size={20} className="title-icon" />
                         <h2>选择模板</h2>
                     </div>
                     <p className="header-desc">从专业模板快速开始，或用 AI 生成自定义结构</p>
@@ -128,7 +129,7 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({ isOpen, onClose,
                             onClose();
                         }}
                     >
-                        <div className="template-icon">➕</div>
+                        <Plus size={24} className="template-icon" />
                         <div className="template-info">
                             <h3 className="template-name">空白导图</h3>
                             <p className="template-desc">从零开始创建</p>
@@ -141,6 +142,6 @@ export const TemplatePicker: React.FC<TemplatePickerProps> = ({ isOpen, onClose,
                     <span className="footer-tip">💡 提示：选择模板后可自由编辑所有内容</span>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };

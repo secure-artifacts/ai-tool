@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, RefreshCw, Trash2, Download, FileText, Lock, FolderOpen } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import {
     ModuleId,
@@ -306,7 +307,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                     {/* 搜索与工具 */}
                     <div className="flex gap-2">
                         <div className="relative flex-1 group">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-amber-500 transition-colors">🔍</span>
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-amber-500 transition-colors" />
                             <input
                                 type="text"
                                 value={searchText}
@@ -321,7 +322,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                             className="w-10 h-10 flex items-center justify-center bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 rounded-xl transition-all active:scale-95"
                             title="刷新列表"
                         >
-                            <span className={isLoading ? 'animate-spin' : ''}>🔄</span>
+                            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
                         </button>
                     </div>
 
@@ -343,7 +344,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                                 disabled={sessions.length === 0}
                                 className="text-[10px] text-zinc-500 hover:text-red-400 flex items-center gap-1 transition-colors disabled:opacity-30"
                             >
-                                🗑️ 清空所有永久记录
+                                <Trash2 size={12} /> 清空所有永久记录
                             </button>
                         )}
                     </div>
@@ -354,7 +355,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                     {/* 未登录 */}
                     {!user && (
                         <div className="h-full flex flex-col items-center justify-center text-center space-y-4 opacity-50">
-                            <div className="text-5xl">🔒</div>
+                            <Lock size={48} className="opacity-50" />
                             <div className="space-y-1">
                                 <p className="text-white font-medium">需要登录</p>
                                 <p className="text-xs text-zinc-500">登录后即可同步和保存您的永久历史记录</p>
@@ -373,7 +374,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                     {/* 空状态 */}
                     {user && !isLoading && groupedData.length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-center space-y-4 py-20">
-                            <div className="text-5xl opacity-20">📂</div>
+                            <FolderOpen size={48} className="opacity-20" />
                             <div className="space-y-1">
                                 <p className="text-zinc-400 font-medium">{searchText ? '未找到相关结果' : '暂无记录'}</p>
                                 <p className="text-xs text-zinc-600">您的所有操作由于已设置为永久保存<br />将在这里长久留存</p>
@@ -455,7 +456,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                                                                 onClick={() => handleRestore(session)}
                                                                 className="flex-1 h-9 flex items-center justify-center bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl transition-all active:scale-95 shadow-lg shadow-amber-900/20"
                                                             >
-                                                                📥 恢复到当前工作区
+                                                                <Download size={14} /> 恢复到当前工作区
                                                             </button>
 
                                                             <div className="flex gap-1 h-9">
@@ -464,7 +465,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                                                                     className="w-9 h-9 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-xl transition-all"
                                                                     title="保存为文本"
                                                                 >
-                                                                    📄
+                                                                    <FileText size={16} />
                                                                 </button>
 
                                                                 {deleteConfirm === session.id ? (
@@ -479,7 +480,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({
                                                                         className="w-9 h-9 flex items-center justify-center bg-zinc-800/40 hover:bg-red-500/20 text-zinc-600 hover:text-red-400 rounded-xl transition-all"
                                                                         title="永久删除"
                                                                     >
-                                                                        🗑️
+                                                                        <Trash2 size={16} />
                                                                     </button>
                                                                 )}
                                                             </div>
