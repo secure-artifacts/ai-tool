@@ -9256,3 +9256,183 @@ textarea:focus-visible {
 .ml-auto {
   margin-left: auto;
 }
+
+/* ============================================
+   🔐 Login Modal Styles
+   ============================================ */
+
+/* Modal Overlay */
+.login-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+/* Modal Container */
+.login-modal {
+  background-color: var(--surface-color);
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  transition: max-width 0.3s ease;
+}
+
+.login-modal.wide {
+  max-width: 640px;
+}
+
+/* Modal Header */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--on-surface-color);
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--on-surface-color);
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.modal-close-btn:hover {
+  opacity: 1;
+}
+
+/* User Profile Card */
+.user-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: var(--background-color);
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.user-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.user-avatar-placeholder {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background-color: var(--primary-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.user-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--on-surface-color);
+}
+
+.user-email {
+  font-size: 0.875rem;
+  color: var(--text-muted-color);
+  margin-top: 0.25rem;
+}
+
+/* Modal Buttons */
+.modal-btn {
+  width: 100%;
+  padding: 0.875rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-btn-outline {
+  border: 1px solid var(--border-color);
+  background-color: transparent;
+  color: var(--on-surface-color);
+}
+
+.modal-btn-outline:hover {
+  background-color: var(--surface-hover-color);
+}
+
+.modal-btn-filled {
+  border: 1px solid var(--border-color);
+  background-color: var(--background-color);
+  color: var(--on-surface-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.modal-btn-danger {
+  border: none;
+  background-color: #ff6b6b;
+  color: white;
+  font-weight: 600;
+}
+
+.modal-btn-danger:hover {
+  background-color: #ff5252;
+}
+
+/* Alert/Notice Boxes */
+.notice-box {
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.notice-box-warning {
+  background-color: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.notice-box-info {
+  background-color: rgba(33, 150, 243, 0.1);
+  border: 1px solid rgba(33, 150, 243, 0.3);
+}
+
+.notice-box p {
+  margin: 0;
+}
+
+.notice-box .notice-title {
+  font-size: 0.9rem;
+  color: var(--on-surface-color);
+}
+
+.notice-box .notice-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted-color);
+}

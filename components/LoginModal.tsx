@@ -182,43 +182,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
 
     return (
         <div
-            className="modal-overlay"
+            className="login-modal-overlay"
             onClick={(e) => e.target === e.currentTarget && onClose()}
-            style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000
-            }}
         >
-            <div
-                className="login-modal"
-                style={{
-                    backgroundColor: 'var(--surface-color)',
-                    borderRadius: '12px',
-                    padding: '2rem',
-                    width: '100%',
-                    maxWidth: showSheetsConfig ? '640px' : '400px',
-                    maxHeight: '90vh',
-                    overflow: 'auto',
-                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-                    transition: 'max-width 0.3s ease'
-                }}
-            >
+            <div className={`login-modal ${showSheetsConfig ? 'wide' : ''}`}>
                 {/* 已登录状态 */}
                 {user ? (
                     <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                            <h2 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--on-surface-color)' }}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">
                                 {showSheetsConfig ? '📊 Sheets 认证配置' : texts.accountTitle}
                             </h2>
-                            <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--on-surface-color)', opacity: 0.6 }}>×</button>
+                            <button onClick={onClose} className="modal-close-btn">×</button>
                         </div>
 
                         {showSheetsConfig ? (
@@ -226,36 +201,27 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                 <SheetsAuthConfig onConfigChanged={() => { }} />
                                 <button
                                     onClick={() => setShowSheetsConfig(false)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '0.875rem',
-                                        borderRadius: '8px',
-                                        border: '1px solid var(--border-color)',
-                                        backgroundColor: 'transparent',
-                                        color: 'var(--on-surface-color)',
-                                        fontSize: '1rem',
-                                        cursor: 'pointer',
-                                        marginTop: '1rem'
-                                    }}
+                                    className="modal-btn modal-btn-outline"
+                                    style={{ marginTop: '1rem' }}
                                 >
                                     ← 返回账号管理
                                 </button>
                             </>
                         ) : (
                             <>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', backgroundColor: 'var(--background-color)', borderRadius: '12px', marginBottom: '1.5rem' }}>
+                                <div className="user-profile-card">
                                     {user.photoURL ? (
-                                        <img src={user.photoURL} alt="avatar" style={{ width: '60px', height: '60px', borderRadius: '50%', objectFit: 'cover' }} />
+                                        <img src={user.photoURL} alt="avatar" className="user-avatar" />
                                     ) : (
-                                        <div style={{ width: '60px', height: '60px', borderRadius: '50%', backgroundColor: 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '1.5rem', fontWeight: 600 }}>
+                                        <div className="user-avatar-placeholder">
                                             {user.email?.charAt(0).toUpperCase() || '?'}
                                         </div>
                                     )}
                                     <div>
-                                        <div style={{ fontWeight: 600, fontSize: '1.1rem', color: 'var(--on-surface-color)' }}>
+                                        <div className="user-name">
                                             {user.displayName || user.email?.split('@')[0] || '用户'}
                                         </div>
-                                        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted-color)', marginTop: '0.25rem' }}>
+                                        <div className="user-email">
                                             {user.email}
                                         </div>
                                     </div>
@@ -264,27 +230,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                                 <div className="flex flex-col gap-3">
                                     <button
                                         onClick={() => setShowSheetsConfig(true)}
-                                        style={{
-                                            width: '100%',
-                                            padding: '0.875rem',
-                                            borderRadius: '8px',
-                                            border: '1px solid var(--border-color)',
-                                            backgroundColor: 'var(--background-color)',
-                                            color: 'var(--on-surface-color)',
-                                            fontSize: '1rem',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '0.5rem'
-                                        }}
+                                        className="modal-btn modal-btn-filled"
                                     >
                                         📊 Sheets 认证配置
                                     </button>
-                                    <button onClick={handleSwitchAccount} style={{ width: '100%', padding: '0.875rem', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'transparent', color: 'var(--on-surface-color)', fontSize: '1rem', cursor: 'pointer' }}>
+                                    <button onClick={handleSwitchAccount} className="modal-btn modal-btn-outline">
                                         🔄 {texts.switchAccount}
                                     </button>
-                                    <button onClick={handleLogout} style={{ width: '100%', padding: '0.875rem', borderRadius: '8px', border: 'none', backgroundColor: '#ff6b6b', color: 'white', fontSize: '1rem', fontWeight: 600, cursor: 'pointer' }}>
+                                    <button onClick={handleLogout} className="modal-btn modal-btn-danger">
                                         🚪 {texts.logout}
                                     </button>
                                 </div>
@@ -294,25 +247,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                 ) : (
                     /* 未登录状态 */
                     <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                            <h2 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--on-surface-color)' }}>{texts.title}</h2>
-                            <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--on-surface-color)', opacity: 0.6 }}>×</button>
+                        <div className="modal-header">
+                            <h2 className="modal-title">{texts.title}</h2>
+                            <button onClick={onClose} className="modal-close-btn">×</button>
                         </div>
 
                         {/* AI Studio / Electron 环境提示 */}
                         {hideGoogleLogin && (
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '8px',
-                                backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                                border: '1px solid rgba(255, 193, 7, 0.3)',
-                                marginBottom: '1rem',
-                                textAlign: 'center'
-                            }}>
-                                <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--on-surface-color)' }}>
+                            <div className="notice-box notice-box-warning">
+                                <p className="notice-title">
                                     ⚠️ {isElectron ? '桌面版请使用邮箱密码登录' : texts.embeddedWarning}
                                 </p>
-                                <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted-color)' }}>
+                                <p className="notice-hint">
                                     {texts.embeddedHint}
                                 </p>
                             </div>
@@ -320,16 +266,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
 
                         {/* Google 用户提示 */}
                         {mode === 'login' && (
-                            <div style={{
-                                padding: '0.75rem',
-                                borderRadius: '8px',
-                                backgroundColor: 'rgba(33, 150, 243, 0.1)',
-                                border: '1px solid rgba(33, 150, 243, 0.3)',
-                                marginBottom: '1rem',
-                                textAlign: 'center',
-                                fontSize: '0.8rem',
-                                color: 'var(--text-muted-color)'
-                            }}>
+                            <div className="notice-box notice-box-info" style={{ fontSize: '0.8rem' }}>
                                 💡 {texts.googleUserHint}
                             </div>
                         )}
