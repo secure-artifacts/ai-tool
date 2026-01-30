@@ -2624,8 +2624,8 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                         {/* Collapse Button - Right edge center - Indigo color */}
                         <button
                             onClick={() => setShowLeftPanel(false)}
-                            className="absolute -right-3 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-indigo-500 hover:bg-indigo-600 border border-indigo-400 rounded-r-full shadow-md transition-colors flex items-center justify-center"
-                            data-tip="收起设置面板" className="tooltip-bottom"
+                            className="absolute -right-3 top-1/2 -translate-y-1/2 z-30 w-6 h-12 bg-indigo-500 hover:bg-indigo-600 border border-indigo-400 rounded-r-full shadow-md transition-colors flex items-center justify-center tooltip-bottom"
+                            data-tip="收起设置面板"
                         >
                             <ChevronLeft size={14} className="text-white" />
                         </button>
@@ -2675,8 +2675,8 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                         [newCols[idx - 1], newCols[idx]] = [newCols[idx], newCols[idx - 1]];
                                                         updateConfig({ dataColumns: newCols });
                                                     }}
-                                                    className="p-0.5 hover:bg-indigo-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                                                    data-tip="上移" className="tooltip-bottom"
+                                                    className="p-0.5 hover:bg-indigo-100 rounded disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom"
+                                                    data-tip="上移"
                                                 >
                                                     <ChevronUp size={12} className="text-indigo-500" />
                                                 </button>
@@ -2688,8 +2688,8 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                         [newCols[idx], newCols[idx + 1]] = [newCols[idx + 1], newCols[idx]];
                                                         updateConfig({ dataColumns: newCols });
                                                     }}
-                                                    className="p-0.5 hover:bg-indigo-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                                                    data-tip="下移" className="tooltip-bottom"
+                                                    className="p-0.5 hover:bg-indigo-100 rounded disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom"
+                                                    data-tip="下移"
                                                 >
                                                     <ChevronDown size={12} className="text-indigo-500" />
                                                 </button>
@@ -3599,16 +3599,16 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                 </div>
                                             </div>
                                         )}
-                                        <table ref={tableRef} tabIndex={0} className="w-full border-collapse outline-none select-none" className="will-change-auto">
+                                        <table ref={tableRef} tabIndex={0} className="w-full border-collapse outline-none select-none will-change-auto">
                                             {/* Column Headers */}
                                             <thead className="sticky top-0 z-10">
                                                 <tr>
                                                     {/* Row Number Header */}
-                                                    <th className="px-1 py-2 bg-[#f8f9fa] text-center text-[#80868b] font-medium text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-20" className="w-32px">
+                                                    <th className="px-1 py-2 bg-[#f8f9fa] text-center text-[#80868b] font-medium text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-20 w-32px">
                                                         #
                                                     </th>
                                                     {/* A Column Header */}
-                                                    <th className="px-3 py-2 bg-orange-100 text-left text-orange-800 font-bold text-xs border-r border-b border-orange-200 sticky z-20 min-w-[150px]" className="left-32px">
+                                                    <th className="px-3 py-2 bg-orange-100 text-left text-orange-800 font-bold text-xs border-r border-b border-orange-200 sticky z-20 min-w-[150px] left-32px">
                                                         A
                                                     </th>
                                                     {Array.from({ length: Math.max(...outputPlan.map(p => p.data.length), 1) }).map((_, i) => (
