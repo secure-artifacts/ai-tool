@@ -2547,15 +2547,15 @@ ${text}`;
                                             extraContent={
                                                 showClearConfirm ? (
                                                     <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 h-[34px]">
-                                                        <button onClick={() => { setImages([]); setShowClearConfirm(false); }} className="bg-red-600 hover:bg-red-500 rounded text-white transition-colors h-full px-2 text-[0.625rem]" title="确认清空所有图片">确定</button>
-                                                        <button onClick={() => setShowClearConfirm(false)} className="bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors h-full px-2 text-[0.625rem]" title="取消清空">取消</button>
+                                                        <button onClick={() => { setImages([]); setShowClearConfirm(false); }} className="bg-red-600 hover:bg-red-500 rounded text-white transition-colors h-full px-2 text-[0.625rem] tooltip-bottom" data-tip="确认清空所有图片">确定</button>
+                                                        <button onClick={() => setShowClearConfirm(false)} className="bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors h-full px-2 text-[0.625rem] tooltip-bottom" data-tip="取消清空">取消</button>
                                                     </div>
                                                 ) : (
                                                     <button
                                                         onClick={() => setShowClearConfirm(true)}
                                                         disabled={images.length === 0}
-                                                        className="flex items-center justify-center rounded-lg border border-red-900/30 bg-red-900/10 text-red-400 hover:bg-red-600 hover:text-white hover:border-red-500 transition-all disabled:opacity-30 shrink-0 ml-1 h-[34px] w-[34px]"
-                                                        title="清空列表"
+                                                        className="flex items-center justify-center rounded-lg border border-red-900/30 bg-red-900/10 text-red-400 hover:bg-red-600 hover:text-white hover:border-red-500 transition-all disabled:opacity-30 shrink-0 ml-1 h-[34px] w-[34px] tooltip-bottom"
+                                                        data-tip="清空列表"
                                                     >
                                                         <Trash2 size={14} />
                                                     </button>
@@ -2750,8 +2750,8 @@ ${text}`;
                                                 <button
                                                     onClick={handleSendAllToDesc}
                                                     disabled={images.filter(i => i.status === 'success' && i.result).length === 0}
-                                                    className={`${btnBase} ${sentAllCount !== null ? 'text-emerald-300 bg-emerald-800/30 border-emerald-600/50' : 'text-blue-200 bg-blue-900/20 hover:bg-blue-800/30 border-blue-800/40'}`}
-                                                    title={sentAllCount !== null ? `已发送 ${sentAllCount} 条` : '一键发送到提示词创新'}
+                                                    className={`${btnBase} tooltip-bottom ${sentAllCount !== null ? 'text-emerald-300 bg-emerald-800/30 border-emerald-600/50' : 'text-blue-200 bg-blue-900/20 hover:bg-blue-800/30 border-blue-800/40'}`}
+                                                    data-tip={sentAllCount !== null ? `已发送 ${sentAllCount} 条` : '一键发送到提示词创新'}
                                                 >
                                                     {sentAllCount !== null ? <Check size={12} /> : <Share2 size={12} />}
                                                     {sentAllCount !== null ? `已发送 ${sentAllCount}` : '批量送去创新'}
@@ -2764,19 +2764,19 @@ ${text}`;
                                     <div className="flex flex-col gap-2 mt-auto pt-2 border-t border-zinc-800/50">
                                         {/* 状态统计条 */}
                                         <div className="grid grid-cols-4 gap-1.5 mb-1">
-                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/40 text-zinc-400 hover:bg-zinc-800/60 transition-colors cursor-default" title="队列">
+                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/40 text-zinc-400 hover:bg-zinc-800/60 transition-colors cursor-default tooltip-bottom" data-tip="队列">
                                                 <span className="text-[0.6875rem] font-medium">队列</span>
                                                 <span className="text-xs font-bold text-zinc-200 font-mono">{images.length}</span>
                                             </div>
-                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors cursor-default" title="待处理">
+                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors cursor-default tooltip-bottom" data-tip="待处理">
                                                 <span className="text-[0.6875rem] font-medium">待处理</span>
                                                 <span className="text-xs font-bold text-amber-300 font-mono">{images.filter(i => i.status === 'idle' && i.base64Data).length}</span>
                                             </div>
-                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-default" title="成功">
+                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-default tooltip-bottom" data-tip="成功">
                                                 <span className="text-[0.6875rem] font-medium">成功</span>
                                                 <span className="text-xs font-bold text-emerald-300 font-mono">{images.filter(i => i.status === 'success').length}</span>
                                             </div>
-                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-default" title="失败">
+                                            <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-default tooltip-bottom" data-tip="失败">
                                                 <span className="text-[0.6875rem] font-medium">失败</span>
                                                 <span className="text-xs font-bold text-red-300 font-mono">{images.filter(i => i.status === 'error').length}</span>
                                             </div>
@@ -2795,7 +2795,7 @@ ${text}`;
                                                             : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20 hover:shadow-emerald-900/40 hover:-translate-y-0.5'
                                                         }
                                         `}
-                                                    title="开始对待处理的图片进行 AI 识别"
+                                                    data-tip="开始对待处理的图片进行 AI 识别"
                                                 >
                                                     <Zap size={16} fill="currentColor" /> 开始识别
                                                 </button>
@@ -2805,8 +2805,8 @@ ${text}`;
                                                     images.filter(i => (i.status === 'success' || i.status === 'error') && i.base64Data).length > 0 && (
                                                         <button
                                                             onClick={handleResetAndRun}
-                                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-sm hover:shadow-blue-500/20 shrink-0"
-                                                            title="重新将所有图片设为待处理并立即开始"
+                                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-sm hover:shadow-blue-500/20 shrink-0 tooltip-bottom"
+                                                            data-tip="重新将所有图片设为待处理并立即开始"
                                                         >
                                                             <RotateCw size={14} /> 全部重跑
                                                         </button>
@@ -2815,8 +2815,8 @@ ${text}`;
                                                 {images.filter(i => i.status === 'error').length > 0 && (
                                                     <button
                                                         onClick={handleRetryFailedAndRun}
-                                                        className="px-4 py-2 bg-red-900/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shrink-0"
-                                                        title="仅重试失败的任务"
+                                                        className="px-4 py-2 bg-red-900/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shrink-0 tooltip-bottom"
+                                                        data-tip="仅重试失败的任务"
                                                     >
                                                         <RotateCw size={14} /> 重试失败 ({images.filter(i => i.status === 'error').length})
                                                     </button>
@@ -2830,14 +2830,14 @@ ${text}`;
                                                         ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
                                                         : 'bg-amber-600 hover:bg-amber-500 text-white'
                                                         }`}
-                                                    title={isPaused ? '继续处理队列' : '暂停处理队列'}
+                                                    data-tip={isPaused ? '继续处理队列' : '暂停处理队列'}
                                                 >
                                                     {isPaused ? <><Play size={16} fill="currentColor" /> 继续</> : <><Pause size={16} fill="currentColor" /> 暂停</>}
                                                 </button>
                                                 <button
                                                     onClick={handleStop}
-                                                    className="py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 bg-zinc-800 hover:bg-red-600/90 text-zinc-300 hover:text-white transition-all"
-                                                    title="停止处理并清除队列"
+                                                    className="py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 bg-zinc-800 hover:bg-red-600/90 text-zinc-300 hover:text-white transition-all tooltip-bottom"
+                                                    data-tip="停止处理并清除队列"
                                                 >
                                                     <Square size={16} fill="currentColor" /> 停止
                                                 </button>
