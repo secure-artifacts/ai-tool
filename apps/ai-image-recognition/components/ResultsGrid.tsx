@@ -79,8 +79,8 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
             <span className="text-zinc-600 text-xs italic">等待处理...</span>
             <button
                 onClick={() => onRetry(item.id)}
-                className="flex items-center gap-1 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 px-2 py-1 rounded text-[0.625rem] transition-colors"
-                title="单独开始处理这张图片"
+                className="flex items-center gap-1 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 px-2 py-1 rounded text-[0.625rem] transition-colors tooltip-bottom"
+                data-tip="单独开始处理这张图片"
             >
                 <Play size={10} />
                 开始
@@ -121,10 +121,10 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
 
     return (
         <div
-            className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative"
+            className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative tooltip-bottom"
             onClick={handleSingleClick}
             onDoubleClick={() => onExpand?.(item)}
-            title="双击放大窗口查看结果"
+            data-tip="双击放大窗口查看结果"
         >
             {item.result}
             {/* 单击提示气泡 - 显示在鼠标位置 */}
@@ -143,8 +143,8 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
             {/* 放大提示图标 */}
             <button
                 onClick={(e) => { e.stopPropagation(); onExpand?.(item); }}
-                className="absolute top-0 right-0 p-1 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/result:opacity-100 transition-opacity"
-                title="点击放大查看"
+                className="absolute top-0 right-0 p-1 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/result:opacity-100 transition-opacity tooltip-bottom"
+                data-tip="点击放大查看"
             >
                 <Maximize2 size={12} />
             </button>
@@ -299,7 +299,7 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
                                     <span className="text-xs font-normal text-emerald-400">(已翻译)</span>
                                 )}
                             </h3>
-                            <p className="text-[0.625rem] text-zinc-500 truncate max-w-xs" title={item.originalInput}>
+                            <p className="text-[0.625rem] text-zinc-500 truncate max-w-xs tooltip-bottom" data-tip={item.originalInput}>
                                 {item.originalInput}
                             </p>
                         </div>
@@ -311,8 +311,8 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
                                 // 已翻译：显示切换按钮
                                 <button
                                     onClick={() => setShowTranslation(!showTranslation)}
-                                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all border border-zinc-700"
-                                    title="切换原文/译文"
+                                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all border border-zinc-700 tooltip-bottom"
+                                    data-tip="切换原文/译文"
                                 >
                                     <ArrowLeftRight size={12} />
                                     <span className={showTranslation ? 'text-zinc-500' : 'text-emerald-400'}>原</span>
@@ -324,8 +324,8 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
                                 <button
                                     onClick={handleTranslateAll}
                                     disabled={isTranslating}
-                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 transition-all"
-                                    title="翻译全文（智能识别中英文）"
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 transition-all tooltip-bottom"
+                                    data-tip="翻译全文（智能识别中英文）"
                                 >
                                     {isTranslating ? (
                                         <Loader2 size={12} className="animate-spin" />
@@ -338,19 +338,19 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
                         )}
                         <button
                             onClick={() => handleCopy()}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${copied
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all tooltip-bottom ${copied
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white'
                                 }`}
-                            title="复制结果"
+                            data-tip="复制结果"
                         >
                             {copied ? <Check size={14} /> : <Copy size={14} />}
                             {copied ? '已复制' : '复制'}
                         </button>
                         <button
                             onClick={onClose}
-                            className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors"
-                            title="关闭 (ESC)"
+                            className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors tooltip-bottom"
+                            data-tip="关闭 (ESC)"
                         >
                             <X size={18} />
                         </button>
@@ -536,11 +536,11 @@ const TextExpandModal = ({ text, title = '查看内容', subtitle, onClose, onTr
                             <button
                                 onClick={handleTranslateAll}
                                 disabled={isTranslating}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${showTranslation && translatedText
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all tooltip-bottom ${showTranslation && translatedText
                                     ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30'
                                     : 'bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30'
                                     }`}
-                                title="翻译全文（智能识别中英文）"
+                                data-tip="翻译全文（智能识别中英文）"
                             >
                                 {isTranslating ? (
                                     <Loader2 size={14} className="animate-spin" />
@@ -561,19 +561,19 @@ const TextExpandModal = ({ text, title = '查看内容', subtitle, onClose, onTr
                         )}
                         <button
                             onClick={() => handleCopy(showTranslation && translatedText ? translatedText : text)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${copied
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all tooltip-bottom ${copied
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white'
                                 }`}
-                            title="复制内容"
+                            data-tip="复制内容"
                         >
                             {copied ? <Check size={14} /> : <Copy size={14} />}
                             {copied ? '已复制' : '复制'}
                         </button>
                         <button
                             onClick={onClose}
-                            className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors"
-                            title="关闭 (ESC)"
+                            className="p-2 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors tooltip-bottom"
+                            data-tip="关闭 (ESC)"
                         >
                             <X size={18} />
                         </button>
@@ -2115,27 +2115,31 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 {/* Status Icon */}
                                 <div className="flex-shrink-0">
                                     {item.status === 'idle' && (
-                                        <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center" title="等待处理">
+                                        <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center tooltip-bottom" data-tip="等待处理">
                                             <div className="w-2 h-2 rounded-full bg-zinc-600" />
                                         </div>
                                     )}
                                     {item.status === 'loading' && (
-                                        <Loader2 size={16} className="animate-spin text-emerald-400" title="AI 识别中" />
+                                        <span className="tooltip-bottom" data-tip="AI 识别中">
+                                            <Loader2 size={16} className="animate-spin text-emerald-400" />
+                                        </span>
                                     )}
                                     {item.status === 'success' && (
-                                        <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center" title="识别成功">
+                                        <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center tooltip-bottom" data-tip="识别成功">
                                             <div className="w-2 h-2 rounded-full bg-emerald-400" />
                                         </div>
                                     )}
                                     {item.status === 'error' && (
-                                        <AlertCircle size={16} className="text-red-400" title="处理出错" />
+                                        <span className="tooltip-bottom" data-tip="处理出错">
+                                            <AlertCircle size={16} className="text-red-400" />
+                                        </span>
                                     )}
                                 </div>
 
                                 {/* Result or Status Text */}
                                 <div className="flex-1 min-w-0">
                                     {item.status === 'success' ? (
-                                        <div className="text-sm text-zinc-200 truncate" title={item.result}>
+                                        <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.result}>
                                             {item.result}
                                         </div>
                                     ) : item.status === 'error' ? (
