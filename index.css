@@ -9594,3 +9594,109 @@ textarea:focus-visible {
   height: 1px;
   opacity: 0;
 }
+
+/* ============================================
+   📜 历史记录面板样式
+   ============================================ */
+
+.history-panel {
+  background: linear-gradient(135deg, rgba(30, 30, 35, 0.95) 0%, rgba(25, 25, 30, 0.98) 100%);
+  border-top: 1px solid rgba(100, 100, 120, 0.2);
+  padding: 12px 16px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.history-title {
+  color: #a0a0b0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.history-view-all-btn {
+  background: transparent;
+  border: none;
+  color: #8b8bf0;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.history-loading,
+.history-empty {
+  font-size: 12px;
+  text-align: center;
+  padding: 16px;
+}
+
+.history-loading {
+  color: #888;
+}
+
+.history-empty {
+  color: #666;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-item {
+  background: rgba(50, 50, 60, 0.5);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-item:hover {
+  background: rgba(70, 70, 90, 0.6);
+}
+
+.history-item-icon {
+  color: #888;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.history-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-item-original {
+  color: #d0d0e0;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item-translated {
+  color: #8b8bf0;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.history-item-copy-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  font-size: 12px;
+}

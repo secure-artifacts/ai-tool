@@ -786,42 +786,30 @@ Rules:
 
             {/* 历史记录折叠区域 */}
             {showHistory && (
-                <div style={{
-                    background: 'linear-gradient(135deg, rgba(30, 30, 35, 0.95) 0%, rgba(25, 25, 30, 0.98) 100%)',
-                    borderTop: '1px solid rgba(100, 100, 120, 0.2)',
-                    padding: '12px 16px',
-                    maxHeight: '200px',
-                    overflowY: 'auto'
-                }} className="custom-scrollbar">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <span style={{ color: '#a0a0b0', fontSize: '12px', fontWeight: 500 }}>
+                <div className="history-panel custom-scrollbar">
+                    <div className="history-header">
+                        <span className="history-title">
                             翻译历史 ({historyItems.length})
                         </span>
                         {historyItems.length > 0 && (
                             <button
                                 onClick={() => setShowProjectPanel(true)}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: '#8b8bf0',
-                                    fontSize: '11px',
-                                    cursor: 'pointer'
-                                }}
+                                className="history-view-all-btn"
                             >
                                 查看全部
                             </button>
                         )}
                     </div>
                     {historyLoading ? (
-                        <div style={{ color: '#888', fontSize: '12px', textAlign: 'center', padding: '16px' }}>
+                        <div className="history-loading">
                             加载中...
                         </div>
                     ) : historyItems.length === 0 ? (
-                        <div style={{ color: '#666', fontSize: '12px', textAlign: 'center', padding: '16px' }}>
+                        <div className="history-empty">
                             暂无翻译记录
                         </div>
                     ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div className="history-list">
                             {historyItems.slice(0, 10).map((item, index) => (
                                 <div
                                     key={item.id || index}
@@ -829,40 +817,16 @@ Rules:
                                         setInputText(item.originalText || '');
                                         setShowHistory(false);
                                     }}
-                                    style={{
-                                        background: 'rgba(50, 50, 60, 0.5)',
-                                        borderRadius: '6px',
-                                        padding: '8px 10px',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.2s',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(70, 70, 90, 0.6)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(50, 50, 60, 0.5)'}
+                                    className="history-item"
                                 >
-                                    <span style={{ color: '#888', fontSize: '10px', flexShrink: 0 }}>
+                                    <span className="history-item-icon">
                                         {item.type === 'ocr' ? '🖼️' : '📝'}
                                     </span>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{
-                                            color: '#d0d0e0',
-                                            fontSize: '11px',
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis'
-                                        }}>
+                                    <div className="history-item-content">
+                                        <div className="history-item-original">
                                             {(item.originalText || '').slice(0, 40)}{(item.originalText || '').length > 40 ? '...' : ''}
                                         </div>
-                                        <div style={{
-                                            color: '#8b8bf0',
-                                            fontSize: '11px',
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            marginTop: '2px'
-                                        }}>
+                                        <div className="history-item-translated">
                                             → {(item.translatedText || '').slice(0, 40)}{(item.translatedText || '').length > 40 ? '...' : ''}
                                         </div>
                                     </div>
@@ -871,14 +835,7 @@ Rules:
                                             e.stopPropagation();
                                             navigator.clipboard.writeText(item.translatedText || '');
                                         }}
-                                        style={{
-                                            background: 'transparent',
-                                            border: 'none',
-                                            color: '#888',
-                                            cursor: 'pointer',
-                                            padding: '4px',
-                                            fontSize: '12px'
-                                        }}
+                                        className="history-item-copy-btn"
                                         title="复制译文"
                                     >
                                         📋
