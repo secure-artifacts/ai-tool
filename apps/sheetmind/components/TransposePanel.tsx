@@ -2635,7 +2635,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                         <div className="p-3 space-y-3">
                             <div className="bg-slate-50 rounded-lg p-2 border border-slate-200">
                                 <div className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                                    📋 输出顺序
+                                    <ListOrdered size={12} /> 输出顺序
                                     <span className="text-[9px] text-slate-400">(拖拽或按钮调整)</span>
                                 </div>
                                 {effectiveDataColumns.length === 0 ? (
@@ -3453,7 +3453,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                             {expandedGroups.has(group.key) && (
                                                 <div className="border-t border-slate-100 p-3 bg-slate-50">
                                                     <div className="text-xs text-slate-500 mb-2">
-                                                        📊 转置预览 (每行=字段，每列=数据)
+                                                        <ArrowRightLeft size={12} className="inline mr-1" /> 转置预览 (每行=字段，每列=数据)
                                                     </div>
                                                     <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
                                                         <table className="text-xs border-collapse">
@@ -3565,7 +3565,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                 >
                                     <h4 className="text-sm font-bold text-orange-800 flex items-center gap-2">
                                         {showOutputPreview ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-                                        📊 转置输出预览
+                                        <ArrowRightLeft size={14} /> 转置输出预览
                                         <span className="text-xs font-normal text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">
                                             {outputPlan.length} 行 × {Math.max(...outputPlan.map(p => p.data.length))} 列
                                         </span>
