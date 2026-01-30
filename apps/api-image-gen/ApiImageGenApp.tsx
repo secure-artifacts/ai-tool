@@ -1,6 +1,6 @@
 // API 生图 - 主组件
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
     Upload,
     Image as ImageIcon,
@@ -22,7 +22,10 @@ import {
     Layers,
     CheckSquare,
     Square,
-    Zap
+    Zap,
+    ListPlus,
+    Pause,
+    SkipForward
 } from 'lucide-react';
 import {
     WorkflowState,
@@ -39,8 +42,7 @@ import {
 import {
     generatePrompts,
     generateImage,
-    downloadImage,
-    downloadAllImages
+    downloadImage
 } from './services/imageGenService';
 
 // 初始状态
@@ -67,7 +69,10 @@ const ApiImageGenApp: React.FC = () => {
         generate: true,
     });
     const [isOneClickMode, setIsOneClickMode] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [isProcessingQueue, setIsProcessingQueue] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pauseRef = useRef(false);
 
     // 更新状态
     const updateState = useCallback((updates: Partial<WorkflowState>) => {
@@ -110,7 +115,7 @@ const ApiImageGenApp: React.FC = () => {
                 state.promptInstruction
             );
             updateState({ generatedPrompts: prompts, isGeneratingPrompts: false });
-            return prompts; // 返回生成的 prompts 供一键生成使用
+            return prompts;
         } catch (error) {
             console.error('生成描述词失败:', error);
             alert('生成描述词失败: ' + (error as Error).message);
@@ -135,56 +140,89 @@ const ApiImageGenApp: React.FC = () => {
         updateState({ generatedPrompts: newPrompts });
     }, [state.generatedPrompts, updateState]);
 
-    // 第三步：开始批量生图
-    const handleStartGeneration = async (promptsToUse?: GeneratedPrompt[]) => {
+    // 添加任务到队列（不立即执行）
+    const handleAddToQueue = useCallback((promptsToUse?: GeneratedPrompt[]) => {
         const selectedPrompts = (promptsToUse || state.generatedPrompts).filter(p => p.selected);
         if (selectedPrompts.length === 0) {
             alert('请至少选择一个描述词');
             return;
         }
 
-        // 生成唯一前缀，同一批次的图片共用
         const batchPrefix = generateFilePrefix();
 
-        // 创建任务，每个任务有唯一的文件名
-        const tasks: ImageGenTask[] = selectedPrompts.map((prompt, index) => ({
-            id: `task-${Date.now()}-${prompt.id}`,
+        // 创建新任务
+        const newTasks: ImageGenTask[] = selectedPrompts.map((prompt, index) => ({
+            id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             promptId: prompt.id,
-            promptText: prompt.textEn, // 使用英文版本生成
-            filename: `${batchPrefix}-${index + 1}.png`, // 唯一文件名
+            promptText: prompt.textEn,
+            promptTextZh: prompt.textZh,
+            filename: `${batchPrefix}-${index + 1}.png`,
             model: state.model,
             size: state.size,
             useReferenceImage: state.useReferenceImage,
+            referenceImages: state.useReferenceImage ? [...state.inputImages] : undefined,
             status: 'pending' as TaskStatus,
             progress: 0,
             createdAt: Date.now(),
         }));
 
-        updateState({ tasks, isGeneratingImages: true });
+        // 添加到现有队列
+        setState(prev => ({
+            ...prev,
+            tasks: [...prev.tasks, ...newTasks],
+        }));
 
-        // 依次执行任务
-        for (let i = 0; i < tasks.length; i++) {
-            const task = tasks[i];
+        // 清空已选中的 prompts
+        const clearedPrompts = state.generatedPrompts.map(p => ({ ...p, selected: false }));
+        updateState({ generatedPrompts: clearedPrompts });
+
+        return newTasks;
+    }, [state.generatedPrompts, state.model, state.size, state.useReferenceImage, state.inputImages, updateState]);
+
+    // 处理队列中的任务
+    const processQueue = useCallback(async () => {
+        if (isProcessingQueue) return;
+
+        setIsProcessingQueue(true);
+        updateState({ isGeneratingImages: true });
+
+        while (true) {
+            // 检查是否暂停
+            if (pauseRef.current) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                continue;
+            }
+
+            // 获取下一个待处理的任务
+            const currentState = await new Promise<WorkflowState>(resolve => {
+                setState(prev => {
+                    resolve(prev);
+                    return prev;
+                });
+            });
+
+            const pendingTask = currentState.tasks.find(t => t.status === 'pending');
+            if (!pendingTask) break;
 
             // 更新任务状态为运行中
             setState(prev => ({
                 ...prev,
                 tasks: prev.tasks.map(t =>
-                    t.id === task.id ? { ...t, status: 'running' as TaskStatus } : t
+                    t.id === pendingTask.id ? { ...t, status: 'running' as TaskStatus } : t
                 ),
             }));
 
             try {
                 const result = await generateImage(
-                    task.promptText,
-                    state.useReferenceImage ? state.inputImages : null,
-                    task.model,
-                    task.size,
+                    pendingTask.promptText,
+                    pendingTask.referenceImages || null,
+                    pendingTask.model,
+                    pendingTask.size,
                     (progress) => {
                         setState(prev => ({
                             ...prev,
                             tasks: prev.tasks.map(t =>
-                                t.id === task.id ? { ...t, progress } : t
+                                t.id === pendingTask.id ? { ...t, progress } : t
                             ),
                         }));
                     }
@@ -194,22 +232,22 @@ const ApiImageGenApp: React.FC = () => {
                 setState(prev => ({
                     ...prev,
                     tasks: prev.tasks.map(t =>
-                        t.id === task.id
+                        t.id === pendingTask.id
                             ? { ...t, status: 'completed' as TaskStatus, result, progress: 100, completedAt: Date.now() }
                             : t
                     ),
                 }));
 
-                // 自动下载 - 使用任务的唯一文件名
-                if (state.autoDownload && result) {
-                    downloadImage(result, task.filename);
+                // 自动下载
+                if (currentState.autoDownload && result) {
+                    downloadImage(result, pendingTask.filename);
                 }
             } catch (error) {
                 console.error('生成图片失败:', error);
                 setState(prev => ({
                     ...prev,
                     tasks: prev.tasks.map(t =>
-                        t.id === task.id
+                        t.id === pendingTask.id
                             ? { ...t, status: 'failed' as TaskStatus, error: (error as Error).message }
                             : t
                     ),
@@ -217,8 +255,31 @@ const ApiImageGenApp: React.FC = () => {
             }
         }
 
+        setIsProcessingQueue(false);
         updateState({ isGeneratingImages: false });
-    };
+    }, [isProcessingQueue, updateState]);
+
+    // 开始执行队列
+    const handleStartQueue = useCallback(() => {
+        pauseRef.current = false;
+        setIsPaused(false);
+        processQueue();
+    }, [processQueue]);
+
+    // 暂停/继续队列
+    const handleTogglePause = useCallback(() => {
+        pauseRef.current = !pauseRef.current;
+        setIsPaused(pauseRef.current);
+    }, []);
+
+    // 添加并立即开始
+    const handleAddAndStart = useCallback(async (promptsToUse?: GeneratedPrompt[]) => {
+        handleAddToQueue(promptsToUse);
+        // 延迟一点确保状态更新
+        setTimeout(() => {
+            processQueue();
+        }, 100);
+    }, [handleAddToQueue, processQueue]);
 
     // 一键生成：自动执行步骤2和步骤3
     const handleOneClickGeneration = async () => {
@@ -229,33 +290,76 @@ const ApiImageGenApp: React.FC = () => {
 
         setIsOneClickMode(true);
 
-        // 执行步骤2：生成描述词
         const prompts = await handleGeneratePrompts();
 
         if (prompts && prompts.length > 0) {
-            // 等待状态更新完成
             await new Promise(resolve => setTimeout(resolve, 100));
-
-            // 执行步骤3：批量生图
-            await handleStartGeneration(prompts);
+            handleAddAndStart(prompts);
         }
 
         setIsOneClickMode(false);
     };
 
-    // 下载所有完成的图片 - 使用任务的唯一文件名
-    const handleDownloadAll = () => {
+    // 下载单个图片
+    const handleDownloadImage = useCallback((task: ImageGenTask) => {
+        if (task.result) {
+            downloadImage(task.result, task.filename);
+        }
+    }, []);
+
+    // 下载所有完成的图片
+    const handleDownloadAll = useCallback(() => {
         const completedTasks = state.tasks.filter(t => t.status === 'completed' && t.result);
         completedTasks.forEach(task => {
             downloadImage(task.result!, task.filename);
         });
-    };
+    }, [state.tasks]);
+
+    // 删除单个任务
+    const handleRemoveTask = useCallback((taskId: string) => {
+        setState(prev => ({
+            ...prev,
+            tasks: prev.tasks.filter(t => t.id !== taskId),
+        }));
+    }, []);
+
+    // 清空已完成的任务
+    const handleClearCompleted = useCallback(() => {
+        setState(prev => ({
+            ...prev,
+            tasks: prev.tasks.filter(t => t.status !== 'completed'),
+        }));
+    }, []);
+
+    // 清空所有任务
+    const handleClearAllTasks = useCallback(() => {
+        if (confirm('确定要清空所有任务吗？')) {
+            setState(prev => ({
+                ...prev,
+                tasks: [],
+                isGeneratingImages: false,
+            }));
+            setIsProcessingQueue(false);
+        }
+    }, []);
 
     // 清空重置
     const handleReset = () => {
         if (confirm('确定要清空所有内容吗？')) {
             setState(initialState);
+            setIsProcessingQueue(false);
+            pauseRef.current = false;
+            setIsPaused(false);
         }
+    };
+
+    // 获取队列统计
+    const queueStats = {
+        total: state.tasks.length,
+        pending: state.tasks.filter(t => t.status === 'pending').length,
+        running: state.tasks.filter(t => t.status === 'running').length,
+        completed: state.tasks.filter(t => t.status === 'completed').length,
+        failed: state.tasks.filter(t => t.status === 'failed').length,
     };
 
     // 渲染任务状态图标
@@ -285,14 +389,14 @@ const ApiImageGenApp: React.FC = () => {
                     <Sparkles size={24} className="text-indigo-500" />
                     <h1 className="text-lg font-bold text-slate-800">API 生图</h1>
                     <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                        Opal 风格工作流
+                        批量队列模式
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
                     {/* 一键生成按钮 */}
                     <button
                         onClick={handleOneClickGeneration}
-                        disabled={isOneClickMode || state.isGeneratingPrompts || state.isGeneratingImages || (state.inputImages.length === 0 && !state.inputText.trim())}
+                        disabled={isOneClickMode || state.isGeneratingPrompts || (state.inputImages.length === 0 && !state.inputText.trim())}
                         className="px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                         data-tip="一键生成"
                     >
@@ -318,7 +422,7 @@ const ApiImageGenApp: React.FC = () => {
                 </div>
             </div>
 
-            {/* Main Content - 三步工作流 */}
+            {/* Main Content */}
             <div className="flex-1 overflow-auto p-4 space-y-4">
                 {/* 第一步：输入 */}
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -336,7 +440,6 @@ const ApiImageGenApp: React.FC = () => {
 
                     {expandedSections.input && (
                         <div className="p-4 space-y-4">
-                            {/* 图片上传区 */}
                             <div
                                 onDrop={handleDrop}
                                 onDragOver={(e) => e.preventDefault()}
@@ -356,7 +459,6 @@ const ApiImageGenApp: React.FC = () => {
                                 <p className="text-xs text-slate-400 mt-1">支持多张图片</p>
                             </div>
 
-                            {/* 已上传的图片 */}
                             {state.inputImages.length > 0 && (
                                 <div className="flex flex-wrap gap-2">
                                     {state.inputImages.map((file, index) => (
@@ -383,7 +485,6 @@ const ApiImageGenApp: React.FC = () => {
                                 </div>
                             )}
 
-                            {/* 文字描述 */}
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">
                                     文字描述（可选）
@@ -421,12 +522,9 @@ const ApiImageGenApp: React.FC = () => {
 
                     {expandedSections.prompts && (
                         <div className="p-4 space-y-4">
-                            {/* 自定义指令 */}
                             <div>
                                 <div className="flex items-center justify-between mb-1">
-                                    <label className="text-sm font-medium text-slate-700">
-                                        自定义指令
-                                    </label>
+                                    <label className="text-sm font-medium text-slate-700">自定义指令</label>
                                     <button
                                         onClick={() => setShowInstructionEditor(!showInstructionEditor)}
                                         className="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1"
@@ -441,7 +539,6 @@ const ApiImageGenApp: React.FC = () => {
                                         onChange={(e) => updateState({ promptInstruction: e.target.value })}
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm font-mono"
                                         rows={8}
-                                        placeholder="输入 AI 生成描述词的指令..."
                                     />
                                 )}
                                 {!showInstructionEditor && (
@@ -451,7 +548,6 @@ const ApiImageGenApp: React.FC = () => {
                                 )}
                             </div>
 
-                            {/* 生成按钮 */}
                             <button
                                 onClick={handleGeneratePrompts}
                                 disabled={state.isGeneratingPrompts || (state.inputImages.length === 0 && !state.inputText.trim())}
@@ -470,7 +566,6 @@ const ApiImageGenApp: React.FC = () => {
                                 )}
                             </button>
 
-                            {/* 生成的描述词列表 - 双语显示 */}
                             {state.generatedPrompts.length > 0 && (
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
@@ -502,12 +597,9 @@ const ApiImageGenApp: React.FC = () => {
                                                 </button>
                                                 <div className="flex-1 space-y-2">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-xs font-bold text-purple-600">
-                                                            Prompt {index + 1}
-                                                        </span>
+                                                        <span className="text-xs font-bold text-purple-600">Prompt {index + 1}</span>
                                                     </div>
 
-                                                    {/* 中文版本 - 仅展示 */}
                                                     {prompt.textZh && (
                                                         <div className="bg-white/50 rounded-lg p-2">
                                                             <div className="flex items-center gap-1 mb-1">
@@ -517,7 +609,6 @@ const ApiImageGenApp: React.FC = () => {
                                                         </div>
                                                     )}
 
-                                                    {/* 英文版本 - 可编辑 (用于生成) */}
                                                     <div className="bg-white/50 rounded-lg p-2">
                                                         <div className="flex items-center gap-1 mb-1">
                                                             <span className="text-[10px] font-medium text-blue-400 bg-blue-100 px-1.5 py-0.5 rounded">🇺🇸 EN</span>
@@ -547,7 +638,7 @@ const ApiImageGenApp: React.FC = () => {
                     )}
                 </div>
 
-                {/* 第三步：批量生图 */}
+                {/* 第三步：任务队列 */}
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <button
                         onClick={() => setExpandedSections(s => ({ ...s, generate: !s.generate }))}
@@ -556,10 +647,10 @@ const ApiImageGenApp: React.FC = () => {
                         <div className="flex items-center gap-2">
                             <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold">3</div>
                             <Layers size={18} />
-                            <span className="font-medium">批量生图</span>
-                            {state.tasks.length > 0 && (
+                            <span className="font-medium">任务队列</span>
+                            {queueStats.total > 0 && (
                                 <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
-                                    {state.tasks.filter(t => t.status === 'completed').length}/{state.tasks.length} 完成
+                                    {queueStats.completed}/{queueStats.total} 完成
                                 </span>
                             )}
                         </div>
@@ -570,7 +661,6 @@ const ApiImageGenApp: React.FC = () => {
                         <div className="p-4 space-y-4">
                             {/* 配置选项 */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                {/* 模型选择 */}
                                 <div>
                                     <label className="block text-xs font-medium text-slate-700 mb-1">模型</label>
                                     <select
@@ -584,7 +674,6 @@ const ApiImageGenApp: React.FC = () => {
                                     </select>
                                 </div>
 
-                                {/* 尺寸选择 */}
                                 <div>
                                     <label className="block text-xs font-medium text-slate-700 mb-1">尺寸</label>
                                     <select
@@ -598,7 +687,6 @@ const ApiImageGenApp: React.FC = () => {
                                     </select>
                                 </div>
 
-                                {/* 垫图模式 */}
                                 <div className="flex items-end">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input
@@ -608,11 +696,10 @@ const ApiImageGenApp: React.FC = () => {
                                             className="w-4 h-4 text-green-500 rounded focus:ring-green-500"
                                             disabled={state.inputImages.length === 0}
                                         />
-                                        <span className="text-sm text-slate-700">垫图模式 (img2img)</span>
+                                        <span className="text-sm text-slate-700">垫图模式</span>
                                     </label>
                                 </div>
 
-                                {/* 自动下载 */}
                                 <div className="flex items-end">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input
@@ -626,39 +713,110 @@ const ApiImageGenApp: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* 生成按钮 */}
-                            <div className="flex gap-2">
+                            {/* 操作按钮 */}
+                            <div className="flex flex-wrap gap-2">
+                                {/* 添加到队列 */}
                                 <button
-                                    onClick={() => handleStartGeneration()}
-                                    disabled={state.isGeneratingImages || state.generatedPrompts.filter(p => p.selected).length === 0}
-                                    className="flex-1 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    onClick={() => handleAddToQueue()}
+                                    disabled={state.generatedPrompts.filter(p => p.selected).length === 0}
+                                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium flex items-center gap-2 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >
-                                    {state.isGeneratingImages ? (
-                                        <>
-                                            <Loader2 size={18} className="animate-spin" />
-                                            生成中...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Play size={18} />
-                                            开始批量生图 ({state.generatedPrompts.filter(p => p.selected).length} 张)
-                                        </>
-                                    )}
+                                    <ListPlus size={18} />
+                                    添加到队列 ({state.generatedPrompts.filter(p => p.selected).length})
                                 </button>
-                                {state.tasks.some(t => t.status === 'completed') && (
+
+                                {/* 添加并开始 */}
+                                <button
+                                    onClick={() => handleAddAndStart()}
+                                    disabled={state.generatedPrompts.filter(p => p.selected).length === 0}
+                                    className="px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg font-medium flex items-center gap-2 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                >
+                                    <Play size={18} />
+                                    添加并开始
+                                </button>
+
+                                {/* 队列控制 */}
+                                {queueStats.pending > 0 && (
+                                    <>
+                                        {!isProcessingQueue ? (
+                                            <button
+                                                onClick={handleStartQueue}
+                                                className="px-4 py-2 bg-blue-500 text-white rounded-lg font-medium flex items-center gap-2 hover:bg-blue-600 transition-colors"
+                                            >
+                                                <Play size={18} />
+                                                开始队列 ({queueStats.pending})
+                                            </button>
+                                        ) : (
+                                            <button
+                                                onClick={handleTogglePause}
+                                                className={`px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-colors ${isPaused
+                                                        ? 'bg-green-500 text-white hover:bg-green-600'
+                                                        : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                                                    }`}
+                                            >
+                                                {isPaused ? <Play size={18} /> : <Pause size={18} />}
+                                                {isPaused ? '继续' : '暂停'}
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+
+                                {queueStats.completed > 0 && (
+                                    <>
+                                        <button
+                                            onClick={handleDownloadAll}
+                                            className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium flex items-center gap-2 hover:bg-slate-200 transition-colors"
+                                        >
+                                            <Download size={18} />
+                                            下载全部 ({queueStats.completed})
+                                        </button>
+                                        <button
+                                            onClick={handleClearCompleted}
+                                            className="px-4 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg font-medium flex items-center gap-2 transition-colors"
+                                        >
+                                            <X size={18} />
+                                            清除已完成
+                                        </button>
+                                    </>
+                                )}
+
+                                {queueStats.total > 0 && (
                                     <button
-                                        onClick={handleDownloadAll}
-                                        className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-lg font-medium flex items-center gap-2 hover:bg-slate-200 transition-colors"
+                                        onClick={handleClearAllTasks}
+                                        className="px-4 py-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg font-medium flex items-center gap-2 transition-colors"
                                     >
-                                        <Download size={18} />
-                                        全部下载
+                                        <Trash2 size={18} />
+                                        清空队列
                                     </button>
                                 )}
                             </div>
 
-                            {/* 任务队列 / 结果展示 */}
+                            {/* 队列统计 */}
+                            {queueStats.total > 0 && (
+                                <div className="flex items-center gap-4 text-sm">
+                                    <span className="text-slate-500">队列状态:</span>
+                                    <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600">
+                                        待处理 {queueStats.pending}
+                                    </span>
+                                    {queueStats.running > 0 && (
+                                        <span className="px-2 py-0.5 bg-blue-100 rounded text-blue-600">
+                                            进行中 {queueStats.running}
+                                        </span>
+                                    )}
+                                    <span className="px-2 py-0.5 bg-green-100 rounded text-green-600">
+                                        已完成 {queueStats.completed}
+                                    </span>
+                                    {queueStats.failed > 0 && (
+                                        <span className="px-2 py-0.5 bg-red-100 rounded text-red-600">
+                                            失败 {queueStats.failed}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 任务列表 */}
                             {state.tasks.length > 0 && (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                                     {state.tasks.map((task, index) => (
                                         <div
                                             key={task.id}
@@ -673,8 +831,14 @@ const ApiImageGenApp: React.FC = () => {
                                                         className="w-full h-full object-cover"
                                                     />
                                                 ) : (
-                                                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200">
+                                                    <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-2">
                                                         {renderTaskStatus(task.status, task.progress)}
+                                                        {/* 显示中文描述词预览 */}
+                                                        {task.promptTextZh && (
+                                                            <p className="mt-2 text-[10px] text-slate-400 text-center line-clamp-3">
+                                                                {task.promptTextZh}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 )}
 
@@ -682,13 +846,23 @@ const ApiImageGenApp: React.FC = () => {
                                                 <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 text-white text-xs">
                                                     #{index + 1}
                                                 </div>
+
+                                                {/* 删除按钮 */}
+                                                {task.status !== 'running' && (
+                                                    <button
+                                                        onClick={() => handleRemoveTask(task.id)}
+                                                        className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {/* 操作区 */}
                                             {task.result && (
                                                 <div className="p-2 flex justify-center gap-2">
                                                     <button
-                                                        onClick={() => downloadImage(task.result!, task.filename)}
+                                                        onClick={() => handleDownloadImage(task)}
                                                         className="px-3 py-1 bg-green-500 text-white text-xs rounded-lg hover:bg-green-600"
                                                     >
                                                         <Download size={12} className="inline mr-1" />
@@ -698,11 +872,9 @@ const ApiImageGenApp: React.FC = () => {
                                             )}
 
                                             {/* 文件名显示 */}
-                                            {task.filename && (
-                                                <div className="px-2 pb-2 text-[10px] text-slate-400 truncate text-center">
-                                                    {task.filename}
-                                                </div>
-                                            )}
+                                            <div className="px-2 pb-2 text-[10px] text-slate-400 truncate text-center">
+                                                {task.filename}
+                                            </div>
 
                                             {/* 错误提示 */}
                                             {task.status === 'failed' && task.error && (
@@ -712,6 +884,15 @@ const ApiImageGenApp: React.FC = () => {
                                             )}
                                         </div>
                                     ))}
+                                </div>
+                            )}
+
+                            {/* 空状态 */}
+                            {state.tasks.length === 0 && (
+                                <div className="text-center py-8 text-slate-400">
+                                    <Layers size={48} className="mx-auto mb-2 opacity-50" />
+                                    <p>队列为空</p>
+                                    <p className="text-xs mt-1">选择描述词后点击"添加到队列"</p>
                                 </div>
                             )}
                         </div>

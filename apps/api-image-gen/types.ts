@@ -25,11 +25,13 @@ export const generateFilePrefix = (): string => {
 export interface ImageGenTask {
     id: string;
     promptId: string;
-    promptText: string;
-    filename: string;  // 唯一文件名，同一张图多次下载保持不变
+    promptText: string;      // 英文描述词 (用于生成)
+    promptTextZh?: string;   // 中文描述词 (用于显示)
+    filename: string;        // 唯一文件名，同一张图多次下载保持不变
     model: ImageGenModel;
     size: ImageSize;
     useReferenceImage: boolean; // 是否垫图
+    referenceImages?: File[];   // 参考图片 (垫图模式下使用)
     status: TaskStatus;
     progress: number;
     result?: string; // base64 或 URL
