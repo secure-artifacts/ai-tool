@@ -2616,7 +2616,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
 
 
     return (
-        <div className="h-full bg-slate-50 overflow-hidden flex flex-col sheetmind-light-form" style={{ colorScheme: 'light' }}>
+        <div className="h-full bg-slate-50 overflow-hidden flex flex-col sheetmind-light-form color-scheme-light">
             <div className="flex-1 flex overflow-hidden">
                 {/* Left Panel - Config - Collapsible */}
                 {showLeftPanel ? (
@@ -3599,7 +3599,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                 </div>
                                             </div>
                                         )}
-                                        <table ref={tableRef} tabIndex={0} className="w-full border-collapse outline-none select-none" style={{ willChange: 'auto' }}>
+                                        <table ref={tableRef} tabIndex={0} className="w-full border-collapse outline-none select-none" className="will-change-auto">
                                             {/* Column Headers */}
                                             <thead className="sticky top-0 z-10">
                                                 <tr>

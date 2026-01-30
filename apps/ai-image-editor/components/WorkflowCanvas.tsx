@@ -439,10 +439,10 @@ export const Canvas = forwardRef<{
                                 {isLayerActive && tool === 'move' && (
                                     <>
                                         <div data-drag-type="move" className="absolute inset-0 cursor-move"></div>
-                                        <div data-drag-type="scale-tl" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize" style={{ top: -8, left: -8 }}></div>
-                                        <div data-drag-type="scale-tr" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nesw-resize" style={{ top: -8, right: -8 }}></div>
-                                        <div data-drag-type="scale-bl" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nesw-resize" style={{ bottom: -8, left: -8 }}></div>
-                                        <div data-drag-type="scale-br" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize" style={{ bottom: -8, right: -8 }}></div>
+                                        <div data-drag-type="scale-tl" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize crop-handle-tl"></div>
+                                        <div data-drag-type="scale-tr" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nesw-resize crop-handle-tr"></div>
+                                        <div data-drag-type="scale-bl" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nesw-resize crop-handle-bl"></div>
+                                        <div data-drag-type="scale-br" className="absolute w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-nwse-resize crop-handle-br"></div>
                                     </>
                                 )}
                             </div>

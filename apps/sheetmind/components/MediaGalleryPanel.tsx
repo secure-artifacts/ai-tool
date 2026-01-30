@@ -6132,9 +6132,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     };
 
     return (
-        <div className="h-full flex flex-col bg-slate-50 sheetmind-light-form" style={{ colorScheme: 'light' }}>
+        <div className="h-full flex flex-col bg-slate-50 sheetmind-light-form color-scheme-light">
 
-            <div className="flex-1 flex overflow-hidden" style={{ minHeight: 0, minWidth: 0 }}>
+            <div className="flex-1 flex overflow-hidden flex-overflow-container">
                 {/* Config Panel */}
                 {showConfig && (
                     <div className="w-72 flex-shrink-0 bg-white border-r border-slate-200 overflow-y-auto p-4 space-y-4 [&_label]:font-semibold [&_label]:text-slate-700">
@@ -6991,7 +6991,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 )}
 
                 {/* Main Content */}
-                <div className="flex-1 overflow-hidden flex flex-col relative" style={{ minHeight: 0, minWidth: 0 }}>
+                <div className="flex-1 overflow-hidden flex flex-col relative" className="flex-overflow-container">
                     {/* Toolbar */}
                     <div className="flex-shrink-0 bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
@@ -7243,7 +7243,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 overflow-auto p-4" style={{ minHeight: 0, minWidth: 0 }} ref={contentScrollRef}>
+                    <div className="flex-1 overflow-auto p-4" className="flex-overflow-container" ref={contentScrollRef}>
                         {/* Favorites View */}
                         {showFavorites && (
                             <div className="space-y-4">
