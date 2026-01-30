@@ -111,7 +111,7 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                             disabled={isProcessing}
                         >
                             <img src={item.imageData.url} alt="thumbnail" />
-                            <span className="tab-filename" title={item.imageData.name}>{item.imageData.name}</span>
+                            <span className="tab-filename tooltip-bottom" data-tip={item.imageData.name}>{item.imageData.name}</span>
                             <span className="role-badge">
                                 {item.role === 'style' && '🎨'}
                                 {item.role === 'composition' && '📐'}
@@ -120,15 +120,15 @@ export const FusionWorkspace: React.FC<FusionWorkspaceProps> = ({
                                 {item.role === 'inspiration' && '💡'}
                             </span>
                             <button
-                                className="delete-img-btn-tab"
+                                className="delete-img-btn-tab tooltip-bottom"
                                 onClick={(e) => { e.stopPropagation(); onRemoveItem(item.id); }}
-                                title={t('deleteImage') || '删除图片'}
+                                data-tip={t('deleteImage') || '删除图片'}
                             >×</button>
                         </button>
                     ))}
                     {/* 添加更多图片按钮 */}
                     <FileUploader onFileSelect={(files) => onAddImages(files as File[])} multiple openOnClick={false} onPaste={onPaste}>
-                        <button type="button" className="tab-btn tab-btn-add" title="双击选择图片，或直接粘贴图片（支持从谷歌表格等来源粘贴）">
+                        <button type="button" className="tab-btn tab-btn-add tooltip-bottom" data-tip="双击选择图片，或直接粘贴图片（支持从谷歌表格等来源粘贴）">
                             <Plus size={14} /> <span>{t('addImage') || '添加/粘贴图片'}</span>
                         </button>
                     </FileUploader>

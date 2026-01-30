@@ -54,8 +54,8 @@ export const ExpertSelector: React.FC<ExpertSelectorProps> = ({
                         />
                         <label
                             htmlFor={`expert-${expert}`}
-                            className={`expert-option-label ${disabled ? 'disabled' : ''}`}
-                            title={expertDescriptions[expert]}
+                            className={`expert-option-label tooltip-bottom ${disabled ? 'disabled' : ''}`}
+                            data-tip={expertDescriptions[expert]}
                         >
                             {expert}
                         </label>

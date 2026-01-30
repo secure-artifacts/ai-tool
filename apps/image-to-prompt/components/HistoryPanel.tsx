@@ -50,9 +50,9 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({
                             </span>
                         </div>
                         <button
-                            className="delete-session-btn"
+                            className="delete-session-btn tooltip-bottom"
                             onClick={(e) => { e.stopPropagation(); onDeleteSession(session.id); }}
-                            title={t('deleteSession') || '删除会话'}
+                            data-tip={t('deleteSession') || '删除会话'}
                         >
                             &times;
                         </button>
