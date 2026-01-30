@@ -41,7 +41,8 @@ import {
     SIZE_OPTIONS,
     MODEL_OPTIONS,
     TaskStatus,
-    generateFilePrefix
+    generateFilePrefix,
+    generateDefaultInstruction
 } from './types';
 import {
     generatePrompts,
@@ -72,6 +73,7 @@ const initialState: WorkflowState = {
     inputImages: [],
     inputText: '',
     promptInstruction: DEFAULT_PROMPT_INSTRUCTION,
+    promptCount: 4,
     generatedPrompts: [],
     isGeneratingPrompts: false,
     model: 'gemini-3-pro',
@@ -291,6 +293,18 @@ const ApiImageGenApp: React.FC = () => {
         ));
     }, []);
 
+    // 行级拖拽处理 - 直接拖拽图片到单元格
+    const handleRowDrop = useCallback((rowId: string, e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        if (files.length > 0) {
+            setBatchRows(prev => prev.map(r =>
+                r.id === rowId ? { ...r, images: [...r.images, ...files], status: 'ready' } : r
+            ));
+        }
+    }, []);
+
     // 删除行中的图片
     const handleRemoveRowImage = useCallback((rowId: string, imageIndex: number) => {
         setBatchRows(prev => prev.map(r => {
@@ -300,6 +314,15 @@ const ApiImageGenApp: React.FC = () => {
             return { ...r, images: newImages };
         }));
     }, []);
+
+    // 更新描述词个数
+    const handlePromptCountChange = useCallback((count: number) => {
+        const validCount = Math.max(1, Math.min(10, count));
+        updateState({
+            promptCount: validCount,
+            promptInstruction: generateDefaultInstruction(validCount)
+        });
+    }, [updateState]);
 
     // 从粘贴文本批量添加行
     const handlePasteImport = useCallback(() => {
@@ -616,6 +639,17 @@ const ApiImageGenApp: React.FC = () => {
                                         ))}
                                     </select>
                                 </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-700 mb-1">描述词个数</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={10}
+                                        value={state.promptCount}
+                                        onChange={(e) => handlePromptCountChange(parseInt(e.target.value) || 4)}
+                                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
                                 <div className="flex items-end">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input
@@ -645,8 +679,8 @@ const ApiImageGenApp: React.FC = () => {
                                 onDragLeave={handleDragLeave}
                                 onDrop={handleDrop}
                                 className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isDragging
-                                        ? 'border-blue-500 bg-blue-50'
-                                        : 'border-slate-300 hover:border-slate-400'
+                                    ? 'border-blue-500 bg-blue-50'
+                                    : 'border-slate-300 hover:border-slate-400'
                                     }`}
                             >
                                 <div className="flex items-center justify-center gap-4">
@@ -664,8 +698,8 @@ const ApiImageGenApp: React.FC = () => {
                                         <button
                                             onClick={() => setDragMode('split')}
                                             className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${dragMode === 'split'
-                                                    ? 'bg-blue-500 text-white'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                ? 'bg-blue-500 text-white'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                                                 }`}
                                             title="每张图片创建一个任务"
                                         >
@@ -675,8 +709,8 @@ const ApiImageGenApp: React.FC = () => {
                                         <button
                                             onClick={() => setDragMode('merge')}
                                             className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${dragMode === 'merge'
-                                                    ? 'bg-blue-500 text-white'
-                                                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                                ? 'bg-blue-500 text-white'
+                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                                                 }`}
                                             title="所有图片合并到一个任务"
                                         >
@@ -704,7 +738,12 @@ const ApiImageGenApp: React.FC = () => {
                                         {batchRows.map((row, index) => (
                                             <tr key={row.id} className={row.status === 'added' ? 'bg-green-50' : ''}>
                                                 <td className="px-3 py-2 text-sm text-slate-500">{index + 1}</td>
-                                                <td className="px-3 py-2">
+                                                <td
+                                                    className="px-3 py-2"
+                                                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-50'); }}
+                                                    onDragLeave={(e) => { e.currentTarget.classList.remove('bg-blue-50'); }}
+                                                    onDrop={(e) => { e.currentTarget.classList.remove('bg-blue-50'); handleRowDrop(row.id, e); }}
+                                                >
                                                     <div className="flex items-center gap-1 flex-wrap">
                                                         {row.images.map((img, imgIdx) => (
                                                             <div key={imgIdx} className="relative group">
@@ -723,7 +762,8 @@ const ApiImageGenApp: React.FC = () => {
                                                         ))}
                                                         <button
                                                             onClick={() => fileInputRefs.current[row.id]?.click()}
-                                                            className="w-10 h-10 border-2 border-dashed border-slate-300 rounded flex items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-400 text-xs"
+                                                            className="w-10 h-10 border-2 border-dashed border-slate-300 rounded flex items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-400 text-xs transition-colors"
+                                                            title="点击添加或拖拽图片到此"
                                                         >
                                                             <Plus size={14} />
                                                         </button>

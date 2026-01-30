@@ -47,6 +47,7 @@ export interface WorkflowState {
 
     // 第二步：描述词生成
     promptInstruction: string; // 自定义指令
+    promptCount: number; // 描述词个数
     generatedPrompts: GeneratedPrompt[];
     isGeneratingPrompts: boolean;
 
@@ -59,23 +60,25 @@ export interface WorkflowState {
     autoDownload: boolean;
 }
 
-export const DEFAULT_PROMPT_INSTRUCTION = `请根据输入的图片和/或文字描述，生成4个不同风格的详细图像描述词(prompt)。
+// 生成默认指令 (根据数量动态生成)
+export const generateDefaultInstruction = (count: number): string => {
+    const promptLines = Array.from({ length: count }, (_, i) =>
+        `PROMPT${i + 1}_EN: [English description for image generation]\nPROMPT${i + 1}_ZH: [对应的中文描述]`
+    ).join('\n');
+
+    return `请根据输入的图片和/或文字描述，生成${count}个不同风格的详细图像描述词(prompt)。
 
 要求：
 1. 每个描述词应该详细、具体，适合 AI 图像生成
 2. 描述词应该包含：主体、场景、风格、光线、色调等元素
 3. 同时提供英文版本和中文版本 (英文用于生成，中文方便查看)
-4. 4个描述词应该有明显的差异，例如不同风格、角度或氛围
+4. ${count}个描述词应该有明显的差异，例如不同风格、角度或氛围
 
 请严格按照以下格式输出 (每个 prompt 包含 EN 和 ZH 两行)：
-PROMPT1_EN: [English description for image generation]
-PROMPT1_ZH: [对应的中文描述]
-PROMPT2_EN: [English description for image generation]
-PROMPT2_ZH: [对应的中文描述]
-PROMPT3_EN: [English description for image generation]
-PROMPT3_ZH: [对应的中文描述]
-PROMPT4_EN: [English description for image generation]
-PROMPT4_ZH: [对应的中文描述]`;
+${promptLines}`;
+};
+
+export const DEFAULT_PROMPT_INSTRUCTION = generateDefaultInstruction(4);
 
 export const SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
     { value: '512x512', label: '512×512 (1:1)' },
