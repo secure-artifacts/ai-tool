@@ -5,7 +5,7 @@ import {
     CalendarDays, LayoutGrid, ChevronLeft, Table2, Filter, ArrowRight, Info,
     Cloud, Download, Upload, Loader2, Bookmark, CloudOff, Link2, RefreshCw,
     Grid3X3, Star, Copy, MessageSquare, Edit3, Send, Tag, FolderPlus, RotateCcw, FolderTree, Layers, GripVertical,
-    FileText, FolderOpen, Lightbulb, AlertCircle, BookOpen, ClipboardList, BarChart2
+    FileText, FolderOpen, Lightbulb, AlertCircle, BookOpen, ClipboardList, BarChart2, Video
 } from 'lucide-react';
 import { SheetData, DataRow } from '../types';
 import {
@@ -6640,7 +6640,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                     onChange={e => updateConfig({ showAllImages: e.target.checked })}
                                     className="w-4 h-4 rounded border-slate-300 text-indigo-500 focus:ring-indigo-500"
                                 />
-                                <span className="text-xs text-slate-700">📷 显示全部图片 (不限制数量)</span>
+                                <span className="text-xs text-slate-700 flex items-center gap-1"><Image size={12} /> 显示全部图片 (不限制数量)</span>
                             </label>
                             <p className="text-[10px] text-slate-400 mt-1 ml-6">关闭时，每个分组/单元格只显示部分图片以提高性能</p>
                         </div>
@@ -6726,7 +6726,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             })}
                                             className="px-2 py-1 text-[10px] bg-purple-100 text-purple-700 hover:bg-purple-200 rounded transition-colors"
                                         >
-                                            📷 画面分类
+                                            <Image size={12} className="inline mr-1" /> 画面分类
                                         </button>
                                         <button
                                             onClick={() => updateConfig({
@@ -6734,7 +6734,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             })}
                                             className="px-2 py-1 text-[10px] bg-blue-100 text-blue-700 hover:bg-blue-200 rounded transition-colors"
                                         >
-                                            🎬 参考分类
+                                            <Video size={12} className="inline mr-1" /> 参考分类
                                         </button>
                                         <button
                                             onClick={() => updateConfig({

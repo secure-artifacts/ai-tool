@@ -8,7 +8,7 @@ import {
     ArrowUpDown, Sparkles, ChevronDown, ChevronUp, Plus, Trash2,
     Check, ArrowUp, ArrowDown, X, Eye, EyeOff, Copy, Maximize2, Minimize2,
     RefreshCw, Link, Save, ClipboardList, FileText, UserCheck, BarChart2,
-    CheckCircle, XCircle, AlertTriangle, FolderOpen, Hash, FolderTree
+    CheckCircle, XCircle, AlertTriangle, FolderOpen, Hash, FolderTree, ThumbsUp, MessageSquare
 } from 'lucide-react';
 import {
     SharedConfig,
@@ -829,7 +829,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         }
                                     }}
                                     className={`px-2 py-1 text-[10px] rounded border ${config.groupColumn?.includes('点赞') ? 'bg-indigo-500 text-white border-indigo-600' : 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200 text-indigo-700'}`}
-                                >👍 按点赞范围</button>
+                                ><ThumbsUp size={10} className="inline mr-1" /> 按点赞范围</button>
                                 <button
                                     onClick={() => {
                                         const authorCol = data.columns.find(c => c.includes('作者') || c.includes('账号') || c.includes('用户'));
@@ -2365,7 +2365,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             }
                                         }}
                                         className="px-2 py-1 text-[10px] bg-orange-50 hover:bg-orange-100 rounded border border-orange-200 text-orange-700"
-                                    >👍 点赞↓</button>
+                                    ><ThumbsUp size={12} className="inline mr-1" /> 点赞↓</button>
                                     <button
                                         onClick={() => {
                                             const commentCol = data.columns.find(c => c.includes('评论') || c.includes('comment'));
@@ -2376,7 +2376,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             }
                                         }}
                                         className="px-2 py-1 text-[10px] bg-orange-50 hover:bg-orange-100 rounded border border-orange-200 text-orange-700"
-                                    >💬 评论↓</button>
+                                    ><MessageSquare size={12} className="inline mr-1" /> 评论↓</button>
                                     <button
                                         onClick={() => {
                                             const dateCol = data.columns.find(c => c.includes('日期') || c.includes('时间') || c.includes('Date'));
