@@ -893,7 +893,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 </div>
                 <aside className="staging-sidebar">
                     {/* 批量模式切换 */}
-                    <div className="mode-selector" className="mb-4">
+                    <div className="mode-selector mb-4">
                         <ModeToggle
                             modes={[
                                 { key: 'accurate', label: t('accurateMode') || '精确模式' },
@@ -1079,7 +1079,6 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                     className="delete-img-btn-tab"
                                     onClick={(e) => { e.stopPropagation(); handleDeleteImage(img.id); }}
                                     title={t('deleteImage') || '删除图片'}
-                                    className="delete-img-btn-tab"
                                 >×</button>
                             </div>
                         ))}
