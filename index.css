@@ -16,7 +16,7 @@
   --info-color: #3b82f6;
 
   /* Base typography size (responsive, bounded) */
-  --app-base-font-size: clamp(14px, 0.15vw + 14px, 18px);
+  --app-base-font-size: clamp(13px, 0.1vw + 13px, 15px);
 
   /* Combined scale: (UI scale %) * (Font scale %) */
   --app-scale: 1;

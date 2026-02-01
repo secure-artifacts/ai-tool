@@ -142,9 +142,9 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     {/* 话题 (Sibling) */}
                     {!isRoot && (
                         <button
-                            className="toolbar-btn-v2"
+                            className="toolbar-btn-v2 tooltip-bottom"
                             onClick={(e) => { e.stopPropagation(); handleAddSibling(); }}
-                            className="tooltip-bottom" data-tip="添加话题 (Enter)"
+                            data-tip="添加话题 (Enter)"
                         >
                             <GitCommit className="toolbar-icon rotate-90" size={16} />
                             <span className="toolbar-label">话题</span>
@@ -152,9 +152,9 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     )}
                     {/* 子主题 (Child) */}
                     <button
-                        className="toolbar-btn-v2"
+                        className="toolbar-btn-v2 tooltip-bottom"
                         onClick={(e) => { e.stopPropagation(); handleAddChild(); }}
-                        className="tooltip-bottom" data-tip="添加子主题 (Tab)"
+                        data-tip="添加子主题 (Tab)"
                     >
                         <GitBranch className="toolbar-icon" size={16} />
                         <span className="toolbar-label">子主题</span>
@@ -162,20 +162,20 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     <div className="toolbar-divider" />
                     {/* 关系 */}
                     <button
-                        className="toolbar-btn-v2"
+                        className="toolbar-btn-v2 tooltip-bottom"
                         onClick={(e) => {
                             e.stopPropagation();
                             // 简化：提示用户当前暂不支持关系连线的可视化
                             alert('关系连线功能已启用！\n使用方法：先添加关系，导出时会包含关系数据。\n可视化渲染正在开发中...');
                         }}
-                        className="tooltip-bottom" data-tip="关系连线（开发中）"
+                        data-tip="关系连线（开发中）"
                     >
                         <Link2 className="toolbar-icon" size={16} />
                         <span className="toolbar-label">关系</span>
                     </button>
                     {/* 边界 */}
                     <button
-                        className="toolbar-btn-v2"
+                        className="toolbar-btn-v2 tooltip-bottom"
                         onClick={(e) => {
                             e.stopPropagation();
                             // 给当前节点及其子节点添加边界
@@ -185,14 +185,14 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                                 useMindMapStore.getState().addBoundary(nodeIds, `${node.label} 边界`);
                             }
                         }}
-                        className="tooltip-bottom" data-tip="添加边界"
+                        data-tip="添加边界"
                     >
                         <BoxSelect className="toolbar-icon" size={16} />
                         <span className="toolbar-label">边界</span>
                     </button>
                     {/* 概括 */}
                     <button
-                        className="toolbar-btn-v2"
+                        className="toolbar-btn-v2 tooltip-bottom"
                         onClick={(e) => {
                             e.stopPropagation();
                             // 给当前节点的子节点添加概括
@@ -206,7 +206,7 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                                 alert('需要先有子节点才能添加概括');
                             }
                         }}
-                        className="tooltip-bottom" data-tip="添加概括"
+                        data-tip="添加概括"
                     >
                         <Braces className="toolbar-icon" size={16} />
                         <span className="toolbar-label">概括</span>
@@ -214,9 +214,9 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     <div className="toolbar-divider" />
                     {/* AI 扩展 */}
                     <button
-                        className="toolbar-btn-v2 ai-btn"
+                        className="toolbar-btn-v2 ai-btn tooltip-bottom"
                         onClick={(e) => { e.stopPropagation(); openAiExpand(data.id as string); }}
-                        className="tooltip-bottom" data-tip="AI 扩展"
+                        data-tip="AI 扩展"
                     >
                         <Sparkles className="toolbar-icon" size={16} />
                         <span className="toolbar-label">AI</span>
@@ -239,9 +239,9 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     </button>
                     {/* 编辑 */}
                     <button
-                        className="toolbar-btn-v2 edit-btn"
+                        className="toolbar-btn-v2 edit-btn tooltip-bottom"
                         onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-                        className="tooltip-bottom" data-tip="编辑文本 (F2)"
+                        data-tip="编辑文本 (F2)"
                     >
                         <Edit2 className="toolbar-icon" size={16} />
                         <span className="toolbar-label">编辑</span>
@@ -249,9 +249,9 @@ const MindMapNodeComponent: React.FC<NodeProps> = ({ data, selected }) => {
                     {/* 删除 */}
                     {!isRoot && (
                         <button
-                            className="toolbar-btn-v2 delete-btn"
+                            className="toolbar-btn-v2 delete-btn tooltip-bottom"
                             onClick={(e) => { e.stopPropagation(); deleteNode(data.id as string); }}
-                            className="tooltip-bottom" data-tip="删除 (Delete)"
+                            data-tip="删除 (Delete)"
                         >
                             <Trash2 className="toolbar-icon" size={16} />
                             <span className="toolbar-label">删除</span>
@@ -1785,7 +1785,7 @@ export const MindMapCanvas: React.FC = () => {
             instance.getNode?.(nodeId) || (instance.getNodes?.() || []).find((node) => node.id === nodeId) || null;
 
         const focusTarget = (target: Node) => {
-            const position = target.positionAbsolute || target.position;
+            const position = (target as any).positionAbsolute || target.position;
             const width = target.width ?? (target.style as { width?: number } | undefined)?.width ?? 180;
             const height = target.height ?? (target.style as { height?: number } | undefined)?.height ?? 50;
             const currentZoom = instance.getZoom?.() ?? 1;

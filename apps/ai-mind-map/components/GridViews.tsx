@@ -81,12 +81,12 @@ export const GridViews: React.FC<GridViewsProps> = ({
     // 通用添加按钮组件
     const AddButton: React.FC<{ parentId: string; className?: string }> = ({ parentId, className = '' }) => (
         <button
-            className={`gv-add-btn ${className}`}
+            className={`gv-add-btn ${className} tooltip-bottom`}
             onClick={(e) => {
                 e.stopPropagation();
                 onAddNode?.(parentId);
             }}
-            className="tooltip-bottom" data-tip="添加子节点"
+            data-tip="添加子节点"
         >
             <Plus size={14} />
         </button>

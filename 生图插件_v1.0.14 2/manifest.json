@@ -1,0 +1,128 @@
+{
+  "manifest_version": 3,
+  "name": "生图插件",
+  "description": "点击插件图标查看支持网站",
+  "version": "1.0.14",
+  "author": {
+    "name": "作者名称",
+    "email": "example@gmail.com"
+  },
+  "minimum_chrome_version": "103",
+  "version_name": "1.0.14",
+  "content_scripts": [
+    {
+      "js": [
+        "assets/index.ts-loader-Cl9X4R3s.js"
+      ],
+      "matches": [
+        "https://labs.google/fx/*/tools/whisk",
+        "https://labs.google/fx/tools/whisk",
+        "https://labs.google/fx/*/tools/whisk/*",
+        "https://labs.google/fx/tools/whisk/*",
+        "https://www.meta.ai/*",
+        "https://sora.chatgpt.com/*",
+        "https://hailuoai.video/*",
+        "https://grok.com/*",
+        "https://dreamina.capcut.com/*",
+        "https://business.gemini.google/*",
+        "https://labs.google/fx/*/tools/flow",
+        "https://labs.google/fx/tools/flow",
+        "https://labs.google/fx/*/tools/flow/*",
+        "https://labs.google/fx/tools/flow/*",
+        "https://playground.bfl.ai/*",
+        "https://lmarena.ai/*",
+        "https://www.hedra.com/*",
+        "https://opal.google/*"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "downloads",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "offscreen"
+  ],
+  "action": {
+    "default_icon": "assets/logo-128.png",
+    "default_popup": "src/scopes/popup/index.html"
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "16": "assets/logo-16.png",
+    "19": "assets/logo-19.png",
+    "32": "assets/logo-32.png",
+    "38": "assets/logo-38.png",
+    "48": "assets/logo-48.png",
+    "128": "assets/logo-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "*"
+      ],
+      "use_dynamic_url": false
+    },
+    {
+      "matches": [
+        "https://business.gemini.google/*",
+        "https://dreamina.capcut.com/*",
+        "https://grok.com/*",
+        "https://hailuoai.video/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://labs.google/*",
+        "https://lmarena.ai/*",
+        "https://opal.google/*",
+        "https://playground.bfl.ai/*",
+        "https://sora.chatgpt.com/*",
+        "https://www.hedra.com/*",
+        "https://www.meta.ai/*"
+      ],
+      "resources": [
+        "assets/const-CyB7ld5s.js",
+        "assets/index.ts-Bq2zlfXG.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://labs.google/fx/*/tools/whisk",
+      "https://labs.google/fx/tools/whisk",
+      "https://labs.google/fx/*/tools/whisk/*",
+      "https://labs.google/fx/tools/whisk/*",
+      "https://www.meta.ai/*",
+      "https://sora.chatgpt.com/*",
+      "https://hailuoai.video/*",
+      "https://grok.com/*",
+      "https://dreamina.capcut.com/*",
+      "https://business.gemini.google/*",
+      "https://labs.google/fx/*/tools/flow",
+      "https://labs.google/fx/tools/flow",
+      "https://labs.google/fx/*/tools/flow/*",
+      "https://labs.google/fx/tools/flow/*",
+      "https://playground.bfl.ai/*",
+      "https://lmarena.ai/*",
+      "https://www.hedra.com/*",
+      "https://opal.google/*"
+    ]
+  }
+}

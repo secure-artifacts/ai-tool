@@ -435,16 +435,16 @@ ${userGoal}
                                         {step.status === 'pending' && (
                                             <div className="step-actions">
                                                 <button
-                                                    className="step-approve"
+                                                    className="step-approve tooltip-bottom"
                                                     onClick={() => approveStep(step.id)}
-                                                    className="tooltip-bottom" data-tip="批准"
+                                                    data-tip="批准"
                                                 >
                                                     <Check size={16} />
                                                 </button>
                                                 <button
-                                                    className="step-reject"
+                                                    className="step-reject tooltip-bottom"
                                                     onClick={() => rejectStep(step.id)}
-                                                    className="tooltip-bottom" data-tip="跳过"
+                                                    data-tip="跳过"
                                                 >
                                                     <X size={16} />
                                                 </button>

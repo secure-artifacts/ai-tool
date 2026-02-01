@@ -60,7 +60,7 @@ import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-i
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import SubEmailGenerator from '@/apps/sub-email/SubEmailGenerator';
-import { Clock, Loader2, Check, X, Image, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot, Package, BookOpen, Edit, PlusCircle, Search } from 'lucide-react';
+import { Clock, Loader2, Check, X, Image as ImageIcon, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot, Package, BookOpen, Edit, PlusCircle, Search } from 'lucide-react';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
@@ -1039,11 +1039,16 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       (window as any).__app_get_ai_instance = getAiInstanceWithAutoRotate;
+      // 暴露API池供子模块使用
+      (window as any).__apiPool = apiPool;
+      (window as any).__usePool = usePool;
       return () => {
         delete (window as any).__app_get_ai_instance;
+        delete (window as any).__apiPool;
+        delete (window as any).__usePool;
       };
     }
-  }, [getAiInstanceWithAutoRotate]);
+  }, [getAiInstanceWithAutoRotate, apiPool, usePool]);
 
   const isKeySet = !!getCurrentApiKey();
 
@@ -4436,6 +4441,12 @@ const ImageStudioTool: React.FC<{
     const handlePaste = async (event: ClipboardEvent) => {
       if (image) return; // Don't paste if an image is already loaded
 
+      // ===== Input Back-off: 允许 INPUT/TEXTAREA 正常接收粘贴事件 =====
+      const target = event.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return; // 让浏览器正常处理文本粘贴
+      }
+
       const items = event.clipboardData?.items;
       if (!items) return;
 
@@ -5340,7 +5351,7 @@ const ImageStudioTool: React.FC<{
       {images.length === 0 ? (
         <FileUploader onFileSelect={(file) => handleImageSelect(file as File)} multiple={true}>
           <div className="uploader-content">
-            <Image size={24} />
+            <ImageIcon size={24} />
             <p>{t('uploadSingleImage')}</p>
             <div className="upload-buttons">
               <button type="button" className="secondary-btn" onClick={(e) => {
@@ -5412,7 +5423,7 @@ const ImageStudioTool: React.FC<{
                       <button className="secondary-btn" onClick={handleDownload} disabled={isLoading || historyIndex <= 0}>{t('download')}</button>
                       {onEditInMagicCanvas && (
                         <button
-                          className="secondary-btn"
+                          className="secondary-btn tooltip-bottom"
                           onClick={() => {
                             if (activeImage && activeImage.url) {
                               fetch(activeImage.url)
@@ -5425,7 +5436,6 @@ const ImageStudioTool: React.FC<{
                           }}
                           disabled={isLoading}
                           data-tip={t('editInMagicCanvas') || 'Edit in Magic Canvas'}
-                          className="secondary-btn tooltip-bottom"
                         >
                           <Palette size={14} className="inline mr-1" /> {t('editInMagicCanvas') || 'Edit in Magic Canvas'}
                         </button>

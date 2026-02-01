@@ -196,6 +196,8 @@ interface GalleryConfig {
     fuzzyRuleText?: string;    // Keyword merge rules (format: "keyword1,keyword2=group;...")
     // Display columns configuration
     displayColumns?: string[]; // Columns to display in detail view
+    // Pure image mode - extract all image URLs from any cell, ignore row/column structure
+    pureImageMode?: boolean;
 }
 
 interface SavedConfig {
@@ -798,7 +800,109 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     // Priority: sharedConfig > local config - MUST be defined early so all column references use transposed data
     const effectiveTranspose = sharedConfig?.transposeData ?? config.transposeData;
 
+    // Pure image mode: extract all image URLs from any cell, ignore row/column structure
+    const effectivePureImageMode = sharedConfig?.pureImageMode ?? config.pureImageMode;
+
     const effectiveData = useMemo((): SheetData => {
+        // Pure image mode: scan ALL cells to extract image URLs
+        if (effectivePureImageMode && data.rows.length > 0) {
+            const imageUrls = new Set<string>();
+
+            // Helper function to check if a string looks like an image URL
+            const isImageUrl = (url: string): boolean => {
+                if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+                const lowerUrl = url.toLowerCase();
+
+                // 1. Standard image extensions
+                if (/\.(jpg|jpeg|png|gif|webp|svg|bmp|avif|tiff|ico)(\?|$)/i.test(url)) return true;
+
+                // 2. Known image CDN domains (often no extension)
+                if (/pbs\.twimg\.com/i.test(url)) return true;  // Twitter
+                if (/instagram\./i.test(url) && /scontent/i.test(url)) return true;  // Instagram CDN
+                if (/fbcdn\.net|fbcdn\.com/i.test(url)) return true;  // Facebook CDN
+                if (/cdninstagram\.com/i.test(url)) return true;  // Instagram CDN alt
+                if (/imgur\.com/i.test(url)) return true;  // Imgur
+                if (/googleusercontent\.com/i.test(url)) return true;  // Google
+                if (/ggpht\.com/i.test(url)) return true;  // Google Photos
+                if (/drive\.google\.com\/thumbnail/i.test(url)) return true;  // Google Drive thumbnails
+                if (/tumblr\.com/i.test(url) && /media/i.test(url)) return true;  // Tumblr
+                if (/pinimg\.com/i.test(url)) return true;  // Pinterest
+                if (/twimg\.com/i.test(url)) return true;  // Twitter alt
+                if (/cloudinary\.com/i.test(url)) return true;  // Cloudinary
+                if (/unsplash\.com/i.test(url)) return true;  // Unsplash
+                if (/pexels\.com/i.test(url)) return true;  // Pexels
+                if (/flickr\.com|staticflickr\.com/i.test(url)) return true;  // Flickr
+                if (/500px\.org/i.test(url)) return true;  // 500px
+                if (/wp\.com|wordpress\.com/i.test(url) && /uploads/i.test(url)) return true;  // WordPress
+                if (/cdn\./i.test(url) && /(image|photo|pic|img|media)/i.test(url)) return true;  // Generic CDN with image keywords
+
+                // 3. URL path contains image-related keywords
+                if (/(\/photo\/|\/image\/|\/media\/|\/pic\/|\/img\/|\/thumb\/|\/thumbnail\/)/i.test(url)) return true;
+
+                // 4. URL with format parameter suggesting image
+                if (/[?&](format|f)=(jpg|jpeg|png|gif|webp)/i.test(url)) return true;
+
+                // 5. Generic pattern: any URL with image-like query params
+                if (/[?&](w|h|width|height|size|quality)=/i.test(url) && lowerUrl.length > 50) return true;
+
+                return false;
+            };
+
+            // Scan all cells in all rows
+            for (const row of data.rows) {
+                for (const col of data.columns) {
+                    const cellValue = String(row[col] || '');
+                    if (!cellValue) continue;
+
+                    // Method 0: Parse =IMAGE("url") formulas (Google Sheets image formula)
+                    const imageFormulaMatches = cellValue.match(/=IMAGE\s*\(\s*["']([^"']+)["']/gi);
+                    if (imageFormulaMatches) {
+                        for (const match of imageFormulaMatches) {
+                            const urlMatch = match.match(/["']([^"']+)["']/);
+                            if (urlMatch && urlMatch[1]) {
+                                imageUrls.add(urlMatch[1]);
+                            }
+                        }
+                    }
+
+                    // Try to extract URLs from cell content
+                    // Method 1: Split by common separators
+                    const potentialUrls = cellValue.split(/[\s,;\n\t]+/).filter(Boolean);
+
+                    for (const potential of potentialUrls) {
+                        const url = potential.trim();
+                        if (isImageUrl(url)) {
+                            imageUrls.add(url);
+                        }
+                    }
+
+                    // Method 2: Extract URLs using regex (for URLs embedded in text)
+                    const urlMatches = cellValue.match(/https?:\/\/[^\s<>"')\]]+/gi);
+                    if (urlMatches) {
+                        for (const match of urlMatches) {
+                            // Clean up trailing punctuation
+                            const cleanUrl = match.replace(/[.,;:!?)\]]+$/, '');
+                            if (isImageUrl(cleanUrl)) {
+                                imageUrls.add(cleanUrl);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Convert to simple rows with just image column
+            const newRows: DataRow[] = Array.from(imageUrls).map((url, idx) => ({
+                '图片': url,
+                '_pureImageIndex': idx
+            }));
+
+            return {
+                ...data,
+                columns: ['图片'],
+                rows: newRows
+            };
+        }
+
         if (!effectiveTranspose) {
             return data;
         }
@@ -898,7 +1002,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 rows: newRows
             };
         }
-    }, [data, sharedConfig?.transposeData, sharedConfig?.mergeTransposeColumns, config.transposeData]);
+    }, [data, sharedConfig?.transposeData, sharedConfig?.mergeTransposeColumns, config.transposeData, effectivePureImageMode, sharedConfig?.pureImageMode, config.pureImageMode]);
 
     // === Effective Config: sharedConfig overrides local config unless using independent ===
     const effectiveGroupColumn = isUsingSharedConfig && sharedConfig!.groupColumn ? sharedConfig!.groupColumn : config.groupColumn;
@@ -923,7 +1027,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const effectiveDateColumn = isUsingSharedConfig && sharedConfig!.dateColumn ? sharedConfig!.dateColumn : config.dateColumn;
     const effectiveDateStart = filtersEnabled ? (isUsingSharedConfig ? sharedConfig!.dateStart : config.dateStart) : '';
     const effectiveDateEnd = filtersEnabled ? (isUsingSharedConfig ? sharedConfig!.dateEnd : config.dateEnd) : '';
-    const effectiveImageColumn = isUsingSharedConfig && sharedConfig!.imageColumn ? sharedConfig!.imageColumn : config.imageColumn;
+    const effectiveImageColumn = effectivePureImageMode ? '图片' : (isUsingSharedConfig && sharedConfig!.imageColumn ? sharedConfig!.imageColumn : config.imageColumn);
     const effectiveLinkColumn = isUsingSharedConfig && sharedConfig!.linkColumn ? sharedConfig!.linkColumn : config.linkColumn;
     const effectiveAccountColumn = isUsingSharedConfig && sharedConfig!.accountColumn ? sharedConfig!.accountColumn : config.accountColumn;
     const effectiveLabelColumns = (() => {
@@ -4820,6 +4924,73 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         });
     }, [processedRows, effectiveGroupColumns, effectiveImageColumn, config.groupNotes, extractImageUrl, classificationOverrides, customOrderByGroup, copyViewModal]);
 
+    // Copy a single group's data to clipboard (TSV format for pasting to spreadsheets)
+    const copyGroupDataToClipboard = useCallback((groupKey: string, groupRows: DataRow[]) => {
+        if (groupRows.length === 0) {
+            setCopyFeedback('❌ 该分组没有数据');
+            setTimeout(() => setCopyFeedback(null), 2000);
+            return;
+        }
+
+        // Generate headers - use all columns from the data
+        const headers = data.columns;
+        const rows = groupRows.map(row =>
+            headers.map(col => String(row[col] ?? ''))
+        );
+
+        const text = headers.join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
+        navigator.clipboard.writeText(text).then(() => {
+            setCopyFeedback(`✅ 已复制「${groupKey}」${groupRows.length} 行数据`);
+            setTimeout(() => setCopyFeedback(null), 2500);
+        }).catch(err => {
+            console.error('Failed to copy group data:', err);
+            setCopyFeedback('❌ 复制失败');
+            setTimeout(() => setCopyFeedback(null), 2000);
+        });
+    }, [data.columns]);
+
+    // Copy a single group's view layout to clipboard (image formulas in grid)
+    const copyGroupViewToClipboard = useCallback((groupKey: string, groupRows: DataRow[], columnsPerRow: number = 5) => {
+        const imageRows = groupRows.filter(row => extractImageUrl(row[effectiveImageColumn]));
+        if (imageRows.length === 0) {
+            setCopyFeedback('❌ 该分组没有图片');
+            setTimeout(() => setCopyFeedback(null), 2000);
+            return;
+        }
+
+        // Build output: group header + image formulas in rows
+        const outputRows: string[][] = [];
+
+        // Add group header with note if exists
+        const note = config.groupNotes?.[groupKey] || '';
+        const headerText = note ? `${groupKey} — ${note}` : groupKey;
+        outputRows.push([headerText]);
+
+        // Arrange images in rows of columnsPerRow
+        for (let i = 0; i < imageRows.length; i += columnsPerRow) {
+            const chunk = imageRows.slice(i, i + columnsPerRow);
+            const rowFormulas = chunk.map(row => {
+                const url = extractImageUrl(row[effectiveImageColumn]);
+                return url ? `=IMAGE("${url}")` : '';
+            });
+            // Pad with empty cells
+            while (rowFormulas.length < columnsPerRow) {
+                rowFormulas.push('');
+            }
+            outputRows.push(rowFormulas);
+        }
+
+        const text = outputRows.map(row => row.join('\t')).join('\n');
+        navigator.clipboard.writeText(text).then(() => {
+            setCopyFeedback(`✅ 已复制「${groupKey}」${imageRows.length} 张图片 (每行 ${columnsPerRow} 个)`);
+            setTimeout(() => setCopyFeedback(null), 2500);
+        }).catch(err => {
+            console.error('Failed to copy group view:', err);
+            setCopyFeedback('❌ 复制失败');
+            setTimeout(() => setCopyFeedback(null), 2000);
+        });
+    }, [effectiveImageColumn, extractImageUrl, config.groupNotes]);
+
     // Sync to Google Sheets based on current view
     const syncToGoogleSheet = useCallback(async () => {
         if (!sheetsSpreadsheetId || processedRows.length === 0) return;
@@ -6091,16 +6262,16 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         <div className={`absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center ${overlayGap}`}>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setSelectedRow(row); }}
-                                className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40`}
-                                className="tooltip-bottom" data-tip="查看详情"
+                                className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40 tooltip-bottom`}
+                                data-tip="查看详情"
                             >
                                 <Info size={buttonSize} className="text-white" />
                             </button>
                             {link && (
                                 <button
                                     onClick={(e) => { e.stopPropagation(); openExternalUrl(link); }}
-                                    className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40`}
-                                    className="tooltip-bottom" data-tip="打开链接"
+                                    className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40 tooltip-bottom`}
+                                    data-tip="打开链接"
                                 >
                                     <ExternalLink size={buttonSize} className="text-white" />
                                 </button>
@@ -6153,7 +6324,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                     <button
                                         onClick={() => setShowConfig(false)}
                                         className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-600 hover:text-slate-800 transition tooltip-bottom"
-                                         data-tip="收起配置面板"
+                                        data-tip="收起配置面板"
                                     >
                                         <X size={16} />
                                     </button>
@@ -6272,14 +6443,14 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         <button
                                             onClick={copyDataToClipboard}
                                             className="w-full py-1.5 text-[10px] bg-emerald-500 text-white rounded hover:bg-emerald-600 flex items-center justify-center gap-1 tooltip-bottom"
-                                             data-tip="复制筛选后的数据到剪贴板，可粘贴到谷歌表格"
+                                            data-tip="复制筛选后的数据到剪贴板，可粘贴到谷歌表格"
                                         >
                                             <Download size={10} /> 复制到剪贴板 ({processedRows.length}行)
                                         </button>
                                         <button
                                             onClick={() => setCopyViewModal({ ...copyViewModal, open: true })}
                                             className="w-full py-1.5 text-[10px] bg-purple-500 text-white rounded hover:bg-purple-600 flex items-center justify-center gap-1 tooltip-bottom"
-                                             data-tip="复制当前分组视图布局（分组名+缩略图网格）"
+                                            data-tip="复制当前分组视图布局（分组名+缩略图网格）"
                                         >
                                             <Image size={10} /> 复制视图布局
                                         </button>
@@ -6481,7 +6652,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             matrixColColumn: config.matrixRowColumn
                                         })}
                                         className="mt-1 w-full py-1 text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 flex items-center justify-center gap-1 tooltip-bottom"
-                                         data-tip="互换行列"
+                                        data-tip="互换行列"
                                     >
                                         ↔️ 行列互换
                                     </button>
@@ -6631,6 +6802,19 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             </div>
                         )}
 
+                        {/* Pure Image Mode Status - controlled from unified settings */}
+                        {effectivePureImageMode && (
+                            <div className="border-t border-emerald-200 pt-3 bg-emerald-50 -mx-4 px-4 pb-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-emerald-700 font-medium flex items-center gap-1"><Image size={12} /> 纯图片模式已启用</span>
+                                    <span className="text-xs text-emerald-600 font-semibold">{effectiveData.rows.length} 张图片</span>
+                                </div>
+                                <p className="text-[10px] text-emerald-600 mt-1">
+                                    自动扫描所有单元格，提取所有图片URL并平铺显示。在顶部「配置」按钮中可关闭。
+                                </p>
+                            </div>
+                        )}
+
                         {/* Show All Images Toggle */}
                         <div className="border-t border-sky-200 pt-3">
                             <label className="flex items-center gap-2 cursor-pointer">
@@ -6697,7 +6881,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             <button
                                                 onClick={() => updateConfig({ categoryOptions: getDefaultConfig().categoryOptions })}
                                                 className="text-[9px] text-slate-600 hover:text-slate-700 flex items-center gap-0.5 tooltip-bottom"
-                                                 data-tip="恢复默认预设"
+                                                data-tip="恢复默认预设"
                                             >
                                                 <RotateCcw size={10} /> 恢复默认预设
                                             </button>
@@ -6712,7 +6896,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                     setShowPresetEditor(true);
                                                 }}
                                                 className="text-[9px] text-purple-600 hover:text-purple-700 flex items-center gap-0.5 tooltip-bottom"
-                                                 data-tip="保存当前分类为预设"
+                                                data-tip="保存当前分类为预设"
                                             >
                                                 <Plus size={10} /> 保存为预设
                                             </button>
@@ -7065,11 +7249,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 setDraggedItems([]);
                                             }
                                         }}
-                                        className={`px-3 py-1 text-xs rounded flex items-center gap-1.5 transition-colors ${classificationMode
+                                        className={`px-3 py-1 text-xs rounded flex items-center gap-1.5 transition-colors tooltip-bottom ${classificationMode
                                             ? 'bg-purple-100 text-purple-700 border border-purple-300'
                                             : 'bg-slate-100 hover:bg-purple-50 text-slate-600 hover:text-purple-600'
                                             }`}
-                                        className="tooltip-bottom" data-tip="开启分类模式：可拖拽图片到不同分类"
+                                        data-tip="开启分类模式：可拖拽图片到不同分类"
                                     >
                                         <Layers size={12} />
                                         {classificationMode ? `分类中 (${selectedForClassification.size})` : '分类'}
@@ -7084,7 +7268,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 setTimeout(() => setCopyFeedback(null), 1500);
                                             }}
                                             className="px-2 py-1 text-xs rounded flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors tooltip-bottom"
-                                             data-tip="取消全选"
+                                            data-tip="取消全选"
                                         >
                                             ✕ 取消选择
                                         </button>
@@ -7109,7 +7293,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         <button
                                             onClick={() => updateConfig({ searchKeyword: '' })}
                                             className="absolute right-1.5 text-slate-400 hover:text-slate-600 p-0.5 tooltip-bottom"
-                                             data-tip="清除搜索"
+                                            data-tip="清除搜索"
                                         >
                                             <X size={12} />
                                         </button>
@@ -7243,7 +7427,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 overflow-auto p-4 flex-overflow-container"  ref={contentScrollRef}>
+                    <div className="flex-1 overflow-auto p-4 flex-overflow-container" ref={contentScrollRef}>
                         {/* Favorites View */}
                         {showFavorites && (
                             <div className="space-y-4">
@@ -7314,11 +7498,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             }}
                                             onDragLeave={() => setDragOverTarget(null)}
                                             onDrop={(e) => handleDropToFolder(e, folder.id)}
-                                            className={`px-3 py-1.5 text-xs rounded-lg border whitespace-nowrap transition-all flex items-center gap-1 ${activeFolderId === folder.id
+                                            className={`px-3 py-1.5 text-xs rounded-lg border whitespace-nowrap transition-all flex items-center gap-1 tooltip-bottom ${activeFolderId === folder.id
                                                 ? 'bg-amber-500 text-white border-amber-500'
                                                 : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
                                                 } ${dragOverTarget === `folder-${folder.id}` ? 'ring-2 ring-green-400 ring-offset-1 scale-105 bg-green-50' : ''}`}
-                                            className="tooltip-bottom" data-tip="双击编辑 | 右键更多选项"
+                                            data-tip="双击编辑 | 右键更多选项"
                                         >
                                             {folder.emoji || '📁'} {folder.name} ({getFavoritesInFolder(folder.id).length})
                                         </button>
@@ -7445,13 +7629,13 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 draggable
                                                 onDragStart={(e) => handleFavoriteDragStart(e, fav, index)}
                                                 onDragEnd={handleDragEnd}
-                                                className={`relative group bg-white rounded-xl border-2 overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer ${selectedFavorites.has(fav.id)
+                                                className={`relative group bg-white rounded-xl border-2 overflow-hidden shadow-sm hover:shadow-lg transition-all cursor-pointer tooltip-bottom ${selectedFavorites.has(fav.id)
                                                     ? 'border-blue-500 ring-2 ring-blue-200'
                                                     : 'border-slate-200'
                                                     } ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
                                                 style={{ width: config.thumbnailSize + 40 }}
                                                 onClick={() => toggleFavoriteSelection(fav.id)}
-                                                className="tooltip-bottom" data-tip="拖拽到其他收藏夹可移动"
+                                                data-tip="拖拽到其他收藏夹可移动"
                                             >
                                                 {/* Selection checkbox */}
                                                 <div className={`absolute top-2 left-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${selectedFavorites.has(fav.id)
@@ -7542,7 +7726,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                         <button
                                                             onClick={() => toggleFavorite(fav.imageUrl, fav.rowData)}
                                                             className="px-2 py-1 text-[10px] bg-red-50 text-red-600 hover:bg-red-100 rounded tooltip-bottom"
-                                                             data-tip="取消收藏"
+                                                            data-tip="取消收藏"
                                                         >
                                                             <Trash2 size={10} />
                                                         </button>
@@ -8290,11 +8474,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                 await handleClassificationChange(draggedItems, option);
                                                                                             }
                                                                                         }}
-                                                                                        className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all ${dragOverGroup === option
+                                                                                        className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === option
                                                                                             ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
                                                                                             : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                             }`}
-                                                                                        className="tooltip-bottom" data-tip="拖拽图片到此分类"
+                                                                                        data-tip="拖拽图片到此分类"
                                                                                     >
                                                                                         {option}
                                                                                     </div>
@@ -8332,11 +8516,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             });
                                                                                         }
                                                                                     }}
-                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all ${dragOverGroup === targetGroup
+                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === targetGroup
                                                                                         ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
                                                                                         : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                         }`}
-                                                                                    className="tooltip-bottom" data-tip="点击跳转到该分组，拖拽图片到此改变分类"
+                                                                                    data-tip="点击跳转到该分组，拖拽图片到此改变分类"
                                                                                 >
                                                                                     {targetGroup}
                                                                                     <span className="ml-1 text-xs opacity-70">
@@ -8401,8 +8585,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             }
                                                                                         }}
                                                                                         disabled={groupIdx === 0}
-                                                                                        className={`p-1 rounded ${groupIdx === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-green-600 hover:bg-green-100'}`}
-                                                                                        className="tooltip-bottom" data-tip="上移"
+                                                                                        className={`p-1 rounded tooltip-bottom ${groupIdx === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-green-600 hover:bg-green-100'}`}
+                                                                                        data-tip="上移"
                                                                                     >
                                                                                         ▲
                                                                                     </button>
@@ -8418,8 +8602,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             }
                                                                                         }}
                                                                                         disabled={groupIdx === customGroups.length - 1}
-                                                                                        className={`p-1 rounded ${groupIdx === customGroups.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-green-600 hover:bg-green-100'}`}
-                                                                                        className="tooltip-bottom" data-tip="下移"
+                                                                                        className={`p-1 rounded tooltip-bottom ${groupIdx === customGroups.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-green-600 hover:bg-green-100'}`}
+                                                                                        data-tip="下移"
                                                                                     >
                                                                                         ▼
                                                                                     </button>
@@ -8431,7 +8615,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             }
                                                                                         }}
                                                                                         className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded tooltip-bottom"
-                                                                                         data-tip="删除分组"
+                                                                                        data-tip="删除分组"
                                                                                     >
                                                                                         ✕
                                                                                     </button>
@@ -8484,7 +8668,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }
                                                                                     }}
                                                                                     onDoubleClick={() => setEditingCustomGroup({ index: groupIdx, value: customGroup })}
-                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-grab transition-all ${draggingGroupIdx === groupIdx
+                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-grab transition-all tooltip-bottom ${draggingGroupIdx === groupIdx
                                                                                         ? 'opacity-50 bg-green-100 border-green-400'
                                                                                         : dragOverGroup === customGroup
                                                                                             ? draggingGroupIdx !== null
@@ -8492,7 +8676,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                 : 'bg-green-200 border-green-500 text-green-800 scale-105'   // 图片拖入
                                                                                             : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                         }`}
-                                                                                    className="tooltip-bottom" data-tip="双击编辑 | 拖拽调整顺序"
+                                                                                    data-tip="双击编辑 | 拖拽调整顺序"
                                                                                 >
                                                                                     ✨ {customGroup}
                                                                                 </div>
@@ -8545,7 +8729,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             <button
                                                                                 onClick={() => setShowNewGroupInput(true)}
                                                                                 className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400 transition-colors flex items-center gap-1 tooltip-bottom"
-                                                                                 data-tip="添加新分组"
+                                                                                data-tip="添加新分组"
                                                                             >
                                                                                 <Plus size={14} />
                                                                                 新分组
@@ -8630,11 +8814,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         setCopyFeedback('⭐ 拖拽图片到收藏夹，或点击左侧「⭐ 收藏夹」查看');
                                                                                         setTimeout(() => setCopyFeedback(null), 2000);
                                                                                     }}
-                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all ${dragOverFavoriteFolder === folder.id
+                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverFavoriteFolder === folder.id
                                                                                         ? 'bg-amber-200 border-amber-500 text-amber-800 scale-105'
                                                                                         : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
                                                                                         }`}
-                                                                                    className="tooltip-bottom" data-tip="点击切换收藏夹视图，拖拽添加收藏"
+                                                                                    data-tip="点击切换收藏夹视图，拖拽添加收藏"
                                                                                 >
                                                                                     ❤️ {folder.name}
                                                                                     <span className="ml-1 text-xs opacity-70">({folderCount})</span>
@@ -8650,7 +8834,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 }]);
                                                                             }}
                                                                             className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-amber-300 text-amber-600 hover:bg-amber-50 hover:border-amber-400 transition-colors flex items-center gap-1 tooltip-bottom"
-                                                                             data-tip="添加新收藏夹"
+                                                                            data-tip="添加新收藏夹"
                                                                         >
                                                                             <Plus size={14} />
                                                                             新收藏
@@ -8712,11 +8896,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         setCopyFeedback('🏷️ 拖拽图片到标签，或点击左侧「🏷️ 媒体标签」查看');
                                                                                         setTimeout(() => setCopyFeedback(null), 2000);
                                                                                     }}
-                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all ${dragOverGroup === `tag:${category}`
+                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === `tag:${category}`
                                                                                         ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
                                                                                         : 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
                                                                                         }`}
-                                                                                    className="tooltip-bottom" data-tip="点击切换媒体标签视图，拖拽添加标签"
+                                                                                    data-tip="点击切换媒体标签视图，拖拽添加标签"
                                                                                 >
                                                                                     <Tag size={10} className="inline mr-1" /> {category}
                                                                                     <span className="ml-1 text-xs opacity-70">({tagCount})</span>
@@ -8732,7 +8916,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 }
                                                                             }}
                                                                             className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center gap-1 tooltip-bottom"
-                                                                             data-tip="添加新标签"
+                                                                            data-tip="添加新标签"
                                                                         >
                                                                             <Plus size={14} />
                                                                             新标签
@@ -8817,17 +9001,42 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 </button>
                                                                             )}
                                                                         </div>
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                const next = new Set(collapsedGalleryGroups);
-                                                                                if (isExpanded) next.add(groupKey);
-                                                                                else next.delete(groupKey);
-                                                                                setCollapsedGalleryGroups(next);
-                                                                            }}
-                                                                            className="text-xs text-slate-400 hover:text-slate-600 flex-shrink-0"
-                                                                        >
-                                                                            {isExpanded ? '点击折叠' : '点击展开'}
-                                                                        </button>
+                                                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                                                            {/* Copy group data button */}
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    copyGroupDataToClipboard(groupKey, rows);
+                                                                                }}
+                                                                                className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors tooltip-bottom"
+                                                                                data-tip="复制分组数据"
+                                                                            >
+                                                                                <Download size={14} />
+                                                                            </button>
+                                                                            {/* Copy group view button */}
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    copyGroupViewToClipboard(groupKey, rows);
+                                                                                }}
+                                                                                className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors tooltip-bottom"
+                                                                                data-tip="复制缩略图视图"
+                                                                            >
+                                                                                <Image size={14} />
+                                                                            </button>
+                                                                            {/* Collapse toggle button */}
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    const next = new Set(collapsedGalleryGroups);
+                                                                                    if (isExpanded) next.add(groupKey);
+                                                                                    else next.delete(groupKey);
+                                                                                    setCollapsedGalleryGroups(next);
+                                                                                }}
+                                                                                className="text-xs text-slate-400 hover:text-slate-600 ml-1"
+                                                                            >
+                                                                                {isExpanded ? '折叠' : '展开'}
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                     {isExpanded && (() => {
                                                                         const allGroupRows = rows.filter(row => extractImageUrl(row[effectiveImageColumn]));
@@ -9268,11 +9477,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             await handleClassificationChange(draggedItems, option);
                                                                                         }
                                                                                     }}
-                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all ${dragOverGroup === option
+                                                                                    className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === option
                                                                                         ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
                                                                                         : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                         }`}
-                                                                                    className="tooltip-bottom" data-tip="拖拽图片到此分类"
+                                                                                    data-tip="拖拽图片到此分类"
                                                                                 >
                                                                                     {option}
                                                                                 </div>
@@ -9296,11 +9505,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         await handleClassificationChange(draggedItems, customGroup);
                                                                                     }
                                                                                 }}
-                                                                                className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all ${dragOverGroup === customGroup
+                                                                                className={`px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === customGroup
                                                                                     ? 'bg-green-200 border-green-500 text-green-800 scale-105'
                                                                                     : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                     }`}
-                                                                                className="tooltip-bottom" data-tip="拖拽图片到此自定义分组"
+                                                                                data-tip="拖拽图片到此自定义分组"
                                                                             >
                                                                                 ✨ {customGroup}
                                                                             </div>
@@ -9333,7 +9542,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             <button
                                                                                 onClick={() => setShowNewGroupInput(true)}
                                                                                 className="px-3 py-2 text-sm font-medium rounded-lg border-2 border-dashed border-slate-300 text-slate-500 hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition-all tooltip-bottom"
-                                                                                 data-tip="添加新分组"
+                                                                                data-tip="添加新分组"
                                                                             >
                                                                                 + 新分组
                                                                             </button>
@@ -11684,7 +11893,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                             setCopyViewModal({ ...copyViewModal, columnsPerRow: Math.min(200, Math.max(1, val)) });
                                         }}
                                         className="w-14 h-8 px-2 text-sm text-center border border-slate-300 rounded-lg focus:border-purple-500 focus:outline-none tooltip-bottom"
-                                         data-tip="自定义数量"
+                                        data-tip="自定义数量"
                                     />
                                 </div>
                             </div>

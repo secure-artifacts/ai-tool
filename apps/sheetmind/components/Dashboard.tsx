@@ -1202,10 +1202,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                     <button data-tip="树形图" onClick={() => setChartType('treemap')} className={`p-2 rounded ${chartType === 'treemap' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><BoxSelect size={20} /></button>
                     <div className="w-px bg-slate-200 mx-1"></div>
                     <button data-tip="透视表" onClick={() => setChartType('pivot')} className={`p-2 rounded ${chartType === 'pivot' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:bg-slate-50'} tooltip-bottom`}><Table2 size={20} /></button>
-                    <div className="w-px bg-slate-200 mx-1"></div>
+                    <div className="w-px bg-slate-200 mx-1 tooltip-bottom"></div>
                     {/* 智能推荐按钮 */}
                     <button
-                        className="tooltip-bottom" data-tip="智能推荐"
+                        data-tip="智能推荐"
                         onClick={handleSmartAnalyze}
                         disabled={isAnalyzing}
                         className="px-3 py-1.5 rounded bg-gradient-to-r from-violet-500 to-purple-600 text-white font-medium text-sm flex items-center gap-1.5 hover:from-violet-600 hover:to-purple-700 transition-all shadow-sm disabled:opacity-50"
@@ -1345,16 +1345,16 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                                 <Settings2 size={16} /> 数据维度与指标
                             </h3>
-                            <div className="flex gap-1">
+                            <div className="flex gap-1 tooltip-bottom">
                                 <button
                                     onClick={exportPreset}
-                                    className="tooltip-bottom" data-tip="导出预设"
+                                    data-tip="导出预设"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1"
                                 >
-                                    <Download size={12} className="inline mr-1" /> 导出
+                                    <Download size={12} className="inline mr-1 tooltip-bottom" /> 导出
                                 </button>
                                 <label
-                                    className="tooltip-bottom" data-tip="导入预设"
+                                    data-tip="导入预设"
                                     className="text-[10px] px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 flex items-center gap-1 cursor-pointer"
                                 >
                                     <Upload size={12} className="inline mr-1" /> 导入

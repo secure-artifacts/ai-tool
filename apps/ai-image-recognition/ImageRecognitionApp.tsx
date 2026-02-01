@@ -912,11 +912,66 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     // 使用 capture phase 确保此监听器在其他监听器之前运行
     useEffect(() => {
         const handleGlobalPaste = (e: ClipboardEvent) => {
+            // =============================================
+            // 安全检查：确保只有当本组件可见且粘贴目标在本组件内时才处理
+            // =============================================
+            const container = containerRef.current;
+            if (!container) return;
+
+            // 检查组件是否可见（不是隐藏的）
+            const rect = container.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            if (!isVisible) return;
+
+            // 检查粘贴目标是否在本组件容器内
+            const pasteTarget = e.target as Node;
+            const isInContainer = container.contains(pasteTarget);
+
+            // 只有当粘贴目标在本组件容器内时才处理
+            if (!isInContainer) return;
+
+            // 如果粘贴目标是普通的 INPUT 或 TEXTAREA（非隐藏的粘贴捕获元素），允许正常粘贴
+            const targetElement = e.target as HTMLElement;
+            const isHiddenPasteCapture = targetElement.getAttribute('aria-hidden') === 'true';
+            if ((targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA') && !isHiddenPasteCapture) {
+                // 让普通输入框正常接收粘贴事件
+                return;
+            }
+            // =============================================
+
             let handled = false;
 
             if (e.clipboardData) {
-                // 1. Files
+                // ===== 先检查文本内容，判断是否应该处理 =====
+                const html = e.clipboardData.getData('text/html');
+                const plainText = e.clipboardData.getData('text/plain');
+
+                const hasImageFormula = !!plainText && plainText.includes('=IMAGE');
+                const hasHttp = !!plainText && plainText.includes('http');
+                const hasImgTag = !!html && html.includes('<img');
+                const shouldHandleAsImageContent = hasImageFormula || hasHttp || hasImgTag;
+
+                const target = e.target as HTMLElement;
+                const isHiddenPasteCapture = target.getAttribute('aria-hidden') === 'true';
+
+                // Skip if pasting into visible input/textarea and content doesn't look like image data
+                if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && !shouldHandleAsImageContent && !isHiddenPasteCapture) {
+                    return;
+                }
+
+                // ===== 如果有纯文本但不包含 =IMAGE/http，说明是普通文本粘贴 =====
+                // Google Sheets 复制纯文本时会同时包含图片（单元格截图），但我们应该优先处理文本
+                // 只有当没有有意义的文本时，才处理图片
+                const hasMeaningfulText = plainText && plainText.trim().length > 0;
+
+                // 1. Files (真正的文件粘贴，如从文件管理器复制的图片)
                 if (e.clipboardData.files.length > 0) {
+                    // 如果剪贴板有文件但也有不包含链接的纯文本，可能是 Google Sheets 复制
+                    // 检查是否是真正的图片粘贴还是带截图的文本粘贴
+                    if (hasMeaningfulText && !shouldHandleAsImageContent) {
+                        // 有纯文本但没有链接/公式，让浏览器正常处理
+                        return;
+                    }
                     e.preventDefault();
                     handleFilesRef.current(Array.from(e.clipboardData.files));
                     handled = true;
@@ -927,6 +982,11 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 const items = Array.from(e.clipboardData.items || []);
                 const imageItems = items.filter(item => item.type.startsWith('image/'));
                 if (imageItems.length > 0) {
+                    // 同样的检查：如果有纯文本但没有链接，说明图片只是附带的截图
+                    if (hasMeaningfulText && !shouldHandleAsImageContent) {
+                        // 有纯文本但没有链接/公式，让浏览器正常处理
+                        return;
+                    }
                     const files = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
                     if (files.length > 0) {
                         e.preventDefault();
@@ -937,19 +997,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 }
 
                 // 2. HTML (Google Sheets cells copy as HTML containing <img> tags)
-                const html = e.clipboardData.getData('text/html');
-                const plainText = e.clipboardData.getData('text/plain');
-
-                const target = e.target as HTMLElement;
-                const isHiddenPasteCapture = target.getAttribute('aria-hidden') === 'true';
-                const hasImageFormula = !!plainText && plainText.includes('=IMAGE');
-                const hasHttp = !!plainText && plainText.includes('http');
-                const hasImgTag = !!html && html.includes('<img');
-                const shouldHandleText = hasImageFormula || hasHttp || hasImgTag;
-                // Skip if pasting into visible input/textarea, but allow hidden paste-capture textarea
-                if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && !shouldHandleText && !isHiddenPasteCapture) {
-                    return;
-                }
 
 
                 // 优先检查纯文本中是否有 =IMAGE() 公式

@@ -275,25 +275,82 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
  * 从远程 URL 获取图片并转换为 Blob
  */
 export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeType: string }> => {
+    console.log('[fetchImageBlob] Original URL:', url);
+
+    // 清理 URL - 去除尾随的非 URL 字符（引号、括号、空格等）
+    url = url.trim().replace(/['")\]}\s]+$/, '');
+    console.log('[fetchImageBlob] Cleaned URL:', url);
+
     const stripProtocol = (u: string): string => u.replace(/^https?:\/\//i, '');
     const encodedUrl = encodeURIComponent(url);
     const stripped = stripProtocol(url);
+    console.log('[fetchImageBlob] Stripped URL:', stripped);
+
+    // Special handling for Gyazo direct image URLs - try different extensions with proxy
+    const gyazoMatch = url.match(/https:\/\/i\.gyazo\.com\/([a-f0-9]+)\.(png|jpg|gif)/i);
+
+    if (gyazoMatch) {
+        const gyazoId = gyazoMatch[1];
+        const extensions = ['jpg', 'png', 'gif']; // 优先尝试 jpg（大多数截图会被转为 jpg）
+
+        // 尝试使用代理服务获取，因为 Gyazo 可能阻止 CORS
+        for (const ext of extensions) {
+            // weserv.nl 要求 URL 不带协议
+            const directUrlNoProtocol = `i.gyazo.com/${gyazoId}.${ext}`;
+            const weservUrl = `https://images.weserv.nl/?url=${encodeURIComponent(directUrlNoProtocol)}&output=jpg&q=100`;
+
+            try {
+                const response = await fetch(weservUrl);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    if (blob.size > 100 && blob.type.startsWith('image/')) {
+                        return { blob, mimeType: blob.type };
+                    }
+                }
+            } catch (e) {
+                // 继续尝试下一个格式
+            }
+        }
+        console.warn('[fetchImageBlob] Gyazo: all extensions failed, trying other proxies...');
+    }
 
     // 各种代理 URL
     const weservUrl = `https://images.weserv.nl/?url=${encodeURIComponent(stripped)}&output=jpg&q=100&we=1`;
+    const weservUrlDirect = `https://images.weserv.nl/?url=${encodedUrl}&output=jpg&q=100`;
     const gadgetProxy = `https://images1-focus-opensocial.googleusercontent.com/gadgets/proxy?container=focus&refresh=86400&url=${encodedUrl}`;
     const allOriginsProxy = `https://api.allorigins.win/raw?url=${encodedUrl}`;
     const corsProxy = `https://corsproxy.io/?${encodedUrl}`;
     const wpProxy = stripped ? `https://i0.wp.com/${stripped}` : null;
 
-    const candidates = [
-        url,
-        weservUrl,
-        gadgetProxy,
-        allOriginsProxy,
-        corsProxy,
-        wpProxy
-    ].filter(Boolean) as string[];
+    // 检测可能被热链接保护的域名
+    const isLikelyHotlinkBlocked = /fbcdn\.net|scontent\.|cdninstagram\.com|instagram\.com|fbsbx\.com|facebook\.com\/.*\/photos/i.test(url);
+
+    // Build candidate list. For domains that often block hotlink, try proxies first.
+    let candidates: string[];
+    if (isLikelyHotlinkBlocked) {
+        candidates = [
+            weservUrl,
+            weservUrlDirect,
+            gadgetProxy,
+            wpProxy,
+            url,
+            allOriginsProxy,
+            corsProxy
+        ].filter(Boolean) as string[];
+    } else {
+        // 对于普通链接，优先使用代理（避免 CORS 问题）
+        candidates = [
+            weservUrl,
+            url,
+            gadgetProxy,
+            allOriginsProxy,
+            corsProxy,
+            wpProxy
+        ].filter(Boolean) as string[];
+    }
+
+    // 去重
+    candidates = Array.from(new Set(candidates));
 
     const attemptFetch = async (fetchUrl: string) => {
         const response = await fetch(fetchUrl);

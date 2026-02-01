@@ -366,9 +366,9 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
                     onMouseEnter={(e) => {
                         e.currentTarget.style.cursor = 'se-resize';
                     }}
-                    className="absolute bottom-2 right-2 w-10 h-10 flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 rounded-lg shadow-lg transition-all"
+                    className="absolute bottom-2 right-2 w-10 h-10 flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 rounded-lg shadow-lg transition-all tooltip-bottom"
                     style={{ zIndex: 9999, cursor: 'se-resize' }}
-                    className="tooltip-bottom" data-tip="拖拽调整窗口大小"
+                    data-tip="拖拽调整窗口大小"
                 >
                     <svg width="16" height="16" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M11 1L1 11M11 5L5 11M11 9L9 11" stroke="white" strokeWidth="2" strokeLinecap="round" />

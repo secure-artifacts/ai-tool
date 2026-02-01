@@ -135,12 +135,12 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                     <span className="grid-sub-bullet" style={{ backgroundColor: color }} />
                     <span className="grid-sub-text">{node.label}</span>
                     <button
-                        className="grid-add-btn"
+                        className="grid-add-btn tooltip-bottom"
                         onClick={(e) => {
                             e.stopPropagation();
                             onAddNode?.(nodeId);
                         }}
-                        className="tooltip-bottom" data-tip="添加子节点"
+                        data-tip="添加子节点"
                     >
                         <Plus size={12} />
                     </button>
@@ -164,12 +164,12 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
             >
                 <h2>{root.label}</h2>
                 <button
-                    className="grid-add-column-btn"
+                    className="grid-add-column-btn tooltip-bottom"
                     onClick={(e) => {
                         e.stopPropagation();
                         onAddNode?.(rootId);
                     }}
-                    className="tooltip-bottom" data-tip="添加新列"
+                    data-tip="添加新列"
                 >
                     <Plus size={16} /> 添加列
                 </button>
@@ -195,12 +195,12 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                             >
                                 <span className="grid-column-title">{column.label}</span>
                                 <button
-                                    className="grid-add-cell-btn"
+                                    className="grid-add-cell-btn tooltip-bottom"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         onAddNode?.(columnId);
                                     }}
-                                    className="tooltip-bottom" data-tip="添加单元格"
+                                    data-tip="添加单元格"
                                 >
                                     <Plus size={14} />
                                 </button>
@@ -243,12 +243,12 @@ export const OutlineCardView: React.FC<OutlineCardViewProps> = ({
                                                 />
                                                 <span className="grid-cell-text">{cell.label}</span>
                                                 <button
-                                                    className="grid-add-btn"
+                                                    className="grid-add-btn tooltip-bottom"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         onAddNode?.(cellId);
                                                     }}
-                                                    className="tooltip-bottom" data-tip="添加子项"
+                                                    data-tip="添加子项"
                                                 >
                                                     <Plus size={12} />
                                                 </button>

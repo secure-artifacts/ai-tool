@@ -31,8 +31,14 @@ import {
     Merge,
     Split,
     Settings,
-    RotateCcw
+    RotateCcw,
+    History,
+    Save,
+    Bookmark,
+    Maximize2
 } from 'lucide-react';
+import { HistorySidebar } from './components/HistorySidebar';
+import { ImagePreviewPanel } from './components/ImagePreviewPanel';
 import {
     WorkflowState,
     GeneratedPrompt,
@@ -40,11 +46,15 @@ import {
     ImageGenModel,
     ImageSize,
     DEFAULT_PROMPT_INSTRUCTION,
+    DEFAULT_USER_INSTRUCTION,
     SIZE_OPTIONS,
     MODEL_OPTIONS,
     TaskStatus,
     generateFilePrefix,
-    generateDefaultInstruction
+    generateDefaultInstruction,
+    generateUserInstruction,
+    generateFormatRequirement,
+    GeneratedImage
 } from './types';
 import {
     generatePrompts,
@@ -56,6 +66,7 @@ import {
     fetchImageAsFile,
     extractUrlsFromHtml
 } from './utils';
+import './ApiImageGen.css';
 
 // 批量输入行类型
 interface BatchInputRow {
@@ -78,13 +89,20 @@ const initialState: WorkflowState = {
     promptCount: 4,
     generatedPrompts: [],
     isGeneratingPrompts: false,
-    model: 'gemini-3-pro',
-    size: '1024x1024',
+    model: 'gemini-2.5-flash-image',
+    size: '1024x1792',
     useReferenceImage: false,
     tasks: [],
     isGeneratingImages: false,
     autoDownload: true,
+    imagesPerPrompt: 1, // 默认每个词生成1张图
 };
+
+// 垫图模式类型
+type RefMode = 'standard' | 'fixed';
+
+// 工作流模式：classic=经典模式(直接生图), creative=创新模式(先分析再生图)
+type WorkflowMode = 'classic' | 'creative';
 
 const ApiImageGenApp: React.FC = () => {
     const [state, setState] = useState<WorkflowState>(initialState);
@@ -95,7 +113,9 @@ const ApiImageGenApp: React.FC = () => {
     });
     const [isProcessingQueue, setIsProcessingQueue] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
+    const [resetConfirmPending, setResetConfirmPending] = useState(false);
     const pauseRef = useRef(false);
+    const isProcessingQueueRef = useRef(false);
 
     // 批量输入表格数据
     const [batchRows, setBatchRows] = useState<BatchInputRow[]>([
@@ -106,17 +126,302 @@ const ApiImageGenApp: React.FC = () => {
     const [dragMode, setDragMode] = useState<DragMode>('split');
     const [isDragging, setIsDragging] = useState(false);
 
+    // 垫图模式相关状态
+    // useRefForGeneration: 是否保留参考图结构（开启=图生图，关闭=文生图）
+    // refMode: 'fixed'=固定人物模式, 'standard'=普通垫图模式
+    const [useRefForGeneration, setUseRefForGeneration] = useState(false);
+    const [refMode, setRefMode] = useState<RefMode>('standard');
+
+    // 工作流模式：classic=经典模式(直接生图), creative=创新模式(先分析再生图)
+    const [workflowMode, setWorkflowMode] = useState<WorkflowMode>('creative');
+
+    // 创新模式工作流步骤: input=输入阶段, review=审核变体阶段, queued=已添加到队列
+    type WorkflowStep = 'input' | 'review' | 'queued';
+    const [creativeWorkflowStep, setCreativeWorkflowStep] = useState<WorkflowStep>('input');
+    // 是否正在分析生成描述词
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    // 创新模式生成的描述词变体
+    const [creativePrompts, setCreativePrompts] = useState<{ en: string; zh: string }[]>([]);
+
+    // 历史记录
+    const [history, setHistory] = useState<GeneratedImage[]>([]);
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+    const [previewImage, setPreviewImage] = useState<GeneratedImage | null>(null);
+
+    // 大窗口编辑模态框
+    const [textEditorModal, setTextEditorModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        value: string;
+        onSave: (value: string) => void;
+    }>({ isOpen: false, title: '', value: '', onSave: () => { } });
+
+    // 自定义确认模态框（替代浏览器alert/confirm）
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+    }>({ isOpen: false, title: '', message: '', onConfirm: () => { } });
+
+    // 创新要求预设
+    const [instructionPresets, setInstructionPresets] = useState<{ name: string; content: string }[]>(() => {
+        const saved = localStorage.getItem('api_gen_instruction_presets');
+        return saved ? JSON.parse(saved) : [
+            { name: '默认 - 详细描述', content: DEFAULT_USER_INSTRUCTION },
+            { name: '创意风格 - 艺术化', content: '请根据图片内容，创作出具有艺术感的AI描述词。\n风格可以包括：油画风、水彩风、赛博朋克、极简主义等。\n突出画面的情感和氛围。' },
+            { name: '商业风格 - 产品展示', content: '请根据图片，生成适合商业用途的产品展示描述词。\n突出产品特点、质感和专业感。\n适合用于电商、广告等场景。' }
+        ];
+    });
+
     const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+    const containerRef = useRef<HTMLDivElement>(null);
     const dropzoneRef = useRef<HTMLDivElement>(null);
+    // 用于解决createWorkflow中调用processQueue的循环依赖问题
+    const processQueueRef = useRef<() => void>(() => { });
+
+
+    // 从 localStorage 加载历史记录
+    useEffect(() => {
+        const saved = localStorage.getItem('api_gen_history_v2');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                setHistory(parsed);
+            } catch (e) {
+                console.error("Failed to load history", e);
+            }
+        }
+    }, []);
+
+    // 保存历史记录到 localStorage（带错误处理和数量限制）
+    useEffect(() => {
+        try {
+            // 只保留最近20条记录，避免localStorage超限
+            const limitedHistory = history.slice(0, 20);
+            localStorage.setItem('api_gen_history_v2', JSON.stringify(limitedHistory));
+        } catch (e) {
+            // 如果存储失败（quota exceeded），尝试清理旧数据
+            console.warn('[ApiImageGen] 历史记录存储失败，尝试清理:', e);
+            try {
+                // 只保留最近5条
+                const minimalHistory = history.slice(0, 5);
+                localStorage.setItem('api_gen_history_v2', JSON.stringify(minimalHistory));
+            } catch (e2) {
+                // 如果还是失败，删除历史记录
+                console.error('[ApiImageGen] 无法保存历史记录，清除存储:', e2);
+                localStorage.removeItem('api_gen_history_v2');
+            }
+        }
+    }, [history]);
+
+    // 添加图片到历史记录
+    const addToHistory = useCallback((task: ImageGenTask) => {
+        if (!task.result) return;
+        const newImage: GeneratedImage = {
+            id: task.id,
+            url: task.result,
+            prompt: task.promptText,
+            promptZh: task.promptTextZh,
+            model: task.model,
+            size: task.size,
+            timestamp: task.completedAt || Date.now(),
+        };
+        setHistory(prev => [newImage, ...prev].slice(0, 100)); // 最多保留100条
+    }, []);
+
+    // 删除历史记录
+    const deleteFromHistory = useCallback((id: string) => {
+        setHistory(prev => prev.filter(img => img.id !== id));
+        if (previewImage?.id === id) {
+            setPreviewImage(null);
+        }
+    }, [previewImage]);
+
+    // 清空历史记录
+    const clearHistory = useCallback(() => {
+        setHistory([]);
+        setPreviewImage(null);
+    }, []);
+
+    // 保存预设到 localStorage
+    useEffect(() => {
+        localStorage.setItem('api_gen_instruction_presets', JSON.stringify(instructionPresets));
+    }, [instructionPresets]);
+
+    // 添加新预设
+    const addInstructionPreset = useCallback((name: string, content: string) => {
+        setInstructionPresets(prev => [...prev, { name, content }]);
+    }, []);
+
+    // 删除预设
+    const deleteInstructionPreset = useCallback((index: number) => {
+        setInstructionPresets(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
+    // 打开大窗口编辑器
+    const openTextEditor = useCallback((title: string, value: string, onSave: (value: string) => void) => {
+        setTextEditorModal({ isOpen: true, title, value, onSave });
+    }, []);
+
+    // 关闭大窗口编辑器
+    const closeTextEditor = useCallback(() => {
+        setTextEditorModal(prev => ({ ...prev, isOpen: false }));
+    }, []);
 
     // 更新状态
     const updateState = useCallback((updates: Partial<WorkflowState>) => {
         setState(prev => ({ ...prev, ...updates }));
     }, []);
 
+    // ===== 创新模式核心函数 =====
+
+    // 获取增强后的prompt（如果开启垫图模式需要加入固定人物指令）
+    const getEnhancedPrompt = useCallback((basePrompt: string) => {
+        if (useRefForGeneration && refMode === 'fixed') {
+            return "STRICT INSTRUCTION: Keep the character's face, hair, and body features EXACTLY as shown in the reference image. Do not change the person's identity. Only modify the clothing, pose, environment, or style as described here: " + basePrompt;
+        }
+        return basePrompt;
+    }, [useRefForGeneration, refMode]);
+
+    // 运行创新工作流 - 分析图片生成描述词
+    // skipReview: true=一键生成, false=分析与审核
+    const runCreativeWorkflow = useCallback(async (skipReview: boolean) => {
+        // 获取有效行（有图片或描述词的行）
+        const validRows = batchRows.filter(row => row.images.length > 0 || row.prompt.trim());
+        if (validRows.length === 0) return;
+
+        setIsAnalyzing(true);
+
+        try {
+            // 获取第一个有效行的图片和输入（可以扩展支持多行）
+            const firstRow = validRows[0];
+            const inputImages = firstRow.images;
+            const inputText = firstRow.prompt;
+
+            // 调用AI生成描述词
+            const prompts = await generatePrompts(
+                inputImages,
+                inputText,
+                state.promptInstruction,
+                'gemini-3-pro-preview',
+                state.promptCount
+            );
+
+            // 转换为创新模式的格式
+            const creativeResults = prompts.map(p => ({
+                en: p.textEn,
+                zh: p.textZh
+            }));
+
+            setCreativePrompts(creativeResults);
+
+            if (skipReview) {
+                // 一键生成：直接添加到队列并开始
+                const batchPrefix = generateFilePrefix();
+                const newTasks: ImageGenTask[] = creativeResults.map((p, idx) => ({
+                    id: `task-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
+                    promptId: `creative-${idx}`,
+                    promptText: getEnhancedPrompt(p.en),
+                    promptTextZh: p.zh,
+                    filename: `${batchPrefix}-${idx + 1}.png`,
+                    model: state.model,
+                    size: state.size,
+                    useReferenceImage: useRefForGeneration && inputImages.length > 0,
+                    referenceImages: useRefForGeneration ? [...inputImages] : undefined,
+                    status: 'pending' as TaskStatus,
+                    progress: 0,
+                    createdAt: Date.now(),
+                }));
+
+                setState(prev => ({
+                    ...prev,
+                    tasks: [...prev.tasks, ...newTasks],
+                }));
+
+                setCreativeWorkflowStep('queued');
+                // 延迟启动队列处理（使用ref避免循环依赖）
+                setTimeout(() => processQueueRef.current(), 100);
+            } else {
+                // 分析与审核：进入审核界面
+                setCreativeWorkflowStep('review');
+            }
+
+        } catch (error) {
+            console.error('[创新模式] 分析失败:', error);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    }, [batchRows, state.promptInstruction, state.promptCount, state.model, state.size, useRefForGeneration, getEnhancedPrompt]);
+
+    // 从审核界面生成图片
+    const handleCreativeGenerate = useCallback(() => {
+        if (creativePrompts.length === 0) return;
+
+        const batchPrefix = generateFilePrefix();
+        const firstRow = batchRows.find(row => row.images.length > 0);
+        const inputImages = firstRow?.images || [];
+
+        const newTasks: ImageGenTask[] = creativePrompts.map((p, idx) => ({
+            id: `task-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
+            promptId: `creative-${idx}`,
+            promptText: getEnhancedPrompt(p.en),
+            promptTextZh: p.zh,
+            filename: `${batchPrefix}-${idx + 1}.png`,
+            model: state.model,
+            size: state.size,
+            useReferenceImage: useRefForGeneration && inputImages.length > 0,
+            referenceImages: useRefForGeneration ? [...inputImages] : undefined,
+            status: 'pending' as TaskStatus,
+            progress: 0,
+            createdAt: Date.now(),
+        }));
+
+        setState(prev => ({
+            ...prev,
+            tasks: [...prev.tasks, ...newTasks],
+        }));
+
+        setCreativeWorkflowStep('queued');
+        setTimeout(() => processQueueRef.current(), 100);
+    }, [creativePrompts, batchRows, state.model, state.size, useRefForGeneration, getEnhancedPrompt]);
+
+    // 重置创新工作流
+    const resetCreativeWorkflow = useCallback(() => {
+        setCreativeWorkflowStep('input');
+        setCreativePrompts([]);
+    }, []);
+
+    // 更新创新模式描述词
+    const updateCreativePrompt = useCallback((index: number, updates: { en?: string; zh?: string }) => {
+        setCreativePrompts(prev => prev.map((p, i) => i === index ? { ...p, ...updates } : p));
+    }, []);
+
+    // 删除创新模式描述词
+    const deleteCreativePrompt = useCallback((index: number) => {
+        setCreativePrompts(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
+    // 添加新的创新模式描述词
+    const addCreativePrompt = useCallback(() => {
+        setCreativePrompts(prev => [...prev, { en: 'New prompt...', zh: '新变体...' }]);
+    }, []);
+
     // 处理全局粘贴事件 (支持 Google Sheets 图片+文本)
     useEffect(() => {
         const handlePaste = async (e: ClipboardEvent) => {
+            const container = containerRef.current;
+            if (!container) return;
+
+            const rect = container.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            if (!isVisible) return;
+
+            const targetNode = e.target as Node;
+            const isInContainer = container.contains(targetNode);
+            const isBodyOrDocument = targetNode === document.body || targetNode === document.documentElement || targetNode === document;
+            if (!isInContainer && !isBodyOrDocument) return;
+
             if (!e.clipboardData) return;
 
             // 检查是否在输入框中
@@ -341,23 +646,30 @@ const ApiImageGenApp: React.FC = () => {
         }
 
         const batchPrefix = generateFilePrefix();
+        const imagesPerPrompt = state.imagesPerPrompt || 1;
 
-        const newTasks: ImageGenTask[] = validRows.map((row, index) => ({
-            id: `task-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`,
-            promptId: row.id,
-            promptText: row.prompt,
-            promptTextZh: row.prompt, // 用户直接输入的 prompt
-            filename: row.downloadFolder
-                ? `${row.downloadFolder}/${batchPrefix}-${index + 1}.png`
-                : `${batchPrefix}-${index + 1}.png`,
-            model: state.model,
-            size: state.size,
-            useReferenceImage: row.images.length > 0,
-            referenceImages: row.images.length > 0 ? [...row.images] : undefined,
-            status: 'pending' as TaskStatus,
-            progress: 0,
-            createdAt: Date.now(),
-        }));
+        // 为每个row根据imagesPerPrompt生成多个任务
+        const newTasks: ImageGenTask[] = [];
+        validRows.forEach((row, rowIndex) => {
+            for (let imgIdx = 0; imgIdx < imagesPerPrompt; imgIdx++) {
+                newTasks.push({
+                    id: `task-${Date.now()}-${rowIndex}-${imgIdx}-${Math.random().toString(36).substr(2, 9)}`,
+                    promptId: row.id,
+                    promptText: row.prompt,
+                    promptTextZh: row.prompt, // 用户直接输入的 prompt
+                    filename: row.downloadFolder
+                        ? `${row.downloadFolder}/${batchPrefix}-${rowIndex + 1}-${imgIdx + 1}.png`
+                        : `${batchPrefix}-${rowIndex + 1}${imagesPerPrompt > 1 ? `-${imgIdx + 1}` : ''}.png`,
+                    model: state.model,
+                    size: state.size,
+                    useReferenceImage: row.images.length > 0,
+                    referenceImages: row.images.length > 0 ? [...row.images] : undefined,
+                    status: 'pending' as TaskStatus,
+                    progress: 0,
+                    createdAt: Date.now(),
+                });
+            }
+        });
 
         setState(prev => ({
             ...prev,
@@ -368,7 +680,7 @@ const ApiImageGenApp: React.FC = () => {
         setBatchRows(prev => prev.map(r =>
             validRows.find(vr => vr.id === r.id) ? { ...r, status: 'added' as const } : r
         ));
-    }, [batchRows, state.model, state.size]);
+    }, [batchRows, state.model, state.size, state.imagesPerPrompt]);
 
     // 添加并开始
     const handleAddBatchAndStart = useCallback(() => {
@@ -376,19 +688,30 @@ const ApiImageGenApp: React.FC = () => {
         setTimeout(() => {
             processQueue();
         }, 100);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [handleAddBatchToQueue]);
 
     // 清空批量输入
     const handleClearBatch = useCallback(() => {
-        setBatchRows([
-            { id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }
-        ]);
+        setConfirmModal({
+            isOpen: true,
+            title: '确认清空',
+            message: '确定要清空表格吗？',
+            onConfirm: () => {
+                setBatchRows([
+                    { id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }
+                ]);
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+            }
+        });
     }, []);
 
     // 处理队列中的任务
     const processQueue = useCallback(async () => {
-        if (isProcessingQueue) return;
+        // 使用 ref 来检查，避免闭包问题
+        if (isProcessingQueueRef.current) return;
 
+        isProcessingQueueRef.current = true;
         setIsProcessingQueue(true);
         updateState({ isGeneratingImages: true });
 
@@ -440,6 +763,15 @@ const ApiImageGenApp: React.FC = () => {
                     ),
                 }));
 
+                // 添加到历史记录
+                addToHistory({
+                    ...pendingTask,
+                    status: 'completed' as TaskStatus,
+                    result,
+                    progress: 100,
+                    completedAt: Date.now()
+                });
+
                 if (currentState.autoDownload && result) {
                     downloadImage(result, pendingTask.filename);
                 }
@@ -456,9 +788,13 @@ const ApiImageGenApp: React.FC = () => {
             }
         }
 
+        isProcessingQueueRef.current = false;
         setIsProcessingQueue(false);
         updateState({ isGeneratingImages: false });
-    }, [isProcessingQueue, updateState]);
+    }, [updateState]);
+
+    // 将processQueue保存到ref，以便前面定义的函数可以调用
+    processQueueRef.current = processQueue;
 
     // 队列控制
     const handleStartQueue = useCallback(() => {
@@ -501,24 +837,65 @@ const ApiImageGenApp: React.FC = () => {
     }, []);
 
     const handleClearAllTasks = useCallback(() => {
-        if (confirm('确定要清空所有任务吗？')) {
-            setState(prev => ({
-                ...prev,
-                tasks: [],
-                isGeneratingImages: false,
-            }));
-            setIsProcessingQueue(false);
-        }
+        setConfirmModal({
+            isOpen: true,
+            title: '确认清空',
+            message: '确定要清空所有任务吗？',
+            onConfirm: () => {
+                setState(prev => ({
+                    ...prev,
+                    tasks: [],
+                    isGeneratingImages: false,
+                }));
+                setIsProcessingQueue(false);
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+            }
+        });
+    }, []);
+
+    // 重试单个失败任务
+    const handleRetryTask = useCallback((taskId: string) => {
+        setState(prev => ({
+            ...prev,
+            tasks: prev.tasks.map(t =>
+                t.id === taskId
+                    ? { ...t, status: 'pending' as TaskStatus, progress: 0, error: undefined, result: undefined }
+                    : t
+            ),
+        }));
+        // 自动开始处理队列
+        setTimeout(() => processQueue(), 100);
+    }, []);
+
+    // 重试所有失败任务
+    const handleRetryAllFailed = useCallback(() => {
+        setState(prev => ({
+            ...prev,
+            tasks: prev.tasks.map(t =>
+                t.status === 'failed'
+                    ? { ...t, status: 'pending' as TaskStatus, progress: 0, error: undefined, result: undefined }
+                    : t
+            ),
+        }));
+        // 自动开始处理队列
+        setTimeout(() => processQueue(), 100);
     }, []);
 
     const handleReset = () => {
-        if (confirm('确定要清空所有内容吗？')) {
-            setState(initialState);
-            setBatchRows([{ id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }]);
-            setIsProcessingQueue(false);
-            pauseRef.current = false;
-            setIsPaused(false);
+        if (!resetConfirmPending) {
+            // 第一次点击，显示确认提示
+            setResetConfirmPending(true);
+            // 3秒后自动取消确认状态
+            setTimeout(() => setResetConfirmPending(false), 3000);
+            return;
         }
+        // 第二次点击，执行重置
+        setState(initialState);
+        setBatchRows([{ id: `row-${Date.now()}`, images: [], imageUrls: [], prompt: '', downloadFolder: '', status: 'pending' }]);
+        setIsProcessingQueue(false);
+        pauseRef.current = false;
+        setIsPaused(false);
+        setResetConfirmPending(false);
     };
 
     // 队列统计
@@ -552,96 +929,92 @@ const ApiImageGenApp: React.FC = () => {
     };
 
     return (
-        <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-indigo-50/30">
+        <div className="api-gen-container" ref={containerRef}>
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white/80 backdrop-blur-sm">
-                <div className="flex items-center gap-2">
-                    <Sparkles size={24} className="text-indigo-500" />
-                    <h1 className="text-lg font-bold text-slate-800">API 生图</h1>
-                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                        批量表格模式
+            <div className="api-gen-header">
+                <div className="api-gen-header-title">
+                    <Sparkles size={24} />
+                    <h1>API 生图</h1>
+                    <span className="api-gen-header-badge">批量表格模式</span>
+                    <span className="api-gen-header-warning" style={{
+                        marginLeft: '12px',
+                        fontSize: '12px',
+                        color: '#fbbf24',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        background: 'rgba(251, 191, 36, 0.1)',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(251, 191, 36, 0.3)'
+                    }}>
+                        <AlertCircle size={14} />
+                        使用此功能必须使用付费 API Key，创新模式下和Opal是同样的自动化流程原理。
                     </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="api-gen-header-actions">
+                    <button
+                        onClick={() => setIsHistoryOpen(true)}
+                        className="api-gen-header-btn history-btn"
+                        title="查看历史记录"
+                    >
+                        <History size={18} />
+                        {history.length > 0 && <span className="badge">{history.length}</span>}
+                    </button>
                     <button
                         onClick={handleReset}
-                        className="text-slate-500 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                        data-tip="重置"
+                        className={`api-gen-header-btn ${resetConfirmPending ? 'confirm-pending' : 'danger'}`}
+                        title={resetConfirmPending ? "再次点击确认重置" : "重置"}
                     >
                         <Trash2 size={18} />
+                        {resetConfirmPending && <span>确认?</span>}
                     </button>
                 </div>
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 overflow-auto p-4 space-y-4">
+            <div className="api-gen-content">
                 {/* 批量输入表格 */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="api-gen-card">
                     <button
                         onClick={() => setExpandedSections(s => ({ ...s, batch: !s.batch }))}
-                        className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white"
+                        className="api-gen-card-header"
                     >
-                        <div className="flex items-center gap-2">
+                        <div className="api-gen-card-header-left">
                             <Table2 size={18} />
-                            <span className="font-medium">批量生成</span>
+                            <span>批量生成</span>
                             {validBatchCount > 0 && (
-                                <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
-                                    {validBatchCount} 个任务
-                                </span>
+                                <span className="count-badge">{validBatchCount} 个任务</span>
                             )}
                         </div>
                         {expandedSections.batch ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                     </button>
 
                     {expandedSections.batch && (
-                        <div className="p-4 space-y-4">
+                        <div className="api-gen-card-body">
                             {/* 配置选项 */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-700 mb-1">模型</label>
-                                    <select
-                                        value={state.model}
-                                        onChange={(e) => updateState({ model: e.target.value as ImageGenModel })}
-                                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                                    >
-                                        {MODEL_OPTIONS.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-700 mb-1">尺寸</label>
-                                    <select
-                                        value={state.size}
-                                        onChange={(e) => updateState({ size: e.target.value as ImageSize })}
-                                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                                    >
-                                        {SIZE_OPTIONS.map(opt => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-700 mb-1">描述词个数</label>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={10}
-                                        value={state.promptCount}
-                                        onChange={(e) => handlePromptCountChange(parseInt(e.target.value) || 4)}
-                                        className="w-full px-2 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                                    />
-                                </div>
-                                <div className="flex items-end">
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={state.autoDownload}
-                                            onChange={(e) => updateState({ autoDownload: e.target.checked })}
-                                            className="w-4 h-4 text-blue-500 rounded focus:ring-blue-500"
-                                        />
-                                        <span className="text-sm text-slate-700">自动下载</span>
-                                    </label>
+                            <div className="api-gen-settings-row">
+                                {/* 模式切换 */}
+                                <div className="api-gen-settings-item">
+                                    <label>模式</label>
+                                    <div style={{ display: 'flex', gap: '0' }}>
+                                        <button
+                                            onClick={() => setWorkflowMode('classic')}
+                                            className={`api-gen-btn sm ${workflowMode === 'classic' ? 'primary' : 'ghost'}`}
+                                            style={{ borderRadius: '6px 0 0 6px', borderRight: 'none' }}
+                                            title="直接用词生成图片"
+                                        >
+                                            经典
+                                        </button>
+                                        <button
+                                            onClick={() => setWorkflowMode('creative')}
+                                            className={`api-gen-btn sm ${workflowMode === 'creative' ? 'primary' : 'ghost'}`}
+                                            style={{ borderRadius: '0 6px 6px 0' }}
+                                            title="先分析图片生成描述词，再生成图"
+                                        >
+                                            创新
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -651,108 +1024,62 @@ const ApiImageGenApp: React.FC = () => {
                                 onDragOver={handleDragOver}
                                 onDragLeave={handleDragLeave}
                                 onDrop={handleDrop}
-                                className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${isDragging
-                                    ? 'border-blue-500 bg-blue-50'
-                                    : 'border-slate-300 hover:border-slate-400'
-                                    }`}
+                                className={`api-gen-dropzone ${isDragging ? 'dragging' : ''}`}
                             >
-                                <div className="flex items-center justify-center gap-4">
-                                    <Upload size={24} className={isDragging ? 'text-blue-500' : 'text-slate-400'} />
-                                    <div className="text-left">
-                                        <p className={`text-sm font-medium ${isDragging ? 'text-blue-600' : 'text-slate-600'}`}>
-                                            拖拽图片到此处，或直接粘贴 (Ctrl+V)
-                                        </p>
-                                        <p className="text-xs text-slate-400">
-                                            支持从 Google Sheets 复制图片+文本
-                                        </p>
+                                <div className="api-gen-dropzone-content">
+                                    <Upload size={24} />
+                                    <div className="api-gen-dropzone-text">
+                                        <p>拖拽图片到此处，或直接粘贴 (Ctrl+V)</p>
+                                        <small>支持从 Google Sheets 复制图片+文本</small>
                                     </div>
-                                    <div className="flex items-center gap-1 ml-4 border-l border-slate-200 pl-4">
-                                        <span className="text-xs text-slate-500 mr-2">拖拽模式:</span>
-                                        <button
-                                            onClick={() => setDragMode('split')}
-                                            className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${dragMode === 'split'
-                                                ? 'bg-blue-500 text-white'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                }`}
-                                            title="每张图片创建一个任务"
-                                        >
-                                            <Split size={12} />
-                                            一图一行
-                                        </button>
-                                        <button
-                                            onClick={() => setDragMode('merge')}
-                                            className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${dragMode === 'merge'
-                                                ? 'bg-blue-500 text-white'
-                                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                                }`}
-                                            title="所有图片合并到一个任务"
-                                        >
-                                            <Merge size={12} />
-                                            合并到一行
-                                        </button>
-                                    </div>
+                                </div>
+                                <div className="api-gen-drag-mode">
+                                    <span className="api-gen-drag-mode-label">拖拽模式:</span>
+                                    <button
+                                        onClick={() => setDragMode('split')}
+                                        className={`api-gen-drag-mode-btn ${dragMode === 'split' ? 'active' : ''}`}
+                                        title="每张图片创建一个任务"
+                                    >
+                                        <Split size={12} />
+                                        一图一行
+                                    </button>
+                                    <button
+                                        onClick={() => setDragMode('merge')}
+                                        className={`api-gen-drag-mode-btn ${dragMode === 'merge' ? 'active' : ''}`}
+                                        title="所有图片合并到一个任务"
+                                    >
+                                        <Merge size={12} />
+                                        合并到一行
+                                    </button>
                                 </div>
                             </div>
 
-                            {/* 固定指令设置（第二步的 AI 指令） */}
-                            <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                <button
-                                    onClick={() => setShowInstructionEditor(!showInstructionEditor)}
-                                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
-                                >
-                                    <div className="flex items-center gap-2 text-sm text-slate-600">
-                                        <Settings size={14} />
-                                        <span>固定指令 (第二步)</span>
-                                        <span className="text-xs text-slate-400">图片+用户指令 → 此指令 → 生成描述词</span>
-                                    </div>
-                                    {showInstructionEditor ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                                </button>
-                                {showInstructionEditor && (
-                                    <div className="p-3 space-y-2 bg-white">
-                                        <div className="flex items-center justify-between">
-                                            <p className="text-xs text-slate-500">
-                                                这个指令会和用户输入的图片/文本一起发送给 AI，用于生成描述词
-                                            </p>
-                                            <button
-                                                onClick={() => updateState({ promptInstruction: generateDefaultInstruction(state.promptCount) })}
-                                                className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
-                                            >
-                                                <RotateCcw size={12} />
-                                                重置为默认
-                                            </button>
-                                        </div>
-                                        <textarea
-                                            value={state.promptInstruction}
-                                            onChange={(e) => updateState({ promptInstruction: e.target.value })}
-                                            className="w-full h-40 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y focus:ring-2 focus:ring-blue-500"
-                                            placeholder="输入用于生成描述词的固定指令..."
-                                        />
-                                    </div>
-                                )}
-                            </div>
 
                             {/* 表格 */}
-                            <div className="border border-slate-200 rounded-lg overflow-hidden">
-                                <table className="w-full">
-                                    <thead className="bg-slate-50">
+                            <div className="api-gen-table-container">
+                                <table className="api-gen-table">
+                                    <thead>
                                         <tr>
-                                            <th className="w-12 px-3 py-2 text-left text-xs font-medium text-slate-500">#</th>
-                                            <th className="w-32 px-3 py-2 text-left text-xs font-medium text-slate-500">上传图片</th>
-                                            <th className="px-3 py-2 text-left text-xs font-medium text-slate-500">生成文本 (Prompt)</th>
-                                            <th className="w-40 px-3 py-2 text-left text-xs font-medium text-slate-500">下载文件夹</th>
-                                            <th className="w-20 px-3 py-2 text-left text-xs font-medium text-slate-500">状态</th>
-                                            <th className="w-12 px-3 py-2"></th>
+                                            <th style={{ width: '50px' }}>#</th>
+                                            <th style={{ width: '130px' }}>上传图片</th>
+                                            <th>生成文本 (Prompt)</th>
+                                            <th style={{ width: '160px' }}>下载文件夹</th>
+                                            <th style={{ width: '80px' }}>状态</th>
+                                            <th style={{ width: '48px' }}></th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
+                                    <tbody>
                                         {batchRows.map((row, index) => (
-                                            <tr key={row.id} className={row.status === 'added' ? 'bg-green-50' : ''}>
+                                            <tr
+                                                key={row.id}
+                                                style={row.status === 'added' ? { backgroundColor: 'rgba(34, 197, 94, 0.1)' } : {}}
+                                            >
                                                 <td className="px-3 py-2 text-sm text-slate-500">{index + 1}</td>
                                                 <td
                                                     className="px-3 py-2"
-                                                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-50'); }}
-                                                    onDragLeave={(e) => { e.currentTarget.classList.remove('bg-blue-50'); }}
-                                                    onDrop={(e) => { e.currentTarget.classList.remove('bg-blue-50'); handleRowDrop(row.id, e); }}
+                                                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.15)'; }}
+                                                    onDragLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
+                                                    onDrop={(e) => { e.currentTarget.style.backgroundColor = ''; handleRowDrop(row.id, e); }}
                                                 >
                                                     <div className="flex items-center gap-1 flex-wrap">
                                                         {row.images.map((img, imgIdx) => (
@@ -787,22 +1114,28 @@ const ApiImageGenApp: React.FC = () => {
                                                         />
                                                     </div>
                                                 </td>
-                                                <td className="px-3 py-2">
+                                                <td>
                                                     <textarea
                                                         value={row.prompt}
                                                         onChange={(e) => handleUpdateRow(row.id, { prompt: e.target.value })}
-                                                        placeholder="输入生成文本..."
-                                                        className="w-full px-2 py-1 border border-slate-200 rounded text-sm resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                                        rows={2}
+                                                        onDoubleClick={() => openTextEditor(
+                                                            `编辑生成文本 #${batchRows.indexOf(row) + 1}`,
+                                                            row.prompt,
+                                                            (value) => handleUpdateRow(row.id, { prompt: value })
+                                                        )}
+                                                        placeholder="输入生成文本...（双击放大编辑）"
+                                                        className="api-gen-textarea"
+                                                        style={{ minHeight: '56px', height: '56px', cursor: 'text' }}
                                                     />
                                                 </td>
-                                                <td className="px-3 py-2">
+                                                <td>
                                                     <input
                                                         type="text"
                                                         value={row.downloadFolder}
                                                         onChange={(e) => handleUpdateRow(row.id, { downloadFolder: e.target.value })}
                                                         placeholder="可选"
-                                                        className="w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                                                        className="api-gen-input"
+                                                        style={{ width: '100%' }}
                                                     />
                                                 </td>
                                                 <td className="px-3 py-2">
@@ -830,54 +1163,425 @@ const ApiImageGenApp: React.FC = () => {
                             </div>
 
                             {/* 操作按钮 */}
-                            <div className="flex flex-wrap gap-2">
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
                                 <button
                                     onClick={handleAddRow}
-                                    className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm flex items-center gap-1 hover:bg-slate-200"
+                                    className="api-gen-btn ghost sm"
                                 >
                                     <Plus size={14} />
                                     添加行
                                 </button>
                                 <button
                                     onClick={handleClearBatch}
-                                    className="px-3 py-1.5 text-slate-500 hover:text-slate-700 rounded-lg text-sm flex items-center gap-1"
+                                    className="api-gen-btn ghost sm"
                                 >
                                     <Trash2 size={14} />
                                     清空表格
                                 </button>
-                                <div className="flex-1" />
+                                <div style={{ flex: 1 }} />
                                 <button
                                     onClick={handleAddBatchToQueue}
                                     disabled={validBatchCount === 0}
-                                    className="px-4 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium flex items-center gap-1 hover:bg-slate-200 disabled:opacity-50"
+                                    className="api-gen-btn ghost"
                                 >
                                     <ListPlus size={16} />
                                     添加到队列 ({validBatchCount})
                                 </button>
                                 <button
-                                    onClick={handleAddBatchAndStart}
+                                    onClick={() => {
+                                        handleAddBatchToQueue();
+                                        setTimeout(() => handleStartQueue(), 100);
+                                    }}
                                     disabled={validBatchCount === 0}
-                                    className="px-4 py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg text-sm font-medium flex items-center gap-1 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50"
+                                    className="api-gen-btn cta"
                                 >
-                                    <Play size={16} />
+                                    <Zap size={16} />
                                     添加并开始 ({validBatchCount})
                                 </button>
                             </div>
+
+                            {/* 根据图批量生成创新画面 - 仅在创新模式下显示 */}
+                            {workflowMode === 'creative' && (
+                                <div className="api-gen-instruction-panel">
+                                    <button
+                                        onClick={() => setShowInstructionEditor(!showInstructionEditor)}
+                                        className="api-gen-instruction-header"
+                                    >
+                                        <div className="api-gen-instruction-header-left">
+                                            <Sparkles size={14} />
+                                            <span>根据图批量生成创新画面</span>
+                                        </div>
+                                        {showInstructionEditor ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                    </button>
+                                    {showInstructionEditor && (
+                                        <div className="api-gen-instruction-body">
+                                            {/* 固定说明 + 描述词个数 */}
+                                            <div style={{
+                                                padding: '0.75rem',
+                                                background: 'var(--control-bg-color)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: 'var(--radius-sm)',
+                                                marginBottom: '0.75rem'
+                                            }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-color)' }}>
+                                                        🎨 根据下面的创新要求，生成
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={10}
+                                                            value={state.promptCount}
+                                                            onChange={(e) => handlePromptCountChange(parseInt(e.target.value) || 4)}
+                                                            className="api-gen-input"
+                                                            style={{ width: '60px', textAlign: 'center' }}
+                                                        />
+                                                        <span style={{ fontSize: '0.8125rem', color: 'var(--text-color)' }}>个描述词</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* 可编辑部分：创新要求 */}
+                                            <div>
+                                                <div className="api-gen-instruction-info" style={{ marginBottom: '0.5rem' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                        <label style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--primary-color)' }}>
+                                                            ✏️ 创新要求 (可自定义)
+                                                        </label>
+                                                        {/* 预设选择器 */}
+                                                        <select
+                                                            value=""
+                                                            onChange={(e) => {
+                                                                const idx = parseInt(e.target.value);
+                                                                if (!isNaN(idx) && instructionPresets[idx]) {
+                                                                    const newInstruction = instructionPresets[idx].content + '\n\n' + generateFormatRequirement(state.promptCount);
+                                                                    updateState({ promptInstruction: newInstruction });
+                                                                }
+                                                            }}
+                                                            className="api-gen-select"
+                                                            style={{ fontSize: '0.6875rem', padding: '0.25rem 0.5rem', minWidth: '120px' }}
+                                                        >
+                                                            <option value="">选择预设...</option>
+                                                            {instructionPresets.map((preset, idx) => (
+                                                                <option key={idx} value={idx}>{preset.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                                                        {/* 保存当前为预设 */}
+                                                        <button
+                                                            onClick={() => {
+                                                                const name = prompt('请输入预设名称：');
+                                                                if (name) {
+                                                                    const content = state.promptInstruction.split('\n\n请严格按照以下格式输出')[0];
+                                                                    addInstructionPreset(name, content);
+                                                                }
+                                                            }}
+                                                            className="api-gen-reset-btn"
+                                                            title="保存为预设"
+                                                        >
+                                                            <Save size={12} />
+                                                            保存
+                                                        </button>
+                                                        <button
+                                                            onClick={() => updateState({ promptInstruction: generateDefaultInstruction(state.promptCount) })}
+                                                            className="api-gen-reset-btn"
+                                                            title="重置为默认"
+                                                        >
+                                                            <RotateCcw size={12} />
+                                                            重置
+                                                        </button>
+                                                        {/* 大窗口编辑 */}
+                                                        <button
+                                                            onClick={() => openTextEditor(
+                                                                '编辑创新要求',
+                                                                state.promptInstruction.split('\n\n请严格按照以下格式输出')[0],
+                                                                (value) => {
+                                                                    const newInstruction = value + '\n\n' + generateFormatRequirement(state.promptCount);
+                                                                    updateState({ promptInstruction: newInstruction });
+                                                                }
+                                                            )}
+                                                            className="api-gen-reset-btn"
+                                                            title="大窗口编辑"
+                                                        >
+                                                            <Maximize2 size={12} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <textarea
+                                                    value={state.promptInstruction.split('\n\n请严格按照以下格式输出')[0]}
+                                                    onChange={(e) => {
+                                                        const newInstruction = e.target.value + '\n\n' + generateFormatRequirement(state.promptCount);
+                                                        updateState({ promptInstruction: newInstruction });
+                                                    }}
+                                                    onDoubleClick={() => openTextEditor(
+                                                        '编辑创新要求',
+                                                        state.promptInstruction.split('\n\n请严格按照以下格式输出')[0],
+                                                        (value) => {
+                                                            const newInstruction = value + '\n\n' + generateFormatRequirement(state.promptCount);
+                                                            updateState({ promptInstruction: newInstruction });
+                                                        }
+                                                    )}
+                                                    className="api-gen-textarea"
+                                                    style={{ height: '80px', fontFamily: 'var(--font-family-mono)', fontSize: '0.75rem', cursor: 'text' }}
+                                                    placeholder="输入你想让 AI 如何分析图片并生成描述词...（双击打开大窗口编辑）"
+                                                />
+                                            </div>
+
+                                            {/* 只读部分：输出格式 */}
+                                            <div>
+                                                <div style={{ marginBottom: '0.375rem' }}>
+                                                    <label style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--text-muted-color)' }}>
+                                                        🔒 输出格式 (固定)
+                                                    </label>
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        padding: '0.75rem',
+                                                        background: 'var(--control-bg-color)',
+                                                        border: '1px solid var(--border-color)',
+                                                        borderRadius: 'var(--radius-sm)',
+                                                        fontSize: '0.6875rem',
+                                                        fontFamily: 'var(--font-family-mono)',
+                                                        color: 'var(--text-muted-color)',
+                                                        whiteSpace: 'pre-wrap',
+                                                        maxHeight: '120px',
+                                                        overflowY: 'auto'
+                                                    }}
+                                                >
+                                                    {generateFormatRequirement(state.promptCount)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 保留参考图结构 (垫图) - 仅在创新模式下显示 */}
+                            {workflowMode === 'creative' && (
+                                <div>
+                                    <div
+                                        className={`api-gen-ref-toggle ${useRefForGeneration ? 'active' : ''}`}
+                                        onClick={() => setUseRefForGeneration(!useRefForGeneration)}
+                                    >
+                                        <div className="api-gen-ref-toggle-checkbox">
+                                            {useRefForGeneration && <Check size={12} />}
+                                        </div>
+                                        <div className="api-gen-ref-toggle-content">
+                                            <h4>
+                                                <Zap size={14} />
+                                                保留参考图结构 (垫图)
+                                            </h4>
+                                            <p>
+                                                开启后，最终生成将基于输入图进行修改 (图生图)。<br />
+                                                关闭后，仅分析输入图内容，生成全新的图像 (文生图)。
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* 垫图子模式选项 */}
+                                    {useRefForGeneration && (
+                                        <div className="api-gen-ref-modes">
+                                            <button
+                                                className={`api-gen-ref-mode-btn ${refMode === 'fixed' ? 'active' : ''}`}
+                                                onClick={() => setRefMode('fixed')}
+                                            >
+                                                <h5>🔒 固定人物模式</h5>
+                                                <p>锁定人物面部特征，仅根据描述词修改背景/动作/风格。</p>
+                                            </button>
+                                            <button
+                                                className={`api-gen-ref-mode-btn ${refMode === 'standard' ? 'active' : ''}`}
+                                                onClick={() => setRefMode('standard')}
+                                            >
+                                                <h5>🎨 普通垫图模式</h5>
+                                                <p>整体参考图片结构和氛围，自由度更高。</p>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 创新模式：变体审核界面 */}
+                            {workflowMode === 'creative' && creativeWorkflowStep === 'review' && (
+                                <div className="api-gen-review-section">
+                                    <div className="api-gen-review-header">
+                                        <label className="api-gen-label">2. 变体确认 (Review)</label>
+                                        <button
+                                            onClick={resetCreativeWorkflow}
+                                            className="api-gen-btn ghost sm"
+                                        >
+                                            <RotateCcw size={14} />
+                                            重新开始
+                                        </button>
+                                    </div>
+                                    <div className="api-gen-review-list">
+                                        {creativePrompts.map((p, idx) => (
+                                            <div key={idx} className="api-gen-review-item">
+                                                <div className="api-gen-review-item-header">
+                                                    <span className="api-gen-review-badge">变体 {idx + 1}</span>
+                                                    <button
+                                                        onClick={() => deleteCreativePrompt(idx)}
+                                                        className="api-gen-btn ghost sm"
+                                                        title="删除"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                                {/* 中文描述（预览） */}
+                                                <div className="api-gen-review-zh">
+                                                    {p.zh}
+                                                </div>
+                                                {/* 英文描述（可编辑） */}
+                                                <textarea
+                                                    value={p.en}
+                                                    onChange={(e) => updateCreativePrompt(idx, { en: e.target.value })}
+                                                    className="api-gen-textarea sm"
+                                                    placeholder="English prompt..."
+                                                    rows={3}
+                                                />
+                                            </div>
+                                        ))}
+                                        <button
+                                            onClick={addCreativePrompt}
+                                            className="api-gen-btn ghost full-width"
+                                        >
+                                            <Plus size={16} />
+                                            添加变体 (Add)
+                                        </button>
+                                    </div>
+                                    {/* 确认生成按钮 */}
+                                    <button
+                                        onClick={handleCreativeGenerate}
+                                        className="api-gen-btn primary full-width"
+                                        disabled={creativePrompts.length === 0}
+                                    >
+                                        <Layers size={18} />
+                                        全部生成 ({creativePrompts.length})
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 创新模式：双按钮操作区（仅在输入阶段显示） */}
+                            {workflowMode === 'creative' && creativeWorkflowStep === 'input' && (
+                                <div className="api-gen-creative-actions">
+                                    <button
+                                        onClick={() => runCreativeWorkflow(false)}
+                                        disabled={isAnalyzing || validBatchCount === 0}
+                                        className="api-gen-btn ghost"
+                                        style={{ flex: 1 }}
+                                    >
+                                        {isAnalyzing ? (
+                                            <>
+                                                <RefreshCw size={16} className="animate-spin" />
+                                                分析中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={16} />
+                                                分析与审核
+                                            </>
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={() => runCreativeWorkflow(true)}
+                                        disabled={isAnalyzing || validBatchCount === 0}
+                                        className="api-gen-btn primary"
+                                        style={{ flex: 1.5 }}
+                                    >
+                                        {isAnalyzing ? (
+                                            <>
+                                                <RefreshCw size={16} className="animate-spin" />
+                                                处理中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Zap size={16} />
+                                                一键生成
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 创新模式：队列状态（已添加阶段显示新流程按钮） */}
+                            {workflowMode === 'creative' && creativeWorkflowStep === 'queued' && (
+                                <div className="api-gen-creative-queued">
+                                    <button
+                                        onClick={resetCreativeWorkflow}
+                                        className="api-gen-btn ghost"
+                                    >
+                                        <Plus size={16} />
+                                        新流程
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
 
+                {/* 生成设置 - 任务队列上方 */}
+                <div className="api-gen-settings-row" style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', marginBottom: '12px' }}>
+                    <div className="api-gen-settings-item">
+                        <label>模型</label>
+                        <select
+                            value={state.model}
+                            onChange={(e) => updateState({ model: e.target.value as ImageGenModel })}
+                            className="api-gen-select"
+                        >
+                            {MODEL_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="api-gen-settings-item">
+                        <label>尺寸</label>
+                        <select
+                            value={state.size}
+                            onChange={(e) => updateState({ size: e.target.value as ImageSize })}
+                            className="api-gen-select"
+                        >
+                            {SIZE_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="api-gen-settings-item">
+                        <label>每词图片数</label>
+                        <input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={state.imagesPerPrompt}
+                            onChange={(e) => updateState({ imagesPerPrompt: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+                            className="api-gen-input"
+                            style={{ width: '60px', textAlign: 'center' }}
+                            title="每个描述词生成多少张图片"
+                        />
+                    </div>
+                    <div className="api-gen-settings-item inline">
+                        <input
+                            type="checkbox"
+                            checked={state.autoDownload}
+                            onChange={(e) => updateState({ autoDownload: e.target.checked })}
+                            className="api-gen-checkbox"
+                            id="auto-download"
+                        />
+                        <label htmlFor="auto-download">自动下载</label>
+                    </div>
+                </div>
+
                 {/* 任务队列 */}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="api-gen-card">
                     <button
                         onClick={() => setExpandedSections(s => ({ ...s, queue: !s.queue }))}
-                        className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white"
+                        className="api-gen-card-header"
                     >
-                        <div className="flex items-center gap-2">
+                        <div className="api-gen-card-header-left">
                             <Layers size={18} />
-                            <span className="font-medium">任务队列</span>
+                            <span>任务队列</span>
                             {queueStats.total > 0 && (
-                                <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                                <span className="count-badge">
                                     {queueStats.completed}/{queueStats.total}
                                 </span>
                             )}
@@ -886,16 +1590,16 @@ const ApiImageGenApp: React.FC = () => {
                     </button>
 
                     {expandedSections.queue && (
-                        <div className="p-4 space-y-4">
+                        <div className="api-gen-card-body">
                             {/* 队列控制 */}
                             {queueStats.total > 0 && (
-                                <div className="flex flex-wrap items-center gap-2">
+                                <div className="api-gen-queue-controls">
                                     {queueStats.pending > 0 && (
                                         <>
                                             {!isProcessingQueue ? (
                                                 <button
                                                     onClick={handleStartQueue}
-                                                    className="px-4 py-2 bg-blue-500 text-white rounded-lg font-medium flex items-center gap-2 hover:bg-blue-600"
+                                                    className="api-gen-btn primary"
                                                 >
                                                     <Play size={18} />
                                                     开始 ({queueStats.pending})
@@ -935,32 +1639,46 @@ const ApiImageGenApp: React.FC = () => {
                                     )}
 
                                     <button
-                                        onClick={handleClearAllTasks}
-                                        className="px-4 py-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg font-medium flex items-center gap-2"
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleClearAllTasks();
+                                        }}
+                                        className="api-gen-btn ghost sm"
+                                        style={{ color: 'var(--error-color)' }}
                                     >
                                         <Trash2 size={18} />
                                         清空
                                     </button>
 
-                                    <div className="flex-1" />
-
-                                    {/* 队列统计 */}
-                                    <div className="flex items-center gap-2 text-xs">
-                                        <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600">
+                                    <div className="api-gen-queue-stats">
+                                        <span className="api-gen-queue-stat pending">
                                             待处理 {queueStats.pending}
                                         </span>
                                         {queueStats.running > 0 && (
-                                            <span className="px-2 py-0.5 bg-blue-100 rounded text-blue-600">
+                                            <span className="api-gen-queue-stat running">
                                                 进行中 {queueStats.running}
                                             </span>
                                         )}
-                                        <span className="px-2 py-0.5 bg-green-100 rounded text-green-600">
+                                        <span className="api-gen-queue-stat completed">
                                             完成 {queueStats.completed}
                                         </span>
                                         {queueStats.failed > 0 && (
-                                            <span className="px-2 py-0.5 bg-red-100 rounded text-red-600">
+                                            <span className="api-gen-queue-stat failed">
                                                 失败 {queueStats.failed}
                                             </span>
+                                        )}
+                                        {queueStats.failed > 0 && (
+                                            <button
+                                                onClick={handleRetryAllFailed}
+                                                className="api-gen-btn ghost sm"
+                                                style={{ marginLeft: '0.5rem' }}
+                                                title="重试所有失败任务"
+                                            >
+                                                <RefreshCw size={14} />
+                                                重试全部
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -968,38 +1686,38 @@ const ApiImageGenApp: React.FC = () => {
 
                             {/* 任务列表 */}
                             {state.tasks.length > 0 ? (
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                <div className="api-gen-task-grid">
                                     {state.tasks.map((task, index) => (
                                         <div
                                             key={task.id}
-                                            className="relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50"
+                                            className="api-gen-task-card"
                                         >
-                                            <div className="aspect-square relative">
+                                            <div className="api-gen-task-card-image">
                                                 {task.result ? (
                                                     <img
                                                         src={task.result}
                                                         alt={`生成图片 ${index + 1}`}
-                                                        className="w-full h-full object-cover"
                                                     />
                                                 ) : (
-                                                    <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-2">
+                                                    <div className="api-gen-task-card-placeholder">
                                                         {renderTaskStatus(task.status, task.progress)}
                                                         {task.promptTextZh && (
-                                                            <p className="mt-2 text-[10px] text-slate-400 text-center line-clamp-3">
-                                                                {task.promptTextZh}
+                                                            <p style={{ fontSize: '10px', marginTop: '0.5rem' }}>
+                                                                {task.promptTextZh.slice(0, 50)}...
                                                             </p>
                                                         )}
                                                     </div>
                                                 )}
 
-                                                <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/50 text-white text-xs">
+                                                <div className="api-gen-task-card-number">
                                                     #{index + 1}
                                                 </div>
 
                                                 {task.status !== 'running' && (
                                                     <button
                                                         onClick={() => handleRemoveTask(task.id)}
-                                                        className="absolute top-2 right-2 w-6 h-6 bg-black/50 text-white rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                                                        className="api-gen-thumb-remove"
+                                                        style={{ opacity: 1, top: '6px', right: '6px', width: '20px', height: '20px' }}
                                                     >
                                                         <X size={12} />
                                                     </button>
@@ -1007,23 +1725,37 @@ const ApiImageGenApp: React.FC = () => {
                                             </div>
 
                                             {task.result && (
-                                                <div className="p-2 flex justify-center">
+                                                <div className="api-gen-task-card-footer">
                                                     <button
                                                         onClick={() => handleDownloadImage(task)}
-                                                        className="px-3 py-1 bg-green-500 text-white text-xs rounded-lg hover:bg-green-600"
+                                                        className="api-gen-btn primary sm"
+                                                        style={{ width: '100%' }}
                                                     >
-                                                        <Download size={12} className="inline mr-1" />
+                                                        <Download size={12} />
                                                         下载
                                                     </button>
                                                 </div>
                                             )}
 
-                                            <div className="px-2 pb-2 text-[10px] text-slate-400 truncate text-center">
+                                            <div className="api-gen-task-card-filename">
                                                 {task.filename}
                                             </div>
 
+                                            {task.status === 'failed' && (
+                                                <div className="api-gen-task-card-footer">
+                                                    <button
+                                                        onClick={() => handleRetryTask(task.id)}
+                                                        className="api-gen-btn ghost sm"
+                                                        style={{ width: '100%' }}
+                                                    >
+                                                        <RefreshCw size={12} />
+                                                        重试
+                                                    </button>
+                                                </div>
+                                            )}
+
                                             {task.status === 'failed' && task.error && (
-                                                <div className="p-2 text-xs text-red-600 bg-red-50">
+                                                <div style={{ padding: '0.5rem', fontSize: '10px', color: 'var(--error-color)' }}>
                                                     {task.error}
                                                 </div>
                                             )}
@@ -1031,10 +1763,10 @@ const ApiImageGenApp: React.FC = () => {
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-center py-8 text-slate-400">
-                                    <Layers size={48} className="mx-auto mb-2 opacity-50" />
+                                <div className="api-gen-empty">
+                                    <Layers size={48} />
                                     <p>队列为空</p>
-                                    <p className="text-xs mt-1">在上方表格中添加任务后点击"添加到队列"</p>
+                                    <p className="hint">在上方表格中添加任务后点击"添加到队列"</p>
                                 </div>
                             )}
                         </div>
@@ -1043,6 +1775,123 @@ const ApiImageGenApp: React.FC = () => {
             </div>
 
 
+            {/* 历史侧边栏 */}
+            <HistorySidebar
+                history={history}
+                onSelect={(img) => {
+                    setPreviewImage(img);
+                    setIsHistoryOpen(false);
+                }}
+                onDelete={deleteFromHistory}
+                onClear={clearHistory}
+                selectedId={previewImage?.id}
+                isOpen={isHistoryOpen}
+                onClose={() => setIsHistoryOpen(false)}
+            />
+
+            {/* 图片预览面板 */}
+            {previewImage && (
+                <ImagePreviewPanel
+                    image={previewImage}
+                    onClose={() => setPreviewImage(null)}
+                />
+            )}
+
+            {/* 大窗口文本编辑模态框 */}
+            {textEditorModal.isOpen && (
+                <div
+                    className="api-gen-modal-overlay"
+                    onClick={closeTextEditor}
+                >
+                    <div
+                        className="api-gen-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: '80%', maxWidth: '800px' }}
+                    >
+                        <div className="api-gen-modal-header">
+                            <h3>{textEditorModal.title}</h3>
+                            <button onClick={closeTextEditor} className="api-gen-modal-close">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="api-gen-modal-body">
+                            <textarea
+                                value={textEditorModal.value}
+                                onChange={(e) => setTextEditorModal(prev => ({ ...prev, value: e.target.value }))}
+                                className="api-gen-textarea"
+                                style={{
+                                    height: '400px',
+                                    width: '100%',
+                                    fontFamily: 'var(--font-family-mono)',
+                                    fontSize: '0.875rem',
+                                    resize: 'vertical'
+                                }}
+                                autoFocus
+                            />
+                        </div>
+                        <div className="api-gen-modal-footer">
+                            <button onClick={closeTextEditor} className="api-gen-btn ghost">
+                                取消
+                            </button>
+                            <button
+                                onClick={() => {
+                                    textEditorModal.onSave(textEditorModal.value);
+                                    closeTextEditor();
+                                }}
+                                className="api-gen-btn primary"
+                            >
+                                <Check size={16} />
+                                保存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 自定义确认模态框 */}
+            {confirmModal.isOpen && (
+                <div
+                    className="api-gen-modal-overlay"
+                    onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                >
+                    <div
+                        className="api-gen-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: '360px', maxWidth: '90%' }}
+                    >
+                        <div className="api-gen-modal-header">
+                            <h3>{confirmModal.title}</h3>
+                            <button
+                                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                                className="api-gen-modal-close"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="api-gen-modal-body" style={{ padding: '1.5rem', textAlign: 'center' }}>
+                            <p style={{ fontSize: '1rem', color: 'var(--text-color)' }}>
+                                {confirmModal.message}
+                            </p>
+                        </div>
+                        <div className="api-gen-modal-footer" style={{ justifyContent: 'center', gap: '1rem' }}>
+                            <button
+                                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                                className="api-gen-btn ghost"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={confirmModal.onConfirm}
+                                className="api-gen-btn primary"
+                                style={{ background: '#ef4444' }}
+                            >
+                                <Trash2 size={16} />
+                                确认清空
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

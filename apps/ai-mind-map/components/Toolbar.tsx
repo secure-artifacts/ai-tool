@@ -878,7 +878,7 @@ export const Toolbar: React.FC = () => {
                         <span className="label">子节点</span>
                     </button>
                     <button
-                        className="toolbar-btn"
+                        className="toolbar-btn tooltip-bottom"
                         onClick={() => {
                             if (selectedNode?.parentId) {
                                 const newId = addNode(selectedNode.parentId, '新主题');
@@ -886,7 +886,7 @@ export const Toolbar: React.FC = () => {
                             }
                         }}
                         disabled={!selectedNode || !selectedNode.parentId}
-                        className="tooltip-bottom" data-tip="添加兄弟节点 (Enter)"
+                        data-tip="添加兄弟节点 (Enter)"
                     >
                         <Plus size={16} />
                         <span className="label">兄弟</span>
@@ -914,13 +914,13 @@ export const Toolbar: React.FC = () => {
                         <span className="label">居中</span>
                     </button>
                     <button
-                        className="toolbar-btn"
+                        className="toolbar-btn tooltip-bottom"
                         onClick={() => {
                             window.dispatchEvent(new CustomEvent('mindmap-auto-layout'));
                             setTimeout(() => window.dispatchEvent(new CustomEvent('mindmap-fit-view')), 100);
                         }}
                         disabled={!currentMap}
-                        className="tooltip-bottom" data-tip="整理布局"
+                        data-tip="整理布局"
                     >
                         <Sparkles size={16} />
                         <span className="label">整理</span>
@@ -938,9 +938,9 @@ export const Toolbar: React.FC = () => {
                     <div className="toolbar-dropdown-wrapper">
                         <button
                             ref={expandTriggerRef}
-                            className={`ai-tools-trigger-v2 ${expandMenuOpen ? 'open' : ''}`}
+                            className={`ai-tools-trigger-v2 ${expandMenuOpen ? 'open' : ''} tooltip-bottom`}
                             onClick={toggleExpandMenu}
-                            className="tooltip-bottom" data-tip="展开/收起"
+                            data-tip="展开/收起"
                         >
                             <List size={14} className="trigger-icon" />
                             <span>展开/收起</span>
@@ -987,9 +987,9 @@ export const Toolbar: React.FC = () => {
                     <div className="toolbar-dropdown-wrapper">
                         <button
                             ref={layoutTriggerRef}
-                            className={`ai-tools-trigger-v2 ${layoutMenuOpen ? 'open' : ''}`}
+                            className={`ai-tools-trigger-v2 ${layoutMenuOpen ? 'open' : ''} tooltip-bottom`}
                             onClick={toggleLayoutMenu}
-                            className="tooltip-bottom" data-tip="布局方向"
+                            data-tip="布局方向"
                         >
                             <span className="trigger-icon layout-emoji">{currentLayout?.icon || '🧭'}</span>
                             <span>{currentLayout?.label || '布局方向'}</span>
@@ -1077,9 +1077,9 @@ export const Toolbar: React.FC = () => {
                 {/* ===== 主题切换 ===== */}
                 <div className="toolbar-section">
                     <button
-                        className="toolbar-btn theme-toggle"
+                        className="toolbar-btn theme-toggle tooltip-bottom"
                         onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
-                        className="tooltip-bottom" data-tip="切换主题"
+                        data-tip="切换主题"
                     >
                         {themeMode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
                     </button>

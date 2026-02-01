@@ -2763,7 +2763,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                             <button
                                                                 onClick={() => deleteFavoriteFolder(folder.id)}
                                                                 className="text-red-400 hover:text-red-600 tooltip-bottom"
-                                                                 data-tip="删除收藏夹"
+                                                                data-tip="删除收藏夹"
                                                             >
                                                                 <X size={10} />
                                                             </button>
@@ -2836,7 +2836,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                         <button
                                                             onClick={() => setFavorites(prev => prev.filter(f => f.id !== fav.id))}
                                                             className="text-red-400 hover:text-red-600 tooltip-bottom"
-                                                             data-tip="移除"
+                                                            data-tip="移除"
                                                         >
                                                             <X size={10} />
                                                         </button>
@@ -2984,7 +2984,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                 className={`flex items-center gap-1 px-2 py-1 rounded text-xs cursor-pointer transition-all ${activePresetId === preset.id
                                                     ? 'bg-indigo-500 text-white'
                                                     : 'bg-white border border-slate-200 hover:border-indigo-300 text-slate-600'
-                                                    }`}
+                                                    } tooltip-bottom`}
                                                 onClick={() => {
                                                     if (editingPresetId !== preset.id) {
                                                         loadPreset(preset);
@@ -2994,7 +2994,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                     setEditingPresetId(preset.id);
                                                     setEditingPresetName(preset.name);
                                                 }}
-                                                className="tooltip-bottom" data-tip="点击加载 | 双击重命名"
+                                                data-tip="点击加载 | 双击重命名"
                                             >
                                                 {editingPresetId === preset.id ? (
                                                     <input
@@ -3329,7 +3329,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                 value={borderColor}
                                                 onChange={(e) => setBorderColor(e.target.value)}
                                                 className="w-5 h-5 rounded cursor-pointer border border-slate-300 tooltip-bottom"
-                                                 data-tip="边框颜色"
+                                                data-tip="边框颜色"
                                             />
                                         </div>
                                     </div>
@@ -3372,7 +3372,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                     <button
                         onClick={() => setShowLeftPanel(true)}
                         className="w-6 h-full bg-white border-r border-slate-200 hover:bg-indigo-50 transition-colors flex items-center justify-center shrink-0 tooltip-bottom"
-                         data-tip="展开设置面板"
+                        data-tip="展开设置面板"
                     >
                         <ChevronRight size={14} className="text-slate-500" />
                     </button>
@@ -3496,9 +3496,9 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                                                 {col}
                                                                                 {/* Resize Handle - 6px tall for easier grabbing */}
                                                                                 <div
-                                                                                    className="absolute -bottom-3 left-0 right-0 h-6 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-20"
+                                                                                    className="absolute -bottom-3 left-0 right-0 h-6 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-20 tooltip-bottom"
                                                                                     onMouseDown={(e) => handleRowResizeStart(col, rowHeight, e)}
-                                                                                    className="tooltip-bottom" data-tip="拖拽调整行高"
+                                                                                    data-tip="拖拽调整行高"
                                                                                 >
                                                                                     <div className="w-8 h-1 bg-indigo-500 rounded-full" />
                                                                                 </div>
@@ -3662,8 +3662,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                             >
                                                                 {/* Row Number - click to select row, bottom border to resize */}
                                                                 <td
-                                                                    className={`relative px-1 py-1 text-center text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-10 bg-[#f8f9fa] text-[#80868b] cursor-pointer select-none hover:bg-[#e8eaed] transition-colors ${selectionStart && selectionEnd && selectionStart.col === -2 && selectionEnd.col === -2 && rowIdx >= Math.min(selectionStart.row, selectionEnd.row) && rowIdx <= Math.max(selectionStart.row, selectionEnd.row) ? 'bg-blue-200' : ''}`}
-                                                                    className="w-32px"
+                                                                    className={`relative px-1 py-1 text-center text-[10px] border-r border-b border-[#e0e0e0] sticky left-0 z-10 bg-[#f8f9fa] text-[#80868b] cursor-pointer select-none hover:bg-[#e8eaed] transition-colors w-32px ${selectionStart && selectionEnd && selectionStart.col === -2 && selectionEnd.col === -2 && rowIdx >= Math.min(selectionStart.row, selectionEnd.row) && rowIdx <= Math.max(selectionStart.row, selectionEnd.row) ? 'bg-blue-200' : ''}`}
                                                                     onMouseDown={(e) => {
                                                                         e.preventDefault();
                                                                         // Select entire row (col -2 means row selection mode)
@@ -3691,8 +3690,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                                 </td>
                                                                 {/* A column (Label) - normal cell selection */}
                                                                 <td
-                                                                    className={`px-2 py-1 text-xs border-r border-b ${color.border} sticky z-10 whitespace-nowrap ${color.header} ${color.text} cursor-cell select-none ${isCellSelected(rowIdx, -1) || (selectionStart?.col === -2 && selectionEnd?.col === -2 && rowIdx >= Math.min(selectionStart.row, selectionEnd.row) && rowIdx <= Math.max(selectionStart.row, selectionEnd.row)) ? 'bg-blue-100 ring-2 ring-inset ring-blue-500' : ''}`}
-                                                                    className="left-32px"
+                                                                    className={`px-2 py-1 text-xs border-r border-b ${color.border} sticky z-10 whitespace-nowrap left-32px ${color.header} ${color.text} cursor-cell select-none ${isCellSelected(rowIdx, -1) || (selectionStart?.col === -2 && selectionEnd?.col === -2 && rowIdx >= Math.min(selectionStart.row, selectionEnd.row) && rowIdx <= Math.max(selectionStart.row, selectionEnd.row)) ? 'bg-blue-100 ring-2 ring-inset ring-blue-500' : ''}`}
                                                                     onMouseDown={(e) => handleCellMouseDown(rowIdx, -1, e)}
                                                                     onMouseEnter={() => handleCellMouseEnter(rowIdx, -1)}
                                                                     onMouseUp={handleCellMouseUp}

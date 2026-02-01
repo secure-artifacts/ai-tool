@@ -29,7 +29,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/firebase/index';
 
 // 复用 SheetsAuthConfig 的 GAS 样式
-import '@/components/SheetsAuthConfig.css';
+import '../../components/SheetsAuthConfig.css';
 
 // ==================== 类型 ====================
 
@@ -1212,9 +1212,9 @@ export function ProDedupApp() {
                         <div className="categories-header">
                             <span>分类</span>
                             <button
-                                className="cat-add-btn"
+                                className="cat-add-btn tooltip-bottom"
                                 onClick={handleCreateCategory}
-                                className="tooltip-bottom" data-tip="添加分类"
+                                data-tip="添加分类"
                             >
                                 <Plus size={12} />
                             </button>
@@ -1238,16 +1238,16 @@ export function ProDedupApp() {
                                     <span className="cat-count">{count}</span>
                                     <div className="cat-actions">
                                         <button
-                                            className="cat-action-btn"
+                                            className="cat-action-btn tooltip-bottom"
                                             onClick={() => handleRenameCategory(cat)}
-                                            className="tooltip-bottom" data-tip="重命名"
+                                            data-tip="重命名"
                                         >
                                             <Edit2 size={10} />
                                         </button>
                                         <button
-                                            className="cat-action-btn danger"
+                                            className="cat-action-btn danger tooltip-bottom"
                                             onClick={() => handleDeleteCategory(cat)}
-                                            className="tooltip-bottom" data-tip="删除"
+                                            data-tip="删除"
                                         >
                                             <Trash2 size={10} />
                                         </button>
@@ -1316,9 +1316,9 @@ export function ProDedupApp() {
                             </button>
                             {(state.inputText.trim() || state.result) && (
                                 <button
-                                    className="topbar-btn"
+                                    className="topbar-btn tooltip-bottom"
                                     onClick={() => updateState({ inputText: '', result: null })}
-                                    className="tooltip-bottom" data-tip="清空"
+                                    data-tip="清空"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -1346,9 +1346,9 @@ export function ProDedupApp() {
                             </button>
                             {(state.searchQuery.trim() || state.searchGroups.length > 0) && (
                                 <button
-                                    className="topbar-btn"
+                                    className="topbar-btn tooltip-bottom"
                                     onClick={() => updateState({ searchQuery: '', searchGroups: [], selectedSearchItems: new Set() })}
-                                    className="tooltip-bottom" data-tip="清空"
+                                    data-tip="清空"
                                 >
                                     <Trash2 size={14} />
                                 </button>
@@ -1357,9 +1357,9 @@ export function ProDedupApp() {
                     )}
 
                     <button
-                        className="topbar-btn settings"
+                        className="topbar-btn settings tooltip-bottom"
                         onClick={() => updateState({ showSettings: true })}
-                        className="tooltip-bottom" data-tip="设置"
+                        data-tip="设置"
                     >
                         <Settings size={14} />
                     </button>
@@ -1626,9 +1626,9 @@ export function ProDedupApp() {
                                                 <div className="status-with-delete">
                                                     <span className="badge badge-similar">{group.duplicates.length + 1}条</span>
                                                     <button
-                                                        className="action-btn danger"
+                                                        className="action-btn danger tooltip-bottom"
                                                         onClick={() => deleteGroup(groupIdx)}
-                                                        className="tooltip-bottom" data-tip="删除整组"
+                                                        data-tip="删除整组"
                                                     >
                                                         <Trash2 size={11} />
                                                     </button>
@@ -1667,9 +1667,9 @@ export function ProDedupApp() {
                                                             )}
                                                         >
                                                             <div
-                                                                className="similar-item-text"
+                                                                className="similar-item-text tooltip-bottom"
                                                                 onDoubleClick={() => swapRepresentative(groupIdx, dupIdx)}
-                                                                className="tooltip-bottom" data-tip="双击设为保留"
+                                                                data-tip="双击设为保留"
                                                             >
                                                                 {highlightSimilarWords(dup.item.text, group.representative.text)}
                                                             </div>
@@ -1679,9 +1679,9 @@ export function ProDedupApp() {
                                                             <div className="similar-item-actions">
                                                                 <span className="sim-pct">{Math.round(dup.similarity * 100)}%</span>
                                                                 <button
-                                                                    className="action-btn success"
+                                                                    className="action-btn success tooltip-bottom"
                                                                     onClick={() => markAsUnique(groupIdx, dupIdx)}
-                                                                    className="tooltip-bottom" data-tip="标为不重复"
+                                                                    data-tip="标为不重复"
                                                                 >
                                                                     <Check size={10} />
                                                                 </button>
@@ -1700,9 +1700,9 @@ export function ProDedupApp() {
                                                 <div className="badge-stack">
                                                     <span className="badge badge-exists">已有 {match.matchCount}条</span>
                                                     <button
-                                                        className="action-btn view-similar-btn"
+                                                        className="action-btn view-similar-btn tooltip-bottom"
                                                         onClick={() => viewSimilarInLibrary(match.newItem.text)}
-                                                        className="tooltip-bottom" data-tip="查看库中所有相似文案"
+                                                        data-tip="查看库中所有相似文案"
                                                     >
                                                         <Search size={11} />
                                                     </button>
@@ -1747,9 +1747,9 @@ export function ProDedupApp() {
                                                 <td></td>
                                                 <td>
                                                     <button
-                                                        className={`action-btn ${isSelected ? 'active' : ''}`}
+                                                        className={`action-btn ${isSelected ? 'active' : ''} tooltip-bottom`}
                                                         onClick={() => markAsDuplicate(i)}
-                                                        className="tooltip-bottom" data-tip="标记为重复"
+                                                        data-tip="标记为重复"
                                                     >
                                                         <Link size={11} />
                                                     </button>

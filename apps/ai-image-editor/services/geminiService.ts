@@ -1,6 +1,6 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { Layer } from '../types';
-import { ChatMessage } from '../App';
+import { ChatMessage } from '../AIImageEditorApp';
 
 const getAiInstance = () => {
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;

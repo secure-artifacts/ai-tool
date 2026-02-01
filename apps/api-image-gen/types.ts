@@ -1,6 +1,6 @@
 // API 生图 - 类型定义
 
-export type ImageGenModel = 'gemini-3-pro' | 'nanobanana-pro';
+export type ImageGenModel = 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview';
 
 export type ImageSize = '512x512' | '768x768' | '1024x1024' | '1024x1536' | '1536x1024' | '1792x1024' | '1024x1792';
 
@@ -58,26 +58,37 @@ export interface WorkflowState {
     tasks: ImageGenTask[];
     isGeneratingImages: boolean;
     autoDownload: boolean;
+    imagesPerPrompt: number; // 每个词生成几张图
 }
 
 // 生成默认指令 (根据数量动态生成)
-export const generateDefaultInstruction = (count: number): string => {
+// 分为两部分：
+// 1. userInstruction - 用户可编辑的指令
+// 2. formatRequirement - 固定的输出格式（不应被用户编辑）
+
+export const generateUserInstruction = (): string => {
+    return `请根据我给你的每一张图或者仅仅文字说明，详细描述图片，不要描述图片中的文字。
+给我完整的AI描述词，方便我直接给其他软件生成图片或者视频使用。
+你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。`;
+};
+
+export const generateFormatRequirement = (count: number): string => {
     const promptLines = Array.from({ length: count }, (_, i) =>
         `PROMPT${i + 1}_EN: [English description for image generation]\nPROMPT${i + 1}_ZH: [对应的中文描述]`
     ).join('\n');
 
-    return `请根据输入的图片和/或文字描述，生成${count}个不同风格的详细图像描述词(prompt)。
-
-要求：
-1. 每个描述词应该详细、具体，适合 AI 图像生成
-2. 描述词应该包含：主体、场景、风格、光线、色调等元素
-3. 同时提供英文版本和中文版本 (英文用于生成，中文方便查看)
-4. ${count}个描述词应该有明显的差异，例如不同风格、角度或氛围
-
-请严格按照以下格式输出 (每个 prompt 包含 EN 和 ZH 两行)：
+    return `请严格按照以下格式输出 (每个 prompt 包含 EN 和 ZH 两行)：
 ${promptLines}`;
 };
 
+// 完整的指令（用户指令 + 固定格式）
+export const generateDefaultInstruction = (count: number): string => {
+    return `${generateUserInstruction()}
+
+${generateFormatRequirement(count)}`;
+};
+
+export const DEFAULT_USER_INSTRUCTION = generateUserInstruction();
 export const DEFAULT_PROMPT_INSTRUCTION = generateDefaultInstruction(4);
 
 export const SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
@@ -91,6 +102,17 @@ export const SIZE_OPTIONS: { value: ImageSize; label: string }[] = [
 ];
 
 export const MODEL_OPTIONS: { value: ImageGenModel; label: string }[] = [
-    { value: 'gemini-3-pro', label: 'Gemini 3 Pro' },
-    { value: 'nanobanana-pro', label: 'NanoBanana Pro' },
+    { value: 'gemini-2.5-flash-image', label: 'gemini-2.5-flash-image (推荐)' },
+    { value: 'gemini-3-pro-image-preview', label: 'gemini-3-pro-image-preview' },
 ];
+
+// 历史记录中的生成图片
+export interface GeneratedImage {
+    id: string;
+    url: string;  // base64 或 URL
+    prompt: string;
+    promptZh?: string;
+    model: ImageGenModel;
+    size: ImageSize;
+    timestamp: number;
+}

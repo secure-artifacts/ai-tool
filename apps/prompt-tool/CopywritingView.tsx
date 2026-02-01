@@ -1916,8 +1916,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     className={`px-2 py-0.5 text-[10px] rounded-l-full transition-all border ${mode === 'standard'
                                         ? 'bg-amber-600 text-white border-amber-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
-                                        }`}
-                                    className="tooltip-bottom" data-tip="标准模式：文案改写 + 翻译"
+                                        } tooltip-bottom`}
+                                    data-tip="标准模式：文案改写 + 翻译"
                                 >
                                     <FileEdit size={10} className="inline mr-0.5" /> 标准
                                 </button>
@@ -1929,8 +1929,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     className={`px-2 py-0.5 text-[10px] transition-all border-y ${mode === 'voice'
                                         ? 'bg-purple-600 text-white border-purple-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
-                                        }`}
-                                    className="tooltip-bottom" data-tip="人声模式：ElevenLabs 配音标注"
+                                        } tooltip-bottom`}
+                                    data-tip="人声模式：ElevenLabs 配音标注"
                                 >
                                     <Mic size={10} className="inline mr-0.5" /> 人声
                                 </button>
@@ -1942,8 +1942,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'classify'
                                         ? 'bg-cyan-600 text-white border-cyan-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
-                                        }`}
-                                    className="tooltip-bottom" data-tip="分类模式：按规则输出分类结果"
+                                        } tooltip-bottom`}
+                                    data-tip="分类模式：按规则输出分类结果"
                                 >
                                     <Tag size={10} className="inline mr-0.5" /> 分类
                                 </button>
@@ -2077,13 +2077,13 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                         {instructions.map((inst, idx) => (
                             <div key={idx} className="flex items-start gap-1">
                                 <span className="text-[10px] text-amber-400 w-4 shrink-0 mt-1.5">{idx + 1}.</span>
-                                <div className="flex-1 relative">
+                                <div className="flex-1 relative tooltip-bottom">
                                     <textarea
                                         value={inst}
                                         onChange={(e) => updateInstruction(idx, e.target.value)}
                                         onDoubleClick={() => setEditingInstructionIndex(idx)}
                                         placeholder="输入改写指令..."
-                                        className="tooltip-bottom" data-tip="双击弹框编辑"
+                                        data-tip="双击弹框编辑"
                                         className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 placeholder-zinc-600 resize-none min-h-[36px]"
                                         rows={2}
                                     />
@@ -2094,8 +2094,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     className={`p-1 rounded transition-colors mt-0.5 ${activePresetDropdown === idx
                                         ? 'text-amber-400 bg-amber-900/30'
                                         : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
-                                        }`}
-                                    className="tooltip-bottom" data-tip="选择预设"
+                                        } tooltip-bottom`}
+                                    data-tip="选择预设"
                                 >
                                     <ChevronDown size={12} />
                                 </button>
@@ -2548,8 +2548,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                     {result.status === 'success' && (
                                                                         <button
                                                                             onClick={(e) => { e.stopPropagation(); toggleInstructionChat(item.id, idx); }}
-                                                                            className={`p-1 rounded transition-colors ${result.chatOpen ? 'text-amber-400 bg-amber-900/20' : 'text-zinc-500 hover:text-amber-400'}`}
-                                                                            className="tooltip-bottom" data-tip="对话修改"
+                                                                            className={`p-1 rounded transition-colors ${result.chatOpen ? 'text-amber-400 bg-amber-900/20' : 'text-zinc-500 hover:text-amber-400'} tooltip-bottom`}
+                                                                            data-tip="对话修改"
                                                                         >
                                                                             <MessageSquare size={12} />
                                                                         </button>
@@ -2717,8 +2717,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             className={`p-1.5 rounded transition-colors ${item.showSettings
                                                 ? 'text-purple-400 bg-purple-500/10'
                                                 : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
-                                                }`}
-                                            className="tooltip-bottom" data-tip="单条设置"
+                                                } tooltip-bottom`}
+                                            data-tip="单条设置"
                                         >
                                             <Settings2 size={14} />
                                         </button>

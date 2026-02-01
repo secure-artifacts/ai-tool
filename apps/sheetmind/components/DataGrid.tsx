@@ -111,9 +111,9 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
               href={imageUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="block cursor-pointer"
+              className="block cursor-pointer tooltip-bottom"
               onClick={(e) => e.stopPropagation()}
-              className="tooltip-bottom" data-tip="点击在新窗口打开原图"
+              data-tip="点击在新窗口打开原图"
             >
               <img
                 src={`https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}&w=80&h=80&fit=cover`}
@@ -137,9 +137,9 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
               href={imageUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 text-blue-600 hover:text-blue-800 cursor-pointer transition-colors"
+              className="flex items-center gap-2 text-blue-600 hover:text-blue-800 cursor-pointer transition-colors tooltip-bottom"
               onClick={(e) => e.stopPropagation()}
-              className="tooltip-bottom" data-tip="点击在新窗口打开原图"
+              data-tip="点击在新窗口打开原图"
             >
               <Image size={16} />
               <span className="text-xs truncate max-w-[100px] underline">图片链接</span>
@@ -176,9 +176,9 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
             href={stringVal}
             target="_blank"
             rel="noopener noreferrer"
-            className="block cursor-pointer"
+            className="block cursor-pointer tooltip-bottom"
             onClick={(e) => e.stopPropagation()}
-            className="tooltip-bottom" data-tip="点击在新窗口打开原图"
+            data-tip="点击在新窗口打开原图"
           >
             <img
               src={`https://images.weserv.nl/?url=${encodeURIComponent(stringVal)}&w=80&h=80&fit=cover`}

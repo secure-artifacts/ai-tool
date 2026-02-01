@@ -1675,8 +1675,8 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                                             e.stopPropagation();
                                                             handleDeleteGalleryTab(tab.id);
                                                         }}
-                                                        className={`p-0.5 rounded ${activeGalleryTabId === tab.id ? 'hover:bg-white/20' : 'hover:bg-slate-100'}`}
-                                                        className="tooltip-bottom" data-tip="关闭标签页"
+                                                        className={`p-0.5 rounded ${activeGalleryTabId === tab.id ? 'hover:bg-white/20' : 'hover:bg-slate-100'} tooltip-bottom`}
+                                                        data-tip="关闭标签页"
                                                     >
                                                         <X size={12} />
                                                     </button>

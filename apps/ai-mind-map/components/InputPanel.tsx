@@ -664,23 +664,23 @@ export const InputPanel: React.FC = () => {
                         📄 文档
                     </button>
                     <button
-                        className={`input-tab ${activeTab === 'youtube' ? 'active' : ''}`}
+                        className={`input-tab ${activeTab === 'youtube' ? 'active' : ''} tooltip-bottom`}
                         onClick={() => setActiveTab('youtube')}
-                        className="tooltip-bottom" data-tip="YouTube 视频转导图"
+                        data-tip="YouTube 视频转导图"
                     >
                         🎬 视频
                     </button>
                     <button
-                        className={`input-tab ${activeTab === 'webpage' ? 'active' : ''}`}
+                        className={`input-tab ${activeTab === 'webpage' ? 'active' : ''} tooltip-bottom`}
                         onClick={() => setActiveTab('webpage')}
-                        className="tooltip-bottom" data-tip="网页链接转导图"
+                        data-tip="网页链接转导图"
                     >
                         🌐 网页
                     </button>
                     <button
-                        className={`input-tab ${activeTab === 'audio' ? 'active' : ''}`}
+                        className={`input-tab ${activeTab === 'audio' ? 'active' : ''} tooltip-bottom`}
                         onClick={() => setActiveTab('audio')}
-                        className="tooltip-bottom" data-tip="音频转导图"
+                        data-tip="音频转导图"
                     >
                         🎵 音频
                     </button>

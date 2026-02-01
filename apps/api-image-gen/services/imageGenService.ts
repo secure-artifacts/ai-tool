@@ -5,7 +5,34 @@ import { ImageGenModel, ImageSize, GeneratedPrompt } from '../types';
 
 // 获取 AI 实例
 const getAiInstance = (): GoogleGenAI => {
-    const apiKey = (window as any).__geminiApiKey || localStorage.getItem('gemini_api_key') || '';
+    // 尝试从多个位置获取API key，按优先级
+    // 1. 检查是否有API池实例（全局共享）
+    const apiPool = (window as any).__apiPool;
+    const usePool = (window as any).__usePool;
+
+    let apiKey = '';
+
+    if (usePool && apiPool?.hasKeys?.()) {
+        try {
+            apiKey = apiPool.getCurrentKey();
+        } catch (error) {
+            console.error('[ImageGenService] 从API池获取密钥失败:', error);
+        }
+    }
+
+    // 2. 如果API池没有key，尝试从localStorage获取手动设置的key
+    if (!apiKey) {
+        apiKey = typeof window !== 'undefined' ? (localStorage.getItem('user_api_key') || '') : '';
+    }
+
+    // 3. 最后尝试环境变量
+    if (!apiKey) {
+        apiKey = process.env.API_KEY || '';
+    }
+
+    if (!apiKey) {
+        throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
+    }
     return new GoogleGenAI({ apiKey });
 };
 
@@ -30,22 +57,24 @@ const parseSize = (size: ImageSize): { width: number; height: number } => {
 
 /**
  * 生成描述词 - 使用 AI 根据图片和/或文字生成多个 prompts
+ * 参考: api生图-(api-image-studio) (6)/services/geminiService.ts
  */
 export const generatePrompts = async (
     inputImages: File[],
     inputText: string,
     instruction: string,
-    model = 'gemini-2.0-flash'
+    model = 'gemini-3-pro-preview', // Gemini 3 Pro 文本模型
+    count = 4
 ): Promise<GeneratedPrompt[]> => {
     const ai = getAiInstance();
 
-    // 准备内容
-    const contents: any[] = [];
+    // 准备内容 parts
+    const parts: any[] = [];
 
     // 添加图片
     for (const file of inputImages) {
         const base64 = await fileToBase64(file);
-        contents.push({
+        parts.push({
             inlineData: {
                 mimeType: file.type,
                 data: base64
@@ -53,87 +82,108 @@ export const generatePrompts = async (
         });
     }
 
-    // 添加文字描述
+    // 系统指令 - 如果没有自定义指令，使用默认指令
+    const systemPrompt = instruction || `
+    You are an expert AI Art Director. 
+    Analyze the provided image (if any) and the user's request.
+    Generate ${count} distinct, highly detailed, and creative image generation prompts based on the input.
+    
+    If an image is provided, describe it in detail but add creative twists for the ${count} variations.
+    If only text is provided, expand it into ${count} different artistic interpretations.
+
+    Return ONLY a raw JSON array of objects. Do not use Markdown code blocks.
+    Each object must have:
+    - "en": The detailed prompt in English (optimized for high fidelity generation).
+    - "zh": A concise description of the concept in Chinese (for the user to understand).
+    `;
+
+    parts.push({ text: systemPrompt });
+
+    // 添加用户输入
     if (inputText.trim()) {
-        contents.push({ text: `用户输入的描述: ${inputText}` });
+        parts.push({ text: `User Request: ${inputText}` });
     }
 
-    // 添加指令
-    contents.push({ text: instruction });
-
-    // 调用 API
-    const response = await ai.models.generateContent({
-        model,
-        contents: [{ role: 'user', parts: contents }]
-    });
-
-    const text = response.text || '';
-
-    // 解析结果 - 提取 PROMPT1_EN, PROMPT1_ZH 等双语格式
-    const prompts: GeneratedPrompt[] = [];
-
-    // 匹配所有 PROMPT{N}_EN 和 PROMPT{N}_ZH
-    const promptNumbers = new Set<number>();
-    const regexNumbers = /PROMPT(\d+)_(?:EN|ZH)/g;
-    let numMatch;
-    while ((numMatch = regexNumbers.exec(text)) !== null) {
-        promptNumbers.add(parseInt(numMatch[1]));
-    }
-
-    // 对于每个提取到的编号，获取 EN 和 ZH 版本
-    Array.from(promptNumbers).sort((a, b) => a - b).forEach((num, index) => {
-        const enRegex = new RegExp(`PROMPT${num}_EN:\\s*(.+?)(?=PROMPT\\d+_|$)`, 's');
-        const zhRegex = new RegExp(`PROMPT${num}_ZH:\\s*(.+?)(?=PROMPT\\d+_|$)`, 's');
-
-        const enMatch = text.match(enRegex);
-        const zhMatch = text.match(zhRegex);
-
-        if (enMatch || zhMatch) {
-            prompts.push({
-                id: `prompt-${Date.now()}-${index}`,
-                textEn: (enMatch?.[1] || '').trim().replace(/\n+/g, ' '),
-                textZh: (zhMatch?.[1] || '').trim().replace(/\n+/g, ' '),
-                selected: true
-            });
-        }
-    });
-
-    // 如果没有匹配到双语格式，尝试单语格式 (PROMPT1:)
-    if (prompts.length === 0) {
-        const regex = /PROMPT\d+:\s*(.+?)(?=PROMPT\d+:|$)/gs;
-        let match;
-        let index = 0;
-        while ((match = regex.exec(text)) !== null) {
-            const promptText = match[1].trim();
-            prompts.push({
-                id: `prompt-${Date.now()}-${index}`,
-                textEn: promptText,
-                textZh: promptText, // 单语时 EN/ZH 相同
-                selected: true
-            });
-            index++;
-        }
-    }
-
-    // 最后尝试按行分割
-    if (prompts.length === 0) {
-        const lines = text.split('\n').filter(line => line.trim().length > 20);
-        lines.slice(0, 4).forEach((line, i) => {
-            const cleanedLine = line.replace(/^\d+[\.\)]\s*/, '').trim();
-            prompts.push({
-                id: `prompt-${Date.now()}-${i}`,
-                textEn: cleanedLine,
-                textZh: cleanedLine,
-                selected: true
-            });
+    try {
+        // 调用 API - 使用与参考文件一致的格式
+        const response = await ai.models.generateContent({
+            model,
+            contents: { parts },
+            config: {
+                responseMimeType: "application/json"
+            }
         });
-    }
 
-    return prompts;
+        const text = response.text || '';
+        if (!text) throw new Error("No response from AI");
+
+        // 清理 markdown 格式（如果有）
+        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+        try {
+            const parsed = JSON.parse(cleanText);
+
+            if (Array.isArray(parsed)) {
+                return parsed.map((p, index) => ({
+                    id: `prompt-${Date.now()}-${index}`,
+                    textEn: p.en || p.prompt || JSON.stringify(p),
+                    textZh: p.zh || "无中文描述",
+                    selected: true
+                })).slice(0, count);
+            }
+        } catch (parseError) {
+            console.warn('[generatePrompts] JSON解析失败，尝试文本解析:', parseError);
+        }
+
+        // 回退：尝试解析 PROMPT1_EN/ZH 格式
+        const prompts: GeneratedPrompt[] = [];
+        const promptNumbers = new Set<number>();
+        const regexNumbers = /PROMPT(\d+)_(?:EN|ZH)/g;
+        let numMatch;
+        while ((numMatch = regexNumbers.exec(text)) !== null) {
+            promptNumbers.add(parseInt(numMatch[1]));
+        }
+
+        Array.from(promptNumbers).sort((a, b) => a - b).forEach((num, index) => {
+            const enRegex = new RegExp(`PROMPT${num}_EN:\\s*(.+?)(?=PROMPT\\d+_|$)`, 's');
+            const zhRegex = new RegExp(`PROMPT${num}_ZH:\\s*(.+?)(?=PROMPT\\d+_|$)`, 's');
+
+            const enMatch = text.match(enRegex);
+            const zhMatch = text.match(zhRegex);
+
+            if (enMatch || zhMatch) {
+                prompts.push({
+                    id: `prompt-${Date.now()}-${index}`,
+                    textEn: (enMatch?.[1] || '').trim().replace(/\n+/g, ' '),
+                    textZh: (zhMatch?.[1] || '').trim().replace(/\n+/g, ' '),
+                    selected: true
+                });
+            }
+        });
+
+        if (prompts.length > 0) return prompts;
+
+        // 最后回退：返回原始输入
+        return [{
+            id: `prompt-${Date.now()}-0`,
+            textEn: inputText || text.slice(0, 200),
+            textZh: "生成失败，使用原始输入",
+            selected: true
+        }];
+
+    } catch (error) {
+        console.error('[generatePrompts] 生成失败:', error);
+        return [{
+            id: `prompt-${Date.now()}-0`,
+            textEn: inputText,
+            textZh: "生成失败，使用原始输入",
+            selected: true
+        }];
+    }
 };
 
 /**
- * 生成图片 - 使用 Gemini 或 NanoBanana 生图
+ * 生成图片 - 使用 Gemini 生图
  */
 export const generateImage = async (
     prompt: string,
@@ -145,12 +195,8 @@ export const generateImage = async (
     const ai = getAiInstance();
     const { width, height } = parseSize(size);
 
-    // 根据模型选择不同的 API
-    if (model === 'gemini-3-pro') {
-        return generateWithGemini(ai, prompt, referenceImages, width, height, onProgress);
-    } else {
-        return generateWithNanoBanana(prompt, referenceImages, width, height, onProgress);
-    }
+    // 所有模型都使用 Gemini 生图
+    return generateWithGemini(ai, prompt, referenceImages, model, width, height, onProgress);
 };
 
 /**
@@ -160,6 +206,7 @@ const generateWithGemini = async (
     ai: GoogleGenAI,
     prompt: string,
     referenceImages: File[] | null,
+    model: ImageGenModel,
     width: number,
     height: number,
     onProgress?: (progress: number) => void
@@ -186,27 +233,43 @@ const generateWithGemini = async (
 
     onProgress?.(30);
 
-    // 调用 Gemini 生图 API
+    // 使用选择的模型直接调用
+    // gemini-2.5-flash-image 和 gemini-3-pro-image-preview 都是有效的模型名称
+    const apiModel = model;
+
+    // 调用 Gemini 生图 API - 使用与AI图片编辑器一致的格式
     const response = await ai.models.generateContent({
-        model: 'gemini-2.0-flash-exp-image-generation',
-        contents: [{ role: 'user', parts: contents }],
+        model: apiModel,
+        contents: {
+            parts: contents,
+        },
         config: {
-            responseModalities: [Modality.TEXT, Modality.IMAGE],
-        }
+            responseModalities: [Modality.IMAGE],
+        } as any
     });
 
     onProgress?.(80);
 
     // 提取生成的图片
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    for (const part of parts) {
-        if (part.inlineData?.mimeType?.startsWith('image/')) {
-            onProgress?.(100);
-            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+    if (response?.candidates?.length > 0 && response.candidates[0].content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+                const base64ImageBytes: string = part.inlineData.data;
+                const mimeType: string = part.inlineData.mimeType;
+                onProgress?.(100);
+                return `data:${mimeType};base64,${base64ImageBytes}`;
+            }
         }
     }
 
-    throw new Error('未能生成图片');
+    // 错误处理
+    let errorMessage = '未能生成图片';
+    if (response?.promptFeedback?.blockReason) {
+        errorMessage = `请求因安全策略被拒绝 (${response.promptFeedback.blockReason}).`;
+    } else if (!response?.candidates || response.candidates.length === 0) {
+        errorMessage = '请求成功，但模型未返回任何内容。这可能是由于内容安全策略。';
+    }
+    throw new Error(errorMessage);
 };
 
 /**

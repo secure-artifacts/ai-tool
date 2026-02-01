@@ -399,8 +399,8 @@ const LanguageProvider: React.FC<LanguageProviderProps> = ({ children, external 
     const language = external?.language ?? internalLanguage;
     const setLanguage = external?.setLanguage ?? setInternalLanguage;
 
-    const t = (key: keyof typeof translations.zh, replacements: { [key: string]: string | number } = {}) => {
-        let translation = translations[language][key] || translations['en'][key] || key;
+    const t = (key: keyof typeof translations.zh, replacements: { [key: string]: string | number } = {}): string => {
+        let translation: string = translations[language][key] || translations['en'][key] || key;
         if (replacements) {
             Object.entries(replacements).forEach(([k, v]) => {
                 translation = translation.replace(`{${k}}`, String(v));
@@ -874,9 +874,9 @@ const BatchItemCard: React.FC<{
                 {/* 右上角固定按钮区域 */}
                 <div className="item-actions">
                     <button
-                        className="toggle-btn"
+                        className="toggle-btn tooltip-bottom"
                         onClick={() => setIsCollapsed(false)}
-                        className="tooltip-bottom" data-tip="展开"
+                        data-tip="展开"
                     >
                         ▼
                     </button>
@@ -914,9 +914,9 @@ const BatchItemCard: React.FC<{
                 {/* 复制菜单 */}
                 <div className="copy-menu-container">
                     <button
-                        className={`copy-menu-btn ${copied ? 'copied' : ''}`}
+                        className={`copy-menu-btn ${copied ? 'copied' : ''} tooltip-bottom`}
                         onClick={() => setShowCopyMenu(!showCopyMenu)}
-                        className="tooltip-bottom" data-tip="复制"
+                        data-tip="复制"
                     >
                         {copied ? <Check size={14} /> : <Copy size={14} />}
                     </button>
@@ -952,9 +952,9 @@ const BatchItemCard: React.FC<{
                     )}
                 </div>
                 <button
-                    className="toggle-btn"
+                    className="toggle-btn tooltip-bottom"
                     onClick={() => setIsCollapsed(true)}
-                    className="tooltip-bottom" data-tip="收起"
+                    data-tip="收起"
                 >
                     ▲
                 </button>
@@ -1003,9 +1003,9 @@ const BatchItemCard: React.FC<{
                         {/* 单条翻译按钮 */}
                         {onTranslate && (item.originalText || item.content) && !item.status.startsWith('processing') && (
                             <button
-                                className="mini-translate-btn"
+                                className="mini-translate-btn tooltip-bottom"
                                 onClick={() => onTranslate(item.id)}
-                                className="tooltip-bottom" data-tip="翻译此条目"
+                                data-tip="翻译此条目"
                             >
                                 {item.status === 'success' ? '🔄' : '▶️'} 翻译
                             </button>
@@ -1072,9 +1072,9 @@ const BatchItemCard: React.FC<{
 
             {/* 底部调整大小手柄 */}
             <div
-                className="resize-handle-bottom"
+                className="resize-handle-bottom tooltip-bottom"
                 onMouseDown={startResizeHeight}
-                className="tooltip-bottom" data-tip="拖拽调整高度"
+                data-tip="拖拽调整高度"
             >
                 <div className="resize-handle-indicator" />
             </div>
@@ -1810,13 +1810,31 @@ ${textToTranslate}
         if (mode === 'instant') return;
 
         const target = e.target as HTMLElement;
-        if (target.closest('.api-key-modal') || target.closest('.custom-select-search-wrapper') || (target.tagName === 'INPUT' && target.className !== 'file-input') || target.tagName === 'TEXTAREA') {
-            // Allow standard paste in inputs
-            // Special check: don't return if it's the main textarea, we might want to hijack tables.
-            // But actually, the original logic for textarea was to allow normal paste unless table.
-            // For the search input in language selector, we MUST return.
-            if (target.classList.contains('custom-select-search')) return;
+
+        // 在输入框或文本区域中粘贴时，判断是否需要拦截
+        // 只有在拖放区或者工具容器外部粘贴时才处理
+        const isBatchTextarea = target instanceof HTMLElement && target.classList.contains('batch-textarea');
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+            // 对于任何 INPUT 或 TEXTAREA，默认允许正常的文本粘贴
+            // 只有批量翻译的输入框允许拦截 Google Sheets 表格粘贴
+            if (!isBatchTextarea) {
+                return;
+            }
         }
+
+        // API key modal 和语言选择器中的粘贴也应该正常处理
+        if (target.closest('.api-key-modal') || target.closest('.custom-select-search-wrapper')) {
+            return;
+        }
+
+        // ===== 先检查文本内容，判断是否应该处理 =====
+        const plainText = e.clipboardData?.getData('text/plain') || '';
+        const html = e.clipboardData?.getData('text/html') || '';
+        const hasImageFormula = plainText.includes('=IMAGE');
+        const hasHttp = plainText.includes('http');
+        const hasImgTag = html.includes('<img');
+        const shouldHandleAsImageContent = hasImageFormula || hasHttp || hasImgTag;
+        const hasMeaningfulText = plainText.trim().length > 0;
 
         // 1. Handle Files (Images)
         const clipItems = e.clipboardData?.items;
@@ -1836,6 +1854,11 @@ ${textToTranslate}
         }
 
         if (hasImage) {
+            // 如果有纯文本但没有链接/公式，说明图片只是 Google Sheets 的截图
+            // 这种情况不拦截，让浏览器正常处理
+            if (hasMeaningfulText && !shouldHandleAsImageContent) {
+                return;
+            }
             addItems(files);
             e.preventDefault();
             return;
@@ -2418,7 +2441,7 @@ ${textToTranslate}
                         {/* 重试失败按钮 */}
                         {items.some(i => i.status === 'error') && (
                             <button
-                                className="retry-failed-btn"
+                                className="retry-failed-btn tooltip-bottom"
                                 onClick={() => {
                                     setItems(prev => prev.map(item =>
                                         item.status === 'error'
@@ -2428,7 +2451,7 @@ ${textToTranslate}
                                     setTimeout(() => processQueue(), 100);
                                 }}
                                 disabled={isProcessing}
-                                className="tooltip-bottom" data-tip="重试所有失败的项目"
+                                data-tip="重试所有失败的项目"
                             >
                                 ↻ 重试失败
                             </button>
@@ -2441,9 +2464,9 @@ ${textToTranslate}
                             {isProcessing ? <Loader small /> : '翻译'}
                         </button>
                         <button
-                            className="expand-input-btn"
+                            className="expand-input-btn tooltip-bottom"
                             onClick={() => setIsInputCollapsed(false)}
-                            className="tooltip-bottom" data-tip="展开输入区域"
+                            data-tip="展开输入区域"
                         >
                             ▼
                         </button>
@@ -2455,9 +2478,9 @@ ${textToTranslate}
                         )}
                         {/* 项目管理按钮 */}
                         <button
-                            className="btn btn-secondary"
+                            className="btn btn-secondary tooltip-bottom"
                             onClick={() => setShowProjectPanel(true)}
-                            className="tooltip-bottom" data-tip="项目管理"
+                            data-tip="项目管理"
                         >
                             📁
                         </button>
@@ -2473,9 +2496,9 @@ ${textToTranslate}
                         <div className="tool-header-actions">
                             {mode === 'batch' && (
                                 <button
-                                    className="collapse-input-btn"
+                                    className="collapse-input-btn tooltip-bottom"
                                     onClick={() => setIsInputCollapsed(true)}
-                                    className="tooltip-bottom" data-tip="收起输入区域"
+                                    data-tip="收起输入区域"
                                 >
                                     ▲ 收起
                                 </button>
@@ -2511,9 +2534,9 @@ ${textToTranslate}
                         )}
                         {/* 项目管理按钮 */}
                         <button
-                            className="mode-tab"
+                            className="mode-tab tooltip-bottom"
                             onClick={() => setShowProjectPanel(true)}
-                            className="tooltip-bottom" data-tip="项目管理"
+                            data-tip="项目管理"
                             style={{ marginLeft: '8px' }}
                         >
                             📁
@@ -2588,9 +2611,9 @@ ${textToTranslate}
                                         {isProcessing ? <Loader small /> : t('translateButton')}
                                     </button>
                                     <button
-                                        className="expand-input-btn"
+                                        className="expand-input-btn tooltip-bottom"
                                         onClick={() => setIsInputCollapsed(false)}
-                                        className="tooltip-bottom" data-tip="展开输入区域"
+                                        data-tip="展开输入区域"
                                     >
                                         ▼
                                     </button>
@@ -2686,7 +2709,7 @@ ${textToTranslate}
                                         {/* 重试失败按钮 */}
                                         {items.some(i => i.status === 'error') && (
                                             <button
-                                                className="retry-failed-btn"
+                                                className="retry-failed-btn tooltip-bottom"
                                                 onClick={() => {
                                                     setItems(prev => prev.map(item =>
                                                         item.status === 'error'
@@ -2696,14 +2719,14 @@ ${textToTranslate}
                                                     setTimeout(() => processQueue(), 100);
                                                 }}
                                                 disabled={isProcessing}
-                                                className="tooltip-bottom" data-tip="重试所有失败的项目"
+                                                data-tip="重试所有失败的项目"
                                             >
                                                 ↻ 重试失败
                                             </button>
                                         )}
                                         {items.some(i => i.status === 'success' || i.status === 'error') && (
                                             <button
-                                                className="btn btn-secondary"
+                                                className="btn btn-secondary tooltip-bottom"
                                                 onClick={() => {
                                                     // Reset all completed/error items to idle for retranslation
                                                     setItems(prev => prev.map(item =>
@@ -2715,7 +2738,7 @@ ${textToTranslate}
                                                     setTimeout(() => processQueue(), 100);
                                                 }}
                                                 disabled={isProcessing}
-                                                className="tooltip-bottom" data-tip="重新翻译所有已翻译/失败的项目"
+                                                data-tip="重新翻译所有已翻译/失败的项目"
                                             >
                                                 🔄 {t('retranslateAll') || '重新翻译'}
                                             </button>

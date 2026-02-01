@@ -620,12 +620,13 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                             focus:border-teal-500/50
                             outline-none 
                             transition-all duration-300
+                            tooltip-bottom
                             ${compact ? 'min-h-[80px]' : 'min-h-[120px]'} 
                             resize-y 
                             custom-scrollbar
                             ${editingPresetId ? 'border-teal-500/50 ring-2 ring-teal-500/20' : ''}
                         `}
-                        className="tooltip-bottom" data-tip="双击展开大窗口编辑"
+                        data-tip="双击展开大窗口编辑"
                     />
 
                     {/* 字符计数和工具栏 */}
@@ -651,14 +652,14 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                                     <button
                                         onClick={savePreset}
                                         className="p-1.5 text-zinc-400 hover:text-teal-400 hover:bg-teal-500/10 rounded-md transition-all tooltip-bottom"
-                                         data-tip="确认保存"
+                                        data-tip="确认保存"
                                     >
                                         <Check size={14} />
                                     </button>
                                     <button
                                         onClick={cancelSave}
                                         className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 rounded-md transition-all tooltip-bottom"
-                                         data-tip="取消"
+                                        data-tip="取消"
                                     >
                                         <X size={14} />
                                     </button>
@@ -691,7 +692,7 @@ const PromptManager: React.FC<PromptManagerProps> = ({
             {isExpandedEditorOpen && createPortal(
                 <div
                     className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-max"
-                    
+
                     onClick={() => setIsExpandedEditorOpen(false)}
                 >
                     <div
@@ -767,7 +768,7 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                                     }}
                                     disabled={!expandedPromptDraft.trim()}
                                     className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed tooltip-bottom"
-                                     data-tip="复制指令内容"
+                                    data-tip="复制指令内容"
                                 >
                                     <Copy size={14} />
                                     复制

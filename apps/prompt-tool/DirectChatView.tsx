@@ -964,8 +964,8 @@ export const DirectChatView: React.FC<DirectChatViewProps> = ({ getAiInstance, t
                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${modalCopied
                                             ? 'bg-emerald-600 text-white'
                                             : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white'
-                                            }`}
-                                        className="tooltip-bottom" data-tip="复制内容"
+                                            } tooltip-bottom`}
+                                        data-tip="复制内容"
                                     >
                                         {modalCopied ? <Check size={14} /> : <Copy size={14} />}
                                         {modalCopied ? '已复制' : '复制'}

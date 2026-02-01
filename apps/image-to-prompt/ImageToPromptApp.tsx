@@ -141,11 +141,15 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
         }
     });
     const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+    const [showLinkModal, setShowLinkModal] = useState(false);
+    const [linkTextInput, setLinkTextInput] = useState('');
 
     // Refs
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const globalPasteTextareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const linkTextareaRef = useRef<HTMLTextAreaElement>(null);
 
     // ========== Computed ==========
 
@@ -194,88 +198,17 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
         }
     }, [manualInstruction]);
 
-    // 全局粘贴事件处理（与 AI 图片识别工具保持一致的粘贴逻辑）
-    const handleGlobalPaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-        // 注意：不要在这里调用 e.stopPropagation()，否则会阻止普通文本粘贴
-        const clipboardData = e.clipboardData;
-        if (!clipboardData) return;
-
-        const handlePasteFiles = async (files: File[]) => {
-            if (fusionMode === 'fusion') {
-                await handleAddFusionImages(files);
-                return;
-            }
-            if (isStaging) {
-                await handleAppendImages(files);
-                return;
-            }
-            await handleBatchImageUpload(files);
-        };
-
-        const handlePasteUrls = async (urls: string[]) => {
-            if (isStaging && fusionMode !== 'fusion') {
-                await handleAppendFromUrls(urls);
-                return;
-            }
-            await handleAddFromUrls(urls);
-        };
-
-        // 1. 直接粘贴图片文件
-        if (clipboardData.files.length > 0) {
-            const imageFiles = Array.from(clipboardData.files).filter(f => f.type.startsWith('image/'));
-            if (imageFiles.length > 0) {
-                e.preventDefault();
-                await handlePasteFiles(imageFiles);
-                return;
-            }
+    // 当链接模态框打开时，自动聚焦 textarea
+    useEffect(() => {
+        if (showLinkModal && linkTextareaRef.current) {
+            // 使用 requestAnimationFrame 确保 DOM 已更新
+            requestAnimationFrame(() => {
+                linkTextareaRef.current?.focus();
+            });
         }
+    }, [showLinkModal]);
 
-        // 2. 通过 clipboardData.items 获取图片（某些浏览器需要这样）
-        const items = Array.from(clipboardData.items || []);
-        const imageItems = items.filter(item => item.type.startsWith('image/'));
-        if (imageItems.length > 0) {
-            const files = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
-            if (files.length > 0) {
-                e.preventDefault();
-                await handlePasteFiles(files);
-                return;
-            }
-        }
-
-        // 3. 从 HTML 中提取图片 URL（Google Sheets 支持）
-        const html = clipboardData.getData('text/html');
-        const plainText = clipboardData.getData('text/plain');
-
-        // 优先检查纯文本中是否有 =IMAGE() 公式
-        if (plainText && plainText.includes('=IMAGE')) {
-            e.preventDefault();
-            const parsed = parsePasteInput(plainText);
-            if (parsed.length > 0) {
-                await handlePasteUrls(parsed.map(p => p.url));
-            }
-            return;
-        }
-
-        // 从 HTML 中提取图片 URL
-        if (html) {
-            const extractedUrls = extractUrlsFromHtml(html);
-            if (extractedUrls.length > 0) {
-                e.preventDefault();
-                await handlePasteUrls(extractedUrls.map(u => u.fetchUrl));
-                return;
-            }
-        }
-
-        // 4. 纯文本 URL
-        const text = clipboardData.getData('text');
-        if (text && (text.includes('http') || text.includes('=IMAGE'))) {
-            e.preventDefault();
-            const parsed = parsePasteInput(text);
-            if (parsed.length > 0) {
-                await handlePasteUrls(parsed.map(p => p.url));
-            }
-        }
-    }, [fusionMode, selectedExperts, isStaging, activeSessionId, sessions]);
+    // （粘贴处理逻辑移到 handleAppendImages 之后，避免函数声明顺序问题）
 
     // 从 URL 添加图片
     const fetchFilesFromUrls = async (urls: string[]): Promise<File[]> => {
@@ -450,6 +383,236 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 : { ...s, images: [...s.images, ...newImages] }
         ));
     };
+
+    // ========== 粘贴处理函数 ==========
+
+    const handlePasteFiles = useCallback(async (files: File[]) => {
+        if (fusionMode === 'fusion') {
+            await handleAddFusionImages(files);
+            return;
+        }
+        if (isStaging) {
+            await handleAppendImages(files);
+            return;
+        }
+        await handleBatchImageUpload(files);
+    }, [fusionMode, isStaging]);
+
+    const handlePasteUrls = useCallback(async (urls: string[]) => {
+        if (isStaging && fusionMode !== 'fusion') {
+            await handleAppendFromUrls(urls);
+            return;
+        }
+        await handleAddFromUrls(urls);
+    }, [fusionMode, isStaging]);
+
+    // 使用 refs 保存最新的处理函数引用（供 useEffect 中使用）
+    const handlePasteFilesRef = useRef(handlePasteFiles);
+    const handlePasteUrlsRef = useRef(handlePasteUrls);
+
+    useEffect(() => {
+        handlePasteFilesRef.current = handlePasteFiles;
+        handlePasteUrlsRef.current = handlePasteUrls;
+    });
+
+    // 全局粘贴事件监听（与 AI 图片识别工具保持一致）
+    // 使用 capture phase 确保此监听器在其他监听器之前运行
+    useEffect(() => {
+        const handleGlobalPasteEvent = async (e: ClipboardEvent) => {
+            // 检查是否应该处理此粘贴事件：
+            // 1. 如果组件容器不存在，跳过
+            // 2. 如果粘贴目标在其他工具的容器内，跳过
+            const container = containerRef.current;
+            if (!container) return;
+
+            // 检查是否在页面可视区域内（确保组件是当前激活的工具）
+            const rect = container.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
+            if (!isVisible) return;
+
+            // 检查粘贴目标是否在本组件容器内
+            const target = e.target as Node;
+            const isInContainer = container.contains(target);
+
+            // 只有当粘贴目标在本组件容器内时才处理
+            if (!isInContainer) return;
+
+            let handled = false;
+
+            if (e.clipboardData) {
+                // FIRST: Check if pasting into visible input/textarea - always allow normal paste
+                const target = e.target as HTMLElement;
+                const isHiddenPasteCapture = target.getAttribute('aria-hidden') === 'true';
+                if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && !isHiddenPasteCapture) {
+                    // 让 textarea 和 input 正常接收粘贴事件
+                    return;
+                }
+
+                // ===== 先检测是否为有意义的图片相关粘贴 =====
+                const htmlContent = e.clipboardData.getData('text/html');
+                const textContent = e.clipboardData.getData('text/plain');
+                const hasImageFormula = textContent && textContent.includes('=IMAGE');
+                const hasHttpLink = textContent && textContent.includes('http');
+                const hasImgTag = htmlContent && htmlContent.includes('<img');
+                const shouldHandleAsImageContent = hasImageFormula || hasHttpLink || hasImgTag;
+                const hasMeaningfulText = textContent && textContent.trim().length > 0;
+
+                // 1. 直接粘贴图片文件
+                if (e.clipboardData.files.length > 0) {
+                    // 如果有纯文本但没有链接/公式，说明图片只是 Google Sheets 的截图
+                    if (hasMeaningfulText && !shouldHandleAsImageContent) {
+                        return;
+                    }
+                    const imageFiles = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
+                    if (imageFiles.length > 0) {
+                        e.preventDefault();
+                        handlePasteFilesRef.current(imageFiles);
+                        handled = true;
+                        return;
+                    }
+                }
+
+                // 2. 通过 clipboardData.items 获取图片（某些浏览器需要这样）
+                const items = Array.from(e.clipboardData.items || []);
+                const imageItems = items.filter(item => item.type.startsWith('image/'));
+                if (imageItems.length > 0) {
+                    // 同样的检查
+                    if (hasMeaningfulText && !shouldHandleAsImageContent) {
+                        return;
+                    }
+                    const files = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
+                    if (files.length > 0) {
+                        e.preventDefault();
+                        handlePasteFilesRef.current(files);
+                        handled = true;
+                        return;
+                    }
+                }
+
+                // 3. 从 HTML 中提取图片 URL（Google Sheets 支持）
+                // 注意：html/plainText 及相关检测变量已在上面定义为 htmlContent/textContent/shouldHandleAsImageContent
+
+                // 优先检查纯文本中是否有 =IMAGE() 公式
+                if (textContent && textContent.includes('=IMAGE')) {
+                    e.preventDefault();
+                    const parsed = parsePasteInput(textContent);
+                    if (parsed.length > 0) {
+                        handlePasteUrlsRef.current(parsed.map(p => p.url));
+                    }
+                    handled = true;
+                    return;
+                }
+
+                // 从 HTML 中提取图片 URL
+                if (htmlContent) {
+                    const extractedUrls = extractUrlsFromHtml(htmlContent);
+                    if (extractedUrls.length > 0) {
+                        e.preventDefault();
+
+                        const textLines = textContent ? textContent.split(/\r?\n/).filter(line => line.trim() !== '') : [];
+                        const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
+
+                        const formulaUrls: string[] = [];
+                        textLines.forEach(line => {
+                            const match = line.match(formulaRegex);
+                            if (match && match[1]) {
+                                formulaUrls.push(match[1]);
+                            }
+                        });
+
+                        const urlItems = extractedUrls.map(({ fetchUrl }, index) => {
+                            let actualFetchUrl = fetchUrl;
+                            if (index < formulaUrls.length) {
+                                actualFetchUrl = formulaUrls[index];
+                            }
+                            return actualFetchUrl;
+                        });
+
+                        handlePasteUrlsRef.current(urlItems);
+                        handled = true;
+                        return;
+                    }
+                }
+
+                // 4. 纯文本 URL
+                const text = e.clipboardData.getData('text');
+                if (text && (text.includes('http') || text.includes('=IMAGE'))) {
+                    e.preventDefault();
+                    const parsed = parsePasteInput(text);
+                    if (parsed.length > 0) {
+                        handlePasteUrlsRef.current(parsed.map(p => p.url));
+                    }
+                    handled = true;
+                    return;
+                }
+            }
+
+            // 5. navigator.clipboard.read() 回退机制（某些环境如 Electron 需要）
+            if (!handled && navigator.clipboard?.read) {
+                void (async () => {
+                    try {
+                        const clipboardItems = await navigator.clipboard.read();
+                        for (const item of clipboardItems) {
+                            const imageType = item.types.find(type => type.startsWith('image/'));
+                            if (imageType) {
+                                const blob = await item.getType(imageType);
+                                const file = new File([blob], `pasted-image.${imageType.split('/')[1] || 'png'}`, { type: imageType });
+                                handlePasteFilesRef.current([file]);
+                                return;
+                            }
+                        }
+                        const text = await navigator.clipboard.readText();
+                        if (text && (text.includes('http') || text.includes('=IMAGE'))) {
+                            const parsed = parsePasteInput(text);
+                            if (parsed.length > 0) {
+                                handlePasteUrlsRef.current(parsed.map(p => p.url));
+                            }
+                        }
+                    } catch (err) {
+                        console.warn('[Paste Fallback] Clipboard read failed:', err);
+                    }
+                })();
+            }
+        };
+
+        window.addEventListener('paste', handleGlobalPasteEvent, true);
+        return () => {
+            window.removeEventListener('paste', handleGlobalPasteEvent, true);
+        };
+    }, []);
+
+    // textarea 组件的 onPaste 事件处理
+    const handleTextareaPaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const clipboardData = e.clipboardData;
+        if (!clipboardData) return;
+
+        const hasFiles = clipboardData.files.length > 0;
+        const items = Array.from(clipboardData.items || []);
+        const hasImageItems = items.some(item => item.type.startsWith('image/'));
+        const plainText = clipboardData.getData('text/plain');
+        const html = clipboardData.getData('text/html');
+        const hasImageFormula = plainText && plainText.includes('=IMAGE');
+        const hasHttp = plainText && plainText.includes('http');
+        const hasImgTag = html && html.includes('<img');
+
+        if (hasFiles || hasImageItems || hasImageFormula || hasHttp || hasImgTag) {
+            e.preventDefault();
+        }
+    }, []);
+
+    // 处理链接模态框中的输入
+    const handleAddLinks = useCallback(async () => {
+        if (!linkTextInput.trim()) return;
+
+        // 解析输入的链接/公式
+        const parsed = parsePasteInput(linkTextInput);
+        if (parsed.length > 0) {
+            const urls = parsed.map(p => p.url);
+            await handlePasteUrls(urls);
+        }
+        setLinkTextInput('');
+        setShowLinkModal(false);
+    }, [linkTextInput, handlePasteUrls]);
 
     // 重试单张图片的处理
     const handleRetryImage = async (imageId: string) => {
@@ -838,7 +1001,14 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         >
                             {t('uploadFromComputer') || '从电脑上传'}
                         </button>
-                        <button type="button" className="btn btn-secondary">
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowLinkModal(true);
+                            }}
+                        >
                             {t('uploadFromUrl') || '从链接添加'}
                         </button>
                     </div>
@@ -961,8 +1131,8 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 } catch { }
             });
             return {
-                english: allEnglish.length > 0 ? allEnglish.join('\n\n---\n\n') : t('noEnglishPrompts') || 'No English prompts generated yet.',
-                chinese: allChinese.length > 0 ? allChinese.join('\n\n---\n\n') : t('noChinesePrompts') || '暂无中文提示词。'
+                english: allEnglish.length > 0 ? allEnglish.join('\n') : t('noEnglishPrompts') || 'No English prompts generated yet.',
+                chinese: allChinese.length > 0 ? allChinese.join('\n') : t('noChinesePrompts') || '暂无中文提示词。'
             };
         })();
 
@@ -1172,7 +1342,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                     onExtraInstructionChange={setExtraInstruction}
                     isProcessing={isProcessing}
                     t={t}
-                    onPaste={handleGlobalPaste}
+                    onPaste={handleTextareaPaste}
                 />
             );
         }
@@ -1191,6 +1361,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
     return (
         <div
+            ref={containerRef}
             className="tool-container image-to-prompt-layout"
             tabIndex={-1}
             onClick={(e) => {
@@ -1209,7 +1380,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
             {/* 全局隐藏的 textarea，用于接收粘贴事件 */}
             <textarea
                 ref={globalPasteTextareaRef}
-                onPaste={handleGlobalPaste}
+                onPaste={handleTextareaPaste}
                 className="visually-hidden"
                 aria-hidden="true"
             />
@@ -1318,6 +1489,53 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                                 onClick={() => setShowSystemInstructionModal(false)}
                             >
                                 {t('close') || '关闭'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 链接输入模态框 */}
+            {showLinkModal && (
+                <div
+                    className="generic-modal-overlay"
+                    onClick={() => setShowLinkModal(false)}
+                >
+                    <div
+                        className="generic-modal-content"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ maxWidth: '600px' }}
+                    >
+                        <h3 className="mb-4">{t('addFromUrl') || '批量添加图片链接'}</h3>
+                        <textarea
+                            ref={linkTextareaRef}
+                            value={linkTextInput}
+                            onChange={(e) => setLinkTextInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                    handleAddLinks();
+                                }
+                            }}
+                            placeholder={`粘贴图片链接、=IMAGE() 公式或表格单元格...\n支持多行批量添加\n\n示例：\nhttps://example.com/image.jpg\n=IMAGE("https://example.com/photo.png")`}
+                            className="form-control"
+                            style={{ height: '200px', fontFamily: 'monospace', fontSize: '12px' }}
+                        />
+                        <p className="text-muted mt-2 mb-3" style={{ fontSize: '12px' }}>
+                            Ctrl+Enter 快速添加
+                        </p>
+                        <div className="generic-modal-footer">
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => setShowLinkModal(false)}
+                            >
+                                {t('cancel') || '取消'}
+                            </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleAddLinks}
+                                disabled={!linkTextInput.trim()}
+                            >
+                                {t('addToQueue') || '添加到队列'}
                             </button>
                         </div>
                     </div>

@@ -424,7 +424,7 @@ export const Canvas = forwardRef<{
                                 }}
                             >
                                 <img
-                                    ref={el => layerRefs.current[layer.id] = el}
+                                    ref={el => { layerRefs.current[layer.id] = el; }}
                                     src={layer.imageUrl}
                                     alt={layer.name}
                                     className="block select-none w-full h-full"

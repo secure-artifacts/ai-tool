@@ -618,6 +618,31 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                     )}
                 </div>
 
+                {/* Pure Image Mode Toggle - Extract all images from any data format */}
+                <div className="border-b border-emerald-100 bg-emerald-50/50 px-3 py-1.5">
+                    <label className="flex items-center justify-between cursor-pointer">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                            <Image size={12} className="inline mr-1 text-emerald-600" /> 纯图片模式
+                            <span className="text-[9px] text-slate-500 font-normal">
+                                （忽略行列结构）
+                            </span>
+                        </span>
+                        <button
+                            onClick={() => updateConfig({
+                                pureImageMode: !config.pureImageMode,
+                            })}
+                            className={`relative w-9 h-5 rounded-full transition-colors ${config.pureImageMode ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                        >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.pureImageMode ? 'left-4' : 'left-0.5'}`} />
+                        </button>
+                    </label>
+                    {config.pureImageMode && (
+                        <p className="text-[9px] text-emerald-600 mt-1">
+                            <CheckCircle size={10} className="inline mr-1" /> 已启用：自动扫描所有单元格，提取所有图片URL并平铺显示
+                        </p>
+                    )}
+                </div>
+
                 {/* 配置摘要 - Quick Overview */}
                 {(() => {
                     const summaryItems: { label: string; value: string; tab: typeof activeTab; color: string }[] = [];
@@ -1011,7 +1036,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                         updateConfig({ groupLevels: newLevels.length > 0 ? newLevels : [] });
                                                                     }}
                                                                     className="p-0.5 text-red-400 hover:text-red-600 tooltip-bottom"
-                                                                     data-tip="删除此层级及所有子层级"
+                                                                    data-tip="删除此层级及所有子层级"
                                                                 >
                                                                     <X size={12} />
                                                                 </button>
@@ -1471,8 +1496,8 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                         updateConfig({ textGroupBins: newBins });
                                                                     }}
                                                                     disabled={groupIndex === 0}
-                                                                    className={`p-0.5 rounded ${groupIndex === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'}`}
-                                                                    className="tooltip-bottom" data-tip="上移"
+                                                                    className={`p-0.5 rounded ${groupIndex === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'} tooltip-bottom`}
+                                                                    data-tip="上移"
                                                                 >
                                                                     <ChevronUp size={10} />
                                                                 </button>
@@ -1484,8 +1509,8 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                         updateConfig({ textGroupBins: newBins });
                                                                     }}
                                                                     disabled={groupIndex === config.textGroupBins.length - 1}
-                                                                    className={`p-0.5 rounded ${groupIndex === config.textGroupBins.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'}`}
-                                                                    className="tooltip-bottom" data-tip="下移"
+                                                                    className={`p-0.5 rounded ${groupIndex === config.textGroupBins.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'} tooltip-bottom`}
+                                                                    data-tip="下移"
                                                                 >
                                                                     <ChevronDown size={10} />
                                                                 </button>
@@ -1507,7 +1532,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                     textGroupBins: config.textGroupBins.filter(g => g.id !== group.id)
                                                                 })}
                                                                 className="text-red-400 hover:text-red-600 p-1 tooltip-bottom"
-                                                                 data-tip="删除分组"
+                                                                data-tip="删除分组"
                                                             >
                                                                 <X size={12} />
                                                             </button>
@@ -2523,7 +2548,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                     updateConfig({ highlightRules: newRules });
                                                 }}
                                                 className="w-12 px-1 py-1 text-[10px] text-slate-800 bg-white border border-slate-200 rounded tooltip-bottom"
-                                                 data-tip="边框粗细"
+                                                data-tip="边框粗细"
                                             >
                                                 <option value="1">1px</option>
                                                 <option value="2">2px</option>

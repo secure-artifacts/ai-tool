@@ -329,9 +329,9 @@ export const AISmartRefinePanel: React.FC<{ onClose: () => void }> = ({ onClose 
                 </div>
                 <div className="header-actions">
                     <button
-                        className={`history-btn ${showHistory ? 'active' : ''}`}
+                        className={`history-btn ${showHistory ? 'active' : ''} tooltip-bottom`}
                         onClick={() => setShowHistory(!showHistory)}
-                        className="tooltip-bottom" data-tip="查看创建历史"
+                        data-tip="查看创建历史"
                     >
                         <History size={18} />
                     </button>

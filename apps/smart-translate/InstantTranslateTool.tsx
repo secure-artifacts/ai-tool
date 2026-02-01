@@ -477,6 +477,24 @@ Rules:
     const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         const items = e.clipboardData.items;
 
+        // 首先检查是否有纯文本内容
+        // 如果有纯文本，且文本不是图片URL/=IMAGE公式，就让文本正常粘贴
+        const plainText = e.clipboardData.getData('text/plain');
+        if (plainText && plainText.trim()) {
+            const lines = plainText.split(/\n+/).map(l => l.trim()).filter(l => l);
+            // 检查是否所有行都是图片 URL 或 =IMAGE 公式
+            const isAllImageUrls = lines.length > 0 && lines.every(line => {
+                const match = line.match(/=IMAGE\s*\(\s*"([^"]+)"/i);
+                if (match) return true;
+                return isImageUrl(line);
+            });
+            // 如果不是图片 URL，就让文本正常粘贴，不拦截
+            if (!isAllImageUrls) {
+                // 让浏览器默认处理文本粘贴
+                return;
+            }
+        }
+
         // 1. 检查是否有多个图片文件
         const imageFiles: File[] = [];
         for (let i = 0; i < items.length; i++) {
@@ -636,9 +654,9 @@ Rules:
                 </div>
 
                 <button
-                    className="swap-btn"
+                    className="swap-btn tooltip-bottom"
                     onClick={handleSwapLanguages}
-                    className="tooltip-bottom" data-tip="交换语言"
+                    data-tip="交换语言"
                 >
                     ⇄
                 </button>
@@ -707,9 +725,9 @@ Rules:
                             />
 
                             <button
-                                className="icon-btn"
+                                className="icon-btn tooltip-bottom"
                                 onClick={() => fileInputRef.current?.click()}
-                                className="tooltip-bottom" data-tip="上传图片识别文字"
+                                data-tip="上传图片识别文字"
                             >
                                 📷
                             </button>
@@ -749,9 +767,9 @@ Rules:
                         <div className="column-footer">
                             {outputText && (
                                 <button
-                                    className={`icon-btn copy-btn ${copied ? 'copied' : ''}`}
+                                    className={`icon-btn copy-btn ${copied ? 'copied' : ''} tooltip-bottom`}
                                     onClick={() => handleCopy(outputText)}
-                                    className="tooltip-bottom" data-tip="复制译文"
+                                    data-tip="复制译文"
                                 >
                                     {copied ? '✓' : '📋'}
                                 </button>
@@ -826,7 +844,7 @@ Rules:
                                             navigator.clipboard.writeText(item.translatedText || '');
                                         }}
                                         className="history-item-copy-btn tooltip-bottom"
-                                         data-tip="复制译文"
+                                        data-tip="复制译文"
                                     >
                                         📋
                                     </button>

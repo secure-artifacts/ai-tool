@@ -102,6 +102,7 @@ export interface SharedConfig {
     // === 数据格式 ===
     transposeData?: boolean;          // 是否转置数据（横向数据转纵向）
     mergeTransposeColumns?: boolean;  // 是否合并同名列（如 贴文点赞量 [1.X] 和 [2.Y] 合并为一个列）
+    pureImageMode?: boolean;          // 纯图片模式：忽略行列结构，扫描所有单元格提取图片URL
 
     // === 分组设置 ===
     groupColumn: string;              // 分组依据列（向后兼容，单级分组）
@@ -157,6 +158,7 @@ export const getDefaultSharedConfig = (): SharedConfig => ({
     // 数据格式
     transposeData: false,
     mergeTransposeColumns: false,
+    pureImageMode: false,
     // 分组
     groupColumn: '',
     groupColumns: [],
