@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { ImageItem, Preset, ChatMessage, InnovationItem } from '../types';
+import { ImageItem, Preset, ChatMessage, InnovationItem, CreativeResult, WorkMode } from '../types';
 import { convertBlobToBase64 } from '../utils';
 import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronUp, X, Paperclip, Plus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play } from 'lucide-react';
 
@@ -43,7 +43,17 @@ interface ResultsGridProps {
     onTranslate?: (text: string) => Promise<string>;
     onSaveTranslation?: (itemId: string, translatedText: string) => void;
     onSaveSelection?: (itemId: string, selectedText: string, translatedSelection: string) => void;
+    // 创新模式
+    workMode?: WorkMode;
+    creativeResults?: CreativeResult[];
+    // 融合图片功能（用于卡片内多图融合）
+    onAddFusionImage?: (imageId: string, file: File) => void;
+    onRemoveFusionImage?: (imageId: string, fusionImageId: string) => void;
+    // 选中卡片功能（用于粘贴添加融合图片）
+    selectedCardId?: string | null;
+    onSelectCard?: (imageId: string | null) => void;
 }
+
 
 // 统一的简单预设类型（用于跨应用共享）
 type SimplePreset = {
@@ -155,6 +165,111 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
 // 使用 React.memo 优化：只有 props 变化时才重新渲染
 const MemoizedStatusDisplay = memo(StatusDisplay);
 
+// 创新结果显示组件 - 用于创新模式下替换右侧的识别结果
+interface CreativeResultDisplayProps {
+    result: CreativeResult | undefined;
+    onCopyItem?: (text: string) => void;
+}
+
+const CreativeResultDisplay = ({ result, onCopyItem }: CreativeResultDisplayProps) => {
+    const [copiedId, setCopiedId] = useState<string | null>(null);
+
+    const handleCopy = (text: string, id: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 1500);
+        onCopyItem?.(text);
+    };
+
+    if (!result) {
+        return (
+            <div className="flex items-center justify-center h-full text-zinc-500 text-xs italic">
+                <Sparkles size={14} className="mr-1.5 text-purple-400/50" />
+                点击"开始创新"生成创意变体
+            </div>
+        );
+    }
+
+    if (result.status === 'processing') {
+        return (
+            <div className="flex items-center justify-center h-full text-purple-400 text-xs">
+                <Loader2 size={14} className="animate-spin mr-2" />
+                正在生成创新...
+            </div>
+        );
+    }
+
+    if (result.status === 'error') {
+        return (
+            <div className="text-red-400 text-xs p-2">
+                <div className="flex items-center gap-1 font-bold mb-1">
+                    <AlertCircle size={12} />
+                    创新失败
+                </div>
+                {result.error || "请重试"}
+            </div>
+        );
+    }
+
+    if (result.status === 'success' && result.innovations.length > 0) {
+        return (
+            <div className="space-y-2 h-full overflow-y-auto custom-scrollbar pr-1">
+                {/* 原始识别结果 */}
+                {(result.originalDesc || result.originalDescZh) && (
+                    <div className="bg-emerald-900/20 border border-emerald-700/30 rounded-lg p-2 mb-2">
+                        <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-medium mb-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            原始识别结果
+                        </div>
+                        <div className="text-xs text-zinc-300 leading-relaxed">
+                            {result.originalDescZh || result.originalDesc}
+                        </div>
+                        <button
+                            onClick={() => handleCopy(result.originalDesc || '', 'original')}
+                            className="mt-1.5 text-[10px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                        >
+                            {copiedId === 'original' ? <Check size={10} /> : <Copy size={10} />}
+                            {copiedId === 'original' ? '已复制' : '复制原始结果'}
+                        </button>
+                    </div>
+                )}
+                {/* 创新变体列表 */}
+                <div className="text-[10px] text-cyan-400 font-medium flex items-center gap-1 mb-1">
+                    <Sparkles size={10} />
+                    创新变体 ({result.innovations.length})
+                </div>
+                {result.innovations.map((inno, idx) => (
+                    <div
+                        key={inno.id}
+                        className="group relative bg-zinc-800/40 hover:bg-zinc-800/70 rounded-lg p-2 transition-colors border border-zinc-700/30 hover:border-purple-600/40"
+                    >
+                        <div className="text-xs text-zinc-200 leading-relaxed mb-1">
+                            {inno.textEn}
+                        </div>
+                        {inno.textZh && (
+                            <div className="text-[10px] text-zinc-500">
+                                {inno.textZh}
+                            </div>
+                        )}
+                        <button
+                            onClick={() => handleCopy(inno.textEn, inno.id)}
+                            className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 p-1 rounded bg-zinc-700 hover:bg-purple-600 text-zinc-400 hover:text-white transition-all"
+                        >
+                            {copiedId === inno.id ? <Check size={10} /> : <Copy size={10} />}
+                        </button>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex items-center justify-center h-full text-zinc-500 text-xs italic">
+            暂无创新结果
+        </div>
+    );
+};
+
 // 结果放大模态框组件
 interface ResultExpandModalProps {
     item: ImageItem | null;
@@ -162,9 +277,11 @@ interface ResultExpandModalProps {
     onTranslate?: (text: string) => Promise<string>;
     onSaveTranslation?: (itemId: string, translatedText: string) => void; // 翻译后保存回调
     onSaveSelection?: (itemId: string, selectedText: string, translatedSelection: string) => void; // 选中翻译保存回调
+    workMode?: WorkMode;
+    creativeResult?: CreativeResult;
 }
 
-const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSaveSelection }: ResultExpandModalProps) => {
+const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSaveSelection, workMode = 'standard', creativeResult }: ResultExpandModalProps) => {
     const [copied, setCopied] = useState(false);
     // 使用缓存的翻译结果初始化
     const [translatedText, setTranslatedText] = useState<string | null>(null);
@@ -228,7 +345,15 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
     if (!item) return null;
 
     const handleCopy = (textToCopy?: string) => {
-        const text = textToCopy || (showTranslation && translatedText ? translatedText : item.result);
+        let text = textToCopy;
+        if (!text) {
+            // 创新模式下，优先复制所有创新结果
+            if (workMode === 'creative' && creativeResult?.innovations?.length) {
+                text = creativeResult.innovations.map(inno => inno.textEn).join('\n');
+            } else {
+                text = showTranslation && translatedText ? translatedText : item.result;
+            }
+        }
         if (text) {
             navigator.clipboard.writeText(text);
             setCopied(true);
@@ -359,11 +484,73 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
 
                 {/* 内容 - 可滚动 */}
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar" ref={contentRef}>
-                    <div className="text-sm md:text-base text-zinc-200 whitespace-pre-wrap leading-relaxed select-text">
-                        {showTranslation && translatedText
-                            ? translatedText
-                            : (item.result || <span className="text-zinc-500 italic">暂无结果</span>)}
-                    </div>
+                    {/* 创新模式下显示创新结果 */}
+                    {workMode === 'creative' && creativeResult && creativeResult.status === 'success' && creativeResult.innovations.length > 0 ? (
+                        <div className="space-y-4">
+                            {/* 原始识别结果 */}
+                            <div className="border-b border-zinc-700 pb-4">
+                                <h4 className="text-xs font-medium text-zinc-400 mb-2 flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                    原始识别结果
+                                </h4>
+                                <div className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed bg-zinc-800/30 p-3 rounded-lg">
+                                    {showTranslation && translatedText
+                                        ? translatedText
+                                        : (creativeResult.originalDesc || item.result || <span className="text-zinc-500 italic">暂无结果</span>)}
+                                </div>
+                            </div>
+                            {/* 创新结果列表 */}
+                            <div>
+                                <h4 className="text-xs font-medium text-cyan-400 mb-3 flex items-center gap-1">
+                                    <Sparkles size={12} />
+                                    创新变体 ({creativeResult.innovations.length})
+                                </h4>
+                                <div className="space-y-3">
+                                    {creativeResult.innovations.map((inno, idx) => (
+                                        <div
+                                            key={inno.id}
+                                            className="group relative bg-zinc-800/50 hover:bg-zinc-800/70 rounded-lg p-3 transition-colors border border-zinc-700/50 hover:border-cyan-600/40"
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-cyan-600/30 text-cyan-300 text-[0.625rem] flex items-center justify-center font-medium">
+                                                    {idx + 1}
+                                                </span>
+                                                <div className="flex-1">
+                                                    {/* 英文版本 */}
+                                                    <p className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed select-text">
+                                                        {inno.textEn}
+                                                    </p>
+                                                    {/* 中文翻译 */}
+                                                    {inno.textZh && (
+                                                        <p className="text-xs text-zinc-500 mt-1.5 whitespace-pre-wrap leading-relaxed select-text">
+                                                            {inno.textZh}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {/* 复制按钮 */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    navigator.clipboard.writeText(inno.textEn);
+                                                }}
+                                                className="absolute top-2 right-2 p-1.5 text-zinc-500 hover:text-cyan-400 hover:bg-zinc-700 rounded opacity-0 group-hover:opacity-100 transition-all"
+                                            >
+                                                <Copy size={12} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        /* 普通模式显示原始结果 */
+                        <div className="text-sm md:text-base text-zinc-200 whitespace-pre-wrap leading-relaxed select-text">
+                            {showTranslation && translatedText
+                                ? translatedText
+                                : (item.result || <span className="text-zinc-500 italic">暂无结果</span>)}
+                        </div>
+                    )}
                 </div>
 
                 {/* 选中文本翻译区 */}
@@ -1191,8 +1378,8 @@ const InnovationChatBlock = ({
     };
 
     return (
-        <div className="mt-2 border border-pink-900/30 rounded-lg bg-pink-950/20">
-            <div className="flex items-center justify-between px-2.5 py-1.5 text-[0.6875rem] text-pink-100 border-b border-pink-900/40">
+        <div className="mt-2 border border-cyan-900/30 rounded-lg bg-cyan-950/20">
+            <div className="flex items-center justify-between px-2.5 py-1.5 text-[0.6875rem] text-cyan-100 border-b border-cyan-900/40">
                 <span className="flex items-center gap-1">对话</span>
                 <div className="flex items-center gap-1">
                     {innovation.chatHistory.length > 0 && (
@@ -1219,7 +1406,7 @@ const InnovationChatBlock = ({
                         <div
                             key={msg.id}
                             className={`text-[0.6875rem] p-2 rounded-lg ${msg.role === 'user'
-                                ? 'bg-pink-900/30 text-pink-100 ml-6'
+                                ? 'bg-cyan-900/30 text-cyan-100 ml-6'
                                 : 'bg-zinc-800 text-zinc-200 mr-6'
                                 }`}
                         >
@@ -1268,7 +1455,7 @@ const InnovationChatBlock = ({
             )}
 
             <div
-                className="border-t border-pink-900/30 bg-zinc-900/60 p-2 relative"
+                className="border-t border-cyan-900/30 bg-zinc-900/60 p-2 relative"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
                 onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
                 onDrop={handleDrop}
@@ -1407,10 +1594,10 @@ const InnovationPanel = ({
     };
 
     return (
-        <div className="flex-1 flex flex-col border-l border-pink-900/30 bg-zinc-950/80 min-w-0 min-h-0">
+        <div className="flex-1 flex flex-col border-l border-cyan-900/30 bg-zinc-950/80 min-w-0 min-h-0">
             {/* 创新标题栏 */}
-            <div className={`flex items-center justify-between border-b border-pink-900/30 bg-pink-950/30 ${isCompact ? 'px-1.5 py-1' : 'px-3 py-2'}`}>
-                <span className="text-xs text-pink-400 font-medium flex items-center gap-1">
+            <div className={`flex items-center justify-between border-b border-cyan-900/30 bg-cyan-950/30 ${isCompact ? 'px-1.5 py-1' : 'px-3 py-2'}`}>
+                <span className="text-xs text-cyan-400 font-medium flex items-center gap-1">
                     <Sparkles size={isCompact ? 10 : 12} />
                     {!isCompact && '提示词创新'}
                 </span>
@@ -1428,10 +1615,10 @@ const InnovationPanel = ({
                             {/* 复制原始词+创新结果 */}
                             <button
                                 onClick={copyAllWithSource}
-                                className={`text-zinc-500 hover:text-pink-400 hover:bg-zinc-700 rounded transition-colors flex items-center gap-0.5 tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
+                                className={`text-zinc-500 hover:text-cyan-400 hover:bg-zinc-700 rounded transition-colors flex items-center gap-0.5 tooltip-bottom ${isCompact ? 'p-0.5' : 'p-1'}`}
                                 data-tip="复制原始词 + 创新结果"
                             >
-                                {copiedAll === 'all' ? <Check size={isCompact ? 10 : 14} className="text-pink-400" /> : (
+                                {copiedAll === 'all' ? <Check size={isCompact ? 10 : 14} className="text-cyan-400" /> : (
                                     <>
                                         <FileCode size={isCompact ? 8 : 12} />
                                         <Copy size={isCompact ? 8 : 12} />
@@ -1487,7 +1674,7 @@ const InnovationPanel = ({
                         创新设置
                     </button>
                     {item.customInnovationInstruction && (
-                        <span className="text-[0.625rem] text-pink-400">✓ 已设置自定义指令</span>
+                        <span className="text-[0.625rem] text-cyan-400">✓ 已设置自定义指令</span>
                     )}
                 </div>
 
@@ -1499,7 +1686,7 @@ const InnovationPanel = ({
                             onClick={(e) => e.stopPropagation()}
                         >
                             <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-                                <h3 className="text-sm font-semibold text-pink-200 flex items-center gap-2">
+                                <h3 className="text-sm font-semibold text-cyan-200 flex items-center gap-2">
                                     <Sparkles size={14} />
                                     创新设置
                                 </h3>
@@ -1517,7 +1704,7 @@ const InnovationPanel = ({
                                     <textarea
                                         value={item.customInnovationInstruction || ''}
                                         onChange={(e) => onUpdateCustomInnovationInstruction?.(item.id, e.target.value)}
-                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-3 py-2 resize-none min-h-[80px] focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500/30 placeholder-zinc-600"
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-3 py-2 resize-none min-h-[80px] focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 placeholder-zinc-600"
                                         placeholder={globalInnovationInstruction || '全局要求: (空)'}
                                     />
                                 </div>
@@ -1528,7 +1715,7 @@ const InnovationPanel = ({
                                     <select
                                         value={item.customInnovationTemplateId || ''}
                                         onChange={(e) => onUpdateCustomInnovationTemplateId?.(item.id, e.target.value)}
-                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-pink-500"
+                                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-2 py-1.5 focus:outline-none focus:border-cyan-500"
                                     >
                                         <option value="">跟随全局</option>
                                         <option value="__system_default__">系统默认</option>
@@ -1564,7 +1751,7 @@ const InnovationPanel = ({
                                                 const val = parseInt(e.target.value) || 3;
                                                 onUpdateCustomInnovationCount?.(item.id, Math.min(50, Math.max(1, val)));
                                             }}
-                                            className="w-16 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-2 py-1.5 text-center focus:outline-none focus:border-pink-500"
+                                            className="w-16 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-2 py-1.5 text-center focus:outline-none focus:border-cyan-500"
                                         />
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -1578,7 +1765,7 @@ const InnovationPanel = ({
                                                 const val = parseInt(e.target.value) || 1;
                                                 onUpdateCustomInnovationRounds?.(item.id, Math.min(10, Math.max(1, val)));
                                             }}
-                                            className="w-16 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-2 py-1.5 text-center focus:outline-none focus:border-pink-500"
+                                            className="w-16 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-200 px-2 py-1.5 text-center focus:outline-none focus:border-cyan-500"
                                         />
                                     </div>
                                 </div>
@@ -1599,17 +1786,17 @@ const InnovationPanel = ({
 
 
                 {item.isInnovating ? (
-                    <div className="flex items-center gap-2 text-xs text-pink-400 p-4 justify-center">
+                    <div className="flex items-center gap-2 text-xs text-cyan-400 p-4 justify-center">
                         <Loader2 size={14} className="animate-spin" />
                         正在创新提示词...
                     </div>
                 ) : hasOutputs ? (
                     <div className="space-y-2">
-                        <div className="text-[0.625rem] text-pink-400/80 font-medium">创新变体：</div>
+                        <div className="text-[0.625rem] text-cyan-400/80 font-medium">创新变体：</div>
                         {innovationItems.map((inv, idx) => (
                             <div
                                 key={inv.id}
-                                className="relative p-2.5 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-pink-700/30 transition-colors overflow-hidden space-y-2"
+                                className="relative p-2.5 bg-zinc-800/50 rounded-lg border border-zinc-700/50 hover:border-cyan-700/30 transition-colors overflow-hidden space-y-2"
                             >
                                 <div className="flex items-start justify-between gap-2">
                                     <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words pr-2">{inv.text}</div>
@@ -1670,7 +1857,7 @@ const InnovationPanel = ({
                         <p className="mb-3">创新失败: {item.innovationError}</p>
                         <button
                             onClick={() => onStartInnovation?.(item.id)}
-                            className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
+                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
                         >
                             <RotateCw size={14} />
                             重试创新
@@ -1683,7 +1870,7 @@ const InnovationPanel = ({
                                 <p className="mb-3">点击下方按钮对识别结果进行创新</p>
                                 <button
                                     onClick={() => onStartInnovation?.(item.id)}
-                                    className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
+                                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 mx-auto"
                                 >
                                     <Sparkles size={14} />
                                     开始创新
@@ -1698,12 +1885,12 @@ const InnovationPanel = ({
 
             {/* 底部操作栏 */}
             {hasOutputs && (
-                <div className={`border-t border-pink-900/30 bg-pink-950/20 ${isCompact ? 'p-1.5' : 'p-3'}`}>
+                <div className={`border-t border-cyan-900/30 bg-cyan-950/20 ${isCompact ? 'p-1.5' : 'p-3'}`}>
                     <div className={`flex ${isCompact ? 'gap-1' : 'gap-2'}`}>
                         <button
                             onClick={() => onStartInnovation?.(item.id)}
                             disabled={item.isInnovating}
-                            className={`flex-1 bg-pink-600 hover:bg-pink-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center ${isCompact ? 'px-2 py-1 text-[0.625rem] gap-1' : 'px-3 py-2 text-xs gap-1.5'}`}
+                            className={`flex-1 bg-cyan-600 hover:bg-cyan-500 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center ${isCompact ? 'px-2 py-1 text-[0.625rem] gap-1' : 'px-3 py-2 text-xs gap-1.5'}`}
                         >
                             <RotateCw size={isCompact ? 10 : 12} />
                             {isCompact ? '重新' : '重新创新'}
@@ -1751,7 +1938,13 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     onUpdateInnovationAttachments,
     onTranslate,
     onSaveTranslation,
-    onSaveSelection
+    onSaveSelection,
+    workMode = 'standard',
+    creativeResults = [],
+    onAddFusionImage,
+    onRemoveFusionImage,
+    selectedCardId,
+    onSelectCard
 }) => {
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | null>(null);
@@ -2045,12 +2238,48 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
         showCopied(item.id, 'result');
     };
 
+    // 复制创新结果（创新模式专用）
+    const copyCreativeResult = (item: ImageItem) => {
+        const result = creativeResults.find(r => r.imageId === item.id);
+        if (!result || result.status !== 'success' || result.innovations.length === 0) return;
+
+        // 格式化创新结果：每个变体一行
+        const text = result.innovations.map((inno, idx) =>
+            `${idx + 1}. ${inno.textZh || inno.textEn}`
+        ).join('\n\n');
+
+        navigator.clipboard.writeText(text);
+        showCopied(item.id, 'result');
+    };
+
     // 判断当前复制的是什么
     const isCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result') => {
         return copiedId === id && copiedAction === action;
     };
 
     if (images.length === 0) return null;
+
+    // 创建隐藏的 file input refs (用于添加融合图片)
+    const fusionInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+    // 处理添加融合图片
+    const handleFusionFileSelect = (imageId: string, files: FileList | null) => {
+        if (!files || files.length === 0 || !onAddFusionImage) return;
+        Array.from(files).forEach(file => {
+            if (file.type.startsWith('image/')) {
+                onAddFusionImage(imageId, file);
+            }
+        });
+    };
+
+    // 处理拖拽添加融合图片
+    const handleFusionDrop = (imageId: string, e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!onAddFusionImage) return;
+        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+        files.forEach(file => onAddFusionImage(imageId, file));
+    };
 
     const ImageThumbnail = ({ item }: { item: ImageItem }) => (
         <>
@@ -2060,20 +2289,90 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                     <span className="text-[0.625rem]">加载失败</span>
                 </div>
             ) : (
-                <img
-                    src={item.imageUrl}
-                    alt="Preview"
-                    className="w-full h-full object-contain"
-                    onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                />
+                <div
+                    className="w-full h-full relative"
+                    onDragOver={(e) => { e.preventDefault(); }}
+                    onDrop={(e) => handleFusionDrop(item.id, e)}
+                >
+                    {/* 主图 */}
+                    <img
+                        src={item.imageUrl}
+                        alt="Preview"
+                        className={`w-full h-full object-contain ${item.fusionImages && item.fusionImages.length > 0 ? 'border-2 border-cyan-500/50 rounded' : ''}`}
+                        onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                    />
+
+                    {/* 融合图片缩略图（右下角叠加） */}
+                    {item.fusionImages && item.fusionImages.length > 0 && (
+                        <div className="absolute bottom-8 right-1 flex flex-row-reverse gap-0.5">
+                            {item.fusionImages.slice(0, 3).map((fImg, idx) => (
+                                <div
+                                    key={fImg.id}
+                                    className="relative group/fusion"
+                                    style={{ zIndex: 10 - idx }}
+                                >
+                                    <img
+                                        src={fImg.imageUrl}
+                                        alt={`Fusion ${idx + 1}`}
+                                        className="w-8 h-8 object-cover rounded border border-cyan-500/70 shadow-lg"
+                                    />
+                                    {/* 删除按钮 */}
+                                    {onRemoveFusionImage && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onRemoveFusionImage(item.id, fImg.id); }}
+                                            className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 hover:bg-red-400 text-white rounded-full flex items-center justify-center opacity-0 group-hover/fusion:opacity-100 transition-opacity"
+                                        >
+                                            <X size={8} />
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            {item.fusionImages.length > 3 && (
+                                <div className="w-8 h-8 bg-zinc-800 rounded border border-zinc-600 flex items-center justify-center text-[0.5rem] text-zinc-400">
+                                    +{item.fusionImages.length - 3}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* 创新模式下显示"+"按钮 */}
+                    {workMode === 'creative' && onAddFusionImage && (
+                        <>
+                            <input
+                                type="file"
+                                ref={(el) => { fusionInputRefs.current[item.id] = el; }}
+                                className="hidden"
+                                accept="image/*"
+                                multiple
+                                onChange={(e) => handleFusionFileSelect(item.id, e.target.files)}
+                            />
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    fusionInputRefs.current[item.id]?.click();
+                                }}
+                                className="absolute top-2 left-2 w-6 h-6 bg-cyan-500/80 hover:bg-cyan-400 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg tooltip-bottom"
+                                data-tip="添加融合图"
+                            >
+                                <Plus size={14} />
+                            </button>
+                        </>
+                    )}
+                </div>
             )}
 
             {/* Type Badge */}
             <div className="absolute bottom-1 left-1 bg-black/70 backdrop-blur-sm text-zinc-300 text-[0.5625rem] px-1.5 py-0.5 rounded-md uppercase font-bold tracking-wider flex items-center gap-1">
                 {item.sourceType === 'file' ? <FileImage size={9} /> : <ExternalLink size={9} />}
                 {item.sourceType === 'file' ? '文件' : (item.sourceType === 'formula' ? '公式' : '链接')}
+                {/* 融合图片数量标识 */}
+                {item.fusionImages && item.fusionImages.length > 0 && (
+                    <span className="ml-1 px-1 py-0.5 bg-cyan-500/40 text-cyan-200 rounded text-[0.5rem]">
+                        +{item.fusionImages.length}
+                    </span>
+                )}
             </div>
         </>
     );
@@ -2084,12 +2383,21 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
         return (
             <>
                 {/* 结果放大模态框 */}
-                <ResultExpandModal item={expandedResultItem} onClose={() => setExpandedResultItem(null)} onTranslate={onTranslate} onSaveTranslation={onSaveTranslation} onSaveSelection={onSaveSelection} />
+                <ResultExpandModal item={expandedResultItem} onClose={() => setExpandedResultItem(null)} onTranslate={onTranslate} onSaveTranslation={onSaveTranslation} onSaveSelection={onSaveSelection} workMode={workMode} creativeResult={expandedResultItem ? creativeResults.find(r => r.imageId === expandedResultItem.id) : undefined} />
 
-                <div className="flex flex-col gap-1.5 pb-20">
+                <div
+                    className="flex flex-col gap-1.5 pb-20"
+                    onClick={(e) => {
+                        if (workMode !== 'creative' || !onSelectCard) return;
+                        const target = e.target as HTMLElement;
+                        if (target.closest('[data-image-card]')) return;
+                        onSelectCard(null);
+                    }}
+                >
                     {images.map((item) => (
                         <div
                             key={item.id}
+                            data-image-card
                             className={`group flex flex-row h-14 bg-zinc-900/80 border rounded-lg transition-all ${item.status === 'error' ? 'border-red-900/40 bg-red-950/20' : item.status === 'success' ? 'border-emerald-900/30' : 'border-zinc-800 hover:border-zinc-600'}`}
                         >
                             {/* Compact Thumbnail */}
@@ -2273,9 +2581,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
         return (
             <>
                 {/* 结果放大模态框 */}
-                <ResultExpandModal item={expandedResultItem} onClose={() => setExpandedResultItem(null)} onTranslate={onTranslate} onSaveTranslation={onSaveTranslation} onSaveSelection={onSaveSelection} />
+                <ResultExpandModal item={expandedResultItem} onClose={() => setExpandedResultItem(null)} onTranslate={onTranslate} onSaveTranslation={onSaveTranslation} onSaveSelection={onSaveSelection} workMode={workMode} creativeResult={expandedResultItem ? creativeResults.find(r => r.imageId === expandedResultItem.id) : undefined} />
 
-                <div className="flex flex-col gap-3 pb-20">
+                <div
+                    className="flex flex-col gap-3 pb-20"
+                    onClick={(e) => {
+                        if (workMode !== 'creative' || !onSelectCard) return;
+                        const target = e.target as HTMLElement;
+                        if (target.closest('[data-image-card]')) return;
+                        onSelectCard(null);
+                    }}
+                >
                     {images.map((item) => {
                         const isItemMinimized = !!minimizedChats[item.id] && !item.isChatOpen;
                         const hasInnovationOutputs = getInnovationOutputs(item).length > 0;
@@ -2285,6 +2601,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                             return (
                                 <div
                                     key={item.id}
+                                    data-image-card
                                     className={`group flex flex-row h-14 bg-zinc-900/80 border rounded-lg transition-all ${item.status === 'error' ? 'border-red-900/40 bg-red-950/20' : item.status === 'success' ? 'border-emerald-900/30' : 'border-zinc-800 hover:border-zinc-600'}`}
                                 >
                                     {/* Compact Thumbnail */}
@@ -2430,10 +2747,78 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                         }
 
                         // 正常视图
+                        const isSelectedInList = selectedCardId === item.id;
                         return (
                             <div
                                 key={item.id}
-                                className={`group bg-zinc-900 border rounded-xl overflow-hidden transition-all ${item.status === 'error' ? 'border-red-900/30' : 'border-zinc-800 hover:border-zinc-600'}`}
+                                data-image-card
+                                tabIndex={workMode === 'creative' ? 0 : -1}
+                                className={`group bg-zinc-900 border rounded-xl overflow-hidden transition-all duration-300 outline-none
+                                    ${item.status === 'error' ? 'border-red-900/30' : 'border-zinc-800 hover:border-zinc-600'}
+                                    focus:ring-2 focus:ring-cyan-500/50
+                                `}
+                                onClick={(e) => {
+                                    console.log('[Card Click] workMode:', workMode, 'onSelectCard:', !!onSelectCard, 'itemId:', item.id);
+                                    if (workMode === 'creative' && onSelectCard) {
+                                        if ((e.target as HTMLElement).closest('button')) return;
+                                        const newSelected = isSelectedInList ? null : item.id;
+                                        console.log('[Card Click] Setting selectedCardId to:', newSelected);
+                                        onSelectCard(newSelected);
+                                        if (newSelected) {
+                                            (e.currentTarget as HTMLElement).focus();
+                                            console.log('[Card Click] Card focused');
+                                        }
+                                    }
+                                }}
+                                onPaste={async (e) => {
+                                    console.log('[Card Paste] Triggered! workMode:', workMode, 'onAddFusionImage:', !!onAddFusionImage, 'itemId:', item.id);
+                                    // 创新模式下，卡片接管粘贴事件
+                                    if (workMode === 'creative' && onAddFusionImage) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        console.log('[Card Paste] Event stopped, processing clipboard...');
+                                        const clipboardData = e.clipboardData;
+                                        const files = Array.from(clipboardData.files).filter(f => f.type.startsWith('image/'));
+                                        console.log('[Card Paste] files:', files.length, 'items:', clipboardData.items?.length);
+                                        if (files.length > 0) {
+                                            for (const file of files) {
+                                                console.log('[Card Paste] Adding fusion image from file:', file.name);
+                                                await onAddFusionImage(item.id, file);
+                                            }
+                                            return;
+                                        }
+                                        const items = Array.from(clipboardData.items || []);
+                                        const imageItems = items.filter(it => it.type.startsWith('image/'));
+                                        if (imageItems.length > 0) {
+                                            const itemFiles = imageItems.map(it => it.getAsFile()).filter(Boolean) as File[];
+                                            console.log('[Card Paste] Adding fusion image from items:', itemFiles.length);
+                                            for (const file of itemFiles) {
+                                                await onAddFusionImage(item.id, file);
+                                            }
+                                        }
+                                    }
+                                }}
+                                onDragOver={(e) => {
+                                    if (workMode === 'creative' && onAddFusionImage) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        e.currentTarget.classList.add('ring-2', 'ring-cyan-500', 'border-cyan-500');
+                                    }
+                                }}
+                                onDragLeave={(e) => {
+                                    e.currentTarget.classList.remove('ring-2', 'ring-cyan-500', 'border-cyan-500');
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    e.currentTarget.classList.remove('ring-2', 'ring-cyan-500', 'border-cyan-500');
+                                    if (workMode === 'creative' && onAddFusionImage) {
+                                        const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                                        for (const file of files) {
+                                            onAddFusionImage(item.id, file);
+                                        }
+                                    }
+                                }}
                             >
                                 {/* 判断是否有面板打开（对话或创新） */}
                                 {(() => {
@@ -2458,7 +2843,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     style={{ width: hasPanelOpen ? currentSidebarWidth : undefined }}
                                                 >
                                                     {/* 图片区域 */}
-                                                    <div className={`bg-zinc-950 relative flex-shrink-0 ${!hasPanelOpen ? 'border-r border-zinc-800 w-48 h-full' : 'border-b border-zinc-800 h-36 p-2'} ${isResizing ? '' : 'transition-all duration-300'}`}>
+                                                    <div className={`bg-zinc-950 relative flex-shrink-0 
+                                                        ${!hasPanelOpen ? 'border-r w-48 h-full' : 'border-b h-36 p-2'} 
+                                                        ${isSelectedInList ? 'ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.4)] border-cyan-500/50' : 'border-zinc-800'}
+                                                        ${isResizing ? '' : 'transition-all duration-300'}
+                                                    `}>
                                                         {/* 删除按钮悬浮层 - 在两种模式下都可用 */}
                                                         <div className={`absolute top-2 right-2 z-10 ${hasPanelOpen ? 'opacity-0 group-hover:opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
                                                             <button
@@ -2483,7 +2872,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
 
                                                             {/* Result Content */}
                                                             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                                                                <MemoizedStatusDisplay item={item} onRetry={onRetry} onExpand={setExpandedResultItem} />
+                                                                {workMode === 'creative' ? (
+                                                                    <div
+                                                                        className="cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors h-full"
+                                                                        onDoubleClick={() => setExpandedResultItem(item)}
+                                                                        data-tip="双击放大查看"
+                                                                    >
+                                                                        <CreativeResultDisplay result={creativeResults.find(r => r.imageId === item.id)} />
+                                                                    </div>
+                                                                ) : (
+                                                                    <MemoizedStatusDisplay item={item} onRetry={onRetry} onExpand={setExpandedResultItem} />
+                                                                )}
                                                             </div>
                                                         </div>
                                                     )}
@@ -2539,18 +2938,20 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                                 </button>
                                                                 <button
-                                                                    onClick={() => copyResult(item)}
-                                                                    disabled={item.status !== 'success'}
+                                                                    onClick={() => workMode === 'creative' ? copyCreativeResult(item) : copyResult(item)}
+                                                                    disabled={workMode === 'creative'
+                                                                        ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
+                                                                        : item.status !== 'success'}
                                                                     className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'result')
                                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                                         : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                                                         }`}
-                                                                    data-tip={item.status === 'success' ? '复制识别结果' : '暂无结果'}
+                                                                    data-tip={workMode === 'creative' ? '复制所有创新结果' : (item.status === 'success' ? '复制识别结果' : '暂无结果')}
                                                                 >
                                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                                 </button>
-                                                                {/* 发送到提示词创新 */}
-                                                                {item.status === 'success' && onSendToDesc && (
+                                                                {/* 发送到提示词创新 - 创新模式下隐藏 */}
+                                                                {workMode !== 'creative' && item.status === 'success' && onSendToDesc && (
                                                                     <button
                                                                         onClick={() => onSendToDesc(item.id)}
                                                                         className={`p-1.5 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -2562,8 +2963,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                                                     </button>
                                                                 )}
-                                                                {/* 对话按钮 - 仅在关闭状态显示，打开状态已经在ChatPanel中了，但网格视图是在底部显示的，如果在List视图打开状态也要显示在底部，则保留 */}
-                                                                {item.status === 'success' && onToggleChat && (
+                                                                {/* 对话按钮 - 创新模式下隐藏 */}
+                                                                {workMode !== 'creative' && item.status === 'success' && onToggleChat && (
                                                                     <button
                                                                         onClick={() => onToggleChat(item.id)}
                                                                         className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isChatOpen
@@ -2577,26 +2978,40 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         <MessageCircle size={12} fill={!item.isChatOpen && item.chatHistory.length > 1 ? "currentColor" : "none"} fillOpacity={!item.isChatOpen && item.chatHistory.length > 1 ? 0.2 : 0} />
                                                                     </button>
                                                                 )}
-                                                                {/* 创新按钮 */}
-                                                                {item.status === 'success' && onToggleInnovation && (
+                                                                {/* 创新按钮 - 标准模式显示，创新模式改为放大查看 */}
+                                                                {workMode === 'creative' ? (
+                                                                    // 创新模式：放大查看按钮
                                                                     <button
-                                                                        onClick={() => onToggleInnovation(item.id)}
-                                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isInnovationOpen
-                                                                            ? 'text-pink-400 bg-pink-500/30 ring-2 ring-pink-400/50'
-                                                                            : (hasInnovationOutputs
-                                                                                ? 'text-pink-400 bg-pink-900/20'
-                                                                                : 'text-pink-400 hover:bg-zinc-800')
-                                                                            }`}
-                                                                        data-tip={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
+                                                                        onClick={() => setExpandedResultItem(item)}
+                                                                        disabled={!(creativeResults.find(r => r.imageId === item.id)?.status === 'success')}
+                                                                        className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/20 rounded transition-colors tooltip-bottom disabled:opacity-30 disabled:cursor-not-allowed"
+                                                                        data-tip="放大查看"
                                                                     >
-                                                                        <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
+                                                                        <Maximize2 size={12} />
                                                                     </button>
+                                                                ) : (
+                                                                    // 标准模式：创新按钮
+                                                                    item.status === 'success' && onToggleInnovation && (
+                                                                        <button
+                                                                            onClick={() => onToggleInnovation(item.id)}
+                                                                            className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isInnovationOpen
+                                                                                ? 'text-cyan-400 bg-cyan-500/30 ring-2 ring-cyan-400/50'
+                                                                                : (hasInnovationOutputs
+                                                                                    ? 'text-cyan-400 bg-cyan-900/20'
+                                                                                    : 'text-cyan-400 hover:bg-zinc-800')
+                                                                                }`}
+                                                                            data-tip={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
+                                                                        >
+                                                                            <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
+                                                                        </button>
+                                                                    )
                                                                 )}
+                                                                {/* 重试按钮 - 创新模式下改为重新创新（暂时仍使用onRetry） */}
                                                                 {item.status === 'success' && (
                                                                     <button
                                                                         onClick={() => onRetry(item.id)}
                                                                         className="p-1.5 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
-                                                                        data-tip="重新识别"
+                                                                        data-tip={workMode === 'creative' ? "重新创新" : "重新识别"}
                                                                     >
                                                                         <RotateCw size={12} />
                                                                     </button>
@@ -2716,9 +3131,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     return (
         <>
             {/* 结果放大模态框 */}
-            <ResultExpandModal item={expandedResultItem} onClose={() => setExpandedResultItem(null)} onTranslate={onTranslate} onSaveTranslation={onSaveTranslation} onSaveSelection={onSaveSelection} />
+            <ResultExpandModal item={expandedResultItem} onClose={() => setExpandedResultItem(null)} onTranslate={onTranslate} onSaveTranslation={onSaveTranslation} onSaveSelection={onSaveSelection} workMode={workMode} creativeResult={expandedResultItem ? creativeResults.find(r => r.imageId === expandedResultItem.id) : undefined} />
 
-            <div className="flex flex-wrap gap-4 pb-20">
+            <div
+                className="flex flex-wrap gap-4 pb-20"
+                onClick={(e) => {
+                    if (workMode !== 'creative' || !onSelectCard) return;
+                    const target = e.target as HTMLElement;
+                    if (target.closest('[data-image-card]')) return;
+                    onSelectCard(null);
+                }}
+            >
                 {images.map((item) => {
                     const isItemMinimized = !!minimizedChats[item.id] && !item.isChatOpen;
                     const hasInnovationOutputs = getInnovationOutputs(item).length > 0;
@@ -2728,6 +3151,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                         return (
                             <div
                                 key={item.id}
+                                data-image-card
                                 className={`group flex flex-row h-14 bg-zinc-900/80 border rounded-lg transition-all ${item.status === 'error' ? 'border-red-900/40 bg-red-950/20' : item.status === 'success' ? 'border-emerald-900/30' : 'border-zinc-800 hover:border-zinc-600'}`}
                                 style={{ minWidth: '200px', maxWidth: '400px', flex: '1 1 280px' }}
                             >
@@ -2860,19 +3284,81 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                     }
 
                     // 正常视图
+                    const isSelected = selectedCardId === item.id;
                     return (
                         <div
                             key={item.id}
                             id={`grid-card-${item.id}`}
-                            className={`group relative bg-zinc-900 border rounded-xl overflow-hidden
+                            data-image-card
+                            tabIndex={workMode === 'creative' ? 0 : -1}
+                            className={`group relative bg-zinc-900 border rounded-xl overflow-hidden cursor-pointer outline-none
                         ${item.status === 'error' ? 'border-red-900/30' : 'border-zinc-800 hover:border-zinc-600'}
                         ${isResizing ? '' : 'transition-all duration-300'}
+                        focus:ring-2 focus:ring-cyan-500/50
                     `}
                             style={{
                                 width: cardWidths[item.id] ? `${cardWidths[item.id]}px` : undefined,
                                 minWidth: '280px',
                                 maxWidth: cardWidths[item.id] ? undefined : '500px',
                                 flex: cardWidths[item.id] ? '0 0 auto' : '1 1 320px'
+                            }}
+                            onClick={(e) => {
+                                // 只在创新模式下且点击在图片区域时选中
+                                if (workMode === 'creative' && onSelectCard) {
+                                    // 点击其他按钮时不触发选中
+                                    if ((e.target as HTMLElement).closest('button')) return;
+                                    const newSelected = isSelected ? null : item.id;
+                                    onSelectCard(newSelected);
+                                    // 如果选中了卡片，让卡片获得焦点以接收粘贴事件
+                                    if (newSelected) {
+                                        (e.currentTarget as HTMLElement).focus();
+                                    }
+                                }
+                            }}
+                            onPaste={async (e) => {
+                                // 创新模式下，卡片接管粘贴事件
+                                if (workMode === 'creative' && onAddFusionImage) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const clipboardData = e.clipboardData;
+                                    const files = Array.from(clipboardData.files).filter(f => f.type.startsWith('image/'));
+                                    if (files.length > 0) {
+                                        for (const file of files) {
+                                            await onAddFusionImage(item.id, file);
+                                        }
+                                        return;
+                                    }
+                                    // 也检查 clipboardData.items
+                                    const items = Array.from(clipboardData.items || []);
+                                    const imageItems = items.filter(it => it.type.startsWith('image/'));
+                                    if (imageItems.length > 0) {
+                                        const itemFiles = imageItems.map(it => it.getAsFile()).filter(Boolean) as File[];
+                                        for (const file of itemFiles) {
+                                            await onAddFusionImage(item.id, file);
+                                        }
+                                    }
+                                }
+                            }}
+                            onDragOver={(e) => {
+                                if (workMode === 'creative' && onAddFusionImage) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    e.currentTarget.classList.add('ring-2', 'ring-cyan-500', 'border-cyan-500');
+                                }
+                            }}
+                            onDragLeave={(e) => {
+                                e.currentTarget.classList.remove('ring-2', 'ring-cyan-500', 'border-cyan-500');
+                            }}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.currentTarget.classList.remove('ring-2', 'ring-cyan-500', 'border-cyan-500');
+                                if (workMode === 'creative' && onAddFusionImage) {
+                                    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+                                    for (const file of files) {
+                                        onAddFusionImage(item.id, file);
+                                    }
+                                }
                             }}
                         >
                             {/* 主内容区域 - 左右布局 */}
@@ -2887,7 +3373,12 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     style={{ width: (item.isChatOpen || item.isInnovationOpen) ? Math.min(currentSidebarWidth, 120) : undefined }}
                                 >
                                     {/* 图片区域 - 对话/创新面板打开时使用固定高度 */}
-                                    <div className={`bg-zinc-950 relative flex-shrink-0 border-b border-zinc-800 transition-all duration-300 ${(item.isChatOpen || item.isInnovationOpen) ? 'h-48 p-2' : 'h-36'}`}>
+                                    <div
+                                        className={`bg-zinc-950 relative flex-shrink-0 border-b transition-all duration-300 
+                                            ${(item.isChatOpen || item.isInnovationOpen) ? 'h-48 p-2' : 'h-36'}
+                                            ${isSelected ? 'ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.4)] border-cyan-500/50' : 'border-zinc-800'}
+                                        `}
+                                    >
                                         {/* Remove Button Overlay */}
                                         <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <button
@@ -2898,6 +3389,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             </button>
                                         </div>
                                         <ImageThumbnail item={item} />
+                                        {/* 选中状态提示 */}
+                                        {isSelected && (
+                                            <div className="absolute inset-0 bg-red-500/10 flex items-center justify-center pointer-events-none">
+                                                <div className="bg-black/70 text-red-300 text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
+                                                    <Plus size={12} />
+                                                    粘贴或拖拽添加融合图
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* 内容区域 */}
@@ -2908,30 +3408,40 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             </div>
 
                                             <div className="flex-1 overflow-y-auto custom-scrollbar">
-                                                {item.status === 'success' ? (
+                                                {workMode === 'creative' ? (
                                                     <div
-                                                        className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed px-1 cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative tooltip-bottom"
+                                                        className="cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors h-full"
                                                         onDoubleClick={() => setExpandedResultItem(item)}
-                                                        data-tip="双击放大窗口查看结果"
+                                                        data-tip="双击放大查看"
                                                     >
-                                                        {item.chatHistory.length > 0
-                                                            ? item.chatHistory[item.chatHistory.length - 1].text
-                                                            : item.result}
-                                                        {/* 悬浮时显示底部提示条 */}
-                                                        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-zinc-900/90 to-transparent text-[0.625rem] text-zinc-400 text-center py-1 opacity-0 group-hover/result:opacity-100 transition-opacity pointer-events-none">
-                                                            双击放大
-                                                        </div>
-                                                        {/* 放大提示图标 */}
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setExpandedResultItem(item); }}
-                                                            className="absolute top-0 right-0 p-1 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/result:opacity-100 transition-opacity tooltip-bottom"
-                                                            data-tip="点击放大查看"
-                                                        >
-                                                            <Maximize2 size={12} />
-                                                        </button>
+                                                        <CreativeResultDisplay result={creativeResults.find(r => r.imageId === item.id)} />
                                                     </div>
                                                 ) : (
-                                                    <MemoizedStatusDisplay item={item} onRetry={onRetry} onExpand={setExpandedResultItem} />
+                                                    item.status === 'success' ? (
+                                                        <div
+                                                            className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed px-1 cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative tooltip-bottom"
+                                                            onDoubleClick={() => setExpandedResultItem(item)}
+                                                            data-tip="双击放大窗口查看结果"
+                                                        >
+                                                            {item.chatHistory.length > 0
+                                                                ? item.chatHistory[item.chatHistory.length - 1].text
+                                                                : item.result}
+                                                            {/* 悬浮时显示底部提示条 */}
+                                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-zinc-900/90 to-transparent text-[0.625rem] text-zinc-400 text-center py-1 opacity-0 group-hover/result:opacity-100 transition-opacity pointer-events-none">
+                                                                双击放大
+                                                            </div>
+                                                            {/* 放大提示图标 */}
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setExpandedResultItem(item); }}
+                                                                className="absolute top-0 right-0 p-1 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/result:opacity-100 transition-opacity tooltip-bottom"
+                                                                data-tip="点击放大查看"
+                                                            >
+                                                                <Maximize2 size={12} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <MemoizedStatusDisplay item={item} onRetry={onRetry} onExpand={setExpandedResultItem} />
+                                                    )
                                                 )}
                                             </div>
                                         </div>
@@ -2984,17 +3494,20 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                 </button>
                                                 <button
-                                                    onClick={() => copyResult(item)}
-                                                    disabled={item.status !== 'success'}
+                                                    onClick={() => workMode === 'creative' ? copyCreativeResult(item) : copyResult(item)}
+                                                    disabled={workMode === 'creative'
+                                                        ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
+                                                        : item.status !== 'success'}
                                                     className={`p-1.5 rounded transition-colors disabled:opacity-30 tooltip-bottom ${isCopied(item.id, 'result')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
                                                         }`}
-                                                    data-tip="复制结果"
+                                                    data-tip={workMode === 'creative' ? '复制所有创新结果' : '复制结果'}
                                                 >
                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                 </button>
-                                                {item.status === 'success' && onSendToDesc && (
+                                                {/* 发送到提示词创新 - 创新模式下隐藏 */}
+                                                {workMode !== 'creative' && item.status === 'success' && onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
                                                         className={`p-1.5 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -3006,8 +3519,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         {sentToDescIds?.includes(item.id) ? <Check size={12} /> : <Share2 size={12} />}
                                                     </button>
                                                 )}
-                                                {/* 对话按钮 */}
-                                                {item.status === 'success' && onToggleChat && (
+                                                {/* 对话按钮 - 创新模式下隐藏 */}
+                                                {workMode !== 'creative' && item.status === 'success' && onToggleChat && (
                                                     <button
                                                         onClick={() => onToggleChat(item.id)}
                                                         className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isChatOpen
@@ -3019,26 +3532,40 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         <MessageCircle size={12} />
                                                     </button>
                                                 )}
-                                                {/* 创新按钮 */}
-                                                {item.status === 'success' && onToggleInnovation && (
+                                                {/* 创新按钮 - 标准模式显示，创新模式改为放大查看 */}
+                                                {workMode === 'creative' ? (
+                                                    // 创新模式：放大查看按钮
                                                     <button
-                                                        onClick={() => onToggleInnovation(item.id)}
-                                                        className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isInnovationOpen
-                                                            ? 'text-pink-400 bg-pink-500/30 ring-2 ring-pink-400/50'
-                                                            : (hasInnovationOutputs
-                                                                ? 'text-pink-400 bg-pink-900/20'
-                                                                : 'text-pink-400 hover:bg-zinc-800')
-                                                            }`}
-                                                        data-tip={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
+                                                        onClick={() => setExpandedResultItem(item)}
+                                                        disabled={!(creativeResults.find(r => r.imageId === item.id)?.status === 'success')}
+                                                        className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/20 rounded transition-colors tooltip-bottom disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        data-tip="放大查看"
                                                     >
-                                                        <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
+                                                        <Maximize2 size={12} />
                                                     </button>
+                                                ) : (
+                                                    // 标准模式：创新按钮
+                                                    item.status === 'success' && onToggleInnovation && (
+                                                        <button
+                                                            onClick={() => onToggleInnovation(item.id)}
+                                                            className={`p-1.5 rounded transition-colors tooltip-bottom ${item.isInnovationOpen
+                                                                ? 'text-cyan-400 bg-cyan-500/30 ring-2 ring-cyan-400/50'
+                                                                : (hasInnovationOutputs
+                                                                    ? 'text-cyan-400 bg-cyan-900/20'
+                                                                    : 'text-cyan-400 hover:bg-zinc-800')
+                                                                }`}
+                                                            data-tip={hasInnovationOutputs ? "查看创新结果" : "创新提示词"}
+                                                        >
+                                                            <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
+                                                        </button>
+                                                    )
                                                 )}
+                                                {/* 重试按钮 */}
                                                 {item.status === 'success' && (
                                                     <button
                                                         onClick={() => onRetry(item.id)}
                                                         className="p-1.5 text-zinc-500 hover:text-emerald-400 transition-colors rounded hover:bg-zinc-800 tooltip-bottom"
-                                                        data-tip="重新识别"
+                                                        data-tip={workMode === 'creative' ? "重新创新" : "重新识别"}
                                                     >
                                                         <RotateCw size={12} />
                                                     </button>
@@ -3079,7 +3606,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 {/* 面板之间的分隔条 - 仅当两个面板都打开时显示 */}
                                 {item.isChatOpen && item.isInnovationOpen && (
                                     <div
-                                        className="w-1 bg-zinc-900 hover:bg-pink-500/50 cursor-col-resize flex-shrink-0 transition-colors z-10"
+                                        className="w-1 bg-zinc-900 hover:bg-cyan-500/50 cursor-col-resize flex-shrink-0 transition-colors z-10"
                                         onMouseDown={(e) => {
                                             e.preventDefault();
                                             setIsResizing(true);

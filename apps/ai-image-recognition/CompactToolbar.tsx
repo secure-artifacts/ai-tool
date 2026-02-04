@@ -19,17 +19,19 @@ interface CompactToolbarProps {
     viewMode: 'grid' | 'list' | 'compact';
     autoUploadGyazo: boolean;
     isBulkInnovating: boolean;
-    copySuccess: 'links' | 'formulas' | 'results' | 'original' | null;
+    copySuccess: 'links' | 'formulas' | 'results' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null;
     presets: any[];
     templateState: any;
     unifiedPresets: any[];
     unuploadedCount: number;
     isUploading: boolean;
+    workMode?: 'standard' | 'creative'; // 工作模式
     setImageModel: (val: string) => void;
     setPrompt: (val: string) => void;
     setPresets: (val: any[]) => void;
     setViewMode: (val: 'grid' | 'list' | 'compact') => void;
     setAutoUploadGyazo: (val: boolean) => void;
+    setWorkMode?: (mode: 'standard' | 'creative') => void; // 切换工作模式
     handleFiles: (files: File[]) => void;
     handleTextPaste: (text: string) => void;
     handleHtmlPaste: (urls: { originalUrl: string; fetchUrl: string }[]) => void;
@@ -55,8 +57,8 @@ interface CompactToolbarProps {
 export default function CompactToolbar({
     images, prompt, imageModel, isProcessing, isPaused, viewMode, autoUploadGyazo,
     isBulkInnovating, copySuccess, presets, templateState, unifiedPresets,
-    unuploadedCount, isUploading,
-    setImageModel, setPrompt, setPresets, setViewMode, setAutoUploadGyazo,
+    unuploadedCount, isUploading, workMode = 'standard',
+    setImageModel, setPrompt, setPresets, setViewMode, setAutoUploadGyazo, setWorkMode,
     handleFiles, handleTextPaste, handleHtmlPaste, runAnalysis, handlePauseResume,
     handleStop, copyAllLinks, copyAllFormulas, copyAllResults, copyAllOriginalAndResults,
     handleBulkInnovation, handleSendAllToDesc, uploadAllUnuploadedToGyazo,
@@ -523,6 +525,32 @@ export default function CompactToolbar({
                     <button onClick={() => setViewMode('list')} className={`w-7 h-7 flex items-center justify-center rounded tooltip-bottom ${viewMode === 'list' ? 'bg-zinc-700 text-emerald-400' : 'text-zinc-500'}`} data-tip="列表"><List size={14} /></button>
                     <button onClick={() => setViewMode('grid')} className={`w-7 h-7 flex items-center justify-center rounded tooltip-bottom ${viewMode === 'grid' ? 'bg-zinc-700 text-emerald-400' : 'text-zinc-500'}`} data-tip="网格"><LayoutGrid size={14} /></button>
                 </div>
+
+                {/* 模式切换 */}
+                {setWorkMode && (
+                    <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-800 shrink-0 h-8 items-center">
+                        <button
+                            onClick={() => setWorkMode('standard')}
+                            className={`h-7 flex items-center gap-1 px-2 rounded text-[0.625rem] font-medium ${workMode === 'standard'
+                                ? 'bg-emerald-600/20 text-emerald-400'
+                                : 'text-zinc-500 hover:text-zinc-300'}`}
+                            data-tip="标准识别模式"
+                        >
+                            <Zap size={11} fill={workMode === 'standard' ? 'currentColor' : 'none'} />
+                            标准
+                        </button>
+                        <button
+                            onClick={() => setWorkMode('creative')}
+                            className={`h-7 flex items-center gap-1 px-2 rounded text-[0.625rem] font-medium ${workMode === 'creative'
+                                ? 'bg-purple-600/20 text-purple-400'
+                                : 'text-zinc-500 hover:text-zinc-300'}`}
+                            data-tip="创新变体模式"
+                        >
+                            <Sparkles size={11} fill={workMode === 'creative' ? 'currentColor' : 'none'} />
+                            创新
+                        </button>
+                    </div>
+                )}
 
                 {/* Gyazo */}
                 <button

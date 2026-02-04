@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect, useMemo, createContext, useContext,
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { FixedTooltipProvider } from '@/components/FixedTooltip';
+import { ToastProvider } from '@/components/ui/Toast';
 import ScriptToolApp from '@/apps/script-split/ScriptToolApp';
 import { AIToolsDirectoryApp } from '@/apps/ai-tools';
 import AIImageEditorApp from '@/apps/ai-image-editor/AIImageEditorApp';
@@ -21,6 +22,14 @@ import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
 import { ImageToPromptApp } from '@/apps/image-to-prompt';
+
+// 表格同步服务
+import {
+  getSheetsSyncConfig,
+  saveSheetsSyncConfig,
+  testConnection as testSheetConnection,
+  type SheetsSyncConfig
+} from '@/services/sheetsSyncService';
 
 type MagicCanvasState = {
   layers: Layer[];
@@ -7220,6 +7229,29 @@ const App = () => {
   const webBtnRef = React.useRef<HTMLButtonElement>(null);
   const [settingsPanelPos, setSettingsPanelPos] = useState({ top: 0, left: 0 });
   const settingsBtnRef = React.useRef<HTMLButtonElement>(null);
+
+  // 表格同步配置
+  const [sheetsSyncConfig, setSheetsSyncConfig] = useState<SheetsSyncConfig>(() => getSheetsSyncConfig());
+  const [sheetsSyncTestStatus, setSheetsSyncTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [sheetsSyncTestError, setSheetsSyncTestError] = useState<string>('');
+
+  const handleSheetsSyncConfigChange = (key: keyof SheetsSyncConfig, value: string | boolean) => {
+    const newConfig = { ...sheetsSyncConfig, [key]: value };
+    setSheetsSyncConfig(newConfig);
+    saveSheetsSyncConfig(newConfig);
+  };
+
+  const handleTestSheetConnection = async () => {
+    setSheetsSyncTestStatus('testing');
+    setSheetsSyncTestError('');
+    const result = await testSheetConnection(sheetsSyncConfig.webAppUrl);
+    if (result.success) {
+      setSheetsSyncTestStatus('success');
+    } else {
+      setSheetsSyncTestStatus('error');
+      setSheetsSyncTestError(result.error || '连接失败');
+    }
+  };
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -8881,6 +8913,113 @@ const App = () => {
                           </div>
                         </div>
                       </div>
+
+                      {/* 表格同步配置区域 */}
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted-color)' }}>
+                          📊 {language === 'zh' ? '表格同步' : 'Sheet Sync'}
+                        </label>
+                        <div style={{
+                          backgroundColor: 'var(--card-background, #2a2a2a)',
+                          borderRadius: '6px',
+                          padding: '0.75rem',
+                          fontSize: '0.8rem'
+                        }}>
+                          {/* Web App URL */}
+                          <div style={{ marginBottom: '0.5rem' }}>
+                            <label style={{ display: 'block', marginBottom: '0.25rem', color: 'var(--text-muted-color)', fontSize: '0.75rem' }}>
+                              Web App URL
+                            </label>
+                            <input
+                              type="text"
+                              value={sheetsSyncConfig.webAppUrl}
+                              onChange={(e) => handleSheetsSyncConfigChange('webAppUrl', e.target.value)}
+                              placeholder="https://script.google.com/macros/s/.../exec"
+                              style={{
+                                width: '100%',
+                                padding: '0.4rem 0.5rem',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: 'var(--surface-color)',
+                                color: 'var(--text-color)',
+                                fontSize: '0.75rem'
+                              }}
+                            />
+                          </div>
+
+                          {/* 提交人名称 */}
+                          <div style={{ marginBottom: '0.5rem' }}>
+                            <label style={{ display: 'block', marginBottom: '0.25rem', color: 'var(--text-muted-color)', fontSize: '0.75rem' }}>
+                              {language === 'zh' ? '提交人名称' : 'Submitter Name'}
+                            </label>
+                            <input
+                              type="text"
+                              value={sheetsSyncConfig.submitter}
+                              onChange={(e) => handleSheetsSyncConfigChange('submitter', e.target.value)}
+                              placeholder={language === 'zh' ? '你的名字' : 'Your name'}
+                              style={{
+                                width: '100%',
+                                padding: '0.4rem 0.5rem',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: 'var(--surface-color)',
+                                color: 'var(--text-color)',
+                                fontSize: '0.75rem'
+                              }}
+                            />
+                          </div>
+
+                          {/* 自动保存开关 */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                            <input
+                              type="checkbox"
+                              id="sheets-auto-save"
+                              checked={sheetsSyncConfig.autoSave}
+                              onChange={(e) => handleSheetsSyncConfigChange('autoSave', e.target.checked)}
+                              style={{ margin: 0 }}
+                            />
+                            <label htmlFor="sheets-auto-save" style={{ color: 'var(--text-color)', fontSize: '0.75rem', cursor: 'pointer' }}>
+                              {language === 'zh' ? '启用自动保存' : 'Auto save'}
+                            </label>
+                          </div>
+
+                          {/* 测试连接按钮 */}
+                          <button
+                            onClick={handleTestSheetConnection}
+                            disabled={!sheetsSyncConfig.webAppUrl || sheetsSyncTestStatus === 'testing'}
+                            style={{
+                              width: '100%',
+                              padding: '0.4rem',
+                              borderRadius: '4px',
+                              border: 'none',
+                              backgroundColor: sheetsSyncTestStatus === 'success' ? '#22c55e' :
+                                sheetsSyncTestStatus === 'error' ? '#ef4444' : '#4285f4',
+                              color: '#fff',
+                              fontSize: '0.75rem',
+                              cursor: sheetsSyncConfig.webAppUrl && sheetsSyncTestStatus !== 'testing' ? 'pointer' : 'not-allowed',
+                              opacity: !sheetsSyncConfig.webAppUrl ? 0.5 : 1
+                            }}
+                          >
+                            {sheetsSyncTestStatus === 'testing' ? (language === 'zh' ? '测试中...' : 'Testing...') :
+                              sheetsSyncTestStatus === 'success' ? (language === 'zh' ? '✓ 连接成功' : '✓ Connected') :
+                                sheetsSyncTestStatus === 'error' ? (language === 'zh' ? '✗ 连接失败' : '✗ Failed') :
+                                  (language === 'zh' ? '测试连接' : 'Test Connection')}
+                          </button>
+                          {sheetsSyncTestError && (
+                            <div style={{ color: '#ef4444', fontSize: '0.7rem', marginTop: '0.25rem' }}>
+                              {sheetsSyncTestError}
+                            </div>
+                          )}
+
+                          {/* 分页预览 */}
+                          {sheetsSyncConfig.submitter && (
+                            <div style={{ marginTop: '0.5rem', color: 'var(--text-muted-color)', fontSize: '0.7rem' }}>
+                              {language === 'zh' ? '分页：' : 'Sheets: '}
+                              {sheetsSyncConfig.submitter}-图片识别, {sheetsSyncConfig.submitter}-提示词, ...
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </>
                 )}
@@ -8931,7 +9070,7 @@ const App = () => {
           >
             <span className="update-icon">🎉</span>
             <span className="update-text">
-              {language === 'zh' ? '更新 (01/29)' : 'Updates (01/29)'}
+              {language === 'zh' ? '更新 (02/03)' : 'Updates (02/03)'}
             </span>
           </button>
         </div >
@@ -9309,7 +9448,9 @@ const Root = () => (
         <AuthProvider>
           <ApiProvider>
             <FixedTooltipProvider>
-              <App />
+              <ToastProvider>
+                <App />
+              </ToastProvider>
             </FixedTooltipProvider>
           </ApiProvider>
         </AuthProvider>

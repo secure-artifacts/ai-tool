@@ -6,6 +6,10 @@ import { InstantTranslateTool } from './InstantTranslateTool';
 import { allLanguages } from './constants';
 import { LanguageSelector } from './LanguageSelector';
 import { fetchImageBlob, processImageUrl, decodeHtmlEntities } from '@/apps/ai-image-recognition/utils';
+import {
+    appendToSheet,
+    getSheetsSyncConfig
+} from '@/services/sheetsSyncService';
 import { useAuth } from '../../contexts/AuthContext';
 import ProjectPanel from '../../components/ProjectPanel';
 import {
@@ -1268,6 +1272,50 @@ const TranslateTool = ({
     const [showBatchCopyMenu, setShowBatchCopyMenu] = useState(false);
     const [isInputCollapsed, setIsInputCollapsed] = useState(false);
 
+    // 保存到表格状态
+    const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+    const [sheetSaveError, setSheetSaveError] = useState<string>('');
+
+    const handleSaveToSheet = async () => {
+        const successItems = items.filter(i => i.status === 'success');
+        if (successItems.length === 0) {
+            alert('没有可保存的翻译结果');
+            return;
+        }
+
+        const config = getSheetsSyncConfig();
+        if (!config.webAppUrl || !config.submitter) {
+            alert('请先在设置中配置表格同步');
+            return;
+        }
+
+        setSheetSaveStatus('saving');
+        setSheetSaveError('');
+
+        try {
+            const time = new Date().toLocaleString('zh-CN');
+            const rows = successItems.map(item => [
+                time,
+                effectiveBatchLanguages.join(', '),
+                item.originalText || '',
+                item.translatedText || item.chineseText || ''
+            ]);
+
+            const result = await appendToSheet('translate', rows);
+
+            if (result.success) {
+                setSheetSaveStatus('success');
+                setTimeout(() => setSheetSaveStatus('idle'), 3000);
+            } else {
+                setSheetSaveStatus('error');
+                setSheetSaveError(result.error || '保存失败');
+            }
+        } catch (e) {
+            setSheetSaveStatus('error');
+            setSheetSaveError(e instanceof Error ? e.message : '保存失败');
+        }
+    };
+
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dropZoneRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -2426,6 +2474,18 @@ ${textToTranslate}
                                 {copyAllStatus ? `✓` : `📋`}
                             </button>
                         )}
+                        {items.some(i => i.status === 'success') && (
+                            <button
+                                className={`btn btn-secondary ${sheetSaveStatus === 'success' ? 'success-btn' : sheetSaveStatus === 'error' ? 'error-btn' : ''}`}
+                                onClick={handleSaveToSheet}
+                                disabled={sheetSaveStatus === 'saving'}
+                                title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                            >
+                                {sheetSaveStatus === 'saving' ? '...' :
+                                    sheetSaveStatus === 'success' ? '✓' :
+                                        '📊'}
+                            </button>
+                        )}
                         {items.length > 0 && (
                             <button className="text-btn" onClick={handleClear}>清空</button>
                         )}
@@ -2600,6 +2660,18 @@ ${textToTranslate}
                                             {copyAllStatus ? `✓ ${t('copyAllSuccess')}` : `📋 ${t('copyAll')}`}
                                         </button>
                                     )}
+                                    {items.some(i => i.status === 'success') && (
+                                        <button
+                                            className={`btn btn-secondary ${sheetSaveStatus === 'success' ? 'success-btn' : sheetSaveStatus === 'error' ? 'error-btn' : ''}`}
+                                            onClick={handleSaveToSheet}
+                                            disabled={sheetSaveStatus === 'saving'}
+                                            title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                                        >
+                                            {sheetSaveStatus === 'saving' ? '保存中...' :
+                                                sheetSaveStatus === 'success' ? '✓ 已保存' :
+                                                    '📊 保存表格'}
+                                        </button>
+                                    )}
                                     {items.length > 0 && (
                                         <button className="text-btn" onClick={handleClear}>{t('clearQueue')}</button>
                                     )}
@@ -2690,6 +2762,18 @@ ${textToTranslate}
                                                     </div>
                                                 )}
                                             </div>
+                                        )}
+                                        {items.some(i => i.status === 'success') && (
+                                            <button
+                                                className={`btn btn-secondary ${sheetSaveStatus === 'success' ? 'success-btn' : sheetSaveStatus === 'error' ? 'error-btn' : ''}`}
+                                                onClick={handleSaveToSheet}
+                                                disabled={sheetSaveStatus === 'saving'}
+                                                title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                                            >
+                                                {sheetSaveStatus === 'saving' ? '...' :
+                                                    sheetSaveStatus === 'success' ? '✓ 已存' :
+                                                        '📊 表格'}
+                                            </button>
                                         )}
                                         {items.length > 0 && (
                                             <button className="text-btn" onClick={handleClear}>{t('clearQueue')}</button>

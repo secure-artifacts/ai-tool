@@ -45,6 +45,10 @@ import {
 } from 'lucide-react';
 import { DirectChatView } from './DirectChatView';
 import { CopywritingView } from './CopywritingView';
+import {
+    appendToSheet,
+    getSheetsSyncConfig
+} from '@/services/sheetsSyncService';
 
 // --- Types ---
 
@@ -1109,6 +1113,56 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
         URL.revokeObjectURL(url);
     };
 
+    // 保存到表格状态
+    const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+    const [sheetSaveError, setSheetSaveError] = useState<string>('');
+
+    const handleSaveToSheet = async () => {
+        const successEntries = state.entries.filter(e => e.status === 'success' && e.outputs.length > 0);
+        if (successEntries.length === 0) {
+            alert('没有可保存的创新结果');
+            return;
+        }
+
+        const config = getSheetsSyncConfig();
+        if (!config.webAppUrl || !config.submitter) {
+            alert('请先在设置中配置表格同步');
+            return;
+        }
+
+        setSheetSaveStatus('saving');
+        setSheetSaveError('');
+
+        try {
+            const time = new Date().toLocaleString('zh-CN');
+            const rows: string[][] = [];
+
+            successEntries.forEach(entry => {
+                entry.outputs.forEach(output => {
+                    rows.push([
+                        time,
+                        state.activeTab === 'copywriting' ? '文案模式' : '创新模式',
+                        entry.source,
+                        output.en || output.zh || ''
+                    ]);
+                });
+            });
+
+            const result = await appendToSheet('prompt-tool', rows);
+
+            if (result.success) {
+                setSheetSaveStatus('success');
+                setTimeout(() => setSheetSaveStatus('idle'), 3000);
+            } else {
+                setSheetSaveStatus('error');
+                setSheetSaveError(result.error || '保存失败');
+            }
+        } catch (e) {
+            setSheetSaveStatus('error');
+            setSheetSaveError(e instanceof Error ? e.message : '保存失败');
+        }
+    };
+
     // --- Main Handlers ---
 
     const handleAddEntries = (mode: 'batch' | 'single' = 'batch') => {
@@ -1891,6 +1945,24 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             >
                                                 <Download size={12} />
                                                 导出全部
+                                            </button>
+
+                                            {/* 保存到表格按钮 */}
+                                            <button
+                                                disabled={!hasOutputs || sheetSaveStatus === 'saving'}
+                                                onClick={handleSaveToSheet}
+                                                className={`text-xs px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 border disabled:opacity-50 disabled:cursor-not-allowed tooltip-bottom ${sheetSaveStatus === 'success' ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50' :
+                                                        sheetSaveStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-500/30' :
+                                                            'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 border-blue-500/30'
+                                                    }`}
+                                                data-tip={sheetSaveStatus === 'success' ? '保存成功' : sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                                            >
+                                                {sheetSaveStatus === 'saving' ? <Loader2 size={12} className="animate-spin" /> :
+                                                    sheetSaveStatus === 'success' ? <Check size={12} /> :
+                                                        <FileText size={12} />}
+                                                {sheetSaveStatus === 'saving' ? '保存中...' :
+                                                    sheetSaveStatus === 'success' ? '已保存' :
+                                                        '保存表格'}
                                             </button>
                                         </div>
                                     </div>

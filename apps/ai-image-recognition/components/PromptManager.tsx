@@ -24,6 +24,7 @@ interface PromptManagerProps {
     unifiedPresets?: SimplePreset[];
     pureReplyMode?: boolean;
     setPureReplyMode?: (val: boolean) => void;
+    workMode?: 'standard' | 'creative'; // 工作模式：standard=标准, creative=创新
 }
 
 const PromptManager: React.FC<PromptManagerProps> = ({
@@ -35,7 +36,8 @@ const PromptManager: React.FC<PromptManagerProps> = ({
     templateState,
     unifiedPresets = [],
     pureReplyMode = false,
-    setPureReplyMode
+    setPureReplyMode,
+    workMode = 'standard'
 }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [newPresetName, setNewPresetName] = useState('');
@@ -344,8 +346,12 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                             </div>
                         </div>
                         <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-zinc-100 tracking-tight">识别指令</span>
-                            <span className="text-[10px] text-zinc-500 font-medium">AI Prompt</span>
+                            <span className={`text-sm font-semibold tracking-tight ${workMode === 'creative' ? 'text-purple-300' : 'text-zinc-100'}`}>
+                                {workMode === 'creative' ? '创新指令' : '识别指令'}
+                            </span>
+                            <span className="text-[10px] text-zinc-500 font-medium">
+                                {workMode === 'creative' ? 'Creative Prompt' : 'AI Prompt'}
+                            </span>
                         </div>
                     </div>
 

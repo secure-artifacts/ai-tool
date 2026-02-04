@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { sendPasswordReset } from '@/services/authService';
 import SheetsAuthConfig from './SheetsAuthConfig';
+import './LoginModal.css';
 import { BarChart3, RefreshCw, LogOut, AlertTriangle, Lightbulb, X, Check, Circle } from 'lucide-react';
 
 interface LoginModalProps {
@@ -271,8 +272,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, languag
                             </div>
                         )}
 
-                        {/* Google 登录按钮 - 只在非嵌入式/非Electron环境显示 */}
-                        {!hideGoogleLogin && mode === 'login' && (
+                        {/* Google 登录按钮 - 在登录和注册模式下都显示（Google登录会自动完成注册） */}
+                        {!hideGoogleLogin && (mode === 'login' || mode === 'register') && (
                             <>
                                 {/* 普通登录（只读） */}
                                 <button

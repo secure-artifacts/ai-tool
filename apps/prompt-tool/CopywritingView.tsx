@@ -45,6 +45,10 @@ import {
     Lightbulb
 } from 'lucide-react';
 import { PresetManager, CopywritingPreset as PresetType } from './PresetManager';
+import {
+    appendToSheet,
+    getSheetsSyncConfig
+} from '@/services/sheetsSyncService';
 
 // --- Types ---
 
@@ -418,6 +422,54 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
     const [showDiff, setShowDiff] = useState(false); // 显示差异高亮
     const [batchSize, setBatchSize] = useState(1); // 批次处理大小（1-2000，默认1）
     const [showBatchSettings, setShowBatchSettings] = useState(false); // 显示批次设置
+
+    // 保存到表格状态
+    const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+    const [sheetSaveError, setSheetSaveError] = useState<string>('');
+
+    const handleSaveToSheet = async () => {
+        const successItems = items.filter(i => i.status === 'success');
+        if (successItems.length === 0) {
+            showCopyToast('没有可保存的改写结果');
+            return;
+        }
+
+        const config = getSheetsSyncConfig();
+        if (!config.webAppUrl || !config.submitter) {
+            showCopyToast('请先在设置中配置表格同步');
+            return;
+        }
+
+        setSheetSaveStatus('saving');
+        setSheetSaveError('');
+
+        try {
+            const time = new Date().toLocaleString('zh-CN');
+            const rows = successItems.map(item => [
+                time,
+                mode === 'voice' ? '人声模式' : mode === 'classify' ? '分类模式' : '标准模式',
+                item.originalForeign,
+                item.resultForeign || '',
+                item.resultChinese || ''
+            ]);
+
+            const result = await appendToSheet('copywriting', rows);
+
+            if (result.success) {
+                setSheetSaveStatus('success');
+                showCopyToast(`已保存 ${rows.length} 条改写结果`);
+                setTimeout(() => setSheetSaveStatus('idle'), 3000);
+            } else {
+                setSheetSaveStatus('error');
+                setSheetSaveError(result.error || '保存失败');
+                showCopyToast('保存失败: ' + (result.error || '未知错误'));
+            }
+        } catch (e) {
+            setSheetSaveStatus('error');
+            setSheetSaveError(e instanceof Error ? e.message : '保存失败');
+            showCopyToast('保存失败');
+        }
+    };
 
     const stopRef = useRef(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -2051,7 +2103,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 onClick={handleSavePreset}
                                 disabled={presetLoading || !instructions.some(i => i.trim())}
                                 className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded transition-colors text-amber-500 hover:text-amber-400 hover:bg-amber-900/20 disabled:opacity-50 tooltip-bottom"
-                                 data-tip="保存当前指令为预设"
+                                data-tip="保存当前指令为预设"
                             >
                                 <Save size={10} /> 保存
                             </button>
@@ -2059,7 +2111,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                             <button
                                 onClick={() => setShowPresetManager(true)}
                                 className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded transition-colors text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 tooltip-bottom"
-                                 data-tip="管理预设"
+                                data-tip="管理预设"
                             >
                                 <FolderOpen size={10} /> 管理
                             </button>
@@ -2370,6 +2422,24 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 <Download size={12} />
                                 导出 TSV
                             </button>
+
+                            {/* 保存到表格按钮 */}
+                            <button
+                                onClick={handleSaveToSheet}
+                                disabled={sheetSaveStatus === 'saving'}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors border ${sheetSaveStatus === 'success' ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50' :
+                                        sheetSaveStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-500/30' :
+                                            'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border-blue-600/30'
+                                    }`}
+                                title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                            >
+                                {sheetSaveStatus === 'saving' ? <Loader2 size={12} className="animate-spin" /> :
+                                    sheetSaveStatus === 'success' ? <Check size={12} /> :
+                                        <FileText size={12} />}
+                                {sheetSaveStatus === 'saving' ? '保存中...' :
+                                    sheetSaveStatus === 'success' ? '已保存' :
+                                        '保存表格'}
+                            </button>
                         </div>
                     )}
 
@@ -2540,7 +2610,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                         <button
                                                                             onClick={(e) => { e.stopPropagation(); handleRetryInstruction(item.id, idx); }}
                                                                             className="p-1 text-amber-400 hover:bg-amber-900/20 rounded transition-colors tooltip-bottom"
-                                                                             data-tip="重试该指令"
+                                                                            data-tip="重试该指令"
                                                                         >
                                                                             <RotateCw size={12} />
                                                                         </button>
@@ -2728,7 +2798,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             <button
                                                 onClick={() => handleProcessSingleItem(item)}
                                                 className="p-1.5 text-purple-400 hover:bg-purple-900/20 rounded transition-colors tooltip-bottom"
-                                                 data-tip="单条处理"
+                                                data-tip="单条处理"
                                             >
                                                 <Play size={14} />
                                             </button>
@@ -2738,7 +2808,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         <button
                                             onClick={() => handleDeleteItem(item.id)}
                                             className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors tooltip-bottom"
-                                             data-tip="删除"
+                                            data-tip="删除"
                                         >
                                             <X size={14} />
                                         </button>

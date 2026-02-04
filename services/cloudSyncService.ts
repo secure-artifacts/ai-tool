@@ -184,6 +184,28 @@ const getSyncDocRef = (email: string) => {
 // ============= 核心同步逻辑 =============
 
 /**
+ * 递归移除对象中的 undefined 值（Firestore 不支持 undefined）
+ */
+const removeUndefined = (obj: unknown): unknown => {
+    if (obj === null || obj === undefined) {
+        return null;
+    }
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefined).filter(item => item !== undefined);
+    }
+    if (typeof obj === 'object') {
+        const result: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+            if (value !== undefined) {
+                result[key] = removeUndefined(value);
+            }
+        }
+        return result;
+    }
+    return obj;
+};
+
+/**
  * 推送数据到云端
  * 如果文档太大，会自动裁剪数据并重试
  */
@@ -349,11 +371,14 @@ export const pushToCloud = async (email: string, data: Partial<SyncData>): Promi
     // console.log(`[CloudSync] 最终数据大小: ${(finalSize / 1024).toFixed(0)}KB`);
 
     try {
-        await setDoc(docRef, {
+        // 清理所有 undefined 值再写入 Firestore
+        const cleanedData = removeUndefined({
             ...finalSyncData,
             email: normalizeEmail(email),
             updatedAt: serverTimestamp()
-        }, { merge: true });
+        }) as Record<string, unknown>;
+
+        await setDoc(docRef, cleanedData, { merge: true });
 
         const imagesArr = finalSyncData.images as unknown[] | undefined;
         const projectsArr = finalSyncData.projects as unknown[] | undefined;

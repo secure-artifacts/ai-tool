@@ -8,9 +8,10 @@ interface DropZoneProps {
     onHtmlPasted?: (urls: { originalUrl: string; fetchUrl: string }[]) => void;
     extraContent?: React.ReactNode;
     compact?: boolean;
+    hideOverlay?: boolean; // 隐藏全局拖拽覆盖层（创新模式下使用卡片级拖拽）
 }
 
-const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtmlPasted, extraContent, compact }) => {
+const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtmlPasted, extraContent, compact, hideOverlay }) => {
     const [showLinkModal, setShowLinkModal] = useState(false);
     const [textInput, setTextInput] = useState('');
     const [isDragging, setIsDragging] = useState(false);
@@ -151,7 +152,7 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
             </div>
 
             {/* 全屏拖拽覆盖层 */}
-            {isDragging && (
+            {isDragging && !hideOverlay && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center pointer-events-none">
                     <div className="border-4 border-dashed border-emerald-500 rounded-3xl p-16 bg-emerald-500/10">
                         <div className="flex flex-col items-center gap-4">

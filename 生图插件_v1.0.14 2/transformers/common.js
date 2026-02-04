@@ -1,1 +1,0 @@
-(function(){"use strict";Object.defineProperty(document,"hidden",{get(){return!1}}),Object.defineProperty(document,"visibilityState",{get(){return"visible"}}),document.addEventListener("visibilitychange",()=>{document.hidden?console.log("页面进入后台，记录当前进度"):console.log("页面回到前台，恢复执行")})})();

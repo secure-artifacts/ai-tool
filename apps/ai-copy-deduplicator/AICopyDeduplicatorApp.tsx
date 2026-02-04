@@ -45,6 +45,10 @@ import {
     clearLibrary,
     getLibraryStats,
 } from './services/libraryService';
+import {
+    appendToSheet,
+    getSheetsSyncConfig
+} from '@/services/sheetsSyncService';
 
 /**
  * 高亮显示两段文本中完全相同的短句
@@ -426,6 +430,57 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
         updateState({ library: [] });
     };
 
+    // 保存到表格状态
+    const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+    const [sheetSaveError, setSheetSaveError] = useState<string>('');
+
+    const handleSaveToSheet = async () => {
+        if (!state.result) {
+            showToast('没有可保存的结果');
+            return;
+        }
+
+        const config = getSheetsSyncConfig();
+        if (!config.webAppUrl || !config.submitter) {
+            showToast('请先在设置中配置表格同步');
+            return;
+        }
+
+        setSheetSaveStatus('saving');
+        setSheetSaveError('');
+
+        try {
+            const time = new Date().toLocaleString('zh-CN');
+            const rows: string[][] = [];
+
+            state.result.similarGroups.forEach(group => {
+                // 只保存代表文案（去重后的）
+                rows.push([
+                    time,
+                    group.representative.originalText,
+                    group.representative.chineseText || '',
+                    group.similarItems.length > 0 ? `${group.similarItems.length}条重复` : '独特'
+                ]);
+            });
+
+            const result = await appendToSheet('deduplicator', rows);
+
+            if (result.success) {
+                setSheetSaveStatus('success');
+                showToast(`已保存 ${rows.length} 条去重结果`);
+                setTimeout(() => setSheetSaveStatus('idle'), 3000);
+            } else {
+                setSheetSaveStatus('error');
+                setSheetSaveError(result.error || '保存失败');
+                showToast('保存失败: ' + (result.error || '未知错误'));
+            }
+        } catch (e) {
+            setSheetSaveStatus('error');
+            setSheetSaveError(e instanceof Error ? e.message : '保存失败');
+            showToast('保存失败');
+        }
+    };
+
     const libraryStats = getLibraryStats(state.library);
 
     return (
@@ -621,6 +676,20 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                             </button>
                             <button className="copy-dedup-btn success compact" onClick={saveToLibrary}>
                                 <Database size={12} /> 保存到库
+                            </button>
+                            <button
+                                className={`copy-dedup-btn compact ${sheetSaveStatus === 'success' ? 'success' : sheetSaveStatus === 'error' ? 'danger' : 'secondary'}`}
+                                onClick={handleSaveToSheet}
+                                disabled={sheetSaveStatus === 'saving'}
+                                title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                            >
+                                {sheetSaveStatus === 'saving' ? (
+                                    <><Loader2 size={12} className="spinning" /> 保存中...</>
+                                ) : sheetSaveStatus === 'success' ? (
+                                    <><CheckCircle size={12} /> 已保存</>
+                                ) : (
+                                    <><FileText size={12} /> 保存表格</>
+                                )}
                             </button>
                         </div>
                     </div>

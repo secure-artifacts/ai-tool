@@ -1,3 +1,47 @@
+// 工作模式：standard=标准识别模式, creative=创新模式
+export type WorkMode = 'standard' | 'creative';
+
+// 创新模式结果 - 每张图片的创新结果
+export interface CreativeResult {
+    imageId: string;
+    originalDesc: string; // 原始描述词
+    originalDescZh?: string; // 原始中文描述
+    innovations: Array<{
+        id: string;
+        textEn: string; // 创新词（英文）
+        textZh: string; // 创新词（中文）
+    }>;
+    status: 'idle' | 'processing' | 'success' | 'error';
+    error?: string;
+}
+
+// 创新融合角色类型
+export type CreativeFusionRole = 'style' | 'composition' | 'subject' | 'lighting' | 'inspiration';
+
+// 创新融合项 - 用于灵感融合创新
+export interface CreativeFusionItem {
+    imageId: string;
+    role: CreativeFusionRole;
+}
+
+// 创新融合结果
+export interface CreativeFusionResult {
+    innovations: Array<{
+        id: string;
+        textEn: string;
+        textZh: string;
+    }>;
+    status: 'idle' | 'processing' | 'success' | 'error';
+    error?: string;
+}
+
+// 融合组 - 支持多组批量融合
+export interface FusionGroup {
+    id: string;
+    items: CreativeFusionItem[]; // 组内的图片项
+    result?: CreativeFusionResult; // 该组的融合结果
+}
+
 export interface ChatMessage {
     id: string;
     role: 'user' | 'model';
@@ -15,6 +59,14 @@ export interface InnovationItem {
     chatInput: string; // 当前输入
     chatAttachments: string[]; // 待发送的图片附件
     isChatLoading: boolean; // 是否正在加载
+}
+
+// 融合子图 - 卡片内的额外融合图片
+export interface FusionSubImage {
+    id: string;
+    imageUrl: string; // 显示用的URL（blob或远程）
+    base64Data?: string; // API处理用的base64
+    role: CreativeFusionRole; // 融合角色
 }
 
 export interface ImageItem {
@@ -55,6 +107,8 @@ export interface ImageItem {
     translatedResult?: string; // 缓存的翻译结果
     lastSelectedText?: string; // 上次选中的文本
     lastTranslatedSelection?: string; // 上次选中翻译的结果
+    // 多图融合：卡片内的额外融合图片
+    fusionImages?: FusionSubImage[]; // 融合子图列表
 }
 
 export interface Preset {
@@ -65,7 +119,26 @@ export interface Preset {
 
 export type ProcessingMode = 'sequential' | 'parallel';
 
+// 单个标签页的数据
+export interface RecognitionTab {
+    id: string;
+    name: string;
+    images: ImageItem[];
+    prompt: string;
+    innovationInstruction?: string;
+    globalInnovationTemplateId?: string;
+    globalInnovationCount?: number;
+    globalInnovationRounds?: number;
+    isProcessing: boolean;
+    isQueued?: boolean; // 是否在等待队列中
+    createdAt: number;
+}
+
 export interface ImageRecognitionState {
+    // 多标签页支持
+    tabs: RecognitionTab[];
+    activeTabId: string;
+    // 兼容旧版本 - 这些字段将映射到当前活动标签页
     images: ImageItem[];
     prompt: string;
     presets: Preset[];
@@ -78,6 +151,13 @@ export interface ImageRecognitionState {
     viewMode: 'grid' | 'list' | 'compact';
     autoUploadGyazo: boolean; // 是否自动上传到 Gyazo
     pureReplyMode?: boolean; // 纯净回复模式 - AI 回复只包含描述词，无多余内容
+    // 创新模式相关
+    workMode?: WorkMode; // 工作模式：standard=标准模式, creative=创新模式
+    creativeCount?: number; // 创新模式：每张图生成多少个创新变体
+    creativeResults?: CreativeResult[]; // 创新模式：所有图片的创新结果
+    creativeInstruction?: string; // 创新模式：自定义创新指令
+    needOriginalDesc?: boolean; // 创新模式：是否需要先获取原始描述词（开启则两步流程，关闭则直接创新）
+    originalDescPresetId?: string; // 创新模式：用于获取原始描述的预设ID（默认使用 ai提示词-1）
 }
 
 // 默认预设 - 用于首次加载或 localStorage 为空时
@@ -142,7 +222,27 @@ export const savePresetsToStorage = (presets: Preset[]): void => {
     }
 };
 
+// 创建默认标签页的工厂函数
+export const createDefaultTab = (name: string = '标签页 1'): RecognitionTab => ({
+    id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    name,
+    images: [],
+    prompt: '',
+    innovationInstruction: '',
+    globalInnovationTemplateId: '__system_default__',
+    globalInnovationCount: 3,
+    globalInnovationRounds: 1,
+    isProcessing: false,
+    createdAt: Date.now(),
+});
+
+const defaultTab = createDefaultTab();
+
 export const initialImageRecognitionState: ImageRecognitionState = {
+    // 多标签页
+    tabs: [defaultTab],
+    activeTabId: defaultTab.id,
+    // 兼容旧版本
     images: [],
     prompt: '',
     presets: loadPresetsFromStorage(),  // 从 localStorage 加载预设
@@ -155,4 +255,10 @@ export const initialImageRecognitionState: ImageRecognitionState = {
     viewMode: 'list',
     autoUploadGyazo: true, // 默认开启
     pureReplyMode: false, // 纯净回复模式默认关闭
+    // 创新模式相关
+    workMode: 'standard', // 默认标准模式
+    creativeCount: 4, // 默认每张图生成4个创新变体
+    creativeResults: [],
+    creativeInstruction: '',
 };
+

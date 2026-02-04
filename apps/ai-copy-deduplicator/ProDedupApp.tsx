@@ -10,8 +10,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
     Zap, Database, Download, Copy, Trash2, Search, Settings, X, Check, Link,
-    Cloud, CloudOff, Loader2, FolderPlus, Edit2, Plus
+    Cloud, CloudOff, Loader2, FolderPlus, Edit2, Plus, FileCode
 } from 'lucide-react';
+import { appendToSheet, getSheetsSyncConfig } from '@/services/sheetsSyncService';
 import { dedupEngine, TextItem, DedupResult, DuplicateGroup } from './services/minHashEngine';
 import { parseInputText } from './services/similarityService';
 import {
@@ -961,6 +962,61 @@ export function ProDedupApp() {
     // 添加到分类
     const [isAddingToCategory, setIsAddingToCategory] = useState(false);
 
+    // 保存到表格状态
+    const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+    const [sheetSaveError, setSheetSaveError] = useState('');
+
+    // 保存到表格函数
+    const handleSaveToSheet = async () => {
+        if (!state.result || sheetSaveStatus === 'saving') return;
+
+        const config = getSheetsSyncConfig();
+        if (!config.webAppUrl) {
+            showToast('请先在设置中配置表格同步');
+            return;
+        }
+
+        setSheetSaveStatus('saving');
+        setSheetSaveError('');
+
+        try {
+            const now = new Date().toLocaleString('zh-CN');
+            const rows: (string | number)[][] = [];
+
+            // 添加独特文案
+            state.result.uniqueItems.forEach(item => {
+                rows.push([now, item.text, item.chineseText || '', '独特']);
+            });
+
+            // 添加相似组的代表
+            state.result.duplicateGroups.forEach(group => {
+                rows.push([now, group.representative.text, group.representative.chineseText || '', `${group.duplicates.length + 1}条相似`]);
+            });
+
+            if (rows.length === 0) {
+                showToast('没有可保存的数据');
+                setSheetSaveStatus('idle');
+                return;
+            }
+
+            const result = await appendToSheet('deduplicator', rows, config);
+
+            if (result.success) {
+                setSheetSaveStatus('success');
+                showToast(`已保存 ${rows.length} 条到表格`);
+                setTimeout(() => setSheetSaveStatus('idle'), 3000);
+            } else {
+                setSheetSaveStatus('error');
+                setSheetSaveError(result.error || '保存失败');
+                showToast(`保存失败: ${result.error}`);
+            }
+        } catch (e) {
+            setSheetSaveStatus('error');
+            setSheetSaveError(e instanceof Error ? e.message : '未知错误');
+            showToast(`保存失败: ${e instanceof Error ? e.message : '未知错误'}`);
+        }
+    };
+
     const addToCategory = async (category: string) => {
         if (!state.result || isAddingToCategory) return;
 
@@ -1577,6 +1633,15 @@ export function ProDedupApp() {
                                 </button>
                                 <button className="toolbar-btn" onClick={exportUniqueOnly}>
                                     <Copy size={12} /> 只复制独特
+                                </button>
+                                <button
+                                    className={`toolbar-btn ${sheetSaveStatus === 'success' ? 'success' : sheetSaveStatus === 'error' ? 'danger' : ''}`}
+                                    onClick={handleSaveToSheet}
+                                    disabled={sheetSaveStatus === 'saving'}
+                                    title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
+                                >
+                                    {sheetSaveStatus === 'saving' ? <Loader2 size={12} className="spinning" /> : <FileCode size={12} />}
+                                    {sheetSaveStatus === 'saving' ? '...' : sheetSaveStatus === 'success' ? '✓' : '表格'}
                                 </button>
 
                                 {state.isSheetConnected && state.categories.length > 0 ? (
