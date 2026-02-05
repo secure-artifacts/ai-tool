@@ -23,13 +23,18 @@ import DropZone from './components/DropZone';
 import PromptManager from './components/PromptManager';
 import ResultsGrid from './components/ResultsGrid';
 import CompactToolbar from './CompactToolbar';
-import { Play, Pause, Square, ClipboardCopy, Trash2, Settings, Settings2, Zap, LayoutGrid, List, Rows3, Check, X, RotateCw, RotateCcw, RefreshCcw, AlertCircle, CheckCircle2, ImagePlus, Upload, Loader2, Link, FileCode, MessageCircle, Send, Copy, ChevronDown, ChevronUp, Sparkles, Download, ArrowLeftRight, Share2, FileText, Eye, EyeOff, ListPlus, Plus, Info, Bell, Languages } from 'lucide-react';
+import { Play, Pause, Square, ClipboardCopy, Trash2, Settings, Settings2, Zap, LayoutGrid, List, Rows3, Check, X, RotateCw, RotateCcw, RefreshCcw, AlertCircle, CheckCircle2, ImagePlus, Upload, Loader2, Link, FileCode, MessageCircle, Send, Copy, ChevronDown, ChevronUp, Sparkles, Download, ArrowLeftRight, Share2, FileText, Eye, EyeOff, ListPlus, Plus, Info, Bell, Languages, HelpCircle } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { RandomLibraryManager } from './components/RandomLibraryManager';
 import TabBar from './components/TabBar';
 import {
     RandomLibraryConfig,
     DEFAULT_RANDOM_LIBRARY_CONFIG,
+    DEFAULT_QUICK_INNOVATION_PRESETS,
+    DEFAULT_TRANSITION_INSTRUCTION,
+    USER_REQUIREMENT_TRANSITION,
+    FIXED_PRIORITY_INSTRUCTION,
+    getPriorityInstruction,
     generateRandomCombination,
     generateMultipleUniqueCombinations,
     generateCartesianCombinations,
@@ -37,6 +42,7 @@ import {
     saveRandomLibraryConfig,
     loadRandomLibraryConfig,
 } from './services/randomLibraryService';
+import { QuickInnovationPanel } from './components/quick-innovation/QuickInnovationPanel';
 
 // 提示词创新相关类型
 interface DescEntry {
@@ -260,6 +266,8 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const { user } = useAuth();
     const [isBulkInnovating, setIsBulkInnovating] = useState(false);
     const [showGlobalInnovationSettings, setShowGlobalInnovationSettings] = useState(false); // 全局创新设置弹框
+    const [showRulesModal, setShowRulesModal] = useState(false); // 规则说明弹窗
+    const [showPresetEditor, setShowPresetEditor] = useState<'standard' | 'withRandomLib' | null>(null); // 预设编辑弹窗
     const [showCreativeSettings, setShowCreativeSettings] = useState(false); // 创新模式设置弹框
     const [imageModel, setImageModel] = useState(() => {
         if (typeof window !== 'undefined') {
@@ -302,6 +310,9 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     // 获取当前活动的标签页
     const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
+    // 用于标签页切换时临时存储待恢复的随机库配置
+    const pendingRandomLibraryConfigRef = useRef<import('./services/randomLibraryService').RandomLibraryConfig | null>(null);
+
     // 切换标签页
     const handleTabChange = useCallback((tabId: string) => {
         const targetTab = tabs.find(t => t.id === tabId);
@@ -321,8 +332,13 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     globalInnovationCount: prev.globalInnovationCount,
                     globalInnovationRounds: prev.globalInnovationRounds,
                     isProcessing: prev.isProcessing,
+                    randomLibraryConfig: randomLibraryConfigRef.current, // 保存当前标签页的随机库配置
                 };
             }
+
+            // 保存目标标签页的配置到 ref（稍后恢复）
+            pendingRandomLibraryConfigRef.current = targetTab.randomLibraryConfig || DEFAULT_RANDOM_LIBRARY_CONFIG;
+
             // 加载目标标签页的状态
             return {
                 ...prev,
@@ -437,6 +453,15 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     // 随机库配置状态
     const [randomLibraryConfig, setRandomLibraryConfig] = useState<RandomLibraryConfig>(DEFAULT_RANDOM_LIBRARY_CONFIG);
     const randomLibraryConfigRef = useRef<RandomLibraryConfig>(DEFAULT_RANDOM_LIBRARY_CONFIG);
+
+    // 处理切换标签页时恢复随机库配置
+    useEffect(() => {
+        if (pendingRandomLibraryConfigRef.current !== null) {
+            setRandomLibraryConfig(pendingRandomLibraryConfigRef.current);
+            randomLibraryConfigRef.current = pendingRandomLibraryConfigRef.current;
+            pendingRandomLibraryConfigRef.current = null;
+        }
+    }, [activeTabId]); // 当活动标签页改变时触发
 
 
     // 无图创新模式
@@ -1237,6 +1262,11 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 return;
             }
 
+            // 如果焦点在弹窗/对话框内，不处理（避免干扰高级设置等弹窗的粘贴操作）
+            if (activeElement && activeElement.closest('[role="dialog"], .modal, [data-modal], .fixed.inset-0')) {
+                return;
+            }
+
             handleNoImagePaste(e);
         };
 
@@ -1250,6 +1280,36 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         if (cardsToProcess.length === 0) {
             showToast('请至少输入一个主题');
             return;
+        }
+
+        // 获取基础指令：快捷模式下优先使用配套指令，否则使用默认预设
+        const userInput = prompt.trim(); // 用户输入的内容
+        let baseInstruction: string;
+        if (workMode === 'quick') {
+            const config = randomLibraryConfigRef.current;
+            const activeSheet = config.activeSourceSheet || '';
+            const linkedInstruction = config.linkedInstructions?.[activeSheet];
+            if (linkedInstruction && linkedInstruction.trim()) {
+                baseInstruction = linkedInstruction.trim();
+                console.log('[无图快捷模式] 使用配套创新指令:', { activeSheet });
+            } else {
+                // 没有配套指令时，根据随机库是否启用来自动判断使用哪个预设
+                const isRandomLibEnabled = config.enabled &&
+                    config.libraries.some(lib => lib.enabled && lib.values.length > 0);
+                const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
+                const presets = DEFAULT_QUICK_INNOVATION_PRESETS;
+                baseInstruction = presets[presetType] || DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                console.log('[无图快捷模式] 使用默认预设:', { presetType, isRandomLibEnabled });
+            }
+        } else {
+            baseInstruction = prompt || DEFAULT_CREATIVE_INSTRUCTION;
+        }
+
+        // 构建有效指令（基础指令 + 用户输入）
+        let effectivePrompt = baseInstruction;
+        if (userInput && workMode === 'quick') {
+            // 快捷模式下，如果用户有输入，添加为特别要求
+            effectivePrompt = `${baseInstruction}\n\n${USER_REQUIREMENT_TRANSITION}\n${userInput}`;
         }
 
         setIsGeneratingNoImage(true);
@@ -1282,18 +1342,21 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                         combinations.push(...uniqueCombos);
                     }
 
-                    const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                        '请根据以下创意组合，生成一个完整、专业的AI图像生成描述词（英文）。';
+                    const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
+                    const hasUserInput = !!(userInput && workMode === 'quick');
 
                     for (let i = 0; i < combinations.length; i++) {
                         const combination = combinations[i];
-                        const aiPrompt = `${prompt}
+                        const priorityInstruction = getPriorityInstruction(hasUserInput, true);
+                        // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
+                        const aiPrompt = `${effectivePrompt}
 
 ${transitionInstruction}
+${combination}
+
+${priorityInstruction}
 
 基础主题：${card.topic}
-
-创意组合：${combination}
 
 【输出要求】
 - 直接输出完整的图像生成描述词（英文）
@@ -1311,10 +1374,15 @@ ${transitionInstruction}
                         ));
                     }
                 } else {
-                    // 纯主题模式：按创新个数生成多个变体
+                    // 纯主题模式：按创新个数生成多个变体（有用户要求，无随机库）
                     const count = creativeCount || 5;
+                    const hasUserInput = !!(userInput && workMode === 'quick');
+                    const priorityInstruction = getPriorityInstruction(hasUserInput, false);
+
                     for (let i = 0; i < count; i++) {
-                        const aiPrompt = `${prompt}
+                        const aiPrompt = `${effectivePrompt}
+
+${priorityInstruction}
 
 请根据以下主题，生成一个完整、专业、有创意的AI图像生成描述词（英文）：
 
@@ -1378,8 +1446,7 @@ ${transitionInstruction}
                     combinations.push(...uniqueCombos);
                 }
 
-                const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                    '请根据以下创意组合，生成一个完整、专业的AI图像生成描述词（英文）。';
+                const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
 
                 for (const combination of combinations) {
                     const prompt = `${innovationInstruction}
@@ -1456,8 +1523,7 @@ ${transitionInstruction}
             let retryPrompt = '';
             if (useRandomLibrary) {
                 const combination = generateRandomCombination(randomLibraryConfigRef.current);
-                const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                    '请根据以下创意组合，生成一个完整、专业的AI图像生成描述词（英文）。';
+                const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
 
                 retryPrompt = `${prompt}
 
@@ -1526,8 +1592,7 @@ ${transitionInstruction}
                 let appendPrompt = '';
                 if (useRandomLibrary) {
                     const combination = generateRandomCombination(randomLibraryConfigRef.current);
-                    const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                        '请根据以下创意组合，生成一个完整、专业的AI图像生成描述词（英文）。';
+                    const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
 
                     appendPrompt = `${prompt}
 
@@ -2192,7 +2257,7 @@ ${transitionInstruction}
         if (!item) return;
 
         // 创新模式下：重新运行创新流程（仅处理这张图片）
-        if (workMode === 'creative') {
+        if (workMode === 'creative' || workMode === 'quick') {
             // 调用创新流程，传入要重新处理的图片ID
             runCreativeAnalysis([id]);
             return;
@@ -3563,7 +3628,7 @@ ${text}`;
     const DEFAULT_CREATIVE_INSTRUCTION = `请基于原始描述生成创新变体，保持核心主题但引入创意变化`;
 
     // 切换工作模式
-    const setWorkMode = useCallback((mode: 'standard' | 'creative') => {
+    const setWorkMode = useCallback((mode: 'standard' | 'creative' | 'quick') => {
         setState(prev => ({ ...prev, workMode: mode }));
     }, [setState]);
 
@@ -3608,8 +3673,40 @@ ${text}`;
             return;
         }
 
-        // 使用输入框的内容作为创新指令
-        const effectiveInstruction = prompt.trim() || DEFAULT_CREATIVE_INSTRUCTION;
+        // 使用输入框的内容作为用户输入（用户特别要求）
+        // 基础指令单独获取，不与用户输入混淆
+        const userInput = prompt.trim(); // 用户在输入框中输入的内容（可选）
+
+        // 获取基础指令
+        let baseInstruction: string;
+        if (workMode === 'quick') {
+            const config = randomLibraryConfigRef.current;
+            const activeSheet = config.activeSourceSheet || '';
+            const linkedInstruction = config.linkedInstructions?.[activeSheet];
+            if (linkedInstruction && linkedInstruction.trim()) {
+                // 优先使用从表格导入的配套指令
+                baseInstruction = linkedInstruction.trim();
+                console.log('[快捷模式] 使用配套创新指令:', { activeSheet, instruction: baseInstruction.substring(0, 50) + '...' });
+            } else {
+                // 没有配套指令时，根据随机库是否启用来自动判断使用哪个预设
+                const isRandomLibEnabled = config.enabled &&
+                    config.libraries.some(lib => lib.enabled && lib.values.length > 0);
+                const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
+                const presets = DEFAULT_QUICK_INNOVATION_PRESETS;
+                baseInstruction = presets[presetType] || DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                console.log('[快捷模式] 使用默认预设:', { presetType, isRandomLibEnabled, instruction: baseInstruction.substring(0, 50) + '...' });
+            }
+        } else {
+            // 创新模式下，基础指令就是默认创新指令
+            baseInstruction = DEFAULT_CREATIVE_INSTRUCTION;
+        }
+
+        // 构建最终有效指令（基础指令 + 用户输入）
+        let effectiveInstruction = baseInstruction;
+        if (userInput) {
+            // 用户有特别要求时，添加到基础指令之后
+            effectiveInstruction = `${baseInstruction}\n\n${USER_REQUIREMENT_TRANSITION}\n${userInput}`;
+        }
         const count = creativeCount || 4;
 
         // 检查是否启用了高级创新模式（随机库）
@@ -3697,15 +3794,12 @@ ${text}`;
                     const results: string[] = [];
 
                     for (const randomCombination of combinations) {
-                        const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                            '请根据下面的细节创新项目修改创新描述词，如果和创新指令有冲突，则按照下面具体的项目细节进行创新。';
+                        const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
+                        const priorityInstruction = getPriorityInstruction(!!userInput, true);
 
                         let finalInstruction: string;
-                        if (randomLibraryConfigRef.current.insertPosition === 'before') {
-                            finalInstruction = `${randomCombination}\n\n${transitionInstruction}\n\n${effectiveInstruction}`;
-                        } else {
-                            finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n\n${randomCombination}`;
-                        }
+                        // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
+                        finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
 
                         const singlePrompt = `
 ${finalInstruction}
@@ -3948,16 +4042,12 @@ ${effectiveInstruction}
                         const results: string[] = [];
 
                         for (const randomCombination of combinations) {
-                            const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                                '请根据下面的细节创新项目修改创新描述词，如果和创新指令有冲突，则按照下面具体的项目细节进行创新。';
+                            const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
+                            const priorityInstruction = getPriorityInstruction(!!userInput, true);
 
-                            // 组合最终指令：创新指令 + 过渡指令 + 随机组合
+                            // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
                             let finalInstruction: string;
-                            if (randomLibraryConfigRef.current.insertPosition === 'before') {
-                                finalInstruction = `${randomCombination}\n\n${transitionInstruction}\n\n${effectiveInstruction}`;
-                            } else {
-                                finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n\n${randomCombination}`;
-                            }
+                            finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
 
                             const singlePrompt = `
 ${finalInstruction}
@@ -4060,19 +4150,13 @@ ${effectiveInstruction}
                         const results: string[] = [];
 
                         for (const randomCombination of combinations) {
-                            // 获取过渡指令
-                            const transitionInstruction = randomLibraryConfigRef.current.transitionInstruction ||
-                                '请根据下面的细节创新项目修改创新描述词，如果和创新指令有冲突，则按照下面具体的项目细节进行创新。忽略上面创新指令的要求。';
+                            // 获取过渡指令和动态优先级
+                            const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
+                            const priorityInstruction = getPriorityInstruction(!!userInput, true);
 
-                            // 组合最终指令：创新指令 + 过渡指令 + 随机组合
+                            // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
                             let finalInstruction: string;
-                            if (randomLibraryConfigRef.current.insertPosition === 'before') {
-                                // 随机组合在前
-                                finalInstruction = `${randomCombination}\n\n${transitionInstruction}\n\n${effectiveInstruction}`;
-                            } else {
-                                // 随机组合在后（默认）
-                                finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n\n${randomCombination}`;
-                            }
+                            finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
 
                             const singlePrompt = `${finalInstruction}
 
@@ -4319,7 +4403,7 @@ ${effectiveInstruction}
                 onClick={(e) => {
                     // 点击任意非输入区域时，聚焦隐藏的 textarea 以接收粘贴事件
                     const target = e.target as HTMLElement;
-                    if (workMode === 'creative' && selectedCardId && !target.closest('[data-image-card]')) {
+                    if ((workMode === 'creative' || workMode === 'quick') && selectedCardId && !target.closest('[data-image-card]')) {
                         setSelectedCardId(null);
                     }
                     if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !target.isContentEditable) {
@@ -4415,7 +4499,7 @@ ${effectiveInstruction}
                                             onFilesDropped={handleFiles}
                                             onTextPasted={handleTextPaste}
                                             onHtmlPasted={handleHtmlPaste}
-                                            hideOverlay={workMode === 'creative'}
+                                            hideOverlay={workMode === 'creative' || workMode === 'quick'}
                                             extraContent={
                                                 showClearConfirm ? (
                                                     <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 h-[34px]">
@@ -4462,6 +4546,15 @@ ${effectiveInstruction}
                                         >
                                             <Sparkles size={12} fill={workMode === 'creative' ? 'currentColor' : 'none'} />
                                             创新
+                                        </button>
+                                        <button
+                                            onClick={() => setWorkMode('quick')}
+                                            className={`h-full flex items-center gap-1 px-2.5 rounded-md transition-all text-xs font-medium ${workMode === 'quick'
+                                                ? 'bg-orange-600/20 text-orange-400 shadow-sm'
+                                                : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            <Zap size={12} fill={workMode === 'quick' ? 'currentColor' : 'none'} />
+                                            快捷
                                         </button>
                                     </div>
                                 </div>
@@ -4522,21 +4615,23 @@ ${effectiveInstruction}
 
                             {/* 第二行：指令和操作区 */}
                             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 items-start">
-                                {/* 指令输入区 */}
-                                <div className="lg:col-span-3 min-w-0">
-                                    <PromptManager
-                                        prompt={prompt}
-                                        setPrompt={setPrompt}
-                                        presets={presets}
-                                        setPresets={setPresets}
-                                        compact
-                                        templateState={templateState}
-                                        unifiedPresets={unifiedPresets}
-                                        pureReplyMode={pureReplyMode}
-                                        setPureReplyMode={setPureReplyMode}
-                                        workMode={workMode}
-                                    />
-                                </div>
+                                {/* 指令输入区 - 快捷模式下隐藏（使用表格配置的指令） */}
+                                {workMode !== 'quick' && (
+                                    <div className="lg:col-span-3 min-w-0">
+                                        <PromptManager
+                                            prompt={prompt}
+                                            setPrompt={setPrompt}
+                                            presets={presets}
+                                            setPresets={setPresets}
+                                            compact
+                                            templateState={templateState}
+                                            unifiedPresets={unifiedPresets}
+                                            pureReplyMode={pureReplyMode}
+                                            setPureReplyMode={setPureReplyMode}
+                                            workMode={workMode}
+                                        />
+                                    </div>
+                                )}
 
                                 {/* 右侧工具栏 - 根据模式条件渲染 */}
                                 {workMode === 'standard' && (
@@ -4764,202 +4859,339 @@ ${effectiveInstruction}
                                     </div>
                                 )}
 
-                                {/* 创新模式工具栏 */}
-                                {workMode === 'creative' && (
-                                    <div className="lg:col-span-2 flex flex-col gap-2">
-                                        {/* 1. 复制按钮网格 - 3个复制按钮 */}
-                                        <div className="grid grid-cols-3 gap-1.5">
-                                            {(() => {
-                                                const successCount = creativeResults.filter(r => r.status === 'success').length;
-                                                const hasResults = successCount > 0;
-                                                const btnBaseClass = "flex items-center justify-center gap-1.5 px-2 py-2 rounded-md text-xs font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95";
+                                {/* 创新模式工具栏（创新和快捷模式共用） */}
+                                {(workMode === 'creative' || workMode === 'quick') && (
+                                    <div className={`${workMode === 'quick' ? 'lg:col-span-5' : 'lg:col-span-2'} flex flex-col gap-2`}>
+                                        {/* 快捷模式：紧凑单行布局 */}
+                                        {workMode === 'quick' ? (
+                                            <>
+                                                {/* 单行工具栏 */}
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {/* 预设指示器 - 始终显示，提供编辑功能 */}
+                                                    {(() => {
+                                                        const activeSheet = randomLibraryConfig.activeSourceSheet || '';
+                                                        const hasLinkedInstruction = !!(randomLibraryConfig.linkedInstructions?.[activeSheet]?.trim());
+                                                        // 根据随机库是否启用来自动判断使用哪个预设
+                                                        const isRandomLibEnabled = randomLibraryConfig.enabled &&
+                                                            randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
+                                                        const currentPreset = isRandomLibEnabled ? 'withRandomLib' : 'standard';
 
-                                                return (
-                                                    <>
-                                                        <button
-                                                            onClick={copyCreativeEN}
-                                                            disabled={!hasResults}
-                                                            className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'creative-en'
-                                                                ? 'bg-emerald-600 text-white border-emerald-500'
-                                                                : 'text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-800/40 border-blue-700/40'
-                                                                }`}
-                                                            data-tip="复制全部英文（每行一条）"
-                                                        >
-                                                            {copySuccess === 'creative-en' ? <Check size={14} /> : <Copy size={14} />}
-                                                            复制英文
-                                                        </button>
+                                                        return (
+                                                            <div className="flex items-center gap-1">
+                                                                {/* 显示当前状态 */}
+                                                                {hasLinkedInstruction ? (
+                                                                    <span className="text-[10px] text-green-400 bg-green-900/30 px-1.5 py-1 rounded border border-green-700/50 flex items-center gap-1">
+                                                                        ✓ 已导入
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className={`text-[10px] px-2 py-1 rounded border flex items-center gap-1 ${isRandomLibEnabled
+                                                                        ? 'text-purple-300 bg-purple-900/30 border-purple-700/50'
+                                                                        : 'text-cyan-300 bg-cyan-900/30 border-cyan-700/50'
+                                                                        }`}>
+                                                                        {isRandomLibEnabled ? '🎲 随机库' : '📝 标准'}
+                                                                    </span>
+                                                                )}
+                                                                {/* 编辑按钮 - 始终显示 */}
+                                                                <button
+                                                                    onClick={() => setShowPresetEditor(currentPreset)}
+                                                                    className="w-6 h-6 flex items-center justify-center rounded bg-zinc-800/60 text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-300 border border-zinc-700/50 transition-all"
+                                                                    data-tip="编辑默认指令"
+                                                                >
+                                                                    <Settings size={12} />
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })()}
 
-                                                        <button
-                                                            onClick={copyCreativeZH}
-                                                            disabled={!hasResults}
-                                                            className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'creative-zh'
-                                                                ? 'bg-emerald-600 text-white border-emerald-500'
-                                                                : 'text-orange-400 hover:text-white bg-orange-900/20 hover:bg-orange-800/40 border-orange-700/40'
-                                                                }`}
-                                                            data-tip="复制全部中文（每行一条）"
-                                                        >
-                                                            {copySuccess === 'creative-zh' ? <Check size={14} /> : <Copy size={14} />}
-                                                            复制中文
-                                                        </button>
+                                                    {/* 复制按钮组 */}
+                                                    {(() => {
+                                                        const successCount = creativeResults.filter(r => r.status === 'success').length;
+                                                        const hasResults = successCount > 0;
+                                                        const btnClass = "flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[0.6875rem] font-medium border transition-all disabled:opacity-40 active:scale-95";
+                                                        return (
+                                                            <>
+                                                                <button onClick={copyCreativeEN} disabled={!hasResults}
+                                                                    className={`${btnClass} ${copySuccess === 'creative-en' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-blue-400 bg-blue-900/20 hover:bg-blue-800/40 border-blue-700/40'}`}
+                                                                    data-tip="复制英文">
+                                                                    {copySuccess === 'creative-en' ? <Check size={12} /> : <Copy size={12} />} EN
+                                                                </button>
+                                                                <button onClick={copyCreativeZH} disabled={!hasResults}
+                                                                    className={`${btnClass} ${copySuccess === 'creative-zh' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-800/40 border-orange-700/40'}`}
+                                                                    data-tip="复制中文">
+                                                                    {copySuccess === 'creative-zh' ? <Check size={12} /> : <Copy size={12} />} 中
+                                                                </button>
+                                                                <button onClick={copyCreativeResults} disabled={!hasResults}
+                                                                    className={`${btnClass} ${copySuccess === 'creative-all' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-emerald-400 bg-emerald-900/20 hover:bg-emerald-800/40 border-emerald-700/40'}`}
+                                                                    data-tip="复制全部">
+                                                                    {copySuccess === 'creative-all' ? <Check size={12} /> : <Copy size={12} />} 全
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    })()}
 
-                                                        <button
-                                                            onClick={copyCreativeResults}
-                                                            disabled={!hasResults}
-                                                            className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'creative-all'
-                                                                ? 'bg-emerald-600 text-white border-emerald-500'
-                                                                : 'text-emerald-400 hover:text-white bg-emerald-900/20 hover:bg-emerald-800/40 border-emerald-700/40'
-                                                                }`}
-                                                            data-tip="复制全部（英文+中文双列，粘贴表格自动分列）"
-                                                        >
-                                                            {copySuccess === 'creative-all' ? <Check size={14} /> : <Copy size={14} />}
-                                                            复制全部
-                                                        </button>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
+                                                    <div className="w-px h-5 bg-zinc-700 mx-1" />
 
-                                        {/* 2. 创新设置行 */}
-                                        <div className="grid grid-cols-6 gap-1.5">
-                                            {(() => {
-                                                const btnBase = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[0.6875rem] font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95";
-                                                return (
-                                                    <>
-                                                        {/* 创新个数设置 */}
-                                                        <div className="flex items-center justify-center gap-1 bg-zinc-900/60 rounded-md border border-zinc-700/50 px-2 py-1.5">
-                                                            <button
-                                                                onClick={() => setCreativeCount(Math.max(1, creativeCount - 1))}
-                                                                className="w-5 h-5 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
-                                                            >
-                                                                -
-                                                            </button>
-                                                            <span className="text-xs font-bold text-purple-300 min-w-[16px] text-center">{creativeCount}</span>
-                                                            <button
-                                                                onClick={() => setCreativeCount(Math.min(50, creativeCount + 1))}
-                                                                className="w-5 h-5 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
-                                                            >
-                                                                +
-                                                            </button>
-                                                            <span className="text-[0.625rem] text-zinc-500">个</span>
+                                                    {/* 创新个数 */}
+                                                    <div className="flex items-center gap-0.5 bg-zinc-900/60 rounded-md border border-zinc-700/50 px-1.5 py-1">
+                                                        <button onClick={() => setCreativeCount(Math.max(1, creativeCount - 1))}
+                                                            className="w-4 h-4 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-[10px]">-</button>
+                                                        <span className="text-[11px] font-bold text-purple-300 min-w-[14px] text-center">{creativeCount}</span>
+                                                        <button onClick={() => setCreativeCount(Math.min(50, creativeCount + 1))}
+                                                            className="w-4 h-4 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-[10px]">+</button>
+                                                    </div>
+
+                                                    {/* 清空、高级、无图 */}
+                                                    {(() => {
+                                                        const btnClass = "flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[0.6875rem] font-medium border transition-all";
+                                                        return (
+                                                            <>
+                                                                <button onClick={clearCreativeResults} disabled={creativeResults.length === 0}
+                                                                    className={`${btnClass} ${creativeResults.length > 0 ? 'text-red-300 bg-red-900/20 hover:bg-red-800/30 border-red-800/40' : 'text-zinc-500 bg-zinc-800/40 border-zinc-700/40 opacity-40'}`}
+                                                                    data-tip="清空结果">
+                                                                    <Trash2 size={12} /> 清空
+                                                                </button>
+                                                                <button onClick={() => setShowGlobalInnovationSettings(true)}
+                                                                    className={`${btnClass} ${randomLibraryConfig.enabled ? 'text-purple-300 bg-purple-900/30 border-purple-800/40' : 'text-zinc-400 bg-zinc-800/40 hover:bg-zinc-700/40 border-zinc-700/40'}`}
+                                                                    data-tip="高级设置">
+                                                                    <Settings2 size={12} /> 高级
+                                                                </button>
+                                                                <button onClick={() => { setNoImageMode(!noImageMode); if (!noImageMode && textCards.length === 0) addTextCard(); }}
+                                                                    className={`${btnClass} ${noImageMode ? 'text-pink-300 bg-pink-900/30 border-pink-800/40' : 'text-zinc-400 bg-zinc-800/40 hover:bg-zinc-700/40 border-zinc-700/40'}`}
+                                                                    data-tip="无图模式">
+                                                                    <FileText size={12} /> 无图
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    })()}
+
+                                                    <div className="w-px h-5 bg-zinc-700 mx-1" />
+
+                                                    {/* 状态统计 - 带标签 */}
+                                                    <div className="flex items-center gap-2 text-[10px]">
+                                                        <span className="text-zinc-400">队列<span className="text-zinc-200 font-bold ml-0.5">{images.length}</span></span>
+                                                        <span className="text-purple-400">就绪<span className="text-purple-300 font-bold ml-0.5">{images.filter(i => i.base64Data).length}</span></span>
+                                                        <span className="text-emerald-400">成功<span className="text-emerald-300 font-bold ml-0.5">{images.filter(i => i.status === 'success').length}</span></span>
+                                                        {images.filter(i => i.status === 'error').length > 0 && (
+                                                            <span className="text-red-400">失败<span className="text-red-300 font-bold ml-0.5">{images.filter(i => i.status === 'error').length}</span></span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex-1" />
+
+                                                    {/* 开始创新按钮 */}
+                                                    <button
+                                                        onClick={() => runCreativeAnalysis()}
+                                                        disabled={isProcessing || images.filter(i => i.base64Data).length === 0}
+                                                        className={`px-4 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg
+                                                            ${isProcessing
+                                                                ? 'bg-purple-900/30 text-purple-400 animate-pulse border border-purple-700'
+                                                                : images.filter(i => i.base64Data).length === 0
+                                                                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                                                                    : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20'
+                                                            }`}
+                                                    >
+                                                        {isProcessing ? <><Loader2 size={14} className="animate-spin" /> 处理中</> : <><Sparkles size={14} fill="currentColor" /> 创新</>}
+                                                    </button>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            /* 创新模式：保持原有多行布局 */
+                                            <>
+                                                {/* 1. 复制按钮网格 - 3个复制按钮 */}
+                                                <div className="grid grid-cols-3 gap-1.5">
+                                                    {(() => {
+                                                        const successCount = creativeResults.filter(r => r.status === 'success').length;
+                                                        const hasResults = successCount > 0;
+                                                        const btnBaseClass = "flex items-center justify-center gap-1.5 px-2 py-2 rounded-md text-xs font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95";
+
+                                                        return (
+                                                            <>
+                                                                <button
+                                                                    onClick={copyCreativeEN}
+                                                                    disabled={!hasResults}
+                                                                    className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'creative-en'
+                                                                        ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                        : 'text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-800/40 border-blue-700/40'
+                                                                        }`}
+                                                                    data-tip="复制全部英文（每行一条）"
+                                                                >
+                                                                    {copySuccess === 'creative-en' ? <Check size={14} /> : <Copy size={14} />}
+                                                                    复制英文
+                                                                </button>
+
+                                                                <button
+                                                                    onClick={copyCreativeZH}
+                                                                    disabled={!hasResults}
+                                                                    className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'creative-zh'
+                                                                        ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                        : 'text-orange-400 hover:text-white bg-orange-900/20 hover:bg-orange-800/40 border-orange-700/40'
+                                                                        }`}
+                                                                    data-tip="复制全部中文（每行一条）"
+                                                                >
+                                                                    {copySuccess === 'creative-zh' ? <Check size={14} /> : <Copy size={14} />}
+                                                                    复制中文
+                                                                </button>
+
+                                                                <button
+                                                                    onClick={copyCreativeResults}
+                                                                    disabled={!hasResults}
+                                                                    className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'creative-all'
+                                                                        ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                        : 'text-emerald-400 hover:text-white bg-emerald-900/20 hover:bg-emerald-800/40 border-emerald-700/40'
+                                                                        }`}
+                                                                    data-tip="复制全部（英文+中文双列，粘贴表格自动分列）"
+                                                                >
+                                                                    {copySuccess === 'creative-all' ? <Check size={14} /> : <Copy size={14} />}
+                                                                    复制全部
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    })()}
+                                                </div>
+
+                                                {/* 2. 创新设置行 */}
+                                                <div className="grid grid-cols-6 gap-1.5">
+                                                    {(() => {
+                                                        const btnBase = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[0.6875rem] font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95";
+                                                        return (
+                                                            <>
+                                                                {/* 创新个数设置 */}
+                                                                <div className="flex items-center justify-center gap-1 bg-zinc-900/60 rounded-md border border-zinc-700/50 px-2 py-1.5">
+                                                                    <button
+                                                                        onClick={() => setCreativeCount(Math.max(1, creativeCount - 1))}
+                                                                        className="w-5 h-5 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
+                                                                    >
+                                                                        -
+                                                                    </button>
+                                                                    <span className="text-xs font-bold text-purple-300 min-w-[16px] text-center">{creativeCount}</span>
+                                                                    <button
+                                                                        onClick={() => setCreativeCount(Math.min(50, creativeCount + 1))}
+                                                                        className="w-5 h-5 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
+                                                                    >
+                                                                        +
+                                                                    </button>
+                                                                    <span className="text-[0.625rem] text-zinc-500">个</span>
+                                                                </div>
+
+                                                                {/* 需要原描述开关 */}
+                                                                <button
+                                                                    onClick={() => setState(prev => ({ ...prev, needOriginalDesc: !needOriginalDesc }))}
+                                                                    className={`${btnBase} tooltip-bottom ${needOriginalDesc
+                                                                        ? 'text-emerald-300 bg-emerald-900/30 border-emerald-800/40'
+                                                                        : 'text-zinc-400 bg-zinc-800/40 border-zinc-700/40'
+                                                                        }`}
+                                                                    data-tip={needOriginalDesc ? "开启：先识别再创新" : "关闭：直接创新"}
+                                                                >
+                                                                    {needOriginalDesc ? <Eye size={12} /> : <EyeOff size={12} />}
+                                                                    原描述
+                                                                </button>
+
+                                                                {/* 创新统计 */}
+                                                                <div className={`${btnBase} bg-purple-900/20 border-purple-800/40 text-purple-300 cursor-default tooltip-bottom`} data-tip="创新结果统计">
+                                                                    <Sparkles size={12} />
+                                                                    {creativeResults.reduce((sum, r) => sum + (r.innovations?.length || 0), 0)} 条
+                                                                </div>
+
+                                                                {/* 清空按钮 */}
+                                                                <button
+                                                                    onClick={clearCreativeResults}
+                                                                    disabled={creativeResults.length === 0}
+                                                                    className={`${btnBase} tooltip-bottom ${creativeResults.length > 0
+                                                                        ? 'text-red-300 bg-red-900/20 hover:bg-red-800/30 border-red-800/40'
+                                                                        : 'text-zinc-500 bg-zinc-800/40 border-zinc-700/40'
+                                                                        }`}
+                                                                    data-tip="清空所有创新结果"
+                                                                >
+                                                                    <Trash2 size={12} />
+                                                                    清空
+                                                                </button>
+
+                                                                {/* 高级创新设置按钮 */}
+                                                                <button
+                                                                    onClick={() => setShowGlobalInnovationSettings(true)}
+                                                                    className={`${btnBase} tooltip-bottom ${randomLibraryConfig.enabled
+                                                                        ? 'text-purple-300 bg-purple-900/30 border-purple-800/40'
+                                                                        : 'text-zinc-400 bg-zinc-800/40 hover:bg-zinc-700/40 border-zinc-700/40'
+                                                                        }`}
+                                                                    data-tip="高级创新设置（随机库）"
+                                                                >
+                                                                    <Settings2 size={12} />
+                                                                    高级
+                                                                </button>
+
+                                                                {/* 无图模式开关 */}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setNoImageMode(!noImageMode);
+                                                                        if (!noImageMode && textCards.length === 0) {
+                                                                            addTextCard();
+                                                                        }
+                                                                    }}
+                                                                    className={`${btnBase} tooltip-bottom ${noImageMode
+                                                                        ? 'text-pink-300 bg-pink-900/30 border-pink-800/40'
+                                                                        : 'text-zinc-400 bg-zinc-800/40 hover:bg-zinc-700/40 border-zinc-700/40'
+                                                                        }`}
+                                                                    data-tip="无图模式：用文字主题代替图片"
+                                                                >
+                                                                    <FileText size={12} />
+                                                                    无图
+                                                                </button>
+                                                            </>
+                                                        );
+                                                    })()}
+                                                </div>
+
+                                                {/* 3. 状态统计条 */}
+                                                <div className="flex flex-col gap-2 mt-auto pt-2 border-t border-zinc-800/50">
+                                                    <div className="grid grid-cols-4 gap-1.5">
+                                                        <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/40 text-zinc-400 hover:bg-zinc-800/60 transition-colors cursor-default tooltip-bottom" data-tip="队列">
+                                                            <span className="text-[0.6875rem] font-medium">队列</span>
+                                                            <span className="text-xs font-bold text-zinc-200 font-mono">{images.length}</span>
                                                         </div>
-
-                                                        {/* 需要原描述开关 */}
-                                                        <button
-                                                            onClick={() => setState(prev => ({ ...prev, needOriginalDesc: !needOriginalDesc }))}
-                                                            className={`${btnBase} tooltip-bottom ${needOriginalDesc
-                                                                ? 'text-emerald-300 bg-emerald-900/30 border-emerald-800/40'
-                                                                : 'text-zinc-400 bg-zinc-800/40 border-zinc-700/40'
-                                                                }`}
-                                                            data-tip={needOriginalDesc ? "开启：先识别再创新" : "关闭：直接创新"}
-                                                        >
-                                                            {needOriginalDesc ? <Eye size={12} /> : <EyeOff size={12} />}
-                                                            原描述
-                                                        </button>
-
-                                                        {/* 创新统计 */}
-                                                        <div className={`${btnBase} bg-purple-900/20 border-purple-800/40 text-purple-300 cursor-default tooltip-bottom`} data-tip="创新结果统计">
-                                                            <Sparkles size={12} />
-                                                            {creativeResults.reduce((sum, r) => sum + (r.innovations?.length || 0), 0)} 条
+                                                        <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-purple-500/20 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 transition-colors cursor-default tooltip-bottom" data-tip="可进行创新的图片">
+                                                            <span className="text-[0.6875rem] font-medium">可创新</span>
+                                                            <span className="text-xs font-bold text-purple-300 font-mono">{images.filter(i => i.base64Data).length}</span>
                                                         </div>
+                                                        <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-default tooltip-bottom" data-tip="成功">
+                                                            <span className="text-[0.6875rem] font-medium">成功</span>
+                                                            <span className="text-xs font-bold text-emerald-300 font-mono">{images.filter(i => i.status === 'success').length}</span>
+                                                        </div>
+                                                        <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-default tooltip-bottom" data-tip="失败">
+                                                            <span className="text-[0.6875rem] font-medium">失败</span>
+                                                            <span className="text-xs font-bold text-red-300 font-mono">{images.filter(i => i.status === 'error').length}</span>
+                                                        </div>
+                                                    </div>
 
-                                                        {/* 清空按钮 */}
-                                                        <button
-                                                            onClick={clearCreativeResults}
-                                                            disabled={creativeResults.length === 0}
-                                                            className={`${btnBase} tooltip-bottom ${creativeResults.length > 0
-                                                                ? 'text-red-300 bg-red-900/20 hover:bg-red-800/30 border-red-800/40'
-                                                                : 'text-zinc-500 bg-zinc-800/40 border-zinc-700/40'
-                                                                }`}
-                                                            data-tip="清空所有创新结果"
-                                                        >
-                                                            <Trash2 size={12} />
-                                                            清空
-                                                        </button>
-
-                                                        {/* 高级创新设置按钮 */}
-                                                        <button
-                                                            onClick={() => setShowGlobalInnovationSettings(true)}
-                                                            className={`${btnBase} tooltip-bottom ${randomLibraryConfig.enabled
-                                                                ? 'text-purple-300 bg-purple-900/30 border-purple-800/40'
-                                                                : 'text-zinc-400 bg-zinc-800/40 hover:bg-zinc-700/40 border-zinc-700/40'
-                                                                }`}
-                                                            data-tip="高级创新设置（随机库）"
-                                                        >
-                                                            <Settings2 size={12} />
-                                                            高级
-                                                        </button>
-
-                                                        {/* 无图模式开关 */}
-                                                        <button
-                                                            onClick={() => {
-                                                                setNoImageMode(!noImageMode);
-                                                                if (!noImageMode && textCards.length === 0) {
-                                                                    // 切换到无图模式时自动添加一个空卡片
-                                                                    addTextCard();
-                                                                }
-                                                            }}
-                                                            className={`${btnBase} tooltip-bottom ${noImageMode
-                                                                ? 'text-pink-300 bg-pink-900/30 border-pink-800/40'
-                                                                : 'text-zinc-400 bg-zinc-800/40 hover:bg-zinc-700/40 border-zinc-700/40'
-                                                                }`}
-                                                            data-tip="无图模式：用文字主题代替图片"
-                                                        >
-                                                            <FileText size={12} />
-                                                            无图
-                                                        </button>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
-
-                                        {/* 3. 状态统计条 */}
-                                        <div className="flex flex-col gap-2 mt-auto pt-2 border-t border-zinc-800/50">
-                                            <div className="grid grid-cols-4 gap-1.5">
-                                                <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/40 text-zinc-400 hover:bg-zinc-800/60 transition-colors cursor-default tooltip-bottom" data-tip="队列">
-                                                    <span className="text-[0.6875rem] font-medium">队列</span>
-                                                    <span className="text-xs font-bold text-zinc-200 font-mono">{images.length}</span>
+                                                    {/* 4. 开始创新按钮 */}
+                                                    <button
+                                                        onClick={() => runCreativeAnalysis()}
+                                                        disabled={isProcessing || images.filter(i => i.base64Data).length === 0 || !prompt.trim()}
+                                                        className={`
+                                                            w-full py-2 rounded-lg font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all shadow-lg
+                                                            ${isProcessing
+                                                                ? 'bg-purple-900/30 text-purple-400 animate-pulse border border-purple-700'
+                                                                : images.filter(i => i.base64Data).length === 0 || !prompt.trim()
+                                                                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                                                                    : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 hover:shadow-purple-900/40 hover:-translate-y-0.5'
+                                                            }
+                                                        `}
+                                                        data-tip="开始对待处理的图片进行创新"
+                                                    >
+                                                        {isProcessing ? (
+                                                            <><Loader2 size={16} className="animate-spin" /> 创新中...</>
+                                                        ) : (
+                                                            <><Sparkles size={16} fill="currentColor" /> 开始创新</>
+                                                        )}
+                                                    </button>
                                                 </div>
-                                                <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-purple-500/20 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 transition-colors cursor-default tooltip-bottom" data-tip="可进行创新的图片">
-                                                    <span className="text-[0.6875rem] font-medium">可创新</span>
-                                                    <span className="text-xs font-bold text-purple-300 font-mono">{images.filter(i => i.base64Data).length}</span>
-                                                </div>
-                                                <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-default tooltip-bottom" data-tip="成功">
-                                                    <span className="text-[0.6875rem] font-medium">成功</span>
-                                                    <span className="text-xs font-bold text-emerald-300 font-mono">{images.filter(i => i.status === 'success').length}</span>
-                                                </div>
-                                                <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-default tooltip-bottom" data-tip="失败">
-                                                    <span className="text-[0.6875rem] font-medium">失败</span>
-                                                    <span className="text-xs font-bold text-red-300 font-mono">{images.filter(i => i.status === 'error').length}</span>
-                                                </div>
-                                            </div>
-
-                                            {/* 4. 开始创新按钮 */}
-                                            <button
-                                                onClick={() => runCreativeAnalysis()}
-                                                disabled={isProcessing || images.filter(i => i.base64Data).length === 0 || !prompt.trim()}
-                                                className={`
-                                                    w-full py-2 rounded-lg font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all shadow-lg
-                                                    ${isProcessing
-                                                        ? 'bg-purple-900/30 text-purple-400 animate-pulse border border-purple-700'
-                                                        : images.filter(i => i.base64Data).length === 0 || !prompt.trim()
-                                                            ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
-                                                            : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20 hover:shadow-purple-900/40 hover:-translate-y-0.5'
-                                                    }
-                                                `}
-                                                data-tip="开始对待处理的图片进行创新"
-                                            >
-                                                {isProcessing ? (
-                                                    <><Loader2 size={16} className="animate-spin" /> 创新中...</>
-                                                ) : (
-                                                    <><Sparkles size={16} fill="currentColor" /> 开始创新</>
-                                                )}
-                                            </button>
-                                        </div>
+                                            </>
+                                        )}
                                     </div>
                                 )}
 
                                 {/* 提示信息 - 全宽显示 */}
-                                {!prompt.trim() && images.length > 0 && (
+                                {/* 快捷模式下有默认预设，所以不需要显示此提示 */}
+                                {!prompt.trim() && images.length > 0 && workMode !== 'quick' && (
                                     <div className="lg:col-span-5 flex items-center justify-center gap-2 text-xs text-amber-400/80 bg-amber-900/10 border border-amber-900/20 rounded-lg px-3 py-2 mt-2 animate-pulse">
                                         <AlertCircle size={14} />
                                         <span>请先输入指令或选择预设</span>
@@ -4989,12 +5221,12 @@ ${effectiveInstruction}
                 />
 
                 {/* 主内容区 */}
-                <div className="flex-1 overflow-auto">
+                <div className={`flex-1 ${noImageMode ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto'}`}>
                     <div className="max-w-none mx-auto px-4 py-4">
                         {/* 结果列表 */}
                         <div className="flex-1">
-                            {/* 无图模式：显示文字卡片 */}
-                            {noImageMode && workMode === 'creative' ? (
+                            {/* 无图模式：显示文字卡片（创新和快捷模式都支持） */}
+                            {noImageMode && (workMode === 'creative' || workMode === 'quick') ? (
                                 <div className="space-y-4">
                                     {/* 无图模式工具栏 */}
                                     <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-pink-700/30">
@@ -5298,7 +5530,7 @@ ${effectiveInstruction}
                                             console.log('[Global Paste] files:', files.length);
                                             if (files.length > 0) {
                                                 // 创新模式下，如果有选中的卡片，添加到该卡片的融合图片
-                                                if (workMode === 'creative' && selectedCardId) {
+                                                if ((workMode === 'creative' || workMode === 'quick') && selectedCardId) {
                                                     console.log('[Global Paste] Adding to selected card:', selectedCardId);
                                                     for (const file of files) {
                                                         await handleAddFusionImage(selectedCardId, file);
@@ -5317,7 +5549,7 @@ ${effectiveInstruction}
                                                 const itemFiles = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
                                                 if (itemFiles.length > 0) {
                                                     // 创新模式下，如果有选中的卡片，添加到该卡片的融合图片
-                                                    if (workMode === 'creative' && selectedCardId) {
+                                                    if ((workMode === 'creative' || workMode === 'quick') && selectedCardId) {
                                                         for (const file of itemFiles) {
                                                             await handleAddFusionImage(selectedCardId, file);
                                                         }
@@ -5536,11 +5768,41 @@ ${effectiveInstruction}
                                         <Sparkles size={18} className="text-purple-400" />
                                         高级创新设置
                                     </h3>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => {
+                                                // 一键恢复所有默认设置
+                                                const newConfig = {
+                                                    ...randomLibraryConfig,
+                                                    transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION,
+                                                    quickPresets: DEFAULT_QUICK_INNOVATION_PRESETS,
+                                                };
+                                                setRandomLibraryConfig(newConfig);
+                                                randomLibraryConfigRef.current = newConfig;
+                                                showToast('已恢复所有默认设置');
+                                            }}
+                                            className="flex items-center gap-1 px-3 py-1.5 text-xs text-orange-400 hover:text-orange-300 bg-orange-900/20 hover:bg-orange-800/30 rounded-lg border border-orange-800/30 transition-colors"
+                                        >
+                                            <RotateCcw size={12} />
+                                            恢复默认
+                                        </button>
+                                        <button
+                                            onClick={() => setShowGlobalInnovationSettings(false)}
+                                            className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                                        >
+                                            <X size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* 规则说明按钮 */}
+                                <div className="mb-4 flex items-center gap-2">
                                     <button
-                                        onClick={() => setShowGlobalInnovationSettings(false)}
-                                        className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                                        onClick={() => setShowRulesModal(true)}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-800/50 hover:bg-zinc-700/50 rounded-lg border border-zinc-700/50 transition-colors"
                                     >
-                                        <X size={18} />
+                                        <HelpCircle size={14} />
+                                        查看指令组合规则
                                     </button>
                                 </div>
 
@@ -5551,6 +5813,24 @@ ${effectiveInstruction}
                                         onChange={handleRandomLibraryConfigChange}
                                         onAIGenerate={generateText}
                                         innovationCount={creativeCount}
+                                        workMode={workMode}
+                                        baseInstruction={(() => {
+                                            // 快捷模式下：优先使用配套指令，否则使用默认预设
+                                            if (workMode === 'quick') {
+                                                const activeSheet = randomLibraryConfig.activeSourceSheet || '';
+                                                const linkedInstruction = randomLibraryConfig.linkedInstructions?.[activeSheet];
+                                                if (linkedInstruction && linkedInstruction.trim()) {
+                                                    return linkedInstruction.trim();
+                                                }
+                                                // 没有配套指令，使用默认预设
+                                                const isRandomLibEnabled = randomLibraryConfig.enabled &&
+                                                    randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
+                                                const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
+                                                return DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                                            }
+                                            // 创新模式下：使用用户输入的 prompt
+                                            return prompt;
+                                        })()}
                                     />
                                 </div>
 
@@ -5581,6 +5861,142 @@ ${effectiveInstruction}
                         </div>
                     )
                 }
+
+                {/* 规则说明弹窗 */}
+                {showRulesModal && (
+                    <div
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
+                        onClick={() => setShowRulesModal(false)}
+                    >
+                        <div
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[500px] max-w-[95vw] shadow-2xl"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+                                    <HelpCircle size={18} className="text-blue-400" />
+                                    指令组合规则
+                                </h3>
+                                <button
+                                    onClick={() => setShowRulesModal(false)}
+                                    className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            <div className="space-y-3 text-sm">
+                                <div className="p-3 bg-blue-900/20 border border-blue-800/30 rounded-lg">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-blue-400 font-bold">1️⃣</span>
+                                        <span className="text-zinc-300 font-medium">有用户要求 + 有随机库</span>
+                                    </div>
+                                    <div className="text-zinc-400 text-xs ml-6">
+                                        基础指令 → 【用户特别要求】 → 【画面创新细节】 → 优先级说明
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-green-900/20 border border-green-800/30 rounded-lg">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-green-400 font-bold">2️⃣</span>
+                                        <span className="text-zinc-300 font-medium">有用户要求 + 无随机库</span>
+                                    </div>
+                                    <div className="text-zinc-400 text-xs ml-6">
+                                        基础指令 → 【用户特别要求】 → 优先级说明
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-yellow-900/20 border border-yellow-800/30 rounded-lg">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-yellow-400 font-bold">3️⃣</span>
+                                        <span className="text-zinc-300 font-medium">无用户要求 + 有随机库</span>
+                                    </div>
+                                    <div className="text-zinc-400 text-xs ml-6">
+                                        基础指令 → 【画面创新细节】 → 优先级说明
+                                    </div>
+                                </div>
+
+                                <div className="p-3 bg-orange-900/20 border border-orange-800/30 rounded-lg">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-orange-400 font-bold">4️⃣</span>
+                                        <span className="text-zinc-300 font-medium">无用户要求 + 无随机库</span>
+                                    </div>
+                                    <div className="text-zinc-400 text-xs ml-6">
+                                        基础指令 → 优先级说明
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 pt-3 border-t border-zinc-700/50 text-xs text-zinc-500">
+                                <span className="text-amber-400">⚠️</span> 优先级说明会根据实际情况动态生成，放在指令最后以强调执行顺序。
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 预设编辑弹窗 - 只读模式 */}
+                {showPresetEditor && (
+                    <div
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
+                        onClick={() => setShowPresetEditor(null)}
+                    >
+                        <div
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[700px] max-w-[95vw] max-h-[85vh] overflow-y-auto shadow-2xl mt-10"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+                                    <Settings2 size={18} className={showPresetEditor === 'standard' ? 'text-cyan-400' : 'text-purple-400'} />
+                                    查看{showPresetEditor === 'standard' ? '标准' : '随机库'}预设
+                                </h3>
+                                <button
+                                    onClick={() => setShowPresetEditor(null)}
+                                    className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-zinc-400 mb-2">
+                                    创新指令内容（只读）
+                                </label>
+                                <div
+                                    className="w-full h-80 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-zinc-300 text-sm overflow-y-auto whitespace-pre-wrap"
+                                >
+                                    {DEFAULT_QUICK_INNOVATION_PRESETS[showPresetEditor]}
+                                </div>
+                            </div>
+
+                            <div className="text-xs text-zinc-500 mb-4 bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                                <p className="mb-1.5"><strong className="text-zinc-400">说明：</strong></p>
+                                <ul className="list-disc list-inside space-y-1 text-zinc-500">
+                                    {showPresetEditor === 'standard' ? (
+                                        <>
+                                            <li><strong className="text-cyan-400">标准模式</strong>：直接使用此指令进行创新</li>
+                                            <li>适合不使用随机库、只用AI分析图片进行创新的场景</li>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <li><strong className="text-purple-400">随机库模式</strong>：指令末尾会自动接入随机库的内容</li>
+                                            <li>适合需要结合随机元素（如风格、场景等）进行创新的场景</li>
+                                        </>
+                                    )}
+                                </ul>
+                            </div>
+
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={() => setShowPresetEditor(null)}
+                                    className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${showPresetEditor === 'standard' ? 'bg-cyan-600 hover:bg-cyan-500' : 'bg-purple-600 hover:bg-purple-500'
+                                        }`}
+                                >
+                                    关闭
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
             </div >
 

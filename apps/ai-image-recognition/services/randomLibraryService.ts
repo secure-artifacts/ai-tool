@@ -1,6 +1,7 @@
 /**
  * 随机库服务 - 用于高级创新的随机组合功能
  * 支持云同步、导入导出
+ * @version 2.0 - 使用 Google Sheets API 读取分页目录
  */
 
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
@@ -41,10 +42,98 @@ export interface RandomLibraryConfig {
     categoryLinkEnabled?: boolean; // 是否启用分类联动
     aiFilterEnabled?: boolean; // 是否启用AI智能过滤
     activeSourceSheet?: string; // 当前激活的总库分页名，用于标签页切换
+    // 快捷创新模式扩展
+    linkedInstructions?: Record<string, string>; // 总库名 → 配套创新指令 的映射
+    quickTransitionInstruction?: string; // 快捷创新模式的过渡指令
+    // 快捷创新默认预设（当没有导入指令时使用）
+    quickPresetType?: 'standard' | 'withRandomLib'; // 当前选择的预设类型
+    quickPresets?: { standard: string; withRandomLib: string }; // 用户自定义的预设内容
+    // 同步刷新
+    sourceSpreadsheetUrl?: string; // 导入源的 Google Sheets URL，用于同步刷新
 }
 
-// 默认过渡指令
-export const DEFAULT_TRANSITION_INSTRUCTION = '请根据下面的细节创新项目修改创新描述词，如果和创新指令有冲突，则按照下面具体的项目细节进行创新。忽略上面创新指令的要求。';
+// 默认过渡指令（用于随机库内容）
+export const DEFAULT_TRANSITION_INSTRUCTION = '【画面创新细节】';
+
+// 快捷创新模式默认过渡指令
+export const DEFAULT_QUICK_TRANSITION_INSTRUCTION = '【画面创新细节】';
+
+// 用户要求的过渡指令
+export const USER_REQUIREMENT_TRANSITION = '【用户特别要求】';
+
+// 快捷创新默认预设类型
+export type QuickInnovationPresetType = 'standard' | 'withRandomLib';
+
+// 快捷创新默认预设
+export interface QuickInnovationPresets {
+    standard: string; // 标准模式（不使用随机库）
+    withRandomLib: string; // 随机库模式（末尾开放接入随机库内容）
+}
+
+// 默认预设内容
+export const DEFAULT_QUICK_INNOVATION_PRESETS: QuickInnovationPresets = {
+    standard: `请根据我提供的每一张图片或文字说明，输出可直接用于图像或视频生成模型的完整 AI 描述词（Prompt）。
+
+## 输出规则
+- 只输出最终 AI 描述词，不解释、不说明
+- 不描述或复现图片中的文字内容
+- 描述必须详尽、精确
+
+## 画面还原原则
+对以下内容进行精确描述（不得擅自改变）：
+- 主体身份、数量、性别、年龄段
+- 人物、动物、物体的物理形态
+- 明确存在的动作、姿态、事件状态
+- 场景性质（室内/室外、地点类型）
+
+## 创新执行规则
+以下内容可根据【用户要求】进行创新：
+- 画面风格与媒介属性
+- 天气、光影、色彩倾向
+- 时间段、季节、氛围
+- 镜头风格与影像语言
+
+⚠️ 如未收到明确创新指令，保持原图特征，不擅自补全或创新。`,
+
+    withRandomLib: `请根据我提供的每一张图片或文字说明，输出可直接用于图像或视频生成模型的完整 AI 描述词（Prompt）。
+
+## 输出规则
+- 只输出最终 AI 描述词，不解释、不说明
+- 不描述或复现图片中的文字内容
+- 描述必须详尽、精确
+
+## 画面还原原则
+对以下内容进行精确描述（不得擅自改变）：
+- 主体身份、数量、性别、年龄段
+- 人物、动物、物体的物理形态
+- 明确存在的动作、姿态、事件状态
+- 场景性质（室内/室外、地点类型）
+
+## 创新执行规则
+以下内容可根据【用户要求】或【画面细节】进行创新：
+- 画面风格与媒介属性
+- 天气、光影、色彩倾向
+- 时间段、季节、氛围
+- 镜头风格与影像语言`,
+};
+
+// 动态生成优先级说明
+export function getPriorityInstruction(hasUserInput: boolean, hasRandomLib: boolean): string {
+    const emphasis = '\n⚠️ 请严格按照优先级的顺序规则来生成描述词。\n给我完整的AI描述词，方便我直接给其他软件生成图片或者视频使用。你只需要给按照上述要求我最终的AI描述词就行，不需要其他任何多余的内容。';
+
+    if (hasUserInput && hasRandomLib) {
+        return '⚠️ 优先级：【用户特别要求】 > 【画面创新细节】 > 基础指令 > 默认还原' + emphasis;
+    } else if (hasUserInput && !hasRandomLib) {
+        return '⚠️ 优先级：【用户特别要求】 > 基础指令 > 默认还原' + emphasis;
+    } else if (!hasUserInput && hasRandomLib) {
+        return '⚠️ 优先级：【画面创新细节】 > 基础指令 > 默认还原' + emphasis;
+    } else {
+        return '⚠️ 优先级：基础指令 > 默认还原' + emphasis;
+    }
+}
+
+// 保留常量用于向后兼容（默认情况）
+export const FIXED_PRIORITY_INSTRUCTION = '⚠️ 优先级：【用户特别要求】 > 【画面创新细节】 > 基础指令 > 默认还原\n⚠️ 请严格按照优先级的顺序规则来生成描述词。\n给我完整的AI描述词，方便我直接给其他软件生成图片或者视频使用。你只需要给按照上述要求我最终的AI描述词就行，不需要其他任何多余的内容。';
 
 // 默认配置
 export const DEFAULT_RANDOM_LIBRARY_CONFIG: RandomLibraryConfig = {
@@ -54,6 +143,10 @@ export const DEFAULT_RANDOM_LIBRARY_CONFIG: RandomLibraryConfig = {
     insertPosition: 'after',
     transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION,
     combinationMode: 'random', // 默认整体随机模式
+    linkedInstructions: {}, // 快捷创新：总库配套指令
+    quickTransitionInstruction: DEFAULT_QUICK_TRANSITION_INSTRUCTION, // 快捷创新过渡指令
+    categoryLinkEnabled: true, // 默认启用分类联动（有分类数据时生效）
+    quickPresetType: 'standard', // 默认使用标准预设
 };
 
 // 预设颜色
@@ -84,7 +177,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_style_${now + 1}`,
+            id: `lib_default_style_${now + 1} `,
             name: '画面风格',
             values: [],
             enabled: false,
@@ -95,7 +188,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_decoration_${now + 2}`,
+            id: `lib_default_decoration_${now + 2} `,
             name: '装饰小元素',
             values: [],
             enabled: false,
@@ -106,7 +199,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_props_${now + 3}`,
+            id: `lib_default_props_${now + 3} `,
             name: '道具配件',
             values: [],
             enabled: false,
@@ -117,7 +210,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_other_${now + 4}`,
+            id: `lib_default_other_${now + 4} `,
             name: '其他元素',
             values: [],
             enabled: false,
@@ -128,7 +221,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_character_${now + 5}`,
+            id: `lib_default_character_${now + 5} `,
             name: '人物形象特征',
             values: [],
             enabled: false,
@@ -139,7 +232,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_gender_${now + 6}`,
+            id: `lib_default_gender_${now + 6} `,
             name: '人物性别',
             values: [],
             enabled: false,
@@ -150,7 +243,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_clothes_${now + 7}`,
+            id: `lib_default_clothes_${now + 7} `,
             name: '衣服',
             values: [],
             enabled: false,
@@ -161,7 +254,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_copy_${now + 8}`,
+            id: `lib_default_copy_${now + 8} `,
             name: '文案',
             values: [],
             enabled: false,
@@ -172,7 +265,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_age_${now + 9}`,
+            id: `lib_default_age_${now + 9} `,
             name: '年龄段',
             values: [],
             enabled: false,
@@ -183,7 +276,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_season_${now + 10}`,
+            id: `lib_default_season_${now + 10} `,
             name: '季节',
             values: [],
             enabled: false,
@@ -194,7 +287,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_weather_${now + 11}`,
+            id: `lib_default_weather_${now + 11} `,
             name: '天气',
             values: [],
             enabled: false,
@@ -205,7 +298,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_camera_${now + 12}`,
+            id: `lib_default_camera_${now + 12} `,
             name: '镜头',
             values: [],
             enabled: false,
@@ -216,7 +309,7 @@ export const getDefaultLibraries = (): RandomLibrary[] => {
             updatedAt: now,
         },
         {
-            id: `lib_default_pose_${now + 13}`,
+            id: `lib_default_pose_${now + 13} `,
             name: '人物姿势',
             values: [],
             enabled: false,
@@ -237,7 +330,7 @@ export const getDefaultConfigWithLibraries = (): RandomLibraryConfig => ({
 
 // 生成唯一ID
 export const generateLibraryId = (): string => {
-    return `lib_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `lib_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `;
 };
 
 // 创建新库
@@ -346,7 +439,176 @@ export const fetchSheetColumnA = async (
     }
 };
 
-// 解析CSV文本（处理引号包裹和换行）
+// 分页目录行结构（包含创新指令）
+export interface CatalogRow {
+    sheetName: string;         // A列：分页/总库名称
+    linkedInstruction?: string; // B列：配套的创新指令
+}
+
+// Google Sheets API Key（从 sheetmind 共享）
+const GOOGLE_API_KEY = 'AIzaSyBsSspB57hO83LQhAGZ_71cJeOouZzONsQ';
+
+// 从公开的Google Sheet读取分页目录（快捷创新：分页名 + 配套指令）
+// 使用 Google Sheets API 而不是 CSV，正确处理多行单元格
+export const fetchCatalogWithInstructions = async (
+    spreadsheetId: string,
+    catalogSheetName: string
+): Promise<CatalogRow[]> => {
+    console.log(`[fetchCatalogWithInstructions] 开始读取分页目录: "${catalogSheetName}"`);
+
+    // 使用 Google Sheets API 读取前5列
+    const encodedSheetName = encodeURIComponent(catalogSheetName);
+    const range = `${catalogSheetName}!A:E`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE&key=${GOOGLE_API_KEY}`;
+
+    try {
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            if (response.status === 404 || response.status === 400) {
+                throw new Error(`分页 "${catalogSheetName}" 不存在`);
+            }
+            throw new Error(`无法读取分页 "${catalogSheetName}"，请确保表格已公开`);
+        }
+
+        const data = await response.json();
+        const rows: string[][] = data.values || [];
+
+        console.log(`[fetchCatalogWithInstructions] API返回 ${rows.length} 行`);
+
+        if (rows.length === 0) return [];
+
+        // 解析第一行作为表头
+        const headerCells = rows[0] || [];
+        console.log(`[fetchCatalogWithInstructions] 表头:`, headerCells);
+
+        // 识别表头：先识别指令列（避免"总库配套指令"被误识别为分页名列）
+        const sheetNameKeywords = ['分页名', '分页名称', '随机库', '库名', '总库名字', '总库名'];
+        const instructionKeywords = ['创新指令', '基础指令', '配套指令', '指令', 'instruction', 'prompt'];
+
+        let sheetNameCol = -1;
+        let instructionCol = -1;
+        let hasValidHeader = false;
+
+        // 第一轮：先识别指令列（优先级更高）
+        headerCells.forEach((cell, idx) => {
+            const lower = (cell || '').toLowerCase().trim();
+            if (instructionCol === -1 && instructionKeywords.some(k => lower.includes(k.toLowerCase()))) {
+                instructionCol = idx;
+                hasValidHeader = true;
+            }
+        });
+
+        // 第二轮：识别分页名列（排除已识别的指令列）
+        headerCells.forEach((cell, idx) => {
+            if (idx === instructionCol) return; // 跳过已识别为指令的列
+            const lower = (cell || '').toLowerCase().trim();
+            if (sheetNameCol === -1 && sheetNameKeywords.some(k => lower.includes(k.toLowerCase()))) {
+                sheetNameCol = idx;
+                hasValidHeader = true;
+            }
+        });
+
+        // 如果没有识别到有效表头，使用默认列：A=分页名，B=指令
+        if (sheetNameCol === -1) sheetNameCol = 0;
+        if (instructionCol === -1) instructionCol = 1;
+        // 确保两列不相同
+        if (sheetNameCol === instructionCol) {
+            instructionCol = sheetNameCol === 0 ? 1 : 0;
+        }
+
+        console.log(`[fetchCatalogWithInstructions] 表头识别: 分页名列=${sheetNameCol}, 指令列=${instructionCol}, 有效表头=${hasValidHeader}`);
+
+        const results: CatalogRow[] = [];
+
+        // 验证是否是有效的分页名（简化版：只排除明显的空值和超长文本）
+        const isValidSheetName = (name: string): boolean => {
+            if (!name || !name.trim()) return false;
+            const trimmed = name.trim();
+            // 分页名不应该太长（超过50个字符很可能是指令文本）
+            if (trimmed.length > 50) return false;
+            // 分页名不应该包含多个句号（指令通常有句号）
+            if ((trimmed.match(/。/g) || []).length >= 2) return false;
+            return true;
+        };
+
+        // 从第二行开始读取数据（如果有有效表头），否则从第一行开始
+        const startRow = hasValidHeader ? 1 : 0;
+
+        console.log(`[fetchCatalogWithInstructions] 开始解析, startRow=${startRow}, 总行数=${rows.length}`);
+
+        for (let i = startRow; i < rows.length; i++) {
+            const cells = rows[i] || [];
+            const sheetName = (cells[sheetNameCol] || '').trim();
+            const instruction = (cells[instructionCol] || '').trim();
+
+            // 调试：显示每行读取的内容
+            if (i < startRow + 3) {
+                console.log(`[fetchCatalogWithInstructions] 行${i}: sheetName="${sheetName}", instruction="${instruction?.substring(0, 50)}..."`);
+            }
+
+            // 只添加有效的分页名
+            if (isValidSheetName(sheetName)) {
+                results.push({
+                    sheetName,
+                    linkedInstruction: instruction || undefined,
+                });
+                console.log(`[fetchCatalogWithInstructions] ✓ 添加: sheetName="${sheetName}", hasInstruction=${!!instruction}`);
+            } else {
+                console.log(`[fetchCatalogWithInstructions] ✗ 跳过无效分页名: "${sheetName?.substring(0, 50)}..." (长度=${sheetName?.length || 0})`);
+            }
+        }
+
+        console.log(`[fetchCatalogWithInstructions] 从 "${catalogSheetName}" 读取到 ${results.length} 行`);
+        console.log(`[fetchCatalogWithInstructions] 示例数据:`, results.slice(0, 3).map(r => ({ sheetName: r.sheetName, hasInstruction: !!r.linkedInstruction, instructionPreview: r.linkedInstruction?.substring(0, 50) })));
+        return results;
+    } catch (error) {
+        console.error(`读取分页目录 "${catalogSheetName}" 失败:`, error);
+        throw error;
+    }
+};
+
+// 将CSV文本分割成行（正确处理引号包裹的多行单元格）
+const parseCSVToRows = (csvText: string): string[] => {
+    const rows: string[] = [];
+    let currentRow = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < csvText.length; i++) {
+        const char = csvText[i];
+
+        if (char === '"') {
+            // 处理转义引号
+            if (inQuotes && csvText[i + 1] === '"') {
+                currentRow += '""';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+                currentRow += char;
+            }
+        } else if (char === '\n' && !inQuotes) {
+            // 只有不在引号内才是真正的行分隔符
+            if (currentRow.trim()) {
+                rows.push(currentRow);
+            }
+            currentRow = '';
+        } else if (char === '\r') {
+            // 跳过\r（Windows换行符）
+            continue;
+        } else {
+            currentRow += char;
+        }
+    }
+
+    // 添加最后一行
+    if (currentRow.trim()) {
+        rows.push(currentRow);
+    }
+
+    return rows;
+};
+
+// 解析CSV行为单元格数组（处理引号包裹的内容）
 const parseCSVLine = (line: string): string[] => {
     const result: string[] = [];
     let current = '';
@@ -524,6 +786,7 @@ export interface MasterSheetInfo {
     sheetName: string; // 分页名称
     groupName: string; // 分组名称（从分页名提取，如"衣服-随机总库"提取"衣服"）
     libraries: RandomLibrary[]; // 该分页包含的库
+    linkedInstruction?: string; // 快捷创新：配套的创新指令（从分页目录B列读取）
 }
 
 // 从指定总库分页读取库（带分组信息）
@@ -668,6 +931,8 @@ export const scanMasterSheets = async (
     spreadsheetId: string,
     customSheetNames?: string[] // 用户自定义的分页名
 ): Promise<MasterSheetInfo[]> => {
+    console.log('[scanMasterSheets] 开始扫描, spreadsheetId:', spreadsheetId);
+
     // 1. 先尝试读取目录分页，获取用户定义的分页名列表
     const catalogSheetNames = ['分页目录', '随机总库目录', '目录', '库列表', '分页列表', 'catalog', 'index'];
     // 需要跳过的默认分页名（各语言版本）
@@ -686,22 +951,39 @@ export const scanMasterSheets = async (
     };
 
     let userDefinedSheetNames: string[] = [];
+    // 快捷创新：分页名 → 配套指令 的映射
+    const instructionMap: Map<string, string> = new Map();
 
     for (const catalogName of catalogSheetNames) {
         try {
-            const catalogData = await fetchSheetColumnA(spreadsheetId, catalogName);
-            if (catalogData.length > 0) {
-                // 找到了目录分页，读取所有分页名（过滤掉默认名）
-                userDefinedSheetNames = catalogData.filter(name =>
-                    name && name.trim() &&
-                    !catalogSheetNames.includes(name.trim()) &&
-                    !isDefaultSheetName(name)
-                );
-                console.log(`从"${catalogName}"分页读取到 ${userDefinedSheetNames.length} 个分页名`);
+            // 使用新的函数读取 A 列（分页名）和 B 列（创新指令）
+            const catalogRows = await fetchCatalogWithInstructions(spreadsheetId, catalogName);
+            if (catalogRows.length > 0) {
+                // 找到了目录分页
+                userDefinedSheetNames = catalogRows
+                    .map(row => row.sheetName)
+                    .filter(name =>
+                        name && name.trim() &&
+                        !catalogSheetNames.includes(name.trim()) &&
+                        !isDefaultSheetName(name)
+                    );
+
+                // 保存配套指令到映射表
+                catalogRows.forEach(row => {
+                    if (row.sheetName && row.linkedInstruction) {
+                        instructionMap.set(row.sheetName.trim(), row.linkedInstruction);
+                    }
+                });
+
+                console.log(`[scanMasterSheets] 从"${catalogName}"分页读取到 ${userDefinedSheetNames.length} 个分页名, ${instructionMap.size} 个配套指令`);
+                console.log(`[scanMasterSheets] 配套指令映射:`, Object.fromEntries(instructionMap));
                 break;
+            } else {
+                console.log(`[scanMasterSheets] 目录"${catalogName}"返回空结果`);
             }
         } catch (e) {
             // 该目录分页不存在，继续尝试下一个
+            console.log(`[scanMasterSheets] 尝试读取目录"${catalogName}"失败:`, e);
         }
     }
 
@@ -786,6 +1068,13 @@ export const scanMasterSheets = async (
 
             if (!contentHashes.has(contentHash)) {
                 contentHashes.add(contentHash);
+                // 快捷创新：附加配套指令（从分页目录B列读取）
+                const linkedInstruction = instructionMap.get(sheetName);
+                console.log(`[scanMasterSheets] 查找配套指令: sheetName="${sheetName}", found=${!!linkedInstruction}, instructionMapSize=${instructionMap.size}`);
+                if (linkedInstruction) {
+                    info.linkedInstruction = linkedInstruction;
+                    console.log(`[scanMasterSheets] ✓ 附加指令到 "${sheetName}": ${linkedInstruction.substring(0, 50)}...`);
+                }
                 results.push(info);
                 foundSheets.add(sheetName);
             }

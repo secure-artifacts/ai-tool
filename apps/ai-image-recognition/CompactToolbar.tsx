@@ -5,7 +5,7 @@ import {
     Share2, Settings2, RotateCw, Rows3, List, CloudDownload, CloudUpload, Save, X, Pencil, Download
 } from 'lucide-react';
 import DropZone from './components/DropZone';
-import { ImageItem, DEFAULT_PRESETS } from './types';
+import { ImageItem, DEFAULT_PRESETS, WorkMode } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { fetchUserPresetsFromSheet, savePresetRowsToSheet } from '@/services/presetSheetService';
 import { SHARED_PRESET_SHEET_CONFIG, PRESET_SCOPE_IMAGE_RECOGNITION, encodeScopedCategory, extractScopedRows } from '@/services/presetSheetConfig';
@@ -25,13 +25,13 @@ interface CompactToolbarProps {
     unifiedPresets: any[];
     unuploadedCount: number;
     isUploading: boolean;
-    workMode?: 'standard' | 'creative'; // 工作模式
+    workMode?: WorkMode; // 工作模式
     setImageModel: (val: string) => void;
     setPrompt: (val: string) => void;
     setPresets: (val: any[]) => void;
     setViewMode: (val: 'grid' | 'list' | 'compact') => void;
     setAutoUploadGyazo: (val: boolean) => void;
-    setWorkMode?: (mode: 'standard' | 'creative') => void; // 切换工作模式
+    setWorkMode?: (mode: WorkMode) => void; // 切换工作模式
     handleFiles: (files: File[]) => void;
     handleTextPaste: (text: string) => void;
     handleHtmlPaste: (urls: { originalUrl: string; fetchUrl: string }[]) => void;

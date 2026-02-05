@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Save, Trash2, ChevronDown, MessageSquareText, Download, Upload, Pencil, X, Check, Cloud, CloudDownload, CloudUpload, Copy } from 'lucide-react';
-import { Preset, DEFAULT_PRESETS } from '../types';
+import { Preset, DEFAULT_PRESETS, WorkMode } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { fetchUserPresetsFromSheet, savePresetRowsToSheet } from '@/services/presetSheetService';
 import { SHARED_PRESET_SHEET_CONFIG, PRESET_SCOPE_IMAGE_RECOGNITION, encodeScopedCategory, extractScopedRows } from '@/services/presetSheetConfig';
@@ -24,7 +24,7 @@ interface PromptManagerProps {
     unifiedPresets?: SimplePreset[];
     pureReplyMode?: boolean;
     setPureReplyMode?: (val: boolean) => void;
-    workMode?: 'standard' | 'creative'; // 工作模式：standard=标准, creative=创新
+    workMode?: WorkMode; // 工作模式：standard=标准, creative=创新, quick=快捷创新
 }
 
 const PromptManager: React.FC<PromptManagerProps> = ({

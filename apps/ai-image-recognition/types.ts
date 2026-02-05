@@ -1,5 +1,5 @@
-// 工作模式：standard=标准识别模式, creative=创新模式
-export type WorkMode = 'standard' | 'creative';
+// 工作模式：standard=标准识别模式, creative=创新模式, quick=快捷创新模式
+export type WorkMode = 'standard' | 'creative' | 'quick';
 
 // 创新模式结果 - 每张图片的创新结果
 export interface CreativeResult {
@@ -132,6 +132,8 @@ export interface RecognitionTab {
     isProcessing: boolean;
     isQueued?: boolean; // 是否在等待队列中
     createdAt: number;
+    // 快捷创新模式：每个标签页独立的随机库配置
+    randomLibraryConfig?: import('./services/randomLibraryService').RandomLibraryConfig;
 }
 
 export interface ImageRecognitionState {

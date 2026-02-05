@@ -22,6 +22,7 @@ import {
     Sparkles,
     Loader2,
     Search,
+    RefreshCw,
 } from 'lucide-react';
 import {
     RandomLibrary,
@@ -47,7 +48,10 @@ import {
     buildAICategoryPrompt,
     applyAICategoryResult,
     AICategoryResult,
+    FIXED_PRIORITY_INSTRUCTION,
+    getPriorityInstruction,
 } from '../services/randomLibraryService';
+import { WorkMode } from '../types';
 
 interface RandomLibraryManagerProps {
     config: RandomLibraryConfig;
@@ -55,6 +59,8 @@ interface RandomLibraryManagerProps {
     onClose?: () => void;
     onAIGenerate?: (prompt: string) => Promise<string>; // AI生成函数
     innovationCount?: number; // 创新个数，用于预览显示
+    workMode?: WorkMode; // 工作模式：快捷模式下隐藏部分设置
+    baseInstruction?: string; // 基础指令，用于预览最终指令
 }
 
 export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
@@ -63,6 +69,8 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
     onClose,
     onAIGenerate,
     innovationCount = 4,
+    workMode = 'creative',
+    baseInstruction = '',
 }) => {
     const toast = useToast();
     const [activeLibraryId, setActiveLibraryId] = useState<string | null>(
@@ -120,6 +128,12 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
     // 权重编辑弹框状态
     const [weightPopup, setWeightPopup] = useState<{ value: string; weight: number; position: { x: number; y: number } } | null>(null);
 
+    // 预览最终指令弹框状态
+    const [showFinalPreview, setShowFinalPreview] = useState(false);
+
+    // 同步刷新状态
+    const [isSyncing, setIsSyncing] = useState(false);
+
     const activeLibrary = config.libraries.find(lib => lib.id === activeLibraryId);
 
     // 获取所有唯一的总库来源
@@ -135,6 +149,16 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
 
     // 当前激活的总库（如果没有设置，默认第一个）
     const activeSourceSheet = config.activeSourceSheet || sourceSheets[0] || '';
+
+    // 计算有效的基础指令：优先使用从分页目录读取的创新指令（linkedInstructions），否则使用传入的 baseInstruction
+    const effectiveBaseInstruction = useMemo(() => {
+        // 优先使用当前总库对应的创新指令
+        if (activeSourceSheet && config.linkedInstructions?.[activeSourceSheet]) {
+            return config.linkedInstructions[activeSourceSheet];
+        }
+        // 否则使用传入的基础指令
+        return baseInstruction;
+    }, [activeSourceSheet, config.linkedInstructions, baseInstruction]);
 
     // 根据当前激活的总库过滤显示的库
     const filteredLibraries = useMemo(() => {
@@ -220,6 +244,63 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
             setPreviewGroups(generateMultiplePreview());
         }
     }, [config, generateMultiplePreview]);
+
+    // 自动同步：组件启用且有源URL时自动刷新数据（快捷模式下不自动同步）
+    useEffect(() => {
+        if (!config.enabled || !config.sourceSpreadsheetUrl || isSyncing || workMode === 'quick') return;
+
+        const autoSync = async () => {
+            try {
+                const spreadsheetId = extractSpreadsheetId(config.sourceSpreadsheetUrl!);
+                if (!spreadsheetId) return;
+
+                console.log('[自动同步] 开始自动同步...');
+                setIsSyncing(true);
+
+                const sheetsToRefresh = sourceSheets.length > 0 ? sourceSheets : [config.activeSourceSheet].filter(Boolean);
+                const refreshedSheets = await scanMasterSheets(spreadsheetId, sheetsToRefresh as string[]);
+
+                if (refreshedSheets.length === 0) {
+                    console.log('[自动同步] 未找到数据');
+                    return;
+                }
+
+                // 更新库数据
+                let updatedLibraries: RandomLibrary[] = [];
+                const linkedInstructions: Record<string, string> = {};
+
+                for (const masterSheet of refreshedSheets) {
+                    for (const lib of masterSheet.libraries) {
+                        const existing = updatedLibraries.find(l => l.name === lib.name && l.sourceSheet === lib.sourceSheet);
+                        if (existing) {
+                            existing.values = lib.values;
+                            existing.valuesWithCategory = lib.valuesWithCategory;
+                        } else {
+                            updatedLibraries.push(lib);
+                        }
+                    }
+                    if (masterSheet.linkedInstruction) {
+                        linkedInstructions[masterSheet.sheetName] = masterSheet.linkedInstruction;
+                    }
+                }
+
+                onChange({
+                    ...config,
+                    libraries: updatedLibraries,
+                    linkedInstructions,
+                });
+
+                console.log('[自动同步] 完成，更新了', updatedLibraries.length, '个库');
+            } catch (error) {
+                console.error('[自动同步] 失败:', error);
+            } finally {
+                setIsSyncing(false);
+            }
+        };
+
+        autoSync();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [config.enabled, config.sourceSpreadsheetUrl]); // 仅在启用状态或源URL变化时同步
 
     // 刷新预览
     const refreshPreview = () => {
@@ -462,10 +543,11 @@ ${aiPrompt}
 
         setSheetsImporting(true);
         try {
-            // replace模式：保留手动创建的库（没有sourceSheet的），只替换从表格导入的库
+            // replace模式：彻底清空现有库，只保留从表格导入的库
+            // merge模式：保留现有库
             let allLibraries: RandomLibrary[] =
                 sheetsImportMode === 'replace'
-                    ? config.libraries.filter(lib => !lib.sourceSheet) // 保留没有sourceSheet的库
+                    ? [] // 彻底清空
                     : [...config.libraries];
             const existingNames = new Set(allLibraries.map(lib => lib.name));
 
@@ -544,10 +626,22 @@ ${aiPrompt}
             console.log('[导入完成] 总库来源统计:', Object.fromEntries(sourceSheetStats));
             console.log('[导入完成] 所有库:', allLibraries.map(l => ({ name: l.name, sourceSheet: l.sourceSheet })));
 
+            // 构建创新指令映射（从分页目录B列读取的）
+            const linkedInstructions: Record<string, string> = { ...config.linkedInstructions };
+            for (const masterSheet of foundMasterSheets) {
+                if (selectedMasterSheets.has(masterSheet.sheetName) && masterSheet.linkedInstruction) {
+                    linkedInstructions[masterSheet.sheetName] = masterSheet.linkedInstruction;
+                    console.log(`[导入完成] 保存创新指令: "${masterSheet.sheetName}" -> "${masterSheet.linkedInstruction.substring(0, 50)}..."`);
+                }
+            }
+
             onChange({
                 ...config,
                 libraries: allLibraries,
                 activeSourceSheet: firstSheetName, // 设置第一个为激活的总库
+                linkedInstructions, // 保存创新指令映射
+                sourceSpreadsheetUrl: sheetsUrl, // 保存源 URL 用于同步刷新
+                transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION, // 重置过渡指令为默认值
             });
 
             const importedCount = allLibraries.length - config.libraries.length;
@@ -569,6 +663,67 @@ ${aiPrompt}
         setFoundMasterSheets([]);
         setSelectedMasterSheets(new Set());
 
+    };
+
+    // 同步刷新：从源表格重新获取数据
+    const handleSyncRefresh = async () => {
+        if (!config.sourceSpreadsheetUrl) {
+            toast.warning('没有导入源，请先从 Google Sheets 导入');
+            return;
+        }
+
+        setIsSyncing(true);
+        try {
+            const spreadsheetId = extractSpreadsheetId(config.sourceSpreadsheetUrl);
+            if (!spreadsheetId) {
+                throw new Error('无效的表格链接');
+            }
+
+            // 重新扫描当前激活的总库
+            const sheetsToRefresh = sourceSheets.length > 0 ? sourceSheets : [config.activeSourceSheet].filter(Boolean);
+            console.log('[同步刷新] 刷新分页:', sheetsToRefresh);
+
+            const refreshedSheets = await scanMasterSheets(spreadsheetId, sheetsToRefresh);
+
+            if (refreshedSheets.length === 0) {
+                toast.warning('未找到数据，请检查表格');
+                return;
+            }
+
+            // 更新库数据
+            let updatedLibraries: RandomLibrary[] = [];
+            const linkedInstructions: Record<string, string> = {};
+
+            for (const masterSheet of refreshedSheets) {
+                for (const lib of masterSheet.libraries) {
+                    const existing = updatedLibraries.find(l => l.name === lib.name && l.sourceSheet === lib.sourceSheet);
+                    if (existing) {
+                        // 合并值
+                        existing.values = lib.values;
+                        existing.valuesWithCategory = lib.valuesWithCategory;
+                    } else {
+                        updatedLibraries.push(lib);
+                    }
+                }
+                // 保存创新指令
+                if (masterSheet.linkedInstruction) {
+                    linkedInstructions[masterSheet.sheetName] = masterSheet.linkedInstruction;
+                }
+            }
+
+            onChange({
+                ...config,
+                libraries: updatedLibraries,
+                linkedInstructions,
+            });
+
+            toast.success(`同步完成！更新了 ${updatedLibraries.length} 个库`);
+        } catch (error: any) {
+            console.error('同步失败:', error);
+            toast.error(error.message || '同步失败');
+        } finally {
+            setIsSyncing(false);
+        }
     };
 
     return (
@@ -637,49 +792,63 @@ ${aiPrompt}
                         <Library size={12} />
                         从表格导入
                     </button>
+                    {/* 同步刷新按钮 */}
+                    {config.sourceSpreadsheetUrl && (
+                        <button
+                            onClick={handleSyncRefresh}
+                            disabled={isSyncing}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/20 hover:bg-blue-800/30 rounded border border-blue-800/30 disabled:opacity-50"
+                            title="从源表格同步最新数据"
+                        >
+                            <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                            {isSyncing ? '同步中...' : '同步刷新'}
+                        </button>
+                    )}
                 </div>
             </div>
 
             {config.enabled && (
                 <>
-                    {/* 1. 组合模式选择 - 最先设置 */}
-                    <div className="p-3 bg-zinc-800/60 rounded-lg border border-zinc-700/50 space-y-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-zinc-400">组合模式:</span>
+                    {/* 1. 组合模式选择 - 快捷模式下只显示整体随机 */}
+                    {workMode !== 'quick' && (
+                        <div className="p-3 bg-zinc-800/60 rounded-lg border border-zinc-700/50 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-medium text-zinc-400">组合模式:</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="combinationMode"
+                                        value="random"
+                                        checked={config.combinationMode !== 'cartesian'}
+                                        onChange={() => onChange({ ...config, combinationMode: 'random' })}
+                                        className="w-3.5 h-3.5 text-purple-500"
+                                    />
+                                    <div>
+                                        <span className="font-medium">整体随机</span>
+                                        <span className="text-zinc-500 ml-1">（由创新个数控制，各库各随机1个）</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="combinationMode"
+                                        value="cartesian"
+                                        checked={config.combinationMode === 'cartesian'}
+                                        onChange={() => onChange({ ...config, combinationMode: 'cartesian' })}
+                                        className="w-3.5 h-3.5 text-purple-500"
+                                    />
+                                    <div>
+                                        <span className="font-medium">笛卡尔积</span>
+                                        <span className="text-zinc-500 ml-1">（场景5×风格2=10组，生成所有排列组合）</span>
+                                    </div>
+                                </label>
+                            </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="combinationMode"
-                                    value="random"
-                                    checked={config.combinationMode !== 'cartesian'}
-                                    onChange={() => onChange({ ...config, combinationMode: 'random' })}
-                                    className="w-3.5 h-3.5 text-purple-500"
-                                />
-                                <div>
-                                    <span className="font-medium">整体随机</span>
-                                    <span className="text-zinc-500 ml-1">（由创新个数控制，各库各随机1个）</span>
-                                </div>
-                            </label>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="combinationMode"
-                                    value="cartesian"
-                                    checked={config.combinationMode === 'cartesian'}
-                                    onChange={() => onChange({ ...config, combinationMode: 'cartesian' })}
-                                    className="w-3.5 h-3.5 text-purple-500"
-                                />
-                                <div>
-                                    <span className="font-medium">笛卡尔积</span>
-                                    <span className="text-zinc-500 ml-1">（场景5×风格2=10组，生成所有排列组合）</span>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
+                    )}
 
                     {/* 分类联动开关 / AI智能分类 */}
                     {config.libraries.length > 0 && (
@@ -688,7 +857,7 @@ ${aiPrompt}
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input
                                         type="checkbox"
-                                        checked={config.categoryLinkEnabled ?? false}
+                                        checked={config.categoryLinkEnabled ?? true}
                                         onChange={(e) => onChange({ ...config, categoryLinkEnabled: e.target.checked })}
                                         className="w-4 h-4 rounded border-zinc-600 bg-zinc-700 text-purple-500 focus:ring-0"
                                         disabled={!hasCategoryLinkData(config)}
@@ -702,13 +871,16 @@ ${aiPrompt}
                                         </span>
                                     </div>
                                 </label>
-                                <button
-                                    onClick={() => setShowAiCategoryModal(true)}
-                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center gap-1.5"
-                                >
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    AI智能分类
-                                </button>
+                                {/* AI智能分类按钮 - 快捷模式下隐藏 */}
+                                {workMode !== 'quick' && (
+                                    <button
+                                        onClick={() => setShowAiCategoryModal(true)}
+                                        className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center gap-1.5"
+                                    >
+                                        <Sparkles className="w-3.5 h-3.5" />
+                                        AI智能分类
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1054,79 +1226,72 @@ ${aiPrompt}
                         </div>
                     )}
 
-                    {/* 3. 过渡指令 */}
-                    <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs text-zinc-500">过渡指令:</span>
-                                <span className="text-xs text-zinc-600">
-                                    (连接创新指令和随机组合的文本)
-                                </span>
-                            </div>
-                            <button
-                                onClick={() => onChange({ ...config, transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION })}
-                                className="text-xs text-purple-400 hover:text-purple-300"
-                            >
-                                恢复默认
-                            </button>
-                        </div>
-                        <textarea
-                            value={config.transitionInstruction || ''}
-                            onChange={(e) => onChange({ ...config, transitionInstruction: e.target.value })}
-                            placeholder="输入过渡指令..."
-                            className="w-full px-3 py-2 text-sm bg-zinc-700 border border-zinc-600 rounded text-white placeholder-zinc-500 focus:ring-1 focus:ring-purple-500 min-h-[60px] resize-y"
-                        />
-                    </div>
-
-                    {/* 4. 输出格式 */}
+                    {/* 3. 过渡指令 - 只读显示 */}
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-zinc-500">输出格式:</span>
+                            <span className="text-xs text-zinc-500">过渡指令:</span>
                             <span className="text-xs text-zinc-600">
-                                (使用 {'{'}库名{'}'} 作为占位符，留空则使用默认格式)
+                                (连接创新指令和随机组合的文本，不可修改)
                             </span>
                         </div>
-                        <input
-                            type="text"
-                            value={config.insertTemplate}
-                            onChange={(e) => onChange({ ...config, insertTemplate: e.target.value })}
-                            placeholder={`留空使用默认格式，或自定义如：在{场景库}里，使用{风格库}风格`}
-                            className="w-full px-3 py-2 text-sm bg-zinc-700 border border-zinc-600 rounded text-white placeholder-zinc-500 focus:ring-1 focus:ring-purple-500"
-                        />
-                        <div className="text-xs text-zinc-600 bg-zinc-800/50 rounded p-2 space-y-1">
-                            <p className="text-zinc-500 font-medium">📋 格式示例（假设场景=森林，风格=赛博朋克）：</p>
-                            <p>• <span className="text-zinc-400">留空默认</span> → 场景：森林，风格：赛博朋克</p>
-                            <p>• <span className="text-zinc-400">在{'{场景库}'}里，使用{'{风格库}'}风格</span> → 在森林里，使用赛博朋克风格</p>
-                            <p>• <span className="text-zinc-400">主题：{'{场景库}'} | 艺术：{'{风格库}'}</span> → 主题：森林 | 艺术：赛博朋克</p>
+                        <div className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700 rounded text-zinc-400 min-h-[40px]">
+                            {DEFAULT_TRANSITION_INSTRUCTION}
                         </div>
                     </div>
 
-                    {/* 5. 插入位置 */}
-                    <div className="flex items-center gap-4">
-                        <span className="text-xs text-zinc-500">插入位置:</span>
-                        <label className="flex items-center gap-1 text-xs text-zinc-400 cursor-pointer">
+                    {/* 4. 输出格式 - 快捷模式下隐藏（使用默认格式） */}
+                    {workMode !== 'quick' && (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-zinc-500">输出格式:</span>
+                                <span className="text-xs text-zinc-600">
+                                    (使用 {'{'}库名{'}'} 作为占位符，留空则使用默认格式)
+                                </span>
+                            </div>
                             <input
-                                type="radio"
-                                name="insertPosition"
-                                value="before"
-                                checked={config.insertPosition === 'before'}
-                                onChange={() => onChange({ ...config, insertPosition: 'before' })}
-                                className="w-3 h-3"
+                                type="text"
+                                value={config.insertTemplate}
+                                onChange={(e) => onChange({ ...config, insertTemplate: e.target.value })}
+                                placeholder={`留空使用默认格式，或自定义如：在{场景库}里，使用{风格库}风格`}
+                                className="w-full px-3 py-2 text-sm bg-zinc-700 border border-zinc-600 rounded text-white placeholder-zinc-500 focus:ring-1 focus:ring-purple-500"
                             />
-                            指令前
-                        </label>
-                        <label className="flex items-center gap-1 text-xs text-zinc-400 cursor-pointer">
-                            <input
-                                type="radio"
-                                name="insertPosition"
-                                value="after"
-                                checked={config.insertPosition === 'after'}
-                                onChange={() => onChange({ ...config, insertPosition: 'after' })}
-                                className="w-3 h-3"
-                            />
-                            指令后
-                        </label>
-                    </div>
+                            <div className="text-xs text-zinc-600 bg-zinc-800/50 rounded p-2 space-y-1">
+                                <p className="text-zinc-500 font-medium">📋 格式示例（假设场景=森林，风格=赛博朋克）：</p>
+                                <p>• <span className="text-zinc-400">留空默认</span> → 场景：森林，风格：赛博朋克</p>
+                                <p>• <span className="text-zinc-400">在{'{场景库}'}里，使用{'{风格库}'}风格</span> → 在森林里，使用赛博朋克风格</p>
+                                <p>• <span className="text-zinc-400">主题：{'{场景库}'} | 艺术：{'{风格库}'}</span> → 主题：森林 | 艺术：赛博朋克</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 5. 插入位置 - 快捷模式下隐藏（固定为指令后） */}
+                    {workMode !== 'quick' && (
+                        <div className="flex items-center gap-4">
+                            <span className="text-xs text-zinc-500">插入位置:</span>
+                            <label className="flex items-center gap-1 text-xs text-zinc-400 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="insertPosition"
+                                    value="before"
+                                    checked={config.insertPosition === 'before'}
+                                    onChange={() => onChange({ ...config, insertPosition: 'before' })}
+                                    className="w-3 h-3"
+                                />
+                                指令前
+                            </label>
+                            <label className="flex items-center gap-1 text-xs text-zinc-400 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="insertPosition"
+                                    value="after"
+                                    checked={config.insertPosition === 'after'}
+                                    onChange={() => onChange({ ...config, insertPosition: 'after' })}
+                                    className="w-3 h-3"
+                                />
+                                指令后
+                            </label>
+                        </div>
+                    )}
 
                     {/* 预览 */}
                     <div className="space-y-2 p-3 bg-zinc-800/50 rounded border border-zinc-700">
@@ -1170,7 +1335,115 @@ ${aiPrompt}
                                 <span className="text-zinc-500 italic">(启用库并添加值后显示预览)</span>
                             )}
                         </div>
+
+                        {/* 预览最终指令按钮 */}
+                        {previewGroups.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-zinc-700">
+                                <button
+                                    onClick={() => setShowFinalPreview(true)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg transition-all"
+                                >
+                                    <Eye size={12} />
+                                    预览最终指令
+                                </button>
+                            </div>
+                        )}
                     </div>
+
+                    {/* 预览最终指令弹框 */}
+                    {showFinalPreview && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                            <div className="w-full max-w-2xl max-h-[80vh] p-5 bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl overflow-hidden flex flex-col">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                        <Eye size={18} className="text-purple-400" />
+                                        最终指令预览
+                                    </h3>
+                                    <button
+                                        onClick={() => setShowFinalPreview(false)}
+                                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto space-y-4">
+                                    {/* 图例 */}
+                                    <div className="flex items-center gap-4 text-xs p-2 bg-zinc-900/50 rounded-lg">
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded bg-blue-500"></span>
+                                            <span className="text-zinc-400">基础指令</span>
+                                        </span>
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded bg-yellow-500"></span>
+                                            <span className="text-zinc-400">过渡指令</span>
+                                        </span>
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded bg-purple-500"></span>
+                                            <span className="text-zinc-400">随机库组合</span>
+                                        </span>
+                                    </div>
+
+                                    {/* 预览内容 */}
+                                    {previewGroups.slice(0, 3).map((group, groupIdx) => {
+                                        // 生成随机库组合文本
+                                        const randomLibraryText = config.insertTemplate
+                                            ? group.reduce(
+                                                (text, item) => text.replace(`{${item.name}}`, item.value),
+                                                config.insertTemplate
+                                            )
+                                            : group.map(item => `${item.name}：${item.value}`).join('，');
+
+                                        return (
+                                            <div key={groupIdx} className="p-4 bg-zinc-900/50 rounded-lg border border-zinc-700">
+                                                <div className="text-xs text-zinc-500 mb-2 font-medium">
+                                                    组合 #{groupIdx + 1}
+                                                </div>
+                                                <div className="space-y-2 text-sm leading-relaxed">
+                                                    {/* 基础指令 */}
+                                                    {effectiveBaseInstruction && (
+                                                        <div className="p-2 rounded border-l-4 border-blue-500 bg-blue-900/20">
+                                                            <span className="text-blue-300 whitespace-pre-wrap">{effectiveBaseInstruction}</span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* 过渡指令 */}
+                                                    <div className="p-2 rounded border-l-4 border-yellow-500 bg-yellow-900/20">
+                                                        <span className="text-yellow-300 whitespace-pre-wrap">{DEFAULT_TRANSITION_INSTRUCTION}</span>
+                                                    </div>
+
+                                                    {/* 随机库组合 */}
+                                                    <div className="p-2 rounded border-l-4 border-purple-500 bg-purple-900/20">
+                                                        <span className="text-purple-300">{randomLibraryText}</span>
+                                                    </div>
+
+                                                    {/* 优先级说明（动态） */}
+                                                    <div className="p-2 rounded border-l-4 border-orange-500 bg-orange-900/20">
+                                                        <span className="text-orange-300 whitespace-pre-wrap">{getPriorityInstruction(false, true)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {previewGroups.length > 3 && (
+                                        <div className="text-center text-xs text-zinc-500">
+                                            还有 {previewGroups.length - 3} 个组合...
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-4 pt-4 border-t border-zinc-700 flex justify-end">
+                                    <button
+                                        onClick={() => setShowFinalPreview(false)}
+                                        className="px-4 py-2 text-sm bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors"
+                                    >
+                                        关闭
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </>
             )}
 
@@ -1506,6 +1779,15 @@ ${aiPrompt}
                                                     {master.libraries.slice(0, 5).map(lib => lib.name).join('、')}
                                                     {master.libraries.length > 5 && ` 等`}
                                                 </div>
+                                                {/* 显示创新指令预览 */}
+                                                {master.linkedInstruction && (
+                                                    <div className="text-xs text-blue-400 mt-1.5 p-1.5 bg-blue-900/20 rounded border border-blue-700/30">
+                                                        <span className="text-blue-300 font-medium">📝 创新指令：</span>
+                                                        {master.linkedInstruction.length > 80
+                                                            ? master.linkedInstruction.substring(0, 80) + '...'
+                                                            : master.linkedInstruction}
+                                                    </div>
+                                                )}
                                             </div>
                                         </label>
                                     ))}
@@ -2063,7 +2345,12 @@ ${aiPrompt}
                                             <span className="text-xs text-zinc-500">（{resultHeaders.length} 列 × {resultRows.length} 行）</span>
                                             <button
                                                 onClick={() => {
-                                                    navigator.clipboard.writeText(aiCategoryResult);
+                                                    // 清理多余空行后复制
+                                                    const cleanedResult = aiCategoryResult
+                                                        .split('\n')
+                                                        .filter(line => line.trim())
+                                                        .join('\n');
+                                                    navigator.clipboard.writeText(cleanedResult);
                                                     toast.success('已复制！可直接粘贴到 Google Sheets');
                                                 }}
                                                 className="ml-auto px-3 py-1 bg-green-600 hover:bg-green-500 text-white text-xs rounded-lg flex items-center gap-1"

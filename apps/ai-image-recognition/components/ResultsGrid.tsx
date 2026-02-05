@@ -348,7 +348,7 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
         let text = textToCopy;
         if (!text) {
             // 创新模式下，优先复制所有创新结果
-            if (workMode === 'creative' && creativeResult?.innovations?.length) {
+            if ((workMode === 'creative' || workMode === 'quick') && creativeResult?.innovations?.length) {
                 text = creativeResult.innovations.map(inno => inno.textEn).join('\n');
             } else {
                 text = showTranslation && translatedText ? translatedText : item.result;
@@ -485,7 +485,7 @@ const ResultExpandModal = ({ item, onClose, onTranslate, onSaveTranslation, onSa
                 {/* 内容 - 可滚动 */}
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar" ref={contentRef}>
                     {/* 创新模式下显示创新结果 */}
-                    {workMode === 'creative' && creativeResult && creativeResult.status === 'success' && creativeResult.innovations.length > 0 ? (
+                    {(workMode === 'creative' || workMode === 'quick') && creativeResult && creativeResult.status === 'success' && creativeResult.innovations.length > 0 ? (
                         <div className="space-y-4">
                             {/* 原始识别结果 */}
                             <div className="border-b border-zinc-700 pb-4">
@@ -2338,7 +2338,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                     )}
 
                     {/* 创新模式下显示"+"按钮 */}
-                    {workMode === 'creative' && onAddFusionImage && (
+                    {(workMode === 'creative' || workMode === 'quick') && onAddFusionImage && (
                         <>
                             <input
                                 type="file"
@@ -2752,14 +2752,14 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                             <div
                                 key={item.id}
                                 data-image-card
-                                tabIndex={workMode === 'creative' ? 0 : -1}
+                                tabIndex={(workMode === 'creative' || workMode === 'quick') ? 0 : -1}
                                 className={`group bg-zinc-900 border rounded-xl overflow-hidden transition-all duration-300 outline-none
                                     ${item.status === 'error' ? 'border-red-900/30' : 'border-zinc-800 hover:border-zinc-600'}
                                     focus:ring-2 focus:ring-cyan-500/50
                                 `}
                                 onClick={(e) => {
                                     console.log('[Card Click] workMode:', workMode, 'onSelectCard:', !!onSelectCard, 'itemId:', item.id);
-                                    if (workMode === 'creative' && onSelectCard) {
+                                    if ((workMode === 'creative' || workMode === 'quick') && onSelectCard) {
                                         if ((e.target as HTMLElement).closest('button')) return;
                                         const newSelected = isSelectedInList ? null : item.id;
                                         console.log('[Card Click] Setting selectedCardId to:', newSelected);
@@ -2773,7 +2773,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 onPaste={async (e) => {
                                     console.log('[Card Paste] Triggered! workMode:', workMode, 'onAddFusionImage:', !!onAddFusionImage, 'itemId:', item.id);
                                     // 创新模式下，卡片接管粘贴事件
-                                    if (workMode === 'creative' && onAddFusionImage) {
+                                    if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         console.log('[Card Paste] Event stopped, processing clipboard...');
@@ -2799,7 +2799,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     }
                                 }}
                                 onDragOver={(e) => {
-                                    if (workMode === 'creative' && onAddFusionImage) {
+                                    if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
                                         e.preventDefault();
                                         e.stopPropagation();
                                         e.currentTarget.classList.add('ring-2', 'ring-cyan-500', 'border-cyan-500');
@@ -2812,7 +2812,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     e.preventDefault();
                                     e.stopPropagation();
                                     e.currentTarget.classList.remove('ring-2', 'ring-cyan-500', 'border-cyan-500');
-                                    if (workMode === 'creative' && onAddFusionImage) {
+                                    if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
                                         const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
                                         for (const file of files) {
                                             onAddFusionImage(item.id, file);
@@ -2872,7 +2872,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
 
                                                             {/* Result Content */}
                                                             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-                                                                {workMode === 'creative' ? (
+                                                                {(workMode === 'creative' || workMode === 'quick') ? (
                                                                     <div
                                                                         className="cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors h-full"
                                                                         onDoubleClick={() => setExpandedResultItem(item)}
@@ -2938,15 +2938,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                                 </button>
                                                                 <button
-                                                                    onClick={() => workMode === 'creative' ? copyCreativeResult(item) : copyResult(item)}
-                                                                    disabled={workMode === 'creative'
+                                                                    onClick={() => (workMode === 'creative' || workMode === 'quick') ? copyCreativeResult(item) : copyResult(item)}
+                                                                    disabled={(workMode === 'creative' || workMode === 'quick')
                                                                         ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
                                                                         : item.status !== 'success'}
                                                                     className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'result')
                                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                                         : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
                                                                         }`}
-                                                                    data-tip={workMode === 'creative' ? '复制所有创新结果' : (item.status === 'success' ? '复制识别结果' : '暂无结果')}
+                                                                    data-tip={(workMode === 'creative' || workMode === 'quick') ? '复制所有创新结果' : (item.status === 'success' ? '复制识别结果' : '暂无结果')}
                                                                 >
                                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                                 </button>
@@ -2979,7 +2979,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     </button>
                                                                 )}
                                                                 {/* 创新按钮 - 标准模式显示，创新模式改为放大查看 */}
-                                                                {workMode === 'creative' ? (
+                                                                {(workMode === 'creative' || workMode === 'quick') ? (
                                                                     // 创新模式：放大查看按钮
                                                                     <button
                                                                         onClick={() => setExpandedResultItem(item)}
@@ -3011,7 +3011,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     <button
                                                                         onClick={() => onRetry(item.id)}
                                                                         className="p-1.5 text-zinc-600 hover:text-emerald-400 hover:bg-zinc-800 rounded transition-colors tooltip-bottom"
-                                                                        data-tip={workMode === 'creative' ? "重新创新" : "重新识别"}
+                                                                        data-tip={(workMode === 'creative' || workMode === 'quick') ? "重新创新" : "重新识别"}
                                                                     >
                                                                         <RotateCw size={12} />
                                                                     </button>
@@ -3290,7 +3290,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                             key={item.id}
                             id={`grid-card-${item.id}`}
                             data-image-card
-                            tabIndex={workMode === 'creative' ? 0 : -1}
+                            tabIndex={(workMode === 'creative' || workMode === 'quick') ? 0 : -1}
                             className={`group relative bg-zinc-900 border rounded-xl overflow-hidden cursor-pointer outline-none
                         ${item.status === 'error' ? 'border-red-900/30' : 'border-zinc-800 hover:border-zinc-600'}
                         ${isResizing ? '' : 'transition-all duration-300'}
@@ -3304,7 +3304,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                             }}
                             onClick={(e) => {
                                 // 只在创新模式下且点击在图片区域时选中
-                                if (workMode === 'creative' && onSelectCard) {
+                                if ((workMode === 'creative' || workMode === 'quick') && onSelectCard) {
                                     // 点击其他按钮时不触发选中
                                     if ((e.target as HTMLElement).closest('button')) return;
                                     const newSelected = isSelected ? null : item.id;
@@ -3317,7 +3317,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                             }}
                             onPaste={async (e) => {
                                 // 创新模式下，卡片接管粘贴事件
-                                if (workMode === 'creative' && onAddFusionImage) {
+                                if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     const clipboardData = e.clipboardData;
@@ -3340,7 +3340,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 }
                             }}
                             onDragOver={(e) => {
-                                if (workMode === 'creative' && onAddFusionImage) {
+                                if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     e.currentTarget.classList.add('ring-2', 'ring-cyan-500', 'border-cyan-500');
@@ -3353,7 +3353,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 e.preventDefault();
                                 e.stopPropagation();
                                 e.currentTarget.classList.remove('ring-2', 'ring-cyan-500', 'border-cyan-500');
-                                if (workMode === 'creative' && onAddFusionImage) {
+                                if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
                                     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
                                     for (const file of files) {
                                         onAddFusionImage(item.id, file);
@@ -3408,7 +3408,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             </div>
 
                                             <div className="flex-1 overflow-y-auto custom-scrollbar">
-                                                {workMode === 'creative' ? (
+                                                {(workMode === 'creative' || workMode === 'quick') ? (
                                                     <div
                                                         className="cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors h-full"
                                                         onDoubleClick={() => setExpandedResultItem(item)}
@@ -3494,15 +3494,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                 </button>
                                                 <button
-                                                    onClick={() => workMode === 'creative' ? copyCreativeResult(item) : copyResult(item)}
-                                                    disabled={workMode === 'creative'
+                                                    onClick={() => (workMode === 'creative' || workMode === 'quick') ? copyCreativeResult(item) : copyResult(item)}
+                                                    disabled={(workMode === 'creative' || workMode === 'quick')
                                                         ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
                                                         : item.status !== 'success'}
                                                     className={`p-1.5 rounded transition-colors disabled:opacity-30 tooltip-bottom ${isCopied(item.id, 'result')
                                                         ? 'text-emerald-400 bg-emerald-900/20'
                                                         : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
                                                         }`}
-                                                    data-tip={workMode === 'creative' ? '复制所有创新结果' : '复制结果'}
+                                                    data-tip={(workMode === 'creative' || workMode === 'quick') ? '复制所有创新结果' : '复制结果'}
                                                 >
                                                     {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
                                                 </button>
@@ -3533,7 +3533,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     </button>
                                                 )}
                                                 {/* 创新按钮 - 标准模式显示，创新模式改为放大查看 */}
-                                                {workMode === 'creative' ? (
+                                                {(workMode === 'creative' || workMode === 'quick') ? (
                                                     // 创新模式：放大查看按钮
                                                     <button
                                                         onClick={() => setExpandedResultItem(item)}
@@ -3565,7 +3565,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     <button
                                                         onClick={() => onRetry(item.id)}
                                                         className="p-1.5 text-zinc-500 hover:text-emerald-400 transition-colors rounded hover:bg-zinc-800 tooltip-bottom"
-                                                        data-tip={workMode === 'creative' ? "重新创新" : "重新识别"}
+                                                        data-tip={(workMode === 'creative' || workMode === 'quick') ? "重新创新" : "重新识别"}
                                                     >
                                                         <RotateCw size={12} />
                                                     </button>
