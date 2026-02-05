@@ -65,6 +65,7 @@ const initialMagicCanvasState: MagicCanvasState = {
   chatInput: '',
 };
 import ImageRecognitionApp from '@/apps/ai-image-recognition/ImageRecognitionApp';
+import ImageReviewApp from '@/apps/image-review/ImageReviewApp';
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -164,6 +165,7 @@ const translations = {
     navScriptTool: "Script Split",
     navMagicCanvas: "AI Image Editor",
     navImageRecognition: "AI Image Recognition",
+    navImageReview: "Image Review",
     navSheetMind: "SheetMind",
     navCopyDedup: "AI Copy Deduplicator",
     navProDedup: "Pro Dedup Search",
@@ -415,6 +417,7 @@ const translations = {
     navMagicCanvas: "AI 图片编辑器",
     navSubEmail: "生成子邮箱",
     navImageRecognition: "AI 图片识别",
+    navImageReview: "图片审核",
     navSheetMind: "表格数据分析",
     navCopyDedup: "AI 文案去重",
     navProDedup: "专业文案查重",
@@ -1143,7 +1146,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7003,6 +7006,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   script: 'event_note',
   directory: 'folder_open',
   imageRecognition: 'center_focus_weak',
+  imageReview: 'fact_check',
   sheetMind: 'table_chart',
   copyDedup: 'content_copy',
   proDedup: 'fingerprint',
@@ -7027,6 +7031,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory' },
   { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
   { tool: 'copyDedup', labelKey: 'navCopyDedup' },
+  { tool: 'imageReview', labelKey: 'navImageReview' },
 ];
 
 // 2025年12月 Gemini API 规范模型选项
@@ -8314,6 +8319,12 @@ const App = () => {
               templateState={templateBuilderState}
               unifiedPresets={DEFAULT_RECOGNITION_PRESETS}
             />
+          </div>
+        );
+      case 'imageReview':
+        return (
+          <div className="tool-container" style={{ padding: 0, overflow: 'hidden' }}>
+            <ImageReviewApp />
           </div>
         );
       case 'sheetMind':
