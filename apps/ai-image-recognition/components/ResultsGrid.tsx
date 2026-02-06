@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { ImageItem, Preset, ChatMessage, InnovationItem, CreativeResult, WorkMode } from '../types';
 import { convertBlobToBase64 } from '../utils';
-import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronUp, X, Paperclip, Plus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play } from 'lucide-react';
+import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronUp, X, Paperclip, Plus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play, Eye } from 'lucide-react';
 
 interface ResultsGridProps {
     images: ImageItem[];
@@ -52,6 +52,9 @@ interface ResultsGridProps {
     // 选中卡片功能（用于粘贴添加融合图片）
     selectedCardId?: string | null;
     onSelectCard?: (imageId: string | null) => void;
+    // 指令预览功能
+    globalUserPrompt?: string; // 全局用户特殊要求
+    baseInstruction?: string; // 基础指令
 }
 
 
@@ -1226,12 +1229,16 @@ interface CustomPromptPanelProps {
     onUpdateCustomPrompt?: (id: string, value: string) => void;
     onApplyPreset?: (id: string, text: string) => void;
     onToggleMergeMode?: (id: string, merge: boolean) => void;
+    globalUserPrompt?: string; // 全局用户特殊要求
+    baseInstruction?: string; // 基础指令
 }
 
-const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset, onToggleMergeMode }: CustomPromptPanelProps) => {
+const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset, onToggleMergeMode, globalUserPrompt, baseInstruction }: CustomPromptPanelProps) => {
+    const [showPreview, setShowPreview] = useState(false);
     if (item.status !== 'idle') return null;
 
     const isMergeMode = item.mergeWithGlobalPrompt ?? true; // 默认为合并模式
+
 
     return (
         <div className="border-t border-zinc-700/50 bg-zinc-900/50 p-2" onClick={(e) => e.stopPropagation()}>
@@ -1260,6 +1267,18 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                 >
                     {isMergeMode ? '🔗 合并' : '📝 独立'}
                 </button>
+                {/* 预览按钮 */}
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPreview(true);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-[0.625rem] bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors tooltip-bottom"
+                    data-tip="预览该卡片最终指令"
+                >
+                    <Eye size={12} />
+                </button>
                 {presets && presets.length > 0 && (
                     <select
                         className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-300 cursor-pointer"
@@ -1284,6 +1303,68 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
             {item.customPrompt && (
                 <div className={`text-[0.625rem] mt-1 ${isMergeMode ? 'text-purple-400' : 'text-blue-400'}`}>
                     {isMergeMode ? '🔗 全局指令 + 单独指令 合并运行' : '✓ 将使用单独指令（替代全局）'}
+                </div>
+            )}
+
+            {/* 预览弹窗 */}
+            {showPreview && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowPreview(false)}>
+                    <div className="w-full max-w-2xl max-h-[80vh] p-5 bg-zinc-800 rounded-xl border border-zinc-700 shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                <Eye size={18} className="text-purple-400" />
+                                该图片最终指令预览
+                            </h3>
+                            <button
+                                onClick={() => setShowPreview(false)}
+                                className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar">
+                            {/* 基础指令 */}
+                            {baseInstruction && (
+                                <div className="p-3 rounded-lg border-l-4 border-blue-500 bg-blue-900/20">
+                                    <div className="text-xs text-blue-400 mb-1 font-medium">基础指令</div>
+                                    <span className="text-blue-300 whitespace-pre-wrap text-sm">{baseInstruction}</span>
+                                </div>
+                            )}
+
+                            {/* 用户特殊要求 */}
+                            {(globalUserPrompt || item.customPrompt) && (
+                                <div className="p-3 rounded-lg border-l-4 border-green-500 bg-green-900/20">
+                                    <div className="text-xs text-green-400 mb-1 font-medium">【用户特别要求】</div>
+                                    <div className="text-green-300 whitespace-pre-wrap text-sm space-y-2">
+                                        {globalUserPrompt && (
+                                            <div>
+                                                <span className="text-green-500 text-xs">全局：</span>
+                                                <span>{globalUserPrompt}</span>
+                                            </div>
+                                        )}
+                                        {item.customPrompt && (
+                                            <div>
+                                                <span className="text-emerald-500 text-xs">本图追加：</span>
+                                                <span>{item.customPrompt}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 说明 */}
+                            <div className="p-3 rounded-lg bg-zinc-900/50 border border-zinc-700">
+                                <div className="text-xs text-zinc-400">
+                                    <p className="mb-1">💡 <strong>实际发送时还会包含：</strong></p>
+                                    <ul className="list-disc list-inside text-zinc-500 space-y-0.5">
+                                        <li>图片内容（AI识别原图）</li>
+                                        <li>随机库组合（如果开启）</li>
+                                        <li>优先级说明</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
@@ -1944,7 +2025,9 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     onAddFusionImage,
     onRemoveFusionImage,
     selectedCardId,
-    onSelectCard
+    onSelectCard,
+    globalUserPrompt,
+    baseInstruction
 }) => {
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | null>(null);
@@ -3115,6 +3198,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 onUpdateCustomPrompt={onUpdateCustomPrompt}
                                                 onApplyPreset={onApplyPreset}
                                                 onToggleMergeMode={onToggleMergeMode}
+                                                globalUserPrompt={globalUserPrompt}
+                                                baseInstruction={baseInstruction}
                                             />
                                         </>
                                     );
@@ -3685,6 +3770,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 onUpdateCustomPrompt={onUpdateCustomPrompt}
                                 onApplyPreset={onApplyPreset}
                                 onToggleMergeMode={onToggleMergeMode}
+                                globalUserPrompt={globalUserPrompt}
+                                baseInstruction={baseInstruction}
                             />
 
                             {/* 右下角调整大小手柄 */}

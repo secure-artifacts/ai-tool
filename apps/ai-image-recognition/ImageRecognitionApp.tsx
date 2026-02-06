@@ -490,6 +490,11 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const [isGeneratingNoImage, setIsGeneratingNoImage] = useState(false);
     const [showBulkImportModal, setShowBulkImportModal] = useState(false); // 批量导入弹窗
     const [bulkImportText, setBulkImportText] = useState(''); // 批量导入文本
+    const [cardBatchSize, setCardBatchSize] = useState(() => {
+        // 从localStorage恢复批次大小设置
+        const saved = localStorage.getItem('ai-image-recognition-card-batch-size');
+        return saved ? parseInt(saved, 10) : 1; // 默认1（单条模式）
+    }); // 批次处理大小：多个卡片合并成一次AI请求
 
     // 自动保存无图模式状态和卡片到localStorage
     useEffect(() => {
@@ -506,6 +511,11 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         }));
         localStorage.setItem('ai-image-recognition-text-cards', JSON.stringify(toSave));
     }, [textCards]);
+
+    // 保存批次大小设置
+    useEffect(() => {
+        localStorage.setItem('ai-image-recognition-card-batch-size', String(cardBatchSize));
+    }, [cardBatchSize]);
     const [toastMessage, setToastMessage] = useState<string | null>(null); // Toast提示
     const [confirmModal, setConfirmModal] = useState<{ show: boolean; message: string; onConfirm: () => void }>({
         show: false,
@@ -1093,7 +1103,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     };
 
     // 简单文本生成（用于智能库等功能）
-    const generateText = async (prompt: string): Promise<string> => {
+    const generateText = useCallback(async (prompt: string): Promise<string> => {
         const ai = getAiInstance();
         const response = await ai.models.generateContent({
             model: imageModel || 'gemini-2.0-flash',
@@ -1103,7 +1113,38 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             }
         });
         return response.text || "";
-    };
+    }, [imageModel]);
+
+    // 多模态图片分析（用于图片转库功能）
+    const analyzeImages = useCallback(async (images: { base64: string; mimeType: string }[], prompt: string): Promise<string> => {
+        const ai = getAiInstance();
+
+        // 构建多模态 parts：先是所有图片，最后是文本提示
+        const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [];
+
+        // 添加所有图片
+        for (const img of images) {
+            parts.push({
+                inlineData: {
+                    mimeType: img.mimeType,
+                    data: img.base64,
+                },
+            });
+        }
+
+        // 添加文本提示
+        parts.push({ text: prompt });
+
+        const response = await ai.models.generateContent({
+            model: imageModel || 'gemini-2.0-flash',
+            contents: { parts },
+            config: {
+                temperature: 0.7,
+            }
+        });
+
+        return response.text || "";
+    }, [imageModel]);
 
     // 无图模式：添加文字卡片
     const addTextCard = useCallback(() => {
@@ -1156,13 +1197,27 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     // 切换引号状态
                     inQuotes = !inQuotes;
                 }
-            } else if ((char === '\t' || char === '\n' || char === '\r') && !inQuotes) {
-                // 分隔符（不在引号内）
+            } else if (char === '\t' && !inQuotes) {
+                // Tab 分隔符（不在引号内）= 单元格分隔
+                if (current.trim()) {
+                    // 清理单元格内的换行，合并成一个整体
+                    const cleaned = current.trim().replace(/[\r\n]+/g, ' ').trim();
+                    if (cleaned) {
+                        cells.push(cleaned);
+                    }
+                }
+                current = '';
+            } else if ((char === '\n' || char === '\r') && !inQuotes) {
+                // 换行分隔符（不在引号内）= 行分隔
                 if (char === '\r' && nextChar === '\n') {
                     i++; // 跳过 \r\n 中的 \n
                 }
                 if (current.trim()) {
-                    cells.push(current.trim());
+                    // 清理单元格内的换行，合并成一个整体
+                    const cleaned = current.trim().replace(/[\r\n]+/g, ' ').trim();
+                    if (cleaned) {
+                        cells.push(cleaned);
+                    }
                 }
                 current = '';
             } else {
@@ -1172,7 +1227,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
         // 添加最后一个单元格
         if (current.trim()) {
-            cells.push(current.trim());
+            const cleaned = current.trim().replace(/[\r\n]+/g, ' ').trim();
+            if (cleaned) {
+                cells.push(cleaned);
+            }
         }
 
         return cells;
@@ -1180,12 +1238,16 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
     // 无图模式：批量导入（支持Google Sheets格式和普通换行）
     const handleBulkImport = useCallback(() => {
-        // 检测是否包含Tab分隔符（Google Sheets格式）
+        // 检测是否是Google Sheets格式：
+        // 1. 包含Tab分隔符（多列）
+        // 2. 或者以双引号开头/包含换行+双引号（单列，单元格内有换行）
         const hasTabSeparator = bulkImportText.includes('\t');
+        const hasQuotedContent = /^"|"\n|"\r/.test(bulkImportText);
+        const isGoogleSheetsFormat = hasTabSeparator || hasQuotedContent;
 
         let topics: string[];
 
-        if (hasTabSeparator) {
+        if (isGoogleSheetsFormat) {
             // Google Sheets格式：使用专门的解析器
             topics = parseGoogleSheetsCells(bulkImportText);
         } else {
@@ -1314,6 +1376,103 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
         setIsGeneratingNoImage(true);
 
+        // === 批次处理模式（cardBatchSize > 1）：多个卡片合并成一次AI请求 ===
+        if (cardBatchSize > 1 && cardsToProcess.length > 1 && !randomLibraryConfigRef.current.enabled) {
+            // 批次模式只在不使用随机库时生效（随机库模式已经有批量合并了）
+            console.log(`[无图批次模式] 开始批次处理，每批 ${cardBatchSize} 个卡片`);
+
+            // 设置所有卡片为处理中
+            setTextCards(prev => prev.map(c =>
+                cardsToProcess.find(p => p.id === c.id)
+                    ? { ...c, status: 'processing', results: [] }
+                    : c
+            ));
+
+            // 分批处理
+            for (let i = 0; i < cardsToProcess.length; i += cardBatchSize) {
+                const batchCards = cardsToProcess.slice(i, i + cardBatchSize);
+                const count = creativeCount || 5;
+
+                try {
+                    // 构建批量提示词
+                    const topicsList = batchCards.map((card, idx) => `[${idx + 1}] ${card.topic}`).join('\n');
+                    const priorityInstruction = getPriorityInstruction(true, false);
+
+                    const batchPrompt = `${effectivePrompt}
+
+${priorityInstruction}
+
+请为以下每个主题分别生成 ${count} 个不同的AI图像生成描述词（英文）：
+
+${topicsList}
+
+【输出要求】
+- 对于每个主题，使用 "=== [编号] ===" 分隔不同主题的结果
+- 对于同一主题的多个变体，使用 --- 分隔
+- 每个变体是一个完整的描述词，不要有编号或标题
+- 格式示例：
+=== [1] ===
+描述词1
+---
+描述词2
+---
+描述词3
+=== [2] ===
+描述词1
+---
+描述词2
+---
+描述词3`;
+
+                    const batchResult = await generateText(batchPrompt);
+
+                    // 解析批量结果
+                    const topicSections = batchResult.split(/===\s*\[(\d+)\]\s*===/).filter(s => s.trim());
+
+                    for (let j = 0; j < batchCards.length; j++) {
+                        const card = batchCards[j];
+                        // 找到对应的section
+                        const sectionIdx = topicSections.findIndex((s, idx) => idx % 2 === 0 && s.trim() === String(j + 1));
+                        const sectionContent = sectionIdx >= 0 && sectionIdx + 1 < topicSections.length
+                            ? topicSections[sectionIdx + 1]
+                            : topicSections[j * 2 + 1] || '';
+
+                        const results = sectionContent
+                            .split(/---+/)
+                            .map(r => r.trim())
+                            .filter(r => r.length > 0 && !r.match(/^\[?\d+\]?$/));
+
+                        if (results.length > 0) {
+                            setTextCards(prev => prev.map(c =>
+                                c.id === card.id ? { ...c, status: 'done', results } : c
+                            ));
+                        } else {
+                            setTextCards(prev => prev.map(c =>
+                                c.id === card.id ? { ...c, status: 'error', results: ['批次解析失败'] } : c
+                            ));
+                        }
+                    }
+                } catch (error) {
+                    console.error('[无图批次模式] 处理失败:', error);
+                    // 该批次所有卡片标记为失败
+                    for (const card of batchCards) {
+                        setTextCards(prev => prev.map(c =>
+                            c.id === card.id ? { ...c, status: 'error', results: ['批次处理失败'] } : c
+                        ));
+                    }
+                }
+
+                // 批次之间延迟避免 API 限流
+                if (i + cardBatchSize < cardsToProcess.length) {
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+            }
+
+            setIsGeneratingNoImage(false);
+            return;
+        }
+
+        // === 单条处理模式（cardBatchSize === 1 或使用随机库）===
         for (const card of cardsToProcess) {
             // 更新状态为处理中
             setTextCards(prev => prev.map(c =>
@@ -1343,12 +1502,56 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     }
 
                     const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
-                    const hasUserInput = !!(userInput && workMode === 'quick');
+                    // 无图模式下，card.topic就是用户要求
+                    const hasUserInput = true; // 无图模式下总有用户要求（topic）
 
-                    for (let i = 0; i < combinations.length; i++) {
-                        const combination = combinations[i];
+                    // 批量模式：把所有组合合并成一次请求，节省token
+                    if (combinations.length > 1) {
                         const priorityInstruction = getPriorityInstruction(hasUserInput, true);
-                        // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
+                        // 构建批量提示词
+                        const combinationsList = combinations.map((combo, idx) => `【组合${idx + 1}】\n${combo}`).join('\n\n');
+                        const batchPrompt = `${effectivePrompt}
+
+${transitionInstruction}
+
+下面有 ${combinations.length} 个不同的创意组合，请针对每个组合生成一个对应的描述词：
+
+${combinationsList}
+
+${priorityInstruction}
+
+【用户特别要求】
+${card.topic}
+
+【输出要求】
+- 使用 --- 作为分隔符，分隔不同组合的结果
+- 每个组合输出一个完整的图像生成描述词（英文）
+- 不要输出组合编号、标题或任何解释
+- 共 ${combinations.length} 个结果，以 --- 分隔
+- 格式示例：
+描述词1内容
+---
+描述词2内容
+---
+描述词3内容`;
+
+                        const batchResult = await generateText(batchPrompt);
+                        // 解析批量结果
+                        const parsedResults = batchResult
+                            .split(/---+/)
+                            .map(r => r.trim())
+                            .filter(r => r.length > 0);
+
+                        results.push(...parsedResults);
+
+                        // 更新结果
+                        setTextCards(prev => prev.map(c =>
+                            c.id === card.id ? { ...c, results: [...results] } : c
+                        ));
+                    } else if (combinations.length === 1) {
+                        // 单个组合：正常处理
+                        const combination = combinations[0];
+                        const priorityInstruction = getPriorityInstruction(hasUserInput, true);
                         const aiPrompt = `${effectivePrompt}
 
 ${transitionInstruction}
@@ -1356,7 +1559,8 @@ ${combination}
 
 ${priorityInstruction}
 
-基础主题：${card.topic}
+【用户特别要求】
+${card.topic}
 
 【输出要求】
 - 直接输出完整的图像生成描述词（英文）
@@ -1368,38 +1572,73 @@ ${priorityInstruction}
                         const result = await generateText(aiPrompt);
                         results.push(result.trim());
 
-                        // 实时更新结果
                         setTextCards(prev => prev.map(c =>
                             c.id === card.id ? { ...c, results: [...results] } : c
                         ));
                     }
                 } else {
-                    // 纯主题模式：按创新个数生成多个变体（有用户要求，无随机库）
+                    // 纯主题模式：批量生成多个变体（节省token）
                     const count = creativeCount || 5;
-                    const hasUserInput = !!(userInput && workMode === 'quick');
-                    const priorityInstruction = getPriorityInstruction(hasUserInput, false);
+                    // 无图模式下，card.topic就是用户要求
+                    const priorityInstruction = getPriorityInstruction(true, false);
 
-                    for (let i = 0; i < count; i++) {
+                    if (count > 1) {
+                        // 批量模式：一次请求生成所有变体
+                        const batchPrompt = `${effectivePrompt}
+
+${priorityInstruction}
+
+请根据以下用户要求，生成 ${count} 个完全不同的AI图像生成描述词（英文）：
+
+【用户特别要求】
+${card.topic}
+
+【输出要求】
+- 使用 --- 作为分隔符，分隔不同变体
+- 每个变体输出一个完整的图像生成描述词（英文）
+- 每个变体要有不同的创意角度和风格
+- 描述应该包含画面主体、风格、光影、色彩、氛围等要素
+- 不要输出编号、标题或任何解释
+- 共 ${count} 个结果，以 --- 分隔
+- 格式示例：
+描述词1内容
+---
+描述词2内容
+---
+描述词3内容`;
+
+                        const batchResult = await generateText(batchPrompt);
+                        // 解析批量结果
+                        const parsedResults = batchResult
+                            .split(/---+/)
+                            .map(r => r.trim())
+                            .filter(r => r.length > 0);
+
+                        results.push(...parsedResults);
+
+                        setTextCards(prev => prev.map(c =>
+                            c.id === card.id ? { ...c, results: [...results] } : c
+                        ));
+                    } else {
+                        // 单个：正常处理
                         const aiPrompt = `${effectivePrompt}
 
 ${priorityInstruction}
 
-请根据以下主题，生成一个完整、专业、有创意的AI图像生成描述词（英文）：
+请根据以下用户要求，生成一个完整、专业、有创意的AI图像生成描述词（英文）：
 
-主题：${card.topic}
+【用户特别要求】
+${card.topic}
 
 【输出要求】
 - 直接输出完整的图像生成描述词（英文）
-- 每次生成要有不同的创意角度和风格
 - 描述应该包含画面主体、风格、光影、色彩、氛围等要素
-- 这是第 ${i + 1}/${count} 个变体，请确保与其他变体有明显差异
 - 不要输出任何解释、标题或编号
 - 可以直接用于AI图像生成`;
 
                         const result = await generateText(aiPrompt);
                         results.push(result.trim());
 
-                        // 实时更新结果
                         setTextCards(prev => prev.map(c =>
                             c.id === card.id ? { ...c, results: [...results] } : c
                         ));
@@ -2689,10 +2928,17 @@ ${transitionInstruction}
     };
 
     // 复制全部结果 - 保留空行以确保行对齐
+    // 对于含换行的结果，用双引号包裹以便粘贴到Google Sheets时保持在同一单元格
     const copyAllResults = () => {
         const lines = images.map(img => {
             if (img.status === 'success' && img.result) {
-                return img.result.replace(/\r?\n/g, ' ');
+                const result = img.result;
+                // 如果结果包含换行、Tab或双引号，需要用双引号包裹（TSV格式规范）
+                if (result.includes('\n') || result.includes('\r') || result.includes('\t') || result.includes('"')) {
+                    // 双引号需要转义为两个双引号
+                    return `"${result.replace(/"/g, '""')}"`;
+                }
+                return result;
             }
             return ''; // 保留空行
         });
@@ -2712,9 +2958,16 @@ ${transitionInstruction}
             const original = img.originalInput.startsWith('=IMAGE')
                 ? img.originalInput
                 : (img.gyazoUrl ? `=IMAGE("${img.gyazoUrl}")` : (img.fetchUrl ? `=IMAGE("${img.fetchUrl}")` : img.originalInput));
-            const result = (img.status === 'success' && img.result)
-                ? img.result.replace(/\r?\n/g, ' ')
-                : '';
+            let result = '';
+            if (img.status === 'success' && img.result) {
+                const r = img.result;
+                // 如果结果包含换行、Tab或双引号，需要用双引号包裹（TSV格式规范）
+                if (r.includes('\n') || r.includes('\r') || r.includes('\t') || r.includes('"')) {
+                    result = `"${r.replace(/"/g, '""')}"`;
+                } else {
+                    result = r;
+                }
+            }
             return `${original}\t${result}`;
         });
 
@@ -4000,6 +4253,24 @@ ${effectiveInstruction}
             try {
                 if (!item.base64Data || !item.mimeType) throw new Error('No image data');
 
+                // 获取该图片的追加指令作为用户特殊要求
+                let itemUserInput = userInput; // 默认使用全局用户输入
+                if (item.useCustomPrompt && item.customPrompt?.trim()) {
+                    if (item.mergeWithGlobalPrompt ?? true) {
+                        // 合并模式：全局用户输入 + 单独追加指令
+                        itemUserInput = userInput ? `${userInput}\n${item.customPrompt.trim()}` : item.customPrompt.trim();
+                    } else {
+                        // 独立模式：仅使用单独追加指令
+                        itemUserInput = item.customPrompt.trim();
+                    }
+                }
+
+                // 重新构建该图片的effectiveInstruction
+                let itemEffectiveInstruction = baseInstruction;
+                if (itemUserInput) {
+                    itemEffectiveInstruction = `${baseInstruction}\n\n${USER_REQUIREMENT_TRANSITION}\n${itemUserInput}`;
+                }
+
                 let originalDesc = '';
                 let innovationResult = '';
 
@@ -4043,11 +4314,11 @@ ${effectiveInstruction}
 
                         for (const randomCombination of combinations) {
                             const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
-                            const priorityInstruction = getPriorityInstruction(!!userInput, true);
+                            const priorityInstruction = getPriorityInstruction(!!itemUserInput, true);
 
                             // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
                             let finalInstruction: string;
-                            finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
+                            finalInstruction = `${itemEffectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
 
                             const singlePrompt = `
 ${finalInstruction}
@@ -4090,7 +4361,7 @@ ${finalInstruction}
 
                         // 普通模式：一次调用生成多个变体
                         const innovationPrompt = `
-${effectiveInstruction}
+${itemEffectiveInstruction}
 
 请根据这张图片生成 ${count} 个创意变体描述。
 返回格式为JSON数组:
@@ -4152,11 +4423,11 @@ ${effectiveInstruction}
                         for (const randomCombination of combinations) {
                             // 获取过渡指令和动态优先级
                             const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
-                            const priorityInstruction = getPriorityInstruction(!!userInput, true);
+                            const priorityInstruction = getPriorityInstruction(!!itemUserInput, true);
 
                             // 顺序：基础指令+用户要求 -> 画面细节 -> 优先级说明
                             let finalInstruction: string;
-                            finalInstruction = `${effectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
+                            finalInstruction = `${itemEffectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}`;
 
                             const singlePrompt = `${finalInstruction}
 
@@ -4198,7 +4469,7 @@ ${effectiveInstruction}
                     } else {
                         // 普通模式：一次调用生成多个变体
                         const innovationPrompt = `
-${effectiveInstruction}
+${itemEffectiveInstruction}
 
 请根据这张图片生成 ${count} 个创意变体描述。返回格式为JSON数组:
 [
@@ -4974,6 +5245,12 @@ ${effectiveInstruction}
                                                         {images.filter(i => i.status === 'error').length > 0 && (
                                                             <span className="text-red-400">失败<span className="text-red-300 font-bold ml-0.5">{images.filter(i => i.status === 'error').length}</span></span>
                                                         )}
+                                                        {/* 当前总库名称 */}
+                                                        {randomLibraryConfig.enabled && randomLibraryConfig.activeSourceSheet && (
+                                                            <span className="text-indigo-400 ml-1">
+                                                                📚 <span className="text-indigo-300 font-medium">{randomLibraryConfig.activeSourceSheet}</span>
+                                                            </span>
+                                                        )}
                                                     </div>
 
                                                     <div className="flex-1" />
@@ -4992,6 +5269,16 @@ ${effectiveInstruction}
                                                     >
                                                         {isProcessing ? <><Loader2 size={14} className="animate-spin" /> 处理中</> : <><Sparkles size={14} fill="currentColor" /> 创新</>}
                                                     </button>
+                                                </div>
+                                                {/* 全局用户特殊要求输入框 */}
+                                                <div className="mt-2">
+                                                    <input
+                                                        type="text"
+                                                        value={prompt}
+                                                        onChange={(e) => setPrompt(e.target.value)}
+                                                        placeholder="全局用户要求（可选，应用到所有图片）"
+                                                        className="w-full px-3 py-1.5 text-xs bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20"
+                                                    />
                                                 </div>
                                             </>
                                         ) : (
@@ -5277,6 +5564,22 @@ ${effectiveInstruction}
                                                     <><Sparkles size={14} />开始创新</>
                                                 )}
                                             </button>
+                                            {/* 批次设置 */}
+                                            <div className="flex items-center gap-1 px-2 py-1 bg-zinc-800/60 rounded border border-zinc-700/50 relative z-50" title="批次处理：多个卡片合并成一次AI请求，节省token">
+                                                <span className="text-[10px] text-zinc-400">批次</span>
+                                                <select
+                                                    value={cardBatchSize}
+                                                    onChange={(e) => setCardBatchSize(parseInt(e.target.value, 10))}
+                                                    className="bg-zinc-800 text-xs text-zinc-200 border-none outline-none cursor-pointer rounded px-1 py-0.5 relative z-50"
+                                                    style={{ WebkitAppearance: 'menulist', pointerEvents: 'auto' }}
+                                                >
+                                                    <option value="1" className="bg-zinc-800 text-zinc-200">×1（单条）</option>
+                                                    <option value="3" className="bg-zinc-800 text-zinc-200">×3</option>
+                                                    <option value="5" className="bg-zinc-800 text-zinc-200">×5</option>
+                                                    <option value="10" className="bg-zinc-800 text-zinc-200">×10</option>
+                                                    <option value="20" className="bg-zinc-800 text-zinc-200">×20</option>
+                                                </select>
+                                            </div>
                                             {/* 重新创新全部按钮 */}
                                             <button
                                                 onClick={regenerateAllTextCards}
@@ -5322,22 +5625,32 @@ ${effectiveInstruction}
                                                     <span className="text-xs text-zinc-500">批量复制:</span>
                                                     <button
                                                         onClick={() => {
-                                                            const results = textCards.flatMap(c => c.results).join('\n');
-                                                            navigator.clipboard.writeText(results);
-                                                            showToast(`已复制 ${textCards.flatMap(c => c.results).length} 条结果！`);
+                                                            // 把结果内的换行替换成空格，确保每个结果是单行
+                                                            const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                            // 所有结果平铺，每个结果一行
+                                                            const allResults = textCards.flatMap(c => c.results).map(r => cleanText(r));
+                                                            navigator.clipboard.writeText(allResults.join('\n'));
+                                                            showToast(`已复制 ${allResults.length} 条结果！`);
                                                         }}
                                                         className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-purple-600 hover:bg-purple-500 text-white"
+                                                        title="每个结果一行（适合粘贴表格）"
                                                     >
                                                         <Copy size={12} />
                                                         只复制结果
                                                     </button>
                                                     <button
                                                         onClick={() => {
-                                                            const data = textCards.filter(c => c.results.length > 0).flatMap(c => c.results.map(r => `${c.topic}\t${r}`)).join('\n');
-                                                            navigator.clipboard.writeText(data);
-                                                            showToast(`已复制 ${textCards.flatMap(c => c.results).length} 条（主题+结果两列）！`);
+                                                            // 把结果内的换行替换成空格
+                                                            const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                            // 第一列是主题，后面是结果
+                                                            const rows = textCards.filter(c => c.results.length > 0).map(c =>
+                                                                `${cleanText(c.topic)}\t${c.results.map(r => cleanText(r)).join('\t')}`
+                                                            );
+                                                            navigator.clipboard.writeText(rows.join('\n'));
+                                                            showToast(`已复制 ${textCards.flatMap(c => c.results).length} 条（主题+结果）！`);
                                                         }}
                                                         className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+                                                        title="第一列主题，后面结果分列（适合粘贴表格）"
                                                     >
                                                         <Copy size={12} />
                                                         主题+结果
@@ -5425,7 +5738,10 @@ ${effectiveInstruction}
                                                                         {card.results.length > 0 && (
                                                                             <button
                                                                                 onClick={() => {
-                                                                                    navigator.clipboard.writeText(card.results.join('\n'));
+                                                                                    // 把结果内的换行替换成空格，确保每个结果是单行
+                                                                                    const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                                                    const cleanResults = card.results.map(r => cleanText(r));
+                                                                                    navigator.clipboard.writeText(cleanResults.join('\n'));
                                                                                     showToast(`已复制 ${card.results.length} 条结果！`);
                                                                                 }}
                                                                                 className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded"
@@ -5462,7 +5778,9 @@ ${effectiveInstruction}
                                                                                             </button>
                                                                                             <button
                                                                                                 onClick={() => {
-                                                                                                    navigator.clipboard.writeText(result);
+                                                                                                    // 把结果内的换行替换成空格，确保是单行
+                                                                                                    const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
+                                                                                                    navigator.clipboard.writeText(cleanText);
                                                                                                     showToast('已复制！');
                                                                                                 }}
                                                                                                 className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded transition-opacity"
@@ -5669,6 +5987,22 @@ ${effectiveInstruction}
                                     onRemoveFusionImage={handleRemoveFusionImage}
                                     selectedCardId={selectedCardId}
                                     onSelectCard={setSelectedCardId}
+                                    globalUserPrompt={prompt}
+                                    baseInstruction={(() => {
+                                        // 快捷模式下：优先使用配套指令，否则使用默认预设
+                                        if (workMode === 'quick') {
+                                            const activeSheet = randomLibraryConfig.activeSourceSheet || '';
+                                            const linkedInstruction = randomLibraryConfig.linkedInstructions?.[activeSheet];
+                                            if (linkedInstruction && linkedInstruction.trim()) {
+                                                return linkedInstruction.trim();
+                                            }
+                                            const isRandomLibEnabled = randomLibraryConfig.enabled &&
+                                                randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
+                                            const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
+                                            return DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                                        }
+                                        return prompt || DEFAULT_CREATIVE_INSTRUCTION;
+                                    })()}
                                 />
                             )}
                         </div>
@@ -5715,7 +6049,8 @@ ${effectiveInstruction}
                                     <span className="text-xs text-zinc-500">
                                         {(() => {
                                             const hasTab = bulkImportText.includes('\t');
-                                            if (hasTab) {
+                                            const hasQuotedContent = /^"|"\n|"\r/.test(bulkImportText);
+                                            if (hasTab || hasQuotedContent) {
                                                 return <span className="text-emerald-400">📊 Google表格格式</span>;
                                             }
                                             return <span className="text-blue-400">📝 普通文本格式</span>;
@@ -5724,7 +6059,8 @@ ${effectiveInstruction}
                                     <span className="text-xs text-zinc-400">
                                         {(() => {
                                             const hasTab = bulkImportText.includes('\t');
-                                            if (hasTab) {
+                                            const hasQuotedContent = /^"|"\n|"\r/.test(bulkImportText);
+                                            if (hasTab || hasQuotedContent) {
                                                 return parseGoogleSheetsCells(bulkImportText).length;
                                             }
                                             return bulkImportText.split(/\r?\n/).filter(l => l.trim()).length;
@@ -5768,31 +6104,12 @@ ${effectiveInstruction}
                                         <Sparkles size={18} className="text-purple-400" />
                                         高级创新设置
                                     </h3>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => {
-                                                // 一键恢复所有默认设置
-                                                const newConfig = {
-                                                    ...randomLibraryConfig,
-                                                    transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION,
-                                                    quickPresets: DEFAULT_QUICK_INNOVATION_PRESETS,
-                                                };
-                                                setRandomLibraryConfig(newConfig);
-                                                randomLibraryConfigRef.current = newConfig;
-                                                showToast('已恢复所有默认设置');
-                                            }}
-                                            className="flex items-center gap-1 px-3 py-1.5 text-xs text-orange-400 hover:text-orange-300 bg-orange-900/20 hover:bg-orange-800/30 rounded-lg border border-orange-800/30 transition-colors"
-                                        >
-                                            <RotateCcw size={12} />
-                                            恢复默认
-                                        </button>
-                                        <button
-                                            onClick={() => setShowGlobalInnovationSettings(false)}
-                                            className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                                        >
-                                            <X size={18} />
-                                        </button>
-                                    </div>
+                                    <button
+                                        onClick={() => setShowGlobalInnovationSettings(false)}
+                                        className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    >
+                                        <X size={18} />
+                                    </button>
                                 </div>
 
                                 {/* 规则说明按钮 */}
@@ -5812,8 +6129,10 @@ ${effectiveInstruction}
                                         config={randomLibraryConfig}
                                         onChange={handleRandomLibraryConfigChange}
                                         onAIGenerate={generateText}
+                                        onAIAnalyzeImages={analyzeImages}
                                         innovationCount={creativeCount}
                                         workMode={workMode}
+                                        globalUserPrompt={prompt}
                                         baseInstruction={(() => {
                                             // 快捷模式下：优先使用配套指令，否则使用默认预设
                                             if (workMode === 'quick') {
@@ -5891,8 +6210,11 @@ ${effectiveInstruction}
                                         <span className="text-blue-400 font-bold">1️⃣</span>
                                         <span className="text-zinc-300 font-medium">有用户要求 + 有随机库</span>
                                     </div>
-                                    <div className="text-zinc-400 text-xs ml-6">
+                                    <div className="text-zinc-400 text-xs ml-6 mb-1">
                                         基础指令 → 【用户特别要求】 → 【画面创新细节】 → 优先级说明
+                                    </div>
+                                    <div className="text-amber-400/80 text-xs ml-6">
+                                        ⚠️ 优先级：【用户特别要求】 &gt; 【画面创新细节】 &gt; 基础指令 &gt; 默认还原
                                     </div>
                                 </div>
 
@@ -5901,8 +6223,11 @@ ${effectiveInstruction}
                                         <span className="text-green-400 font-bold">2️⃣</span>
                                         <span className="text-zinc-300 font-medium">有用户要求 + 无随机库</span>
                                     </div>
-                                    <div className="text-zinc-400 text-xs ml-6">
+                                    <div className="text-zinc-400 text-xs ml-6 mb-1">
                                         基础指令 → 【用户特别要求】 → 优先级说明
+                                    </div>
+                                    <div className="text-amber-400/80 text-xs ml-6">
+                                        ⚠️ 优先级：【用户特别要求】 &gt; 基础指令 &gt; 默认还原
                                     </div>
                                 </div>
 
@@ -5911,8 +6236,11 @@ ${effectiveInstruction}
                                         <span className="text-yellow-400 font-bold">3️⃣</span>
                                         <span className="text-zinc-300 font-medium">无用户要求 + 有随机库</span>
                                     </div>
-                                    <div className="text-zinc-400 text-xs ml-6">
+                                    <div className="text-zinc-400 text-xs ml-6 mb-1">
                                         基础指令 → 【画面创新细节】 → 优先级说明
+                                    </div>
+                                    <div className="text-amber-400/80 text-xs ml-6">
+                                        ⚠️ 优先级：【画面创新细节】 &gt; 基础指令 &gt; 默认还原
                                     </div>
                                 </div>
 
@@ -5921,14 +6249,22 @@ ${effectiveInstruction}
                                         <span className="text-orange-400 font-bold">4️⃣</span>
                                         <span className="text-zinc-300 font-medium">无用户要求 + 无随机库</span>
                                     </div>
-                                    <div className="text-zinc-400 text-xs ml-6">
+                                    <div className="text-zinc-400 text-xs ml-6 mb-1">
                                         基础指令 → 优先级说明
+                                    </div>
+                                    <div className="text-amber-400/80 text-xs ml-6">
+                                        ⚠️ 优先级：基础指令 &gt; 默认还原
                                     </div>
                                 </div>
                             </div>
 
                             <div className="mt-4 pt-3 border-t border-zinc-700/50 text-xs text-zinc-500">
-                                <span className="text-amber-400">⚠️</span> 优先级说明会根据实际情况动态生成，放在指令最后以强调执行顺序。
+                                <div className="mb-2">
+                                    <span className="text-amber-400">⚠️</span> 优先级说明会根据实际情况动态生成，放在指令最后以强调执行顺序。
+                                </div>
+                                <div className="text-zinc-400">
+                                    每个优先级说明都会附加：「请严格按照优先级的顺序规则来生成描述词」
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -6082,7 +6418,10 @@ ${effectiveInstruction}
                                 </button>
                                 <button
                                     onClick={() => {
-                                        navigator.clipboard.writeText(resultDetailModal.card!.results.join('\n\n'));
+                                        // 把结果内的换行替换成空格，确保每个结果是单行
+                                        const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                        const cleanResults = resultDetailModal.card!.results.map(r => cleanText(r));
+                                        navigator.clipboard.writeText(cleanResults.join('\n'));
                                         showToast(`已复制 ${resultDetailModal.card!.results.length} 条结果！`);
                                     }}
                                     className="px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-1"
@@ -6140,7 +6479,8 @@ ${effectiveInstruction}
                                                 <span className="text-[10px] text-zinc-500 font-medium">🇬🇧 English</span>
                                                 <button
                                                     onClick={() => {
-                                                        navigator.clipboard.writeText(result);
+                                                        const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
+                                                        navigator.clipboard.writeText(cleanText);
                                                         showToast('已复制英文！');
                                                     }}
                                                     className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-0.5"
@@ -6161,7 +6501,8 @@ ${effectiveInstruction}
                                                     <span className="text-[10px] text-zinc-500 font-medium">🇨🇳 中文</span>
                                                     <button
                                                         onClick={() => {
-                                                            navigator.clipboard.writeText(translation);
+                                                            const cleanText = translation.replace(/[\r\n]+/g, ' ').trim();
+                                                            navigator.clipboard.writeText(cleanText);
                                                             showToast('已复制中文！');
                                                         }}
                                                         className="px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-0.5"

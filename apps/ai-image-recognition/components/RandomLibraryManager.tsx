@@ -23,6 +23,8 @@ import {
     Loader2,
     Search,
     RefreshCw,
+    ArrowRightLeft,
+    Image as ImageIcon,
 } from 'lucide-react';
 import {
     RandomLibrary,
@@ -58,9 +60,11 @@ interface RandomLibraryManagerProps {
     onChange: (config: RandomLibraryConfig) => void;
     onClose?: () => void;
     onAIGenerate?: (prompt: string) => Promise<string>; // AI生成函数
+    onAIAnalyzeImages?: (images: { base64: string; mimeType: string }[], prompt: string) => Promise<string>; // 多图片分析函数
     innovationCount?: number; // 创新个数，用于预览显示
     workMode?: WorkMode; // 工作模式：快捷模式下隐藏部分设置
     baseInstruction?: string; // 基础指令，用于预览最终指令
+    globalUserPrompt?: string; // 全局用户特殊要求
 }
 
 export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
@@ -68,9 +72,11 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
     onChange,
     onClose,
     onAIGenerate,
+    onAIAnalyzeImages,
     innovationCount = 4,
     workMode = 'creative',
     baseInstruction = '',
+    globalUserPrompt = '',
 }) => {
     const toast = useToast();
     const [activeLibraryId, setActiveLibraryId] = useState<string | null>(
@@ -133,6 +139,29 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
 
     // 同步刷新状态
     const [isSyncing, setIsSyncing] = useState(false);
+
+    // 指令转库功能状态
+    const [showInstructionToLibModal, setShowInstructionToLibModal] = useState(false);
+    const [instructionToLibInput, setInstructionToLibInput] = useState(''); // 用户粘贴的通用指令
+    const [instructionToLibConverting, setInstructionToLibConverting] = useState(false);
+    const [instructionToLibResult, setInstructionToLibResult] = useState<{ headers: string[]; rows: string[][] } | null>(null);
+    const [extractedBaseInstruction, setExtractedBaseInstruction] = useState<string>(''); // 提取的基础指令
+
+    // 库本地化功能状态
+    const [targetCountry, setTargetCountry] = useState(''); // 目标国家
+    const [localizing, setLocalizing] = useState(false); // 本地化进行中
+    const [localizedResult, setLocalizedResult] = useState<{ headers: string[]; rows: string[][] } | null>(null); // 本地化后的结果
+    const [localizedBaseInstruction, setLocalizedBaseInstruction] = useState<string>(''); // 本地化后的基础指令
+    const [directTableInput, setDirectTableInput] = useState(''); // 直接粘贴的表格数据
+    const [directBaseInstructionInput, setDirectBaseInstructionInput] = useState(''); // 直接粘贴的基础指令
+
+    // 图片转库功能状态
+    const [showImageToLibModal, setShowImageToLibModal] = useState(false);
+    const [imageToLibImages, setImageToLibImages] = useState<{ id: string; base64: string; name: string }[]>([]); // 上传的图片
+    const [imageToLibConverting, setImageToLibConverting] = useState(false);
+    const [imageToLibResult, setImageToLibResult] = useState<{ headers: string[]; rows: string[][] } | null>(null);
+    const [imageToLibBaseInstruction, setImageToLibBaseInstruction] = useState<string>(''); // 从图片分析中提取的基础指令
+    const [imageToLibUserDesc, setImageToLibUserDesc] = useState<string>(''); // 用户描述，帮助AI确定分析方向
 
     const activeLibrary = config.libraries.find(lib => lib.id === activeLibraryId);
 
@@ -422,6 +451,543 @@ ${aiPrompt}
         } finally {
             setAiGenerating(false);
         }
+    };
+
+    // 指令转库：将通用创意指令转换成分类的库表格
+    const handleInstructionToLibConvert = async () => {
+        if (!onAIGenerate || !instructionToLibInput.trim()) return;
+
+        setInstructionToLibConverting(true);
+        setExtractedBaseInstruction('');
+        try {
+            const prompt = `你是一个AI创意指令整理专家。请分析用户给的原始指令，将其拆分为"基础指令"和"随机库数据"两部分。
+
+【用户原始指令】
+${instructionToLibInput}
+
+【任务要求】
+1. **识别基础指令**：找出其中通用的描述、规则、要求等内容（不包含分类选项的部分）
+2. **识别随机库数据**：找出其中包含分类/维度及其选项列表的部分
+3. 保持用户原有内容，不要修改或精简文字
+
+【输出格式】
+请严格按照以下格式输出：
+
+===基础指令===
+（在这里输出提取的基础指令，保留原始文字）
+
+===随机库数据===
+（在这里输出TSV格式的表格，用Tab分隔列）
+第一行是列标题（用户原有的分类名称）
+后续每行是选项
+
+【重要】
+1. 保留用户原始内容，不要精简或修改文字
+2. 如果没有明确的基础指令，===基础指令===后面留空
+3. 如果没有明确的随机库数据，===随机库数据===后面留空
+4. 随机库数据必须是TSV格式（Tab分隔）`;
+
+            const result = await onAIGenerate(prompt);
+
+            // 解析结果
+            const baseInstructionMatch = result.match(/===基础指令===\s*([\s\S]*?)(?====随机库数据===|$)/);
+            const libraryDataMatch = result.match(/===随机库数据===\s*([\s\S]*?)$/);
+
+            // 提取基础指令
+            const extractedBase = baseInstructionMatch?.[1]?.trim() || '';
+            setExtractedBaseInstruction(extractedBase);
+
+            // 解析随机库数据
+            const libraryData = libraryDataMatch?.[1]?.trim() || '';
+            const lines = libraryData.split('\n').filter(line => line.trim());
+
+            if (lines.length >= 2) {
+                const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+                const rows = lines.slice(1).map(line => {
+                    const cells = line.split('\t').map(c => c.trim());
+                    while (cells.length < headers.length) cells.push('');
+                    return cells.slice(0, headers.length);
+                });
+
+                setInstructionToLibResult({ headers, rows });
+                toast.success(`成功提取！基础指令 ${extractedBase ? '✓' : '无'}, 随机库 ${headers.length} 列 × ${rows.length} 行`);
+            } else if (extractedBase) {
+                setInstructionToLibResult(null);
+                toast.success('成功提取基础指令！未识别到随机库数据');
+            } else {
+                toast.warning('AI未能识别出内容结构，请重试');
+            }
+        } catch (error) {
+            console.error('指令转库失败:', error);
+            toast.error('转换失败，请重试');
+        } finally {
+            setInstructionToLibConverting(false);
+        }
+    };
+
+    // 复制转换结果为TSV格式
+    const copyInstructionToLibResult = () => {
+        if (!instructionToLibResult) return;
+        const { headers, rows } = instructionToLibResult;
+        const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+        navigator.clipboard.writeText(tsv);
+        toast.success('已复制为表格格式，可直接粘贴到 Google Sheets');
+    };
+
+    // 复制提取的基础指令
+    const copyExtractedBaseInstruction = () => {
+        if (!extractedBaseInstruction) return;
+        navigator.clipboard.writeText(extractedBaseInstruction);
+        toast.success('已复制基础指令');
+    };
+
+    // 图片转库：处理图片上传
+    const handleImageToLibUpload = (files: FileList | null) => {
+        if (!files) return;
+
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64 = e.target?.result as string;
+                setImageToLibImages(prev => [...prev, {
+                    id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    base64,
+                    name: file.name
+                }]);
+            };
+            reader.readAsDataURL(file);
+        });
+    };
+
+    // 图片转库：删除图片
+    const handleImageToLibDelete = (id: string) => {
+        setImageToLibImages(prev => prev.filter(img => img.id !== id));
+    };
+
+    // 图片转库：从URL加载图片（直接返回URL用于显示）
+    const loadImageFromUrl = async (url: string): Promise<string | null> => {
+        return new Promise((resolve) => {
+            const img = document.createElement('img');
+            img.onload = () => resolve(url);
+            img.onerror = () => resolve(null);
+            img.src = url;
+        });
+    };
+
+    // 图片转库：把多张图片拼接成一张网格图（用于发送给AI分析）
+    const combineImagesToGrid = async (imageSources: string[]): Promise<string | null> => {
+        if (imageSources.length === 0) return null;
+
+        // 加载图片（区分base64和URL）
+        const loadImage = async (src: string): Promise<HTMLImageElement | null> => {
+            // 如果是base64，直接加载
+            if (src.startsWith('data:')) {
+                return new Promise((resolve) => {
+                    const img = document.createElement('img');
+                    img.onload = () => resolve(img);
+                    img.onerror = () => resolve(null);
+                    img.src = src;
+                });
+            }
+
+            // 如果是URL，通过图片代理服务加载
+            // wsrv.nl 是一个专门的图片代理服务，支持CORS
+            const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(src)}`;
+
+            return new Promise((resolve) => {
+                const img = document.createElement('img');
+                img.crossOrigin = 'anonymous';
+                img.onload = () => resolve(img);
+                img.onerror = () => resolve(null);
+                img.src = proxyUrl;
+            });
+        };
+
+        const loadedImages: HTMLImageElement[] = [];
+        for (const src of imageSources) {
+            const img = await loadImage(src);
+            if (img) loadedImages.push(img);
+        }
+
+        if (loadedImages.length === 0) return null;
+
+        // 计算网格布局（每行最多4张图片）
+        const cols = Math.min(4, loadedImages.length);
+        const rows = Math.ceil(loadedImages.length / cols);
+
+        // 单个图片缩放到的最大尺寸
+        const maxCellSize = 400;
+
+        // 计算每个单元格的实际尺寸
+        const cellWidth = maxCellSize;
+        const cellHeight = maxCellSize;
+
+        // 创建canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = cols * cellWidth;
+        canvas.height = rows * cellHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) return null;
+
+        // 填充白色背景
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 绘制每张图片
+        try {
+            for (let i = 0; i < loadedImages.length; i++) {
+                const img = loadedImages[i];
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+
+                // 计算缩放比例（保持比例填充单元格）
+                const scale = Math.min(cellWidth / img.naturalWidth, cellHeight / img.naturalHeight);
+                const drawWidth = img.naturalWidth * scale;
+                const drawHeight = img.naturalHeight * scale;
+
+                // 居中绘制
+                const x = col * cellWidth + (cellWidth - drawWidth) / 2;
+                const y = row * cellHeight + (cellHeight - drawHeight) / 2;
+
+                ctx.drawImage(img, x, y, drawWidth, drawHeight);
+            }
+
+            // 转换为base64
+            return canvas.toDataURL('image/jpeg', 0.85);
+        } catch (err) {
+            console.error('拼图失败:', err);
+            return null;
+        }
+    };
+
+    // 图片转库：粘贴图片（支持直接粘贴图片、Google Sheets中的图片）
+    const handleImageToLibPaste = async (e: React.ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        let hasDirectImage = false;
+        const imageUrls: string[] = [];
+
+        for (const item of Array.from(items)) {
+            // 直接粘贴的图片文件
+            if (item.type.startsWith('image/')) {
+                hasDirectImage = true;
+                const file = item.getAsFile();
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        const base64 = ev.target?.result as string;
+                        setImageToLibImages(prev => [...prev, {
+                            id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            base64,
+                            name: `粘贴图片-${prev.length + 1}`
+                        }]);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            // 从 HTML 中提取图片URL（Google Sheets 粘贴）
+            if (item.type === 'text/html') {
+                const html = await new Promise<string>((resolve) => {
+                    item.getAsString(resolve);
+                });
+
+                // 解析HTML提取img标签的src
+                const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+                let match;
+                while ((match = imgRegex.exec(html)) !== null) {
+                    const src = match[1];
+                    // 过滤掉一些无效的图片（如1x1像素的跟踪图片）
+                    if (src && !src.includes('1x1') && !src.includes('blank')) {
+                        imageUrls.push(src);
+                    }
+                }
+            }
+        }
+
+        // 如果有从HTML提取的图片URL，加载它们（先去重）
+        const uniqueUrls = [...new Set(imageUrls)];
+        if (!hasDirectImage && uniqueUrls.length > 0) {
+            toast.info(`正在加载 ${uniqueUrls.length} 张图片...`);
+
+            let loadedCount = 0;
+            for (const url of uniqueUrls) {
+                const base64 = await loadImageFromUrl(url);
+                if (base64) {
+                    loadedCount++;
+                    setImageToLibImages(prev => [...prev, {
+                        id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        base64,
+                        name: `表格图片-${prev.length + 1}`
+                    }]);
+                }
+            }
+
+            if (loadedCount > 0) {
+                toast.success(`成功加载 ${loadedCount} 张图片`);
+            } else {
+                toast.warning('无法加载图片，可能是跨域限制');
+            }
+        }
+    };
+
+    // 图片转库：AI分析图片生成随机库
+    const handleImageToLibConvert = async () => {
+        if (imageToLibImages.length === 0) return;
+
+        // 需要 onAIAnalyzeImages 或 onAIGenerate
+        if (!onAIAnalyzeImages && !onAIGenerate) {
+            toast.error('AI分析功能不可用');
+            return;
+        }
+
+        setImageToLibConverting(true);
+        setImageToLibResult(null);
+        setImageToLibBaseInstruction('');
+
+        try {
+            // 构建分析提示词
+            const userDescPart = imageToLibUserDesc.trim()
+                ? `\n\n【用户描述】\n用户对这些图片的描述/期望方向：${imageToLibUserDesc.trim()}\n请重点围绕用户描述的方向进行分析。`
+                : '';
+
+            const prompt = `你是一个专业的AI图像分析专家。请仔细分析给出的 ${imageToLibImages.length} 张图片（已拼接成网格图），深入提取它们的共同视觉特征，并整理成丰富可复用的随机库格式。${userDescPart}
+
+【核心任务】
+根据图片内容，智能识别并提取10-15个最相关的维度。不要拘泥于固定维度，而是根据图片实际内容来确定。
+
+【常见维度参考】（根据图片内容选择适用的）
+- **人物相关**：人物姿势、人物身份、人物表情、年龄段、服装风格、发型、肤色
+- **场景相关**：场景类型、背景元素、环境氛围、季节、天气、时间段
+- **动植物**：动物种类、植物花卉、自然元素
+- **物品道具**：手持元素、装饰物品、食物饮品
+- **视觉风格**：艺术流派、色彩风格、光影效果、构图方式、材质质感
+- **装饰元素**：边框样式、图案纹理、文字风格、装饰符号
+- **文化元素**：国家特色、民族风格、宗教符号、节日主题
+- **技术表现**：画面比例、渲染风格、特效类型
+
+【输出格式】
+请严格按照以下格式输出：
+
+===基础指令===
+根据这些图片的共同特点，生成一段详细的基础创作指令描述（100-200字），准确描述这类图片的核心特征、风格定位、典型元素等。
+
+===随机库数据===
+维度1名称\\t维度2名称\\t维度3名称\\t维度4名称\\t维度5名称\\t维度6名称\\t维度7名称\\t维度8名称\\t维度9名称\\t维度10名称
+值1\\t值1\\t值1\\t值1\\t值1\\t值1\\t值1\\t值1\\t值1\\t值1
+值2\\t值2\\t值2\\t值2\\t值2\\t值2\\t值2\\t值2\\t值2\\t值2
+...（继续添加50行，每个维度必须有50个不同的值）
+
+【重要要求】
+1. **维度数量**：根据图片内容提取10-15个最相关的维度
+2. **值的数量**：每个维度必须提取50个不同的值，这是硬性要求
+3. **维度命名**：使用简洁明确的中文名称（2-6个字）
+4. **值的格式**：每个值是简洁的标签（2-8个字），方便后续组合使用
+5. **完整覆盖**：确保图片中所有明显的视觉特征都被提取
+6. **创意拓展**：除了图片中直接看到的，也要拓展相关的合理变体
+7. **实用导向**：生成的维度和值要对创作有实际指导意义`;
+
+            // 如果有图片，需要用多模态方式分析
+            let result: string;
+
+            if (onAIAnalyzeImages) {
+                // 把所有图片拼成一张网格图再发送给AI
+                toast.info(`正在拼接 ${imageToLibImages.length} 张图片...`);
+
+                const imageSources = imageToLibImages.map(img => img.base64);
+                const combinedImage = await combineImagesToGrid(imageSources);
+
+                if (!combinedImage) {
+                    throw new Error('无法拼接图片，可能是跨域限制导致');
+                }
+
+                // 从拼接后的图片提取base64数据
+                const match = combinedImage.match(/^data:([^;]+);base64,(.+)$/);
+                if (!match) {
+                    throw new Error('图片数据格式错误');
+                }
+
+                const images = [{ base64: match[2], mimeType: match[1] }];
+                result = await onAIAnalyzeImages(images, prompt + `\n\n注意：这是${imageToLibImages.length}张图片拼接成的网格图，请分析所有图片的共同特征。`);
+            } else if (onAIGenerate) {
+                // 降级为纯文本模式
+                result = await onAIGenerate(prompt + `\n\n（注意：由于技术限制，AI无法直接看到图片，将基于通用知识生成示例随机库。如需更精确的结果，请描述图片特点。）`);
+            } else {
+                throw new Error('No AI function available');
+            }
+
+            // 解析结果（复用指令转库的解析逻辑）
+            const baseInstructionMatch = result.match(/===基础指令===\s*([\s\S]*?)(?====随机库数据===|$)/);
+            const libraryDataMatch = result.match(/===随机库数据===\s*([\s\S]*?)$/);
+
+            // 提取基础指令
+            const extractedBase = baseInstructionMatch?.[1]?.trim() || '';
+            setImageToLibBaseInstruction(extractedBase);
+
+            // 解析随机库数据
+            const libraryData = libraryDataMatch?.[1]?.trim() || '';
+            const lines = libraryData.split('\n').filter(line => line.trim());
+
+            if (lines.length >= 2) {
+                const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+                const rows = lines.slice(1).map(line => {
+                    const cells = line.split('\t').map(c => c.trim());
+                    while (cells.length < headers.length) cells.push('');
+                    return cells.slice(0, headers.length);
+                });
+
+                setImageToLibResult({ headers, rows });
+                toast.success(`成功分析 ${imageToLibImages.length} 张图片！生成 ${headers.length} 列 × ${rows.length} 行随机库`);
+            } else if (extractedBase) {
+                toast.success('成功提取基础指令！未能生成随机库数据');
+            } else {
+                toast.warning('AI未能识别出内容结构，请重试');
+            }
+        } catch (error) {
+            console.error('图片转库失败:', error);
+            toast.error('分析失败，请重试');
+        } finally {
+            setImageToLibConverting(false);
+        }
+    };
+
+    // 复制图片转库结果
+    const copyImageToLibResult = () => {
+        if (!imageToLibResult) return;
+        const { headers, rows } = imageToLibResult;
+        const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+        navigator.clipboard.writeText(tsv);
+        toast.success('已复制为表格格式，可直接粘贴到 Google Sheets');
+    };
+
+    // 复制图片转库的基础指令
+    const copyImageToLibBaseInstruction = () => {
+        if (!imageToLibBaseInstruction) return;
+        navigator.clipboard.writeText(imageToLibBaseInstruction);
+        toast.success('已复制基础指令');
+    };
+
+    // 库本地化：根据目标国家特点调整随机库内容
+    const handleLocalizeLibrary = async () => {
+        if (!onAIGenerate || !targetCountry.trim()) return;
+
+        // 优先使用直接粘贴的数据，否则使用解析的数据
+        const hasDirectInput = directTableInput.trim() || directBaseInstructionInput.trim();
+        const hasParsedData = instructionToLibResult || extractedBaseInstruction;
+
+        if (!hasDirectInput && !hasParsedData) {
+            toast.warning('请粘贴表格数据或先解析指令');
+            return;
+        }
+
+        setLocalizing(true);
+        try {
+            // 构建原始数据描述
+            let originalData = '';
+
+            // 基础指令：优先用直接输入的
+            const baseInstr = directBaseInstructionInput.trim() || extractedBaseInstruction;
+            if (baseInstr) {
+                originalData += `【原始基础指令】\n${baseInstr}\n\n`;
+            }
+
+            // 随机库数据：优先用直接输入的
+            if (directTableInput.trim()) {
+                originalData += `【原始随机库数据】\n${directTableInput.trim()}`;
+            } else if (instructionToLibResult) {
+                const { headers, rows } = instructionToLibResult;
+                const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+                originalData += `【原始随机库数据】\n${tsv}`;
+            }
+
+            const prompt = `你是一个AI创意内容本地化专家。请根据目标国家的文化特点，智能调整以下创意库的内容。
+
+${originalData}
+
+【目标国家】
+${targetCountry}
+
+【本地化规则】
+1. **通用元素保留**：不具有特定国家/文化特色的通用元素（如：暖色调、特写镜头、梦幻氛围）保持不变
+2. **文化特色替换**：将原有的国家/地区特色元素替换为目标国家的对应元素
+   - 服饰：替换为目标国家的传统或现代服饰
+   - 场景：替换为目标国家的标志性地点或典型环境
+   - 道具：替换为目标国家的文化符号或常见物品
+   - 人物特征：调整为符合目标国家审美的特征
+   - 节日/习俗：替换为目标国家的节日和习俗
+3. **保持库结构**：保持原有的分类维度/列名不变，只替换具体的值
+4. **数量对等**：每个分类的选项数量与原始数据保持一致
+
+【输出格式】
+请严格按照以下格式输出：
+
+===本地化基础指令===
+（如果有基础指令，输出调整后的版本；没有则留空）
+
+===本地化随机库===
+（输出TSV格式的表格，用Tab分隔列，保持原有列名）
+
+【重要】
+1. 保持原有的库结构和分类名称
+2. 只替换需要本地化的值，通用值保留
+3. 替换后的内容要符合目标国家的文化特点
+4. 确保输出格式正确（TSV格式，Tab分隔）`;
+
+            const result = await onAIGenerate(prompt);
+
+            // 解析结果
+            const baseInstructionMatch = result.match(/===本地化基础指令===\s*([\s\S]*?)(?====本地化随机库===|$)/);
+            const libraryDataMatch = result.match(/===本地化随机库===\s*([\s\S]*?)$/);
+
+            // 提取本地化后的基础指令
+            const localizedBase = baseInstructionMatch?.[1]?.trim() || '';
+            setLocalizedBaseInstruction(localizedBase);
+
+            // 解析本地化后的随机库数据
+            const libraryData = libraryDataMatch?.[1]?.trim() || '';
+            const lines = libraryData.split('\n').filter(line => line.trim());
+
+            if (lines.length >= 2) {
+                const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+                const rows = lines.slice(1).map(line => {
+                    const cells = line.split('\t').map(c => c.trim());
+                    while (cells.length < headers.length) cells.push('');
+                    return cells.slice(0, headers.length);
+                });
+
+                setLocalizedResult({ headers, rows });
+                toast.success(`本地化完成！已调整为${targetCountry}特色`);
+            } else if (localizedBase) {
+                setLocalizedResult(null);
+                toast.success('基础指令已本地化！未识别到随机库数据');
+            } else {
+                toast.warning('本地化失败，请重试');
+            }
+        } catch (error) {
+            console.error('本地化失败:', error);
+            toast.error('本地化失败，请重试');
+        } finally {
+            setLocalizing(false);
+        }
+    };
+
+    // 复制本地化后的结果
+    const copyLocalizedResult = () => {
+        if (!localizedResult) return;
+        const { headers, rows } = localizedResult;
+        const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+        navigator.clipboard.writeText(tsv);
+        toast.success('已复制本地化表格');
+    };
+
+    const copyLocalizedBaseInstruction = () => {
+        if (!localizedBaseInstruction) return;
+        navigator.clipboard.writeText(localizedBaseInstruction);
+        toast.success('已复制本地化基础指令');
     };
 
     // 清空库
@@ -871,16 +1437,30 @@ ${aiPrompt}
                                         </span>
                                     </div>
                                 </label>
-                                {/* AI智能分类按钮 - 快捷模式下隐藏 */}
-                                {workMode !== 'quick' && (
-                                    <button
-                                        onClick={() => setShowAiCategoryModal(true)}
-                                        className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center gap-1.5"
-                                    >
-                                        <Sparkles className="w-3.5 h-3.5" />
-                                        AI智能分类
-                                    </button>
-                                )}
+                                {/* AI智能分类按钮 */}
+                                <button
+                                    onClick={() => setShowAiCategoryModal(true)}
+                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center gap-1.5"
+                                >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    AI智能分类
+                                </button>
+                                {/* 指令转库按钮 */}
+                                <button
+                                    onClick={() => setShowInstructionToLibModal(true)}
+                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg flex items-center gap-1.5"
+                                >
+                                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                                    指令转库
+                                </button>
+                                {/* 图片转库按钮 */}
+                                <button
+                                    onClick={() => setShowImageToLibModal(true)}
+                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg flex items-center gap-1.5"
+                                >
+                                    <ImageIcon className="w-3.5 h-3.5" />
+                                    图片转库
+                                </button>
                             </div>
                         </div>
                     )}
@@ -1369,10 +1949,14 @@ ${aiPrompt}
 
                                 <div className="flex-1 overflow-y-auto space-y-4">
                                     {/* 图例 */}
-                                    <div className="flex items-center gap-4 text-xs p-2 bg-zinc-900/50 rounded-lg">
+                                    <div className="flex items-center gap-4 text-xs p-2 bg-zinc-900/50 rounded-lg flex-wrap">
                                         <span className="flex items-center gap-1.5">
                                             <span className="w-3 h-3 rounded bg-blue-500"></span>
                                             <span className="text-zinc-400">基础指令</span>
+                                        </span>
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-3 h-3 rounded bg-green-500"></span>
+                                            <span className="text-zinc-400">用户特殊要求</span>
                                         </span>
                                         <span className="flex items-center gap-1.5">
                                             <span className="w-3 h-3 rounded bg-yellow-500"></span>
@@ -1404,6 +1988,14 @@ ${aiPrompt}
                                                     {effectiveBaseInstruction && (
                                                         <div className="p-2 rounded border-l-4 border-blue-500 bg-blue-900/20">
                                                             <span className="text-blue-300 whitespace-pre-wrap">{effectiveBaseInstruction}</span>
+                                                        </div>
+                                                    )}
+
+                                                    {/* 用户特殊要求 */}
+                                                    {globalUserPrompt && (
+                                                        <div className="p-2 rounded border-l-4 border-green-500 bg-green-900/20">
+                                                            <div className="text-xs text-green-400 mb-1 font-medium">【用户特别要求】</div>
+                                                            <span className="text-green-300 whitespace-pre-wrap">{globalUserPrompt}</span>
                                                         </div>
                                                     )}
 
@@ -2698,6 +3290,550 @@ ${aiCategoryOutputFormat === 1 ? `
                     </div>
                 );
             })()}
+
+            {/* 指令转库弹窗 */}
+            {showInstructionToLibModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                        <div className="border-b border-zinc-700 p-4 flex items-center justify-between">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <ArrowRightLeft className="w-5 h-5 text-emerald-400" />
+                                指令转库工具
+                            </h2>
+                            <button
+                                onClick={() => {
+                                    setShowInstructionToLibModal(false);
+                                    setInstructionToLibInput('');
+                                    setInstructionToLibResult(null);
+                                    setExtractedBaseInstruction('');
+                                    setTargetCountry('');
+                                    setLocalizedResult(null);
+                                    setLocalizedBaseInstruction('');
+                                    setDirectTableInput('');
+                                    setDirectBaseInstructionInput('');
+                                }}
+                                className="text-zinc-400 hover:text-white"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                            {/* 说明 */}
+                            <div className="p-3 bg-emerald-900/20 border border-emerald-500/30 rounded-lg">
+                                <p className="text-sm text-emerald-300">
+                                    💡 <strong>功能说明：</strong>粘贴通用的创意指令，AI会自动将其解析成分类好的库表格格式，可直接复制到 Google Sheets 使用。
+                                </p>
+                            </div>
+
+                            {/* 输入区 */}
+                            <section>
+                                <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                    <span className="w-5 h-5 bg-emerald-600 rounded-full text-xs flex items-center justify-center">1</span>
+                                    粘贴通用创意指令
+                                    {instructionToLibInput.trim() && (
+                                        <button
+                                            onClick={() => {
+                                                setInstructionToLibInput('');
+                                                setInstructionToLibResult(null);
+                                            }}
+                                            className="ml-auto text-xs text-zinc-500 hover:text-red-400"
+                                        >
+                                            清空
+                                        </button>
+                                    )}
+                                </h3>
+                                <textarea
+                                    value={instructionToLibInput}
+                                    onChange={(e) => setInstructionToLibInput(e.target.value)}
+                                    placeholder={`粘贴你的创意指令，例如：
+
+赛博朋克风格的城市街头，机甲战士在雨中巡逻，霓虹灯光闪烁，未来科技感，电影级镜头
+
+或者多条指令：
+1. 水彩画风格的森林场景，小精灵在采蘑菇
+2. 油画质感的海边，少女望向远方，夕阳西下
+3. 像素艺术的太空站，宇航员正在修理飞船`}
+                                    className="w-full h-40 bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 resize-none"
+                                />
+                            </section>
+
+                            {/* 转换按钮 */}
+                            <div className="flex justify-center">
+                                <button
+                                    onClick={handleInstructionToLibConvert}
+                                    disabled={!instructionToLibInput.trim() || instructionToLibConverting}
+                                    className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-zinc-700 disabled:to-zinc-700 text-white font-medium rounded-lg flex items-center gap-2 transition-all"
+                                >
+                                    {instructionToLibConverting ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            AI 解析中...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles size={16} />
+                                            智能解析为库表格
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* 基础指令预览 */}
+                            {extractedBaseInstruction && (
+                                <section>
+                                    <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-blue-600 rounded-full text-xs flex items-center justify-center">2</span>
+                                        提取的基础指令
+                                        <button
+                                            onClick={copyExtractedBaseInstruction}
+                                            className="ml-auto text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                                        >
+                                            <Copy size={12} />
+                                            复制
+                                        </button>
+                                    </h3>
+                                    <div className="border border-blue-500/30 bg-blue-900/20 rounded-lg p-3">
+                                        <pre className="text-sm text-blue-200 whitespace-pre-wrap font-sans">{extractedBaseInstruction}</pre>
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* 随机库表格预览 */}
+                            {instructionToLibResult && (
+                                <section>
+                                    <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-emerald-600 rounded-full text-xs flex items-center justify-center">3</span>
+                                        随机库数据
+                                        <span className="text-xs text-zinc-500">
+                                            {instructionToLibResult.headers.length} 列 × {instructionToLibResult.rows.length} 行
+                                        </span>
+                                        <button
+                                            onClick={copyInstructionToLibResult}
+                                            className="ml-auto text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                                        >
+                                            <Copy size={12} />
+                                            复制表格
+                                        </button>
+                                    </h3>
+                                    <div className="border border-zinc-700 rounded-lg overflow-hidden">
+                                        <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                                            <table className="text-xs w-full">
+                                                <thead className="bg-zinc-700 sticky top-0">
+                                                    <tr>
+                                                        {instructionToLibResult.headers.map((h, i) => (
+                                                            <th key={i} className="px-3 py-2 text-left font-medium text-emerald-300 whitespace-nowrap">
+                                                                {h}
+                                                            </th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-zinc-800/50">
+                                                    {instructionToLibResult.rows.map((row, ri) => (
+                                                        <tr key={ri} className="hover:bg-zinc-800/30">
+                                                            {row.map((cell, ci) => (
+                                                                <td key={ci} className={`px-3 py-2 whitespace-nowrap ${cell ? 'text-white' : 'text-zinc-600'}`}>
+                                                                    {cell || '-'}
+                                                                </td>
+                                                            ))}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-zinc-500 mt-2">
+                                        📋 点击"复制表格"后，可直接粘贴到 Google Sheets 中使用
+                                    </p>
+                                </section>
+                            )}
+
+                            {/* ============ 本地化功能区域（始终显示）============ */}
+                            <section className="border-t border-zinc-700 pt-4 mt-4">
+                                <h3 className="text-sm font-medium text-zinc-300 mb-3 flex items-center gap-2">
+                                    <span className="w-5 h-5 bg-orange-600 rounded-full text-xs flex items-center justify-center">★</span>
+                                    库本地化
+                                    <span className="text-xs text-zinc-500">将库内容调整为其他国家特色</span>
+                                </h3>
+
+                                {/* 数据来源说明 */}
+                                <div className="p-2 bg-orange-900/20 border border-orange-500/30 rounded-lg mb-3">
+                                    <p className="text-xs text-orange-300">
+                                        💡 <strong>数据来源：</strong>
+                                        {(instructionToLibResult || extractedBaseInstruction)
+                                            ? '使用上方解析结果，或在下方直接粘贴表格覆盖'
+                                            : '请在下方直接粘贴随机库表格（从 Google Sheets 复制）'}
+                                    </p>
+                                </div>
+
+                                {/* 直接粘贴表格区域 */}
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label className="text-xs text-zinc-400 mb-1 block">随机库表格（TSV格式）</label>
+                                        <textarea
+                                            value={directTableInput}
+                                            onChange={(e) => setDirectTableInput(e.target.value)}
+                                            placeholder="直接粘贴表格数据（从 Google Sheets 复制）&#10;例如：&#10;风格&#9;场景&#9;人物&#10;水墨画&#9;故宫&#9;古装美女&#10;国潮风&#9;长城&#9;武士"
+                                            className="w-full h-28 bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-orange-500 resize-none font-mono"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-zinc-400 mb-1 block">基础指令（可选）</label>
+                                        <textarea
+                                            value={directBaseInstructionInput}
+                                            onChange={(e) => setDirectBaseInstructionInput(e.target.value)}
+                                            placeholder="粘贴基础指令（可选）&#10;例如：生成一张中国风插画，画面精美..."
+                                            className="w-full h-28 bg-zinc-800 border border-zinc-700 rounded-lg p-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-orange-500 resize-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 目标国家输入 */}
+                                <div className="flex gap-2 items-center mb-3">
+                                    <input
+                                        type="text"
+                                        value={targetCountry}
+                                        onChange={(e) => setTargetCountry(e.target.value)}
+                                        placeholder="输入目标国家（如：日本、美国、法国、韩国...）"
+                                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-orange-500"
+                                    />
+                                    <button
+                                        onClick={handleLocalizeLibrary}
+                                        disabled={!targetCountry.trim() || localizing}
+                                        className="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 disabled:from-zinc-700 disabled:to-zinc-700 text-white font-medium rounded-lg flex items-center gap-2 text-sm whitespace-nowrap"
+                                    >
+                                        {localizing ? (
+                                            <>
+                                                <Loader2 size={14} className="animate-spin" />
+                                                本地化中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={14} />
+                                                智能本地化
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+
+                                {/* 常用国家快捷按钮 */}
+                                <div className="flex gap-1.5 flex-wrap mb-3">
+                                    <span className="text-xs text-zinc-500">快捷：</span>
+                                    {['日本', '韩国', '美国', '法国', '英国', '泰国', '印度', '俄罗斯', '巴西', '墨西哥'].map(country => (
+                                        <button
+                                            key={country}
+                                            onClick={() => setTargetCountry(country)}
+                                            className={`px-2 py-0.5 text-xs rounded ${targetCountry === country ? 'bg-orange-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:bg-zinc-600'}`}
+                                        >
+                                            {country}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* 本地化后的基础指令 */}
+                                {localizedBaseInstruction && (
+                                    <div className="mb-3">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-xs text-orange-400">📝 本地化基础指令</span>
+                                            <button onClick={copyLocalizedBaseInstruction} className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                                                <Copy size={10} /> 复制
+                                            </button>
+                                        </div>
+                                        <div className="border border-orange-500/30 bg-orange-900/20 rounded-lg p-3">
+                                            <pre className="text-sm text-orange-200 whitespace-pre-wrap font-sans">{localizedBaseInstruction}</pre>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 本地化后的随机库表格 */}
+                                {localizedResult && (
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-xs text-orange-400">📊 本地化随机库 ({localizedResult.headers.length} 列 × {localizedResult.rows.length} 行)</span>
+                                            <button onClick={copyLocalizedResult} className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                                                <Copy size={10} /> 复制表格
+                                            </button>
+                                        </div>
+                                        <div className="border border-orange-500/30 rounded-lg overflow-hidden">
+                                            <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                                                <table className="text-xs w-full">
+                                                    <thead className="bg-orange-900/50 sticky top-0">
+                                                        <tr>
+                                                            {localizedResult.headers.map((h, i) => (
+                                                                <th key={i} className="px-3 py-2 text-left font-medium text-orange-300 whitespace-nowrap">
+                                                                    {h}
+                                                                </th>
+                                                            ))}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-zinc-800/50">
+                                                        {localizedResult.rows.map((row, ri) => (
+                                                            <tr key={ri} className="hover:bg-orange-900/10">
+                                                                {row.map((cell, ci) => (
+                                                                    <td key={ci} className={`px-3 py-2 whitespace-nowrap ${cell ? 'text-white' : 'text-zinc-600'}`}>
+                                                                        {cell || '-'}
+                                                                    </td>
+                                                                ))}
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+                        </div>
+
+                        {/* 底部按钮 */}
+                        <div className="border-t border-zinc-700 p-4 flex justify-end gap-2">
+                            <button
+                                onClick={() => {
+                                    setShowInstructionToLibModal(false);
+                                    setInstructionToLibInput('');
+                                    setInstructionToLibResult(null);
+                                    setExtractedBaseInstruction('');
+                                    setTargetCountry('');
+                                    setLocalizedResult(null);
+                                    setLocalizedBaseInstruction('');
+                                    setDirectTableInput('');
+                                    setDirectBaseInstructionInput('');
+                                }}
+                                className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg text-sm"
+                            >
+                                关闭
+                            </button>
+                            {instructionToLibResult && (
+                                <button
+                                    onClick={copyInstructionToLibResult}
+                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm flex items-center gap-2"
+                                >
+                                    <Copy size={14} />
+                                    复制表格到剪贴板
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 图片转库弹窗 */}
+            {showImageToLibModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                        <div className="border-b border-zinc-700 p-4 flex items-center justify-between">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                <ImageIcon className="w-5 h-5 text-orange-400" />
+                                图片转库工具
+                            </h2>
+                            <button
+                                onClick={() => {
+                                    setShowImageToLibModal(false);
+                                    setImageToLibImages([]);
+                                    setImageToLibResult(null);
+                                    setImageToLibBaseInstruction('');
+                                }}
+                                className="text-zinc-400 hover:text-white"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                            {/* 说明 */}
+                            <div className="p-3 bg-orange-900/20 border border-orange-500/30 rounded-lg">
+                                <p className="text-sm text-orange-300">
+                                    💡 <strong>功能说明：</strong>上传多张参考图片，AI会分析它们的共同特征（风格、色彩、构图等），并生成可复用的随机库。
+                                </p>
+                            </div>
+
+                            {/* 上传区 */}
+                            <section>
+                                <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                    <span className="w-5 h-5 bg-orange-600 rounded-full text-xs flex items-center justify-center">1</span>
+                                    上传参考图片
+                                    <span className="text-xs text-zinc-500 ml-auto">支持拖拽、粘贴(Ctrl+V)、点击选择</span>
+                                </h3>
+
+                                {/* 上传区域 - 双列布局 */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* 左侧：点击或拖拽上传 */}
+                                    <div
+                                        className="border-2 border-dashed border-zinc-600 hover:border-orange-500/50 rounded-lg p-4 text-center cursor-pointer transition-colors"
+                                        onClick={() => document.getElementById('image-to-lib-input')?.click()}
+                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onDrop={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleImageToLibUpload(e.dataTransfer.files);
+                                        }}
+                                    >
+                                        <input
+                                            id="image-to-lib-input"
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            className="hidden"
+                                            onChange={(e) => handleImageToLibUpload(e.target.files)}
+                                        />
+                                        <Upload className="w-10 h-10 text-zinc-500 mx-auto mb-2" />
+                                        <p className="text-zinc-400 text-sm font-medium">点击选择</p>
+                                        <p className="text-zinc-500 text-xs mt-1">或拖拽图片到这里</p>
+                                    </div>
+
+                                    {/* 右侧：粘贴区域 */}
+                                    <div
+                                        tabIndex={0}
+                                        onPaste={handleImageToLibPaste}
+                                        className="border-2 border-dashed border-zinc-600 hover:border-orange-500/50 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 rounded-lg p-4 text-center cursor-text transition-colors outline-none"
+                                    >
+                                        <ClipboardPaste className="w-10 h-10 text-zinc-500 mx-auto mb-2" />
+                                        <p className="text-zinc-400 text-sm font-medium">点击这里，然后 Ctrl+V</p>
+                                        <p className="text-zinc-500 text-xs mt-1">粘贴图片或表格中的图片</p>
+                                    </div>
+                                </div>
+
+                                {/* 已上传图片预览 */}
+                                {imageToLibImages.length > 0 && (
+                                    <div className="mt-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs text-zinc-400">已上传 {imageToLibImages.length} 张图片</span>
+                                            <button
+                                                onClick={() => setImageToLibImages([])}
+                                                className="text-xs text-red-400 hover:text-red-300"
+                                            >
+                                                清空全部
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-6 gap-2">
+                                            {imageToLibImages.map(img => (
+                                                <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden bg-zinc-800">
+                                                    <img src={img.base64} alt={img.name} className="w-full h-full object-cover" />
+                                                    <button
+                                                        onClick={() => handleImageToLibDelete(img.id)}
+                                                        className="absolute top-1 right-1 w-5 h-5 bg-red-600 hover:bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+
+                            {/* 用户描述输入 */}
+                            <section>
+                                <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                    <span>💬</span> 辅助描述（可选）
+                                </h3>
+                                <textarea
+                                    value={imageToLibUserDesc}
+                                    onChange={(e) => setImageToLibUserDesc(e.target.value)}
+                                    placeholder="描述这些图片的主题、用途或期望的分析方向，帮助AI更准确地提取特征...&#10;例如：这是立陶宛宗教祈祷卡片，需要提取人物姿势、宗教符号、边框样式、季节等维度"
+                                    className="w-full h-20 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-orange-500 resize-none"
+                                />
+                            </section>
+
+                            {/* 转换按钮 */}
+                            <div className="flex justify-center">
+                                <button
+                                    onClick={handleImageToLibConvert}
+                                    disabled={imageToLibImages.length === 0 || imageToLibConverting}
+                                    className="px-6 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 disabled:from-zinc-700 disabled:to-zinc-700 text-white font-medium rounded-lg flex items-center gap-2 transition-all"
+                                >
+                                    {imageToLibConverting ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            AI 分析中...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles size={16} />
+                                            分析图片生成随机库
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* 基础指令预览 */}
+                            {imageToLibBaseInstruction && (
+                                <section>
+                                    <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-blue-600 rounded-full text-xs flex items-center justify-center">2</span>
+                                        提取的基础指令
+                                        <button
+                                            onClick={copyImageToLibBaseInstruction}
+                                            className="ml-auto text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                                        >
+                                            <Copy size={12} />
+                                            复制
+                                        </button>
+                                    </h3>
+                                    <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3">
+                                        <p className="text-sm text-blue-200 whitespace-pre-wrap">{imageToLibBaseInstruction}</p>
+                                    </div>
+                                </section>
+                            )}
+
+                            {/* 结果表格预览 */}
+                            {imageToLibResult && (
+                                <section>
+                                    <h3 className="text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <span className="w-5 h-5 bg-green-600 rounded-full text-xs flex items-center justify-center">3</span>
+                                        生成的随机库表格
+                                        <span className="text-xs text-zinc-500">({imageToLibResult.headers.length} 列 × {imageToLibResult.rows.length} 行)</span>
+                                    </h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm border border-zinc-700 rounded-lg overflow-hidden">
+                                            <thead>
+                                                <tr className="bg-zinc-800">
+                                                    {imageToLibResult.headers.map((h, i) => (
+                                                        <th key={i} className="border border-zinc-700 px-3 py-2 text-left text-green-400 font-medium">{h}</th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {imageToLibResult.rows.map((row, ri) => (
+                                                    <tr key={ri} className={ri % 2 === 0 ? 'bg-zinc-800/30' : 'bg-zinc-800/50'}>
+                                                        {row.map((cell, ci) => (
+                                                            <td key={ci} className="border border-zinc-700 px-3 py-2 text-zinc-300">{cell}</td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </section>
+                            )}
+                        </div>
+
+                        {/* 底部按钮 */}
+                        <div className="border-t border-zinc-700 p-4 flex justify-end gap-3">
+                            <button
+                                onClick={() => {
+                                    setShowImageToLibModal(false);
+                                    setImageToLibImages([]);
+                                    setImageToLibResult(null);
+                                    setImageToLibBaseInstruction('');
+                                }}
+                                className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg text-sm"
+                            >
+                                关闭
+                            </button>
+                            {imageToLibResult && (
+                                <button
+                                    onClick={copyImageToLibResult}
+                                    className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm flex items-center gap-2"
+                                >
+                                    <Copy size={14} />
+                                    复制表格到剪贴板
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };
