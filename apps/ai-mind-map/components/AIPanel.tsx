@@ -45,7 +45,6 @@ export const AIPanel: React.FC = () => {
         geminiApiKey,
         missingHints,
         addNode,
-        addMultipleNodes,
         setMissingHints,
         updateNode,
         addStructureToNode,
@@ -138,12 +137,31 @@ export const AIPanel: React.FC = () => {
             const service = new GeminiService(apiKey);
             const context = getNodeContext(selectedNodeId);
             const depth = getNodeDepth(selectedNodeId);
-            const result = await service.expandNode(selectedNode, context, undefined, depth);
+            const constraints = buildPlatformConstraints(aiPlatform, aiGoal, aiAudience, aiScenario);
+            const existingLabels = (selectedNode.children || [])
+                .map((id) => currentMap?.nodes[id]?.label)
+                .filter(Boolean) as string[];
+            const customPrompt = [
+                constraints ? `请结合以下业务约束：\n${constraints}` : '',
+                existingLabels.length ? `已有子节点（避免重复命名）：${existingLabels.join('、')}` : '',
+                '输出要求：优先给出具体、可执行、可继续向下展开的子主题。',
+            ].filter(Boolean).join('\n\n');
+            const result = await service.expandNode(selectedNode, context, customPrompt || undefined, depth);
 
-            if (result.suggestions.length > 0) {
-                const labels = result.suggestions.map(s => s.label);
-                addMultipleNodes(selectedNodeId, labels);
-                showMessage('success', `✅ 已添加 ${result.suggestions.length} 个子节点`);
+            if (result.suggestions?.length) {
+                const children = result.suggestions
+                    .map((s) => ({
+                        label: s.label?.trim(),
+                        description: s.description?.trim(),
+                    }))
+                    .filter((s) => Boolean(s.label)) as Array<{ label: string; description?: string }>;
+
+                if (children.length) {
+                    addStructureToNode(selectedNodeId, children);
+                    showMessage('success', `✅ 已添加 ${children.length} 个子节点`);
+                } else {
+                    showMessage('error', '生成结果为空，请重试');
+                }
             } else {
                 showMessage('error', '未生成任何建议');
             }
@@ -274,14 +292,33 @@ export const AIPanel: React.FC = () => {
             const depth = getNodeDepth(selectedNodeId);
             const contextParts = context.split(' > ');
             const rootTopic = contextParts[0] || selectedNode.label;
-            const fullPrompt = buildPresetPrompt(preset, selectedNode.label, context, rootTopic);
+            const constraints = buildPlatformConstraints(aiPlatform, aiGoal, aiAudience, aiScenario);
+            const existingLabels = (selectedNode.children || [])
+                .map((id) => currentMap?.nodes[id]?.label)
+                .filter(Boolean) as string[];
+            const fullPrompt = [
+                buildPresetPrompt(preset, selectedNode.label, context, rootTopic),
+                constraints ? `# Business Constraints\n${constraints}` : '',
+                existingLabels.length ? `# Existing Children\n已有子节点（避免重复命名）：${existingLabels.join('、')}` : '',
+                '补充要求：给出的节点必须具体并且可直接落地。',
+            ].filter(Boolean).join('\n\n');
 
             const result = await service.expandWithPreset(selectedNode, context, fullPrompt, depth);
 
             if (result.suggestions?.length) {
-                const labels = result.suggestions.map((s: AIExpandSuggestion) => s.label);
-                addMultipleNodes(selectedNodeId, labels);
-                showMessage('success', `✅ [${preset.name}] 已添加 ${result.suggestions.length} 个节点`);
+                const children = result.suggestions
+                    .map((s: AIExpandSuggestion) => ({
+                        label: s.label?.trim(),
+                        description: s.description?.trim(),
+                    }))
+                    .filter((s) => Boolean(s.label)) as Array<{ label: string; description?: string }>;
+
+                if (children.length) {
+                    addStructureToNode(selectedNodeId, children);
+                    showMessage('success', `✅ [${preset.name}] 已添加 ${children.length} 个节点`);
+                } else {
+                    showMessage('error', `[${preset.name}] 生成结果为空，请重试`);
+                }
             }
         } catch (err) {
             showMessage('error', (err as Error).message);

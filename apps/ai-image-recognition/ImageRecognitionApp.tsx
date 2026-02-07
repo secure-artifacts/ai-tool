@@ -268,6 +268,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const [showGlobalInnovationSettings, setShowGlobalInnovationSettings] = useState(false); // 全局创新设置弹框
     const [showRulesModal, setShowRulesModal] = useState(false); // 规则说明弹窗
     const [showPresetEditor, setShowPresetEditor] = useState<'standard' | 'withRandomLib' | null>(null); // 预设编辑弹窗
+    const [showGlobalPromptEditor, setShowGlobalPromptEditor] = useState(false); // 全局用户要求放大编辑弹窗
     const [showCreativeSettings, setShowCreativeSettings] = useState(false); // 创新模式设置弹框
     const [imageModel, setImageModel] = useState(() => {
         if (typeof window !== 'undefined') {
@@ -4359,6 +4360,7 @@ ${finalInstruction}
                             }
                         }).join(',') + ']';
 
+                    } else {
                         // 普通模式：一次调用生成多个变体
                         const innovationPrompt = `
 ${itemEffectiveInstruction}
@@ -5276,8 +5278,10 @@ ${itemEffectiveInstruction}
                                                         type="text"
                                                         value={prompt}
                                                         onChange={(e) => setPrompt(e.target.value)}
-                                                        placeholder="全局用户要求（可选，应用到所有图片）"
-                                                        className="w-full px-3 py-1.5 text-xs bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20"
+                                                        onDoubleClick={() => setShowGlobalPromptEditor(true)}
+                                                        placeholder="全局用户要求（可选，应用到所有图片）双击放大编辑"
+                                                        title="双击放大编辑"
+                                                        className="w-full px-3 py-1.5 text-xs bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 cursor-text"
                                                     />
                                                 </div>
                                             </>
@@ -6328,6 +6332,69 @@ ${itemEffectiveInstruction}
                                         }`}
                                 >
                                     关闭
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 全局用户要求放大编辑弹窗 */}
+                {showGlobalPromptEditor && (
+                    <div
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
+                        onClick={() => setShowGlobalPromptEditor(false)}
+                    >
+                        <div
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[700px] max-w-[95vw] max-h-[85vh] overflow-y-auto shadow-2xl"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+                                    <Settings2 size={18} className="text-purple-400" />
+                                    全局用户要求
+                                </h3>
+                                <button
+                                    onClick={() => setShowGlobalPromptEditor(false)}
+                                    className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-zinc-400 mb-2">
+                                    输入您的全局要求（将应用到所有图片）
+                                </label>
+                                <textarea
+                                    value={prompt}
+                                    onChange={(e) => setPrompt(e.target.value)}
+                                    placeholder="在此输入全局用户要求...\n\n例如：\n- 使用更简洁的语言\n- 突出产品特点\n- 加入情感化描述"
+                                    className="w-full h-64 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-zinc-200 text-sm placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 resize-none"
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div className="text-xs text-zinc-500 mb-4 bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                                <p className="mb-1.5"><strong className="text-zinc-400">提示：</strong></p>
+                                <ul className="list-disc list-inside space-y-1 text-zinc-500">
+                                    <li>此内容将作为附加要求应用到所有图片的创新过程</li>
+                                    <li>支持多行输入，可以详细描述您的需求</li>
+                                    <li>按 <kbd className="px-1 py-0.5 bg-zinc-700 rounded text-zinc-300">Esc</kbd> 或点击外部区域关闭</li>
+                                </ul>
+                            </div>
+
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    onClick={() => setPrompt('')}
+                                    className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors"
+                                >
+                                    清空
+                                </button>
+                                <button
+                                    onClick={() => setShowGlobalPromptEditor(false)}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors"
+                                >
+                                    确定
                                 </button>
                             </div>
                         </div>

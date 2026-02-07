@@ -896,11 +896,12 @@ ${modeInstructions}
 用户要求：${customPrompt}
 
 # Rules
-1. 每个节点标签限制在 2-6 个字以内
-2. 绝对不要使用标点符号
-3. 输出必须是名词或动宾短语
-4. 子节点之间必须符合 MECE 原则（相互独立，完全穷尽）
+1. 每个节点标签建议控制在 2-12 个字
+2. 尽量不用标点，不要写完整句子
+3. 输出优先使用名词或动宾短语
+4. 子节点尽量满足 MECE（避免明显重叠）
 5. 内容必须紧扣根主题「${rootTopic}」，不能跑题
+6. 节点要具体、可执行，避免空泛词（如“其他”“等等”）
 
 # Examples（关键示例）
 User: 根主题="健康生活" 当前节点="运动"
@@ -912,7 +913,7 @@ Bad Output: ["Python是一门很好的语言", "变量和数据类型", "编程"
 Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
 
 # Task
-生成 3-5 个高质量子节点。只返回 JSON 数组：
+生成 5-8 个高质量子节点。只返回 JSON 数组：
 [{"label": "关键词", "description": "一句话说明"}, ...]`
 
             : `# Role
@@ -924,11 +925,12 @@ Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
 当前节点：${node.label}
 
 # Rules
-1. 每个节点标签限制在 2-6 个字以内
-2. 绝对不要使用标点符号
-3. 输出必须是名词或动宾短语
-4. 子节点之间必须符合 MECE 原则（相互独立，完全穷尽）
+1. 每个节点标签建议控制在 2-12 个字
+2. 尽量不用标点，不要写完整句子
+3. 输出优先使用名词或动宾短语
+4. 子节点尽量满足 MECE（避免明显重叠）
 5. 内容必须紧扣根主题「${rootTopic}」，不能跑题
+6. 节点要具体、可执行，避免空泛词（如“其他”“等等”）
 
 # Examples（关键示例）
 User: 根主题="健康生活" 当前节点="运动"
@@ -940,7 +942,7 @@ Bad Output: ["Python是一门很好的语言", "变量和数据类型", "编程"
 Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
 
 # Task
-生成 4-6 个高质量子节点。只返回 JSON 数组：
+生成 6-10 个高质量子节点。只返回 JSON 数组：
 [{"label": "关键词", "description": "一句话说明"}, ...]`;
 
         try {
@@ -948,7 +950,7 @@ Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: dynamicTemperature,
-                    maxOutputTokens: 1024,
+                    maxOutputTokens: 1536,
                 },
             });
             const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -960,14 +962,29 @@ Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
                     description?: string;
                 }>;
 
-                // 后处理：强制清理标点符号和过长标签
-                const cleanedSuggestions = suggestions.map((s, i) => ({
-                    id: `suggestion-${i}`,
-                    label: s.label
-                        .replace(/[，。！？、；：""''（）【】《》\.\,\!\?\;\:\(\)\[\]]/g, '')
-                        .slice(0, 12), // 最多12字
-                    description: s.description,
-                }));
+                // 后处理：清理噪音 + 去重，避免过度截断导致语义损失
+                const seen = new Set<string>();
+                const cleanedSuggestions = suggestions
+                    .map((s) => ({
+                        label: (s.label || '')
+                            .replace(/[，。！？、；：""''（）【】《》\.\,\!\?\;\:\(\)\[\]]/g, '')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                            .slice(0, 18),
+                        description: s.description?.trim(),
+                    }))
+                    .filter((s) => s.label.length >= 2)
+                    .filter((s) => {
+                        const key = s.label.toLowerCase();
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    })
+                    .slice(0, 10)
+                    .map((s, i) => ({
+                        id: `suggestion-${i}`,
+                        ...s,
+                    }));
 
                 return { suggestions: cleanedSuggestions };
             }
@@ -996,7 +1013,7 @@ Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
                 contents: [{ parts: [{ text: presetPrompt }] }],
                 generationConfig: {
                     temperature: dynamicTemperature,
-                    maxOutputTokens: 2048,
+                    maxOutputTokens: 2560,
                 },
             });
             const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -1008,14 +1025,29 @@ Good Output: ["基础语法", "数据结构", "Web框架", "数据分析"]
                     description?: string;
                 }>;
 
-                // 后处理：强制清理标点符号和过长标签
-                const cleanedSuggestions = suggestions.map((s, i) => ({
-                    id: `preset-${i}`,
-                    label: s.label
-                        .replace(/[，。！？、；：""''（）【】《》\.\,\!\?\;\:\(\)\[\]]/g, '')
-                        .slice(0, 16), // 预设模式允许稍长一点
-                    description: s.description,
-                }));
+                // 后处理：清理噪音 + 去重，保留更多有效信息
+                const seen = new Set<string>();
+                const cleanedSuggestions = suggestions
+                    .map((s) => ({
+                        label: (s.label || '')
+                            .replace(/[，。！？、；：""''（）【】《》\.\,\!\?\;\:\(\)\[\]]/g, '')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                            .slice(0, 22),
+                        description: s.description?.trim(),
+                    }))
+                    .filter((s) => s.label.length >= 2)
+                    .filter((s) => {
+                        const key = s.label.toLowerCase();
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    })
+                    .slice(0, 12)
+                    .map((s, i) => ({
+                        id: `preset-${i}`,
+                        ...s,
+                    }));
 
                 return { suggestions: cleanedSuggestions };
             }
