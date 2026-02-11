@@ -4528,9 +4528,12 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     }, [effectiveSortRules, effectiveDateColumn]);
 
     // Processed rows with filtering and sorting
-    const _processedRowsRaw = useMemo(() => {
-        // Use effectiveData which handles transpose if needed
-        let rows = [...effectiveData.rows].map((row, originalIndex) => ({
+    // ── Performance: useDeferredValue on input data prevents UI freeze on large datasets ──
+    const deferredRows = useDeferredValue(effectiveData.rows);
+    const isProcessingRows = deferredRows !== effectiveData.rows;
+    const processedRows = useMemo(() => {
+        // Use deferredRows for non-blocking computation on large datasets
+        let rows = [...deferredRows].map((row, originalIndex) => ({
             ...row,
             // Include originalIndex to ensure unique keys even for duplicate images
             _rowId: `${extractImageUrl(row[effectiveImageColumn]) || ''}||${row._sourceSheet || ''}||${originalIndex}`
@@ -4663,12 +4666,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         }
 
         return sortRowsByRules(rows);
-    }, [effectiveData.rows, config.searchKeyword, effectiveImageColumn, sortRowsByRules, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveCustomFilters, effectiveNumFilters]);
-
-    // ── Performance: useDeferredValue prevents UI freeze on large datasets ──
-    // React yields to user interactions (scrolling, clicking) during heavy re-computation
-    const processedRows = useDeferredValue(_processedRowsRaw);
-    const isProcessingRows = processedRows !== _processedRowsRaw;
+    }, [deferredRows, config.searchKeyword, effectiveImageColumn, sortRowsByRules, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveCustomFilters, effectiveNumFilters]);
 
     // Large data safety: track when data is massive for UI hints
     const LARGE_DATA_THRESHOLD = 5000;
