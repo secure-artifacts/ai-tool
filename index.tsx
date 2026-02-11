@@ -18,6 +18,7 @@ import AICopyDeduplicatorApp from '@/apps/ai-copy-deduplicator/AICopyDeduplicato
 import ProDedupApp from '@/apps/ai-copy-deduplicator/ProDedupApp';
 import { MindMapApp } from '@/apps/ai-mind-map';
 import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
+import SkillGeneratorApp from '@/apps/skill-generator/SkillGeneratorApp';
 import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
@@ -172,6 +173,7 @@ const translations = {
     navMindMap: "AI Mind Map",
     navAIToolsDirectory: "AI Tools",
     navApiImageGen: "API Image Gen",
+    navSkillGenerator: "Template & Library Generator",
     navOpalBatch: "Opal Batch Image",
     // Prompt Tool
     promptTitle: "Image to Prompt",
@@ -424,6 +426,7 @@ const translations = {
     navMindMap: "AI 思维导图",
     navAIToolsDirectory: "AI 工具集",
     navApiImageGen: "API 生图",
+    navSkillGenerator: "模版指令+随机库生成器",
     navOpalBatch: "Opal 批量生图",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
@@ -1146,7 +1149,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -4459,6 +4462,11 @@ const ImageStudioTool: React.FC<{
         return; // 让浏览器正常处理文本粘贴
       }
 
+      // ===== 其他工具 Back-off: 如果用户在其他独立工具的页面内，不拦截粘贴 =====
+      if (target.closest('.skill-gen-app, .api-image-gen-app, .sheetmind-app, .mindmap-app')) {
+        return; // 让各工具自己处理粘贴
+      }
+
       const items = event.clipboardData?.items;
       if (!items) return;
 
@@ -7013,6 +7021,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   mindMap: 'tips_and_updates',
   aiToolsDirectory: 'apps',
   apiImageGen: 'auto_awesome',
+  skillGenerator: 'psychology',
 };
 
 const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
@@ -7021,6 +7030,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'prompt', labelKey: 'navPrompt' },
   { tool: 'imageRecognition', labelKey: 'navImageRecognition' },
   { tool: 'desc', labelKey: 'navDesc' },
+  { tool: 'skillGenerator', labelKey: 'navSkillGenerator' },
   { tool: 'proDedup', labelKey: 'navProDedup' },
   { tool: 'translate', labelKey: 'navTranslate' },
   { tool: 'script', labelKey: 'navScriptTool' },
@@ -9081,7 +9091,7 @@ const App = () => {
           >
             <span className="update-icon">🎉</span>
             <span className="update-text">
-              {language === 'zh' ? '更新 (02/03)' : 'Updates (02/03)'}
+              {language === 'zh' ? '更新 (02/09)' : 'Updates (02/09)'}
             </span>
           </button>
         </div >
@@ -9438,6 +9448,10 @@ const App = () => {
           {/* API Image Gen - Opal-style workflow */}
           <div className={`api-image-gen-wrapper ${activeTool === 'apiImageGen' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'apiImageGen' ? '100%' : '0' }}>
             <ApiImageGenApp />
+          </div>
+          {/* 模版指令+随机库生成器 */}
+          <div className={`skill-gen-wrapper ${activeTool === 'skillGenerator' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'skillGenerator' ? '100%' : '0' }}>
+            <SkillGeneratorApp getAiInstance={getAiInstance} />
           </div>
 
         </main>

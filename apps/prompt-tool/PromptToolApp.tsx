@@ -3,6 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../../contexts/AuthContext';
+import { db } from '../../firebase/index';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import ProjectPanel from '../../components/ProjectPanel';
 import {
     Project,
@@ -115,12 +117,22 @@ export interface DescState {
 // --- Constants ---
 const DEFAULT_SPLIT_CHAR = '###SPLIT###';
 const STORAGE_KEY = 'desc_innovator_state_v5'; // Bumped version for new OutputItem structure
+const INNOVATOR_PRESETS_DOC = 'innovator_presets';
 
 // 2025年12月 Gemini API 规范模型选项
 const MODEL_OPTIONS = [
     { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview' },
     { value: 'gemini-3-pro-preview', label: 'gemini-3-pro-preview' },
 ];
+
+// 创新要求预设
+interface InnovatorPreset {
+    id: string;
+    name: string;
+    requirement: string;
+    createdAt: number;
+}
+
 
 // --- Helpers ---
 const convertBlobToBase64 = (blob: Blob): Promise<string> => {
@@ -235,6 +247,13 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
     const [expandedOutput, setExpandedOutput] = useState<{ en: string; zh: string | null; mode: 'en' | 'zh' } | null>(null);
     const { user } = useAuth();
 
+    // --- 创新要求预设 ---
+    const [innovatorPresets, setInnovatorPresets] = useState<InnovatorPreset[]>([]);
+    const [showSaveInnovatorPreset, setShowSaveInnovatorPreset] = useState(false);
+    const [newInnovatorPresetName, setNewInnovatorPresetName] = useState('');
+    const innovatorPresetRef = useRef<HTMLDivElement>(null);
+    const [expandedRequirement, setExpandedRequirement] = useState(false);
+
     const stopRef = useRef(false);
     const pauseRef = useRef(false);
     const stateRef = useRef(state);
@@ -248,6 +267,66 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
     useEffect(() => {
         singleRunIdRef.current = singleRunId;
     }, [singleRunId]);
+
+    // 加载创新预设
+    useEffect(() => {
+        const loadInnovatorPresets = async () => {
+            if (!user?.uid) return;
+            try {
+                const docRef = doc(db, 'users', user.uid, 'settings', INNOVATOR_PRESETS_DOC);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    setInnovatorPresets(docSnap.data().presets || []);
+                }
+            } catch (e) {
+                console.error('[Innovator] Failed to load presets:', e);
+            }
+        };
+        loadInnovatorPresets();
+    }, [user?.uid]);
+
+    const saveInnovatorPresetsToFirebase = async (newPresets: InnovatorPreset[]) => {
+        if (!user?.uid) return;
+        try {
+            const docRef = doc(db, 'users', user.uid, 'settings', INNOVATOR_PRESETS_DOC);
+            await setDoc(docRef, { presets: newPresets }, { merge: true });
+        } catch (e) {
+            console.error('[Innovator] Failed to save presets:', e);
+        }
+    };
+
+    const handleSaveInnovatorPreset = () => {
+        const name = newInnovatorPresetName.trim();
+        if (!name || !state.requirement.trim()) return;
+        const newPreset: InnovatorPreset = {
+            id: uuidv4(),
+            name,
+            requirement: state.requirement.trim(),
+            createdAt: Date.now()
+        };
+        const updated = [...innovatorPresets, newPreset];
+        setInnovatorPresets(updated);
+        saveInnovatorPresetsToFirebase(updated);
+        setNewInnovatorPresetName('');
+        setShowSaveInnovatorPreset(false);
+    };
+
+    const handleDeleteInnovatorPreset = (id: string) => {
+        const updated = innovatorPresets.filter(p => p.id !== id);
+        setInnovatorPresets(updated);
+        saveInnovatorPresetsToFirebase(updated);
+    };
+
+    // 关闭保存预设弹出层
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (innovatorPresetRef.current && !innovatorPresetRef.current.contains(e.target as Node)) {
+                setShowSaveInnovatorPreset(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     useEffect(() => {
         if (typeof window !== 'undefined') {
@@ -1693,12 +1772,35 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     {/* Main Inputs Area (Flex Grow) */}
                                     <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-3">
                                         {/* Template Select (Span 2) */}
-                                        <div className="md:col-span-2 flex flex-col gap-1">
-                                            <label className="text-xs font-medium text-zinc-500 flex items-center gap-1"><FileText size={12} /> 预设指令</label>
+                                        <div className="md:col-span-2 flex flex-col gap-1" ref={innovatorPresetRef}>
+                                            <div className="flex items-center gap-1">
+                                                <label className="text-xs font-medium text-zinc-500 flex items-center gap-1"><FileText size={12} /> 预设指令</label>
+                                                {state.requirement.trim() && (
+                                                    <button
+                                                        className="ml-auto text-xs text-zinc-500 hover:text-green-400 transition-colors px-1 py-0.5 rounded hover:bg-zinc-800"
+                                                        onClick={() => setShowSaveInnovatorPreset(!showSaveInnovatorPreset)}
+                                                        title="保存当前创新要求为预设"
+                                                    >
+                                                        💾
+                                                    </button>
+                                                )}
+                                            </div>
                                             <select
                                                 className="h-20 w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 text-sm text-zinc-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 cursor-pointer"
                                                 value={state.selectedTemplateId}
-                                                onChange={(e) => setState(prev => ({ ...prev, selectedTemplateId: e.target.value }))}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    // 如果选的是自定义预设（req:前缀），填入创新要求字段
+                                                    if (val.startsWith('req:')) {
+                                                        const presetId = val.substring(4);
+                                                        const preset = innovatorPresets.find(p => p.id === presetId);
+                                                        if (preset) {
+                                                            setState(prev => ({ ...prev, requirement: preset.requirement, selectedTemplateId: 'custom' }));
+                                                        }
+                                                    } else {
+                                                        setState(prev => ({ ...prev, selectedTemplateId: val }));
+                                                    }
+                                                }}
                                             >
                                                 <option value="custom">自定义</option>
                                                 <option value="__system_default__">系统默认</option>
@@ -1718,17 +1820,55 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                         ))}
                                                     </optgroup>
                                                 )}
+                                                {/* 自定义创新要求预设 */}
+                                                {innovatorPresets.length > 0 && (
+                                                    <optgroup label="已保存的创新要求">
+                                                        {innovatorPresets.map(p => (
+                                                            <option key={p.id} value={`req:${p.id}`}>{p.name}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                )}
                                             </select>
+                                            {showSaveInnovatorPreset && (
+                                                <div className="absolute mt-1 w-64 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 p-3 flex flex-col gap-2" style={{ top: '100%' }}>
+                                                    <label className="text-xs text-zinc-400">预设名称</label>
+                                                    <input
+                                                        className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-purple-500"
+                                                        placeholder="例如：赛博朋克风格"
+                                                        value={newInnovatorPresetName}
+                                                        onChange={(e) => setNewInnovatorPresetName(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveInnovatorPreset(); }}
+                                                        autoFocus
+                                                    />
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            className="flex-1 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded px-2 py-1.5 transition-colors"
+                                                            onClick={handleSaveInnovatorPreset}
+                                                            disabled={!newInnovatorPresetName.trim()}
+                                                        >
+                                                            保存
+                                                        </button>
+                                                        <button
+                                                            className="text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1.5 transition-colors"
+                                                            onClick={() => { setShowSaveInnovatorPreset(false); setNewInnovatorPresetName(''); }}
+                                                        >
+                                                            取消
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Requirement (Span 4) */}
                                         <div className="md:col-span-4 flex flex-col gap-1">
                                             <label className="text-xs font-medium text-zinc-500 flex items-center gap-1"><Settings2 size={12} /> 创新要求</label>
                                             <textarea
-                                                className="h-20 w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 resize-none custom-scrollbar placeholder-zinc-700 leading-snug"
+                                                className="h-20 w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 resize-none custom-scrollbar placeholder-zinc-700 leading-snug cursor-text"
                                                 placeholder="例如：赛博朋克风格，强调光影..."
                                                 value={state.requirement}
                                                 onChange={(e) => setState(prev => ({ ...prev, requirement: e.target.value }))}
+                                                onDoubleClick={(e) => { e.preventDefault(); setExpandedRequirement(true); }}
+                                                title="双击放大编辑"
                                             />
                                         </div>
 
@@ -1952,8 +2092,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                                 disabled={!hasOutputs || sheetSaveStatus === 'saving'}
                                                 onClick={handleSaveToSheet}
                                                 className={`text-xs px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 border disabled:opacity-50 disabled:cursor-not-allowed tooltip-bottom ${sheetSaveStatus === 'success' ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50' :
-                                                        sheetSaveStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-500/30' :
-                                                            'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 border-blue-500/30'
+                                                    sheetSaveStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-500/30' :
+                                                        'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 hover:text-blue-300 border-blue-500/30'
                                                     }`}
                                                 data-tip={sheetSaveStatus === 'success' ? '保存成功' : sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
                                             >
@@ -2610,6 +2750,42 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                 )}
 
                 {/* --- Expanded Output Text Modal (双击放大) --- */}
+                {/* 双击放大编辑创新要求 */}
+                {expandedRequirement && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+                        onClick={() => setExpandedRequirement(false)}
+                    >
+                        <div
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[80vh]"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between p-4 border-b border-zinc-800 shrink-0">
+                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <Settings2 size={20} className="text-purple-400" /> 编辑创新要求
+                                </h3>
+                                <button onClick={() => setExpandedRequirement(false)} className="text-zinc-500 hover:text-white transition-colors">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="p-4 flex-1 overflow-hidden flex flex-col">
+                                <textarea
+                                    className="flex-1 min-h-[300px] w-full bg-zinc-950 border border-zinc-700 rounded-lg p-4 text-sm text-zinc-200 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/50 resize-none custom-scrollbar placeholder-zinc-700 leading-relaxed"
+                                    placeholder="输入创新要求..."
+                                    value={state.requirement}
+                                    onChange={(e) => setState(prev => ({ ...prev, requirement: e.target.value }))}
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="px-4 py-2 border-t border-zinc-800 bg-zinc-900/95 flex-shrink-0">
+                                <p className="text-[0.625rem] text-zinc-600 text-center">
+                                    按 ESC 键或点击背景关闭
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {expandedOutput && (
                     <div
                         className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"

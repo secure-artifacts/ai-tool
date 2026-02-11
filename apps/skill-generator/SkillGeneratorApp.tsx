@@ -1,0 +1,6449 @@
+/**
+ * 模版指令+随机库生成器
+ * 独立工具模块：输入参考图片、成品描述词、粗略规则，AI 交叉分析生成完整指令+随机库
+ */
+
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import {
+    Sparkles,
+    Image as ImageIcon,
+    FileText,
+    ClipboardList,
+    Upload,
+    X,
+    Copy,
+    Check,
+    Loader2,
+    RefreshCw,
+    Trash2,
+    Info,
+    ChevronDown,
+    ChevronUp,
+    Wand2,
+    Plus,
+    Download,
+    Eye,
+    EyeOff,
+    Send,
+    MessageCircle,
+    RotateCcw,
+    History,
+    Clock,
+    Settings,
+    Edit2,
+} from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
+import type { GoogleGenAI } from '@google/genai';
+import './SkillGenerator.css';
+
+// ========== Types ==========
+interface UploadedImage {
+    id: string;
+    base64: string; // data:image/...;base64,...
+    name: string;
+}
+
+interface LibraryResult {
+    headers: string[];
+    rows: string[][];
+}
+
+interface ChatMessage {
+    role: 'user' | 'model';
+    text: string;
+    timestamp: number;
+    images?: string[]; // base64 thumbnails for display
+}
+
+interface HistoryEntry {
+    id: string;
+    instruction: string;
+    library: LibraryResult | null;
+    timestamp: number;
+    preview: string; // 前30字的预览
+    // 输入材料（可选，旧版本可能没有）
+    samplePrompts?: string;
+    roughRules?: string;
+    customDimensions?: string[];
+    imageThumbnails?: string[]; // 压缩后的小缩略图
+    imageCount?: number;
+}
+
+// ========== Workspace Tab ==========
+interface SkillGenWorkspace {
+    id: string;
+    name: string;
+    // Inputs
+    images: UploadedImage[];
+    samplePrompts: string;
+    roughRules: string;
+    customDimensions: string[];
+    // Outputs
+    generateDone: boolean;
+    baseInstruction: string;
+    libraryResult: LibraryResult | null;
+    // Chat
+    chatHistory: ChatMessage[];
+    // Code gen
+    codeEntries: { id: string; name: string; min: number; max: number; weight: string }[];
+    generatedCode: string;
+    // AI 扩展类型
+    extendTargetDimension: string;
+    extendPrompt: string;
+    extendCount: number;
+    extendGeneratedValues: string[];
+    extendChatHistory: { role: 'user' | 'model'; text: string; timestamp: number }[];
+    // Sub-tab
+    activeTab: 'ai' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen';
+}
+
+let _wsCounter = 0;
+const createWorkspace = (name: string): SkillGenWorkspace => ({
+    id: `ws_${Date.now()}_${++_wsCounter}`,
+    name,
+    images: [],
+    samplePrompts: '',
+    roughRules: '',
+    customDimensions: [],
+    generateDone: false,
+    baseInstruction: '',
+    libraryResult: null,
+    chatHistory: [],
+    codeEntries: [{ id: 'e1', name: '', min: 1, max: 20, weight: '' }],
+    generatedCode: '',
+    extendTargetDimension: '',
+    extendPrompt: '',
+    extendCount: 20,
+    extendGeneratedValues: [],
+    extendChatHistory: [],
+    activeTab: 'ai',
+});
+
+const HISTORY_KEY = 'skill-gen-history';
+const MAX_HISTORY = 20;
+const SKILL_GEN_FEATURE_NOTES_KEY = 'skill-gen-feature-notes-v1-seen';
+
+const loadHistory = (): HistoryEntry[] => {
+    try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+};
+
+const saveHistory = (entries: HistoryEntry[]) => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
+};
+
+interface SkillGeneratorAppProps {
+    getAiInstance: () => GoogleGenAI | null;
+}
+
+type WeightMode = '' | 'low' | 'high' | 'center' | 'edge';
+type PromptPreset = 'general-image' | 'nano-banana-pro' | 'general-video';
+
+interface PromptPresetConfig {
+    label: string;
+    summary: string;
+    recommendedDims: string[];
+    dimensionReference: string;
+    platformRules: string;
+}
+
+const PROMPT_PRESETS: Record<PromptPreset, PromptPresetConfig> = {
+    'general-image': {
+        label: '通用生图',
+        summary: '适配 Midjourney / SDXL / FLUX 等生图模型，强调主体、场景、构图和限制条件。',
+        recommendedDims: ['主体', '场景', '构图', '光线', '色彩', '风格', '限制条件'],
+        dimensionReference: `【维度参考】建议优先覆盖以下维度：
+- 主体：人物身份、外观特征、服装道具
+- 场景：地点、环境元素、时间/天气
+- 构图：景别、角度、镜头语言、画幅关系
+- 光线：主光类型、方向、氛围
+- 色彩：主色调、对比、饱和度
+- 风格：写实/插画/摄影风格
+- 限制条件：no text / no logo / no watermark / no distortion`,
+        platformRules: `- 输出应是可直接投喂模型的自然语言描述，不要输出代码。
+- 优先使用可执行信息（主体、构图、镜头、光线、风格），避免空泛形容词堆叠。
+- 每条描述词只表达一个核心画面意图，避免互相冲突的要求。
+- 明确保留“限制条件”片段，防止水印、logo、畸形手指等常见问题。`,
+    },
+    'nano-banana-pro': {
+        label: 'Nano Banana Pro（生图）',
+        summary: '采用 Skill 化混合模式：用通用元指令稳定产出高质量描述词，兼顾表达自然度与可控性。',
+        recommendedDims: ['目标用途', '主体', '场景与构图', '风格光线', '文案版式', '限制条件'],
+        dimensionReference: `【维度参考】建议优先覆盖以下维度：
+- 目标用途：投放平台、展示场景、受众
+- 主体：对象身份、数量、动作状态
+- 场景与构图：环境、机位、景别、前中后景关系
+- 风格光线：视觉风格、色调、光照方向与强度
+- 文案版式：图内文字语言、位置、信息层级
+- 限制条件：不要 logo、水印、畸变、无关元素`,
+        platformRules: `- 使用自然语言完整描述，不使用 "--ar 16:9" 这类参数命令式写法（除非用户明确要求）。
+- 在基础指令中固定“目标-主体-场景-风格-文案-限制”的顺序，确保输出稳定。
+- 若包含图内文字，必须说明语言、位置、字数控制和视觉层级。
+- 约束语句必须具体可执行，例如“无水印、无品牌标志、人物五官自然”。`,
+    },
+    'general-video': {
+        label: '通用生视频',
+        summary: '适配 Runway / Kling / Sora 等视频模型，强调动作、运镜、时长节奏与稳定性约束。',
+        recommendedDims: ['主体', '动作', '场景', '镜头运动', '景别', '光线氛围', '节奏时长', '限制条件'],
+        dimensionReference: `【维度参考】建议优先覆盖以下维度：
+- 主体：角色/物体身份和外观特征
+- 动作：连续动作路径与关键帧事件
+- 场景：空间环境、天气、时间
+- 镜头运动：推拉摇移、跟拍、手持稳定度
+- 景别：远景/中景/近景切换策略
+- 光线氛围：主光、辅光、色温、情绪
+- 节奏时长：总时长、节奏变化、镜头停留
+- 限制条件：防抖、面部稳定、无字幕/无水印`,
+        platformRules: `- 输出必须包含动作过程描述，而不是静态画面堆词。
+- 明确镜头运动与景别变化，避免“镜头不动 + 动作复杂”冲突。
+- 写清时长和节奏（例如 6-8 秒，前慢后快）。
+- 添加视频常见稳定性约束：人物一致、面部稳定、无闪烁。`,
+    },
+};
+
+const DEFAULT_SKILL_FRAMEWORKS: Record<PromptPreset, string> = {
+    'general-image': `【角色与目标】定义要产出什么类型的描述词
+【输入变量】接收系统提供的元素信息
+【生成流程】自然描述草拟 -> 硬约束补充 -> 合并为最终描述词
+【输出要求】默认只输出 1 条最终描述词正文
+【质量自检】完整性/一致性/禁用项检查`,
+    'nano-banana-pro': `【角色与目标】定义要产出什么类型的描述词
+【输入变量】接收系统提供的元素信息
+【生成流程】自然描述草拟 -> 硬约束补充 -> 合并为最终描述词
+【输出要求】默认只输出 1 条最终描述词正文
+【质量自检】完整性/一致性/禁用项检查`,
+    'general-video': `【角色与目标】定义要产出什么类型的视频描述词
+【输入变量】接收系统提供的元素信息
+【生成流程】镜头与动作主线草拟 -> 节奏时长与稳定性约束补充 -> 合并为最终视频描述词
+【输出要求】默认只输出 1 条最终视频描述词正文
+【质量自检】动作连贯性/镜头一致性/禁用项检查`,
+};
+
+const getDefaultSkillFramework = (preset: PromptPreset) => DEFAULT_SKILL_FRAMEWORKS[preset];
+
+// ========== Utility: Combine images to grid ==========
+const combineImagesToGrid = async (imageSources: string[]): Promise<string | null> => {
+    if (imageSources.length === 0) return null;
+
+    const loadImage = (src: string): Promise<HTMLImageElement | null> => {
+        return new Promise((resolve) => {
+            const img = document.createElement('img');
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null);
+            if (src.startsWith('data:')) {
+                img.src = src;
+            } else {
+                img.crossOrigin = 'anonymous';
+                img.src = `https://wsrv.nl/?url=${encodeURIComponent(src)}`;
+            }
+        });
+    };
+
+    const loadedImages: HTMLImageElement[] = [];
+    for (const src of imageSources) {
+        const img = await loadImage(src);
+        if (img) loadedImages.push(img);
+    }
+    if (loadedImages.length === 0) return null;
+
+    // 根据图片数量动态调整网格布局
+    const count = loadedImages.length;
+    let cols: number;
+    let cellSize: number;
+    if (count <= 4) {
+        cols = Math.min(2, count);
+        cellSize = 400; // 大格，少图看得清
+    } else if (count <= 9) {
+        cols = 3;
+        cellSize = 350;
+    } else if (count <= 16) {
+        cols = 4;
+        cellSize = 300;
+    } else {
+        cols = 5;
+        cellSize = 250; // 20张: 5×4 = 1250×1000px
+    }
+    const rows = Math.ceil(count / cols);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = cols * cellSize;
+    canvas.height = rows * cellSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < loadedImages.length; i++) {
+        const img = loadedImages[i];
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const scale = Math.min(cellSize / img.naturalWidth, cellSize / img.naturalHeight);
+        const w = img.naturalWidth * scale;
+        const h = img.naturalHeight * scale;
+        const x = col * cellSize + (cellSize - w) / 2;
+        const y = row * cellSize + (cellSize - h) / 2;
+        ctx.drawImage(img, x, y, w, h);
+    }
+
+    return canvas.toDataURL('image/jpeg', 0.85);
+};
+
+// ========== Main Component ==========
+const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) => {
+    const toast = useToast();
+
+    // ==================== 工作区标签页管理 ====================
+    const [workspaces, setWorkspaces] = useState<SkillGenWorkspace[]>(() => [createWorkspace('工作区 1')]);
+    const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => workspaces[0]?.id || '');
+    const [editingWsId, setEditingWsId] = useState<string | null>(null);
+    const [editingWsName, setEditingWsName] = useState('');
+    const wsEditInputRef = useRef<HTMLInputElement>(null);
+
+    // === Input States ===
+    const [images, setImages] = useState<UploadedImage[]>([]);
+    const [samplePrompts, setSamplePrompts] = useState('');
+    const [roughRules, setRoughRules] = useState('');
+    const [customDimensions, setCustomDimensions] = useState<string[]>([]);
+    const [dimInput, setDimInput] = useState('');
+    const dimInputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const imageToLibInputRef = useRef<HTMLInputElement>(null);
+
+    // === Output States ===
+    const [generating, setGenerating] = useState(false);
+    const [generateDone, setGenerateDone] = useState(false);
+    const [baseInstruction, setBaseInstruction] = useState('');
+    const [libraryResult, setLibraryResult] = useState<LibraryResult | null>(null);
+    const [copiedInstruction, setCopiedInstruction] = useState(false);
+    const [copiedLibrary, setCopiedLibrary] = useState(false);
+    const [showOpalExport, setShowOpalExport] = useState(false);
+    const [copiedOpalRandom, setCopiedOpalRandom] = useState(false);
+    const [copiedOpalInstruction, setCopiedOpalInstruction] = useState(false);
+    const [isValidating, setIsValidating] = useState(false);
+    const [validationReport, setValidationReport] = useState<{
+        fixes: { dim: string; bad: string; fixed: string; reason: string }[];
+        merges: { dims: string[]; mergedName: string; reason: string }[];
+        misplacements: { value: string; fromDim: string; toDim: string; reason: string }[];
+    } | null>(null);
+
+    // === 模式切换 ===
+    const [activeTab, setActiveTab] = useState<'ai' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen'>('ai');
+    const [manualLibraryText, setManualLibraryText] = useState('');
+    const [promptPreset, setPromptPreset] = useState<PromptPreset>('nano-banana-pro');
+    const [skillFrameworks, setSkillFrameworks] = useState<Record<PromptPreset, string>>(() => ({
+        'general-image': getDefaultSkillFramework('general-image'),
+        'nano-banana-pro': getDefaultSkillFramework('nano-banana-pro'),
+        'general-video': getDefaultSkillFramework('general-video'),
+    }));
+    const [manualMixedRewriteEnabled, setManualMixedRewriteEnabled] = useState(false);
+    const [manualRewriting, setManualRewriting] = useState(false);
+    const [manualRewritePreview, setManualRewritePreview] = useState<{ original: string; rewritten: string } | null>(null);
+    const [isAligningInstruction, setIsAligningInstruction] = useState(false);
+    const [isFillingLibrary, setIsFillingLibrary] = useState(false);
+    const [extendTargetDimension, setExtendTargetDimension] = useState('');
+    const [extendPrompt, setExtendPrompt] = useState('');
+    const [extendCount, setExtendCount] = useState(20);
+    const [extendGenerating, setExtendGenerating] = useState(false);
+    const [extendGeneratedValues, setExtendGeneratedValues] = useState<string[]>([]);
+    const [extendCopied, setExtendCopied] = useState(false);
+    const [extendPastePreview, setExtendPastePreview] = useState('');
+    const [extendChatHistory, setExtendChatHistory] = useState<Array<{ role: 'user' | 'model'; text: string; timestamp: number }>>([]);
+    const [extendChatInput, setExtendChatInput] = useState('');
+    const [extendChatSending, setExtendChatSending] = useState(false);
+    const extendChatEndRef = useRef<HTMLDivElement>(null);
+    const [showExtendAIModal, setShowExtendAIModal] = useState(false);
+    const [extendAIModalPrompt, setExtendAIModalPrompt] = useState('');
+    const [extendAIModalCount, setExtendAIModalCount] = useState(10);
+    const [extendAIModalGenerating, setExtendAIModalGenerating] = useState(false);
+    const [showInstructionToLibModal, setShowInstructionToLibModal] = useState(false);
+    const [instructionToLibInput, setInstructionToLibInput] = useState('');
+    const [instructionToLibConverting, setInstructionToLibConverting] = useState(false);
+    const [instructionToLibPreview, setInstructionToLibPreview] = useState<{ instruction: string; library: LibraryResult | null } | null>(null);
+    const [showImageToLibModal, setShowImageToLibModal] = useState(false);
+    const [imageToLibImages, setImageToLibImages] = useState<UploadedImage[]>([]);
+    const [imageToLibConverting, setImageToLibConverting] = useState(false);
+    const [imageToLibUserDesc, setImageToLibUserDesc] = useState('');
+    const [imageToLibPreview, setImageToLibPreview] = useState<{ instruction: string; library: LibraryResult | null } | null>(null);
+
+    // === 随机代码生成器 ===
+    interface RandomCodeEntry {
+        id: string;
+        name: string;
+        min: number;
+        max: number;
+        weight: string; // 权重模式: '' | 'low' | 'high' | 'center' | 'edge'
+    }
+    const [codeEntries, setCodeEntries] = useState<RandomCodeEntry[]>([
+        { id: 'e1', name: '', min: 1, max: 20, weight: '' }
+    ]);
+    const [batchRangeMin, setBatchRangeMin] = useState(1);
+    const [batchRangeMax, setBatchRangeMax] = useState(20);
+    const [batchWeightMode, setBatchWeightMode] = useState<WeightMode>('');
+    const [generatedCode, setGeneratedCode] = useState('');
+    const [copiedGenCode, setCopiedGenCode] = useState(false);
+    const [codeRunResult, setCodeRunResult] = useState<{ name: string; value: number }[]>([]);
+
+    // 模拟运行随机代码
+    const runRandomCode = () => {
+        const validEntries = codeEntries.filter(e => e.name.trim());
+        if (validEntries.length === 0) return;
+
+        const genWeightsForRun = (mode: string, total: number): number[] => {
+            if (mode === 'low') return Array.from({ length: total }, (_, i) => total - i);
+            if (mode === 'high') return Array.from({ length: total }, (_, i) => i + 1);
+            if (mode === 'center') {
+                const mid = (total - 1) / 2;
+                return Array.from({ length: total }, (_, i) => Math.max(1, Math.round(total - Math.abs(i - mid) * 2)));
+            }
+            if (mode === 'edge') {
+                const mid = (total - 1) / 2;
+                return Array.from({ length: total }, (_, i) => Math.max(1, Math.round(Math.abs(i - mid) * 2 + 1)));
+            }
+            return [];
+        };
+
+        const weightedChoice = (min: number, max: number, weights: number[]): number => {
+            const total = weights.reduce((a, b) => a + b, 0);
+            let r = Math.random() * total;
+            for (let i = 0; i < weights.length; i++) {
+                r -= weights[i];
+                if (r <= 0) return min + i;
+            }
+            return max;
+        };
+
+        const results = validEntries.map(e => {
+            const total = e.max - e.min + 1;
+            let value: number;
+            if (e.weight && e.weight !== '') {
+                const weights = genWeightsForRun(e.weight, total);
+                value = weightedChoice(e.min, e.max, weights);
+            } else {
+                value = Math.floor(Math.random() * total) + e.min;
+            }
+            return { name: e.name, value };
+        });
+        setCodeRunResult(results);
+    };
+
+    // === 分类联动代码生成 ===
+    const [categoryInputMode, setCategoryInputMode] = useState<'table' | 'text'>('table');
+    const [categoryRawTable, setCategoryRawTable] = useState(''); // TSV paste
+    const [categoryParsedDims, setCategoryParsedDims] = useState<{ name: string; values: string[] }[]>([]);
+    const [categoryLinkText, setCategoryLinkText] = useState('');
+    const [categoryLinkCode, setCategoryLinkCode] = useState('');
+    const [copiedCategoryCode, setCopiedCategoryCode] = useState(false);
+    const [categoryRunResult, setCategoryRunResult] = useState<{ category: string; dims: { name: string; value: string }[] } | null>(null);
+    const [categoryAILoading, setCategoryAILoading] = useState(false);
+    const [categoryPresetNames, setCategoryPresetNames] = useState(''); // 用户预设分类名，如 "室外, 室内, 水边"
+    const [showAICategoryModal, setShowAICategoryModal] = useState(false);
+    const [aiCategoryModalInput, setAiCategoryModalInput] = useState('');
+    const [aiCategoryModalPresetNames, setAiCategoryModalPresetNames] = useState('');
+    const [aiCategoryModalLoading, setAiCategoryModalLoading] = useState(false);
+    const [aiCategoryModalPreview, setAiCategoryModalPreview] = useState('');
+
+    // === 库本地化功能 ===
+    const [localizeTargetCountry, setLocalizeTargetCountry] = useState('');
+    const [localizing, setLocalizing] = useState(false);
+    const [localizedResult, setLocalizedResult] = useState<{ headers: string[]; rows: string[][] } | null>(null);
+    const [localizedBaseInstruction, setLocalizedBaseInstruction] = useState('');
+    const [localizeDirectTable, setLocalizeDirectTable] = useState('');
+    const [localizeDirectInstruction, setLocalizeDirectInstruction] = useState('');
+    const [localizeExpanded, setLocalizeExpanded] = useState(false);
+
+    // === AI 智能分类功能 ===
+    const [smartClassifyExpanded, setSmartClassifyExpanded] = useState(false);
+    const [smartClassifyInput, setSmartClassifyInput] = useState('');
+    const [smartClassifyDimension, setSmartClassifyDimension] = useState('');
+    const [smartClassifyStyle, setSmartClassifyStyle] = useState<'strict' | 'creative' | 'custom'>('strict');
+    const [smartClassifyCustomRule, setSmartClassifyCustomRule] = useState('');
+    const [smartClassifyOutputFormat, setSmartClassifyOutputFormat] = useState<1 | 2 | 3>(3);
+    const [smartClassifying, setSmartClassifying] = useState(false);
+    const [smartClassifyResult, setSmartClassifyResult] = useState('');
+
+    // === 代码生成子标签 ===
+    const [codegenSubTab, setCodegenSubTab] = useState<'random' | 'category'>('random');
+
+    // === AI 扩展子标签 ===
+    const [extendSubTab, setExtendSubTab] = useState<'chat' | 'dimension'>('chat');
+
+    // === 图片自动识图 ===
+    const [autoDescribeImages, setAutoDescribeImages] = useState(true);
+    const [describingImages, setDescribingImages] = useState(false);
+
+    const weightModeLabels: Record<WeightMode, string> = {
+        '': '均匀分布',
+        low: '小值优先',
+        high: '大值优先',
+        center: '中间集中',
+        edge: '两端集中'
+    };
+
+    // 解析 TSV 表格为维度数据
+    const parseCategoryTSV = (text: string) => {
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) return [];
+
+        const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+        // 过滤掉 "XX分类" 列
+        const dimHeaders = headers.filter(h => !h.endsWith('分类'));
+
+        const dims: { name: string; values: string[] }[] = dimHeaders.map(h => ({ name: h, values: [] }));
+
+        for (let i = 1; i < lines.length; i++) {
+            const cells = lines[i].split('\t').map(c => c.trim());
+            for (let j = 0; j < dimHeaders.length; j++) {
+                const headerIdx = headers.indexOf(dimHeaders[j]);
+                const val = cells[headerIdx]?.trim();
+                if (val && !dims[j].values.includes(val)) {
+                    dims[j].values.push(val);
+                }
+            }
+        }
+        return dims.filter(d => d.values.length > 0);
+    };
+
+    // 解析带分类列的 TSV（和 RandomLibraryManager 一致的格式）
+    // 格式: 场景 | 场景分类 | 交通工具 | 交通工具分类
+    // 分类列可包含逗号分隔多分类，"通用"或空表示属于所有分类
+    const [categoryTableData, setCategoryTableData] = useState<{
+        headers: string[];           // 所有列头
+        dimHeaders: string[];        // 维度列头（非分类列）
+        rows: string[][];            // 原始行数据
+        hasCategoryColumns: boolean; // 是否有分类列
+    } | null>(null);
+
+    const parseCategoryTSVWithCategories = (text: string): string | null => {
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) return null;
+
+        const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+        const catHeaders = headers.filter(h => h.endsWith('分类'));
+        if (catHeaders.length === 0) return null;
+
+        // 维度列 = 非分类列
+        const dimHeaders = headers.filter(h => !h.endsWith('分类'));
+
+        // 构建分类映射：每个维度找到对应的分类列
+        // 如 "场景" → "场景分类"
+        const dimCatMap: Record<string, string> = {};
+        for (const dh of dimHeaders) {
+            const catCol = `${dh}分类`;
+            if (headers.includes(catCol)) {
+                dimCatMap[dh] = catCol;
+            }
+        }
+
+        // 收集所有分类名
+        const allCategories = new Set<string>();
+        const rows: { values: Record<string, string>; categories: Record<string, string[]> }[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const cells = lines[i].split('\t').map(c => c.trim());
+            const rowValues: Record<string, string> = {};
+            const rowCats: Record<string, string[]> = {};
+
+            for (const dh of dimHeaders) {
+                const dimIdx = headers.indexOf(dh);
+                rowValues[dh] = cells[dimIdx]?.trim() || '';
+
+                // 获取该维度的分类
+                const catCol = dimCatMap[dh];
+                if (catCol) {
+                    const catIdx = headers.indexOf(catCol);
+                    const catVal = cells[catIdx]?.trim() || '';
+                    if (!catVal || catVal === '通用') {
+                        rowCats[dh] = ['通用'];
+                    } else {
+                        const cats = catVal.split(/[,，]/).map(c => c.trim()).filter(c => c);
+                        rowCats[dh] = cats;
+                        cats.forEach(c => { if (c !== '通用') allCategories.add(c); });
+                    }
+                }
+            }
+
+            if (Object.values(rowValues).some(v => v)) {
+                rows.push({ values: rowValues, categories: rowCats });
+            }
+        }
+
+        if (allCategories.size === 0) return null;
+
+        // 构建 分类 → { 维度 → 值列表 }
+        const catData: Record<string, Record<string, string[]>> = {};
+        const catArray = Array.from(allCategories);
+
+        for (const cat of catArray) {
+            catData[cat] = {};
+            for (const dh of dimHeaders) catData[cat][dh] = [];
+        }
+
+        for (const row of rows) {
+            for (const dh of dimHeaders) {
+                const val = row.values[dh];
+                if (!val) continue;
+
+                const valCats = row.categories[dh] || ['通用'];
+                if (valCats.includes('通用')) {
+                    // 通用值归入所有分类
+                    for (const cat of catArray) {
+                        if (!catData[cat][dh].includes(val)) catData[cat][dh].push(val);
+                    }
+                } else {
+                    for (const cat of valCats) {
+                        if (catData[cat]?.[dh] && !catData[cat][dh].includes(val)) {
+                            catData[cat][dh].push(val);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 转换为文本
+        const textLines: string[] = [];
+        for (const cat of catArray) {
+            textLines.push(`[${cat}]`);
+            for (const dim of dimHeaders) {
+                const values = catData[cat][dim];
+                if (values && values.length > 0) {
+                    textLines.push(`${dim}: ${values.join(', ')}`);
+                }
+            }
+            textLines.push('');
+        }
+        return textLines.join('\n').trim();
+    };
+
+    // 处理粘贴表格
+    const handleCategoryTablePaste = (text: string) => {
+        setCategoryRawTable(text);
+
+        // 解析表头和行数据用于表格显示
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length >= 2) {
+            const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+            const dimHeaders = headers.filter(h => !h.endsWith('分类'));
+            const hasCategoryColumns = headers.some(h => h.endsWith('分类'));
+            const rows = lines.slice(1).map(l => l.split('\t').map(c => c.trim()));
+            setCategoryTableData({ headers, dimHeaders, rows, hasCategoryColumns });
+        }
+
+        // 检查是否有分类列
+        const withCatResult = parseCategoryTSVWithCategories(text);
+        if (withCatResult) {
+            setCategoryLinkText(withCatResult);
+            const catCount = (withCatResult.match(/^\[.+\]$/gm) || []).length;
+            toast.success(`检测到分类列，已自动解析 ${catCount} 个分类！可直接生成代码`);
+            return;
+        }
+
+        // 没有分类列
+        const dims = parseCategoryTSV(text);
+        setCategoryParsedDims(dims);
+        if (dims.length > 0) {
+            toast.success(`已识别 ${dims.length} 个维度，共 ${dims.reduce((n, d) => n + d.values.length, 0)} 个值（无分类列，需 AI 分类）`);
+        }
+    };
+
+    const runAICategorizeForRawTable = async (
+        rawTable: string,
+        presetNameInput: string
+    ): Promise<{ linkText: string; categoryCount: number; usedExistingCategoryColumns: boolean }> => {
+        const input = rawTable.trim();
+        if (!input) throw new Error('请先粘贴表格数据');
+
+        // 兼容已带分类列的数据：无需再跑 AI，直接转成联动格式
+        const withCategory = parseCategoryTSVWithCategories(input);
+        if (withCategory) {
+            const categoryCount = (withCategory.match(/^\[.+\]$/gm) || []).length;
+            return { linkText: withCategory, categoryCount, usedExistingCategoryColumns: true };
+        }
+
+        const dims = parseCategoryTSV(input);
+        if (dims.length === 0) throw new Error('未识别到有效维度，请确认是 TSV 表格格式');
+
+        const ai = getAiInstance();
+        if (!ai) throw new Error('请先设置 API 密钥');
+
+        const librariesInfo = dims.map(d =>
+            `${d.name}：[${d.values.slice(0, 60).join(', ')}]`
+        ).join('\n');
+
+        const presetCats = presetNameInput.trim()
+            ? presetNameInput.split(/[,，、\s]+/).map(s => s.trim()).filter(s => s)
+            : null;
+
+        const categoryInstruction = presetCats && presetCats.length > 0
+            ? `用户已指定分类名称，请严格使用以下 ${presetCats.length} 个分类：${presetCats.map(c => `"${c}"`).join('、')}。不要自行增加或修改分类名。`
+            : '请自行分析并建议 2-5 个合理的分类名（如"室外"、"室内"、"水边"等）。';
+
+        const prompt = `你是一个智能分类助手。请根据以下随机库的维度和值，分析它们的使用场景，将值归入合理的分类。
+
+目标：同一分类下的值可以合理组合，避免不合理的组合（如"室内场景"配"轮船"）。
+
+${categoryInstruction}
+
+维度和值：
+${librariesInfo}
+
+请返回JSON格式（不要有任何其他文字），格式如下：
+{
+  "categories": ["分类1", "分类2", "分类3"],
+  "assignments": {
+    "维度名1": { "值1": ["分类1"], "值2": ["分类1", "分类2"], "值3": ["分类2"] },
+    "维度名2": { "值1": ["分类1"], "值2": ["分类2"] }
+  }
+}
+
+原则：
+1. 一个值可以属于多个分类（如"自行车"可以室内和室外）
+2. 通用的值归入所有分类
+3. 只返回 JSON`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+            config: {
+                thinkingConfig: { thinkingBudget: 2048 }
+            }
+        });
+
+        const resultText = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('AI 返回格式异常，请重试');
+
+        const aiResult = JSON.parse(jsonMatch[0]) as {
+            categories: string[];
+            assignments: Record<string, Record<string, string[]>>;
+        };
+
+        const catData: Record<string, Record<string, string[]>> = {};
+        for (const cat of aiResult.categories) {
+            catData[cat] = {};
+            for (const dim of dims) {
+                catData[cat][dim.name] = [];
+            }
+        }
+
+        for (const dim of dims) {
+            const dimAssign = aiResult.assignments[dim.name];
+            for (const val of dim.values) {
+                const valCats = dimAssign?.[val] || aiResult.categories;
+                for (const cat of valCats) {
+                    if (catData[cat]?.[dim.name] && !catData[cat][dim.name].includes(val)) {
+                        catData[cat][dim.name].push(val);
+                    }
+                }
+            }
+        }
+
+        const textLines: string[] = [];
+        for (const cat of aiResult.categories) {
+            textLines.push(`[${cat}]`);
+            for (const dim of dims) {
+                const values = catData[cat][dim.name];
+                if (values && values.length > 0) {
+                    textLines.push(`${dim.name}: ${values.join(', ')}`);
+                }
+            }
+            textLines.push('');
+        }
+
+        return {
+            linkText: textLines.join('\n').trim(),
+            categoryCount: aiResult.categories.length,
+            usedExistingCategoryColumns: false,
+        };
+    };
+
+    // 分类联动区内的 AI 智能分类
+    const handleAICategorize = async () => {
+        if (!categoryRawTable.trim()) {
+            toast.info('请先粘贴表格数据');
+            return;
+        }
+
+        setCategoryAILoading(true);
+        try {
+            const { linkText, categoryCount, usedExistingCategoryColumns } = await runAICategorizeForRawTable(
+                categoryRawTable,
+                categoryPresetNames
+            );
+            setCategoryLinkText(linkText);
+            setCategoryInputMode('text');
+            if (usedExistingCategoryColumns) {
+                toast.success(`已识别分类列并完成转换（${categoryCount} 个分类）`);
+            } else {
+                toast.success(`AI 分类完成！识别了 ${categoryCount} 个分类`);
+            }
+        } catch (error: any) {
+            console.error('AI 分类失败:', error);
+            toast.error(`AI 分类失败: ${error.message || '请重试'}`);
+        } finally {
+            setCategoryAILoading(false);
+        }
+    };
+
+    // 顶部工具弹窗里的 AI 智能分类
+    const handleAICategoryModalRun = async () => {
+        if (!aiCategoryModalInput.trim()) {
+            toast.info('请先粘贴表格数据');
+            return;
+        }
+
+        setAiCategoryModalLoading(true);
+        try {
+            const { linkText, categoryCount, usedExistingCategoryColumns } = await runAICategorizeForRawTable(
+                aiCategoryModalInput,
+                aiCategoryModalPresetNames
+            );
+            setAiCategoryModalPreview(linkText);
+            if (usedExistingCategoryColumns) {
+                toast.success(`检测到分类列，已转换（${categoryCount} 个分类）`);
+            } else {
+                toast.success(`AI 分类完成（${categoryCount} 个分类）`);
+            }
+        } catch (error: any) {
+            console.error('AI 分类失败:', error);
+            toast.error(`AI 分类失败: ${error.message || '请重试'}`);
+        } finally {
+            setAiCategoryModalLoading(false);
+        }
+    };
+
+    const closeAICategoryModal = () => {
+        setShowAICategoryModal(false);
+        setAiCategoryModalInput('');
+        setAiCategoryModalPresetNames('');
+        setAiCategoryModalPreview('');
+        setAiCategoryModalLoading(false);
+    };
+
+    const applyAICategoryModalResult = () => {
+        if (!aiCategoryModalPreview.trim()) {
+            toast.info('请先执行 AI 分类');
+            return;
+        }
+
+        handleCategoryTablePaste(aiCategoryModalInput);
+        setCategoryPresetNames(aiCategoryModalPresetNames);
+        setCategoryLinkText(aiCategoryModalPreview);
+        setCategoryInputMode('text');
+        closeAICategoryModal();
+        scrollToCategoryCodeSection();
+        toast.success('已应用到分类联动代码生成器');
+    };
+
+    // 解析分类联动文本
+    const parseCategoryLinkText = (text: string) => {
+        const categories: Record<string, Record<string, string[]>> = {};
+        let currentCategory = '';
+
+        for (const line of text.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            const catMatch = trimmed.match(/^\[(.+)\]$/);
+            if (catMatch) {
+                currentCategory = catMatch[1].trim();
+                categories[currentCategory] = {};
+                continue;
+            }
+
+            const dimMatch = trimmed.match(/^(.+?)[：:]\s*(.+)$/);
+            if (dimMatch && currentCategory) {
+                const dimName = dimMatch[1].trim();
+                const values = dimMatch[2].split(/[,，、]\s*/).map(v => v.trim()).filter(v => v);
+                if (values.length > 0) {
+                    categories[currentCategory][dimName] = values;
+                }
+            }
+        }
+        return categories;
+    };
+
+    // 分类联动指令文本
+    const [categoryLinkInstruction, setCategoryLinkInstruction] = useState('');
+
+    // 生成分类联动 Python 代码（Opal 兼容：用列表+索引直接输出值）
+    const generateCategoryLinkCode = () => {
+        const categories = parseCategoryLinkText(categoryLinkText);
+        const catNames = Object.keys(categories);
+        if (catNames.length === 0) {
+            toast.info('请先完成分类（AI 分类或手动编排）');
+            return;
+        }
+
+        const lines: string[] = ['import random', ''];
+
+        // 分类列表
+        lines.push(`# 分类联动：先选分类，再从该分类下各维度选值`);
+        lines.push(`cat_list = [${catNames.map(c => `"${c}"`).join(', ')}]`);
+        lines.push(`cat_idx = random.randint(0, ${catNames.length - 1})`);
+        lines.push(`category = cat_list[cat_idx]`);
+        lines.push(`print(f'分类: {category}')`);
+        lines.push('');
+
+        // 每个分类的各维度
+        for (let ci = 0; ci < catNames.length; ci++) {
+            const cat = catNames[ci];
+            const dims = categories[cat];
+            const dimNames = Object.keys(dims);
+            lines.push(`# --- ${cat} ---`);
+            for (const dim of dimNames) {
+                const values = dims[dim];
+                const prefix = catNames.length > 1 ? `c${ci + 1}_` : '';
+                const varList = `${prefix}${dim}_list`;
+                const varIdx = `${prefix}${dim}_idx`;
+                const varVal = `${prefix}${dim}`;
+                lines.push(`${varList} = [${values.map(v => `"${v}"`).join(', ')}]`);
+                lines.push(`${varIdx} = random.randint(0, ${values.length - 1})`);
+                lines.push(`${varVal} = ${varList}[${varIdx}]`);
+                lines.push(`print(f'${cat}_${dim}: {${varVal}}')`);
+            }
+            lines.push('');
+        }
+
+        setCategoryLinkCode(lines.join('\n').trimEnd());
+        setCategoryLinkInstruction(''); // 不再需要指令文本，代码直接输出值
+    };
+
+    // 模拟运行分类联动代码
+    const runCategoryLinkCode = () => {
+        const categories = parseCategoryLinkText(categoryLinkText);
+        const catNames = Object.keys(categories);
+        if (catNames.length === 0) return;
+
+        const selectedCat = catNames[Math.floor(Math.random() * catNames.length)];
+        const dims = categories[selectedCat];
+        const results = Object.entries(dims).map(([name, values]) => {
+            const idx = Math.floor(Math.random() * values.length);
+            return { name, value: values[idx] };
+        });
+        setCategoryRunResult({ category: selectedCat, dims: results });
+    };
+
+    // === 按分类拆分导出 ===
+    const [categorySplitResults, setCategorySplitResults] = useState<{
+        category: string;
+        code: string;
+        instruction: string;
+    }[]>([]);
+    const [categorySplitActiveTab, setCategorySplitActiveTab] = useState(0);
+    const [copiedSplitCode, setCopiedSplitCode] = useState<string | null>(null);
+    const [copiedSplitInstruction, setCopiedSplitInstruction] = useState<string | null>(null);
+
+    const generateSplitExport = () => {
+        const categories = parseCategoryLinkText(categoryLinkText);
+        const catNames = Object.keys(categories);
+        if (catNames.length === 0) {
+            toast.info('请先完成分类');
+            return;
+        }
+
+        const results = catNames.map(catName => {
+            const dims = categories[catName];
+            const dimNames = Object.keys(dims);
+
+            // 生成 Python 随机代码（直接输出文字值）
+            const codeLines = ['import random', ''];
+            for (const dim of dimNames) {
+                const values = dims[dim];
+                codeLines.push(`${dim}_list = [${values.map(v => `"${v}"`).join(', ')}]`);
+                codeLines.push(`${dim}_idx = random.randint(0, ${values.length - 1})`);
+                codeLines.push(`${dim} = ${dim}_list[${dim}_idx]`);
+                codeLines.push(`print(f'${dim}: {${dim}}')`);
+                codeLines.push('');
+            }
+
+            // 生成指令嵌入库
+            const instrBlocks = dimNames.map(dim => {
+                const values = dims[dim];
+                const numberedList = values.map((v, j) => `${j + 1}. ${v}`).join('\n');
+                return `【${dim}】(共 ${values.length} 项)\n${numberedList}`;
+            });
+
+            const instruction = `请你严格按照上面给你的各个库的序号，从对应的库中选择内容。\n\n${instrBlocks.join('\n\n')}`;
+
+            return {
+                category: catName,
+                code: codeLines.join('\n').trimEnd(),
+                instruction,
+            };
+        });
+
+        setCategorySplitResults(results);
+        setCategorySplitActiveTab(0);
+        toast.success(`已拆分为 ${results.length} 套独立代码+指令`);
+    };
+    // === Grid Preview ===
+    const [gridPreview, setGridPreview] = useState<string | null>(null);
+    const [showGridPreview, setShowGridPreview] = useState(false);
+
+    // === Chat States ===
+    const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+    const [chatInput, setChatInput] = useState('');
+    const [chatImages, setChatImages] = useState<UploadedImage[]>([]);
+    const [chatSending, setChatSending] = useState(false);
+    const [chatCollapsed, setChatCollapsed] = useState(true);
+    const chatEndRef = useRef<HTMLDivElement>(null);
+    const chatInputRef = useRef<HTMLTextAreaElement>(null);
+    const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+    // === Gemini conversation history (for API calls) ===
+    const conversationRef = useRef<Array<{ role: string; parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> }>>([]);
+
+    // === Section collapse ===
+    const [showImages, setShowImages] = useState(true);
+    const [showSamples, setShowSamples] = useState(true);
+    const [showRules, setShowRules] = useState(true);
+    const [showPreset, setShowPreset] = useState(false);
+    const [showDimensions, setShowDimensions] = useState(true);
+
+    // === History ===
+    const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+    const [showHistory, setShowHistory] = useState(false);
+    const [showFeatureNotes, setShowFeatureNotes] = useState(() => {
+        try {
+            const hasSeen = localStorage.getItem(SKILL_GEN_FEATURE_NOTES_KEY);
+            return !hasSeen;
+        } catch {
+            return false;
+        }
+    });
+
+    const closeFeatureNotes = useCallback(() => {
+        try {
+            localStorage.setItem(SKILL_GEN_FEATURE_NOTES_KEY, 'true');
+        } catch {
+            // ignore storage errors
+        }
+        setShowFeatureNotes(false);
+    }, []);
+
+    // ==================== 工作区切换逻辑 ====================
+    // Use refs to capture latest state for workspace save (avoids stale closures)
+    const imagesRef = useRef(images);
+    const samplePromptsRef = useRef(samplePrompts);
+    const roughRulesRef = useRef(roughRules);
+    const customDimensionsRef = useRef(customDimensions);
+    const generateDoneRef = useRef(generateDone);
+    const baseInstructionRef = useRef(baseInstruction);
+    const libraryResultRef = useRef(libraryResult);
+    const chatHistoryRef = useRef(chatHistory);
+    const codeEntriesRef = useRef(codeEntries);
+    const generatedCodeRef = useRef(generatedCode);
+    const extendTargetDimensionRef = useRef(extendTargetDimension);
+    const extendPromptRef = useRef(extendPrompt);
+    const extendCountRef = useRef(extendCount);
+    const extendGeneratedValuesRef = useRef(extendGeneratedValues);
+    const extendChatHistoryRef = useRef(extendChatHistory);
+    const activeTabRef = useRef(activeTab);
+    useEffect(() => { imagesRef.current = images; }, [images]);
+    useEffect(() => { samplePromptsRef.current = samplePrompts; }, [samplePrompts]);
+    useEffect(() => { roughRulesRef.current = roughRules; }, [roughRules]);
+    useEffect(() => { customDimensionsRef.current = customDimensions; }, [customDimensions]);
+    useEffect(() => { generateDoneRef.current = generateDone; }, [generateDone]);
+    useEffect(() => { baseInstructionRef.current = baseInstruction; }, [baseInstruction]);
+    useEffect(() => { libraryResultRef.current = libraryResult; }, [libraryResult]);
+    useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
+    useEffect(() => { codeEntriesRef.current = codeEntries; }, [codeEntries]);
+    useEffect(() => { generatedCodeRef.current = generatedCode; }, [generatedCode]);
+    useEffect(() => { extendTargetDimensionRef.current = extendTargetDimension; }, [extendTargetDimension]);
+    useEffect(() => { extendPromptRef.current = extendPrompt; }, [extendPrompt]);
+    useEffect(() => { extendCountRef.current = extendCount; }, [extendCount]);
+    useEffect(() => { extendGeneratedValuesRef.current = extendGeneratedValues; }, [extendGeneratedValues]);
+    useEffect(() => { extendChatHistoryRef.current = extendChatHistory; }, [extendChatHistory]);
+    useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
+    const saveCurrentWorkspaceSnapshot = useCallback((): Partial<SkillGenWorkspace> => ({
+        images: imagesRef.current,
+        samplePrompts: samplePromptsRef.current,
+        roughRules: roughRulesRef.current,
+        customDimensions: customDimensionsRef.current,
+        generateDone: generateDoneRef.current,
+        baseInstruction: baseInstructionRef.current,
+        libraryResult: libraryResultRef.current,
+        chatHistory: chatHistoryRef.current,
+        codeEntries: codeEntriesRef.current,
+        generatedCode: generatedCodeRef.current,
+        extendTargetDimension: extendTargetDimensionRef.current,
+        extendPrompt: extendPromptRef.current,
+        extendCount: extendCountRef.current,
+        extendGeneratedValues: extendGeneratedValuesRef.current,
+        extendChatHistory: extendChatHistoryRef.current,
+        activeTab: activeTabRef.current,
+    }), []);
+
+    const restoreWorkspaceState = useCallback((ws: SkillGenWorkspace) => {
+        setImages(ws.images);
+        setSamplePrompts(ws.samplePrompts);
+        setRoughRules(ws.roughRules);
+        setCustomDimensions(ws.customDimensions);
+        setGenerateDone(ws.generateDone);
+        setBaseInstruction(ws.baseInstruction);
+        setLibraryResult(ws.libraryResult);
+        setChatHistory(ws.chatHistory);
+        conversationRef.current = [];
+        setCodeEntries(ws.codeEntries);
+        setGeneratedCode(ws.generatedCode);
+        setExtendTargetDimension(ws.extendTargetDimension || '');
+        setExtendPrompt(ws.extendPrompt || '');
+        setExtendCount(ws.extendCount || 20);
+        setExtendGeneratedValues(ws.extendGeneratedValues || []);
+        setExtendChatHistory(ws.extendChatHistory || []);
+        setExtendChatInput('');
+        setActiveTab(ws.activeTab);
+        setGenerating(false);
+        setValidationReport(null);
+        setShowOpalExport(false);
+    }, []);
+
+    const handleWsSwitch = useCallback((targetId: string) => {
+        if (targetId === activeWorkspaceId) return;
+        const snapshot = saveCurrentWorkspaceSnapshot();
+        setWorkspaces(prev => {
+            const updated = prev.map(ws =>
+                ws.id === activeWorkspaceId ? { ...ws, ...snapshot } : ws
+            );
+            const target = updated.find(ws => ws.id === targetId);
+            if (target) {
+                setTimeout(() => restoreWorkspaceState(target), 0);
+            }
+            return updated;
+        });
+        setActiveWorkspaceId(targetId);
+    }, [activeWorkspaceId, saveCurrentWorkspaceSnapshot, restoreWorkspaceState]);
+
+    const handleWsAdd = useCallback(() => {
+        const snapshot = saveCurrentWorkspaceSnapshot();
+        const newWs = createWorkspace(`工作区 ${workspaces.length + 1}`);
+        setWorkspaces(prev => {
+            const updated = prev.map(ws =>
+                ws.id === activeWorkspaceId ? { ...ws, ...snapshot } : ws
+            );
+            return [...updated, newWs];
+        });
+        setActiveWorkspaceId(newWs.id);
+        restoreWorkspaceState(newWs);
+    }, [workspaces.length, activeWorkspaceId, saveCurrentWorkspaceSnapshot, restoreWorkspaceState]);
+
+    const handleWsRemove = useCallback((wsId: string) => {
+        if (workspaces.length <= 1) return;
+        const snapshot = saveCurrentWorkspaceSnapshot();
+        setWorkspaces(prev => {
+            // First save current workspace state
+            const withSaved = prev.map(ws =>
+                ws.id === activeWorkspaceId ? { ...ws, ...snapshot } : ws
+            );
+            const idx = withSaved.findIndex(ws => ws.id === wsId);
+            if (idx < 0) return prev;
+            const newList = withSaved.filter(ws => ws.id !== wsId);
+            if (wsId === activeWorkspaceId) {
+                const next = newList[Math.min(idx, newList.length - 1)];
+                setActiveWorkspaceId(next.id);
+                setTimeout(() => restoreWorkspaceState(next), 0);
+            }
+            return newList;
+        });
+    }, [workspaces.length, activeWorkspaceId, saveCurrentWorkspaceSnapshot, restoreWorkspaceState]);
+
+    const handleWsRename = useCallback((wsId: string, newName: string) => {
+        if (!newName.trim()) return;
+        setWorkspaces(prev => prev.map(ws => ws.id === wsId ? { ...ws, name: newName.trim() } : ws));
+    }, []);
+    // ==================================================
+
+    // ==================== 库本地化 ====================
+    const handleLocalizeLibrary = async () => {
+        if (!localizeTargetCountry.trim()) return;
+
+        // Determine data source: direct input or existing results
+        const hasDirectInput = localizeDirectTable.trim() || localizeDirectInstruction.trim();
+        const hasParsedData = libraryResult || baseInstruction;
+
+        if (!hasDirectInput && !hasParsedData) {
+            toast.warning('请粘贴表格数据或先生成随机库');
+            return;
+        }
+
+        setLocalizing(true);
+        try {
+            const ai = getAiInstance();
+            if (!ai) { toast.error('请先设置 API 密钥'); setLocalizing(false); return; }
+
+            // Build original data
+            let originalData = '';
+            const baseInstr = localizeDirectInstruction.trim() || baseInstruction;
+            if (baseInstr) originalData += `【原始基础指令】\n${baseInstr}\n\n`;
+
+            if (localizeDirectTable.trim()) {
+                originalData += `【原始随机库数据】\n${localizeDirectTable.trim()}`;
+            } else if (libraryResult) {
+                const { headers, rows } = libraryResult;
+                const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+                originalData += `【原始随机库数据】\n${tsv}`;
+            }
+
+            const prompt = `你是一个AI创意内容本地化专家。请根据目标国家的文化特点，智能调整以下创意库的内容。
+
+${originalData}
+
+【目标国家】
+${localizeTargetCountry}
+
+【本地化规则】
+1. **通用元素保留**：不具有特定国家/文化特色的通用元素保持不变
+2. **文化特色替换**：将原有的国家/地区特色元素替换为目标国家的对应元素
+   - 服饰：替换为目标国家的传统或现代服饰
+   - 场景：替换为目标国家的标志性地点或典型环境
+   - 道具：替换为目标国家的文化符号或常见物品
+   - 人物特征：调整为符合目标国家审美的特征
+   - 节日/习俗：替换为目标国家的节日和习俗
+3. **保持库结构**：保持原有的分类维度/列名不变，只替换具体的值
+4. **数量对等**：每个分类的选项数量与原始数据保持一致
+
+【输出格式】
+请严格按照以下格式输出：
+
+===本地化基础指令===
+（如果有基础指令，输出调整后的版本；没有则留空）
+
+===本地化随机库===
+（输出TSV格式的表格，用Tab分隔列，保持原有列名）
+
+【重要】
+1. 保持原有的库结构和分类名称
+2. 只替换需要本地化的值，通用值保留
+3. 替换后的内容要符合目标国家的文化特点
+4. 确保输出格式正确（TSV格式，Tab分隔）`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.0-flash',
+                contents: prompt,
+            });
+            const result = response.text ?? '';
+
+            const baseInstructionMatch = result.match(/===本地化基础指令===\s*([\s\S]*?)(?====本地化随机库===|$)/);
+            const libraryDataMatch = result.match(/===本地化随机库===\s*([\s\S]*?)$/);
+
+            const localizedBase = baseInstructionMatch?.[1]?.trim() || '';
+            setLocalizedBaseInstruction(localizedBase);
+
+            const libraryData = libraryDataMatch?.[1]?.trim() || '';
+            const lines = libraryData.split('\n').filter(line => line.trim());
+
+            if (lines.length >= 2) {
+                const headers = lines[0].split('\t').map(h => h.trim()).filter(h => h);
+                const rows = lines.slice(1).map(line => {
+                    const cells = line.split('\t').map(c => c.trim());
+                    while (cells.length < headers.length) cells.push('');
+                    return cells.slice(0, headers.length);
+                });
+                setLocalizedResult({ headers, rows });
+                toast.success(`本地化完成！已调整为${localizeTargetCountry}特色`);
+            } else if (localizedBase) {
+                setLocalizedResult(null);
+                toast.success('基础指令已本地化！未识别到随机库数据');
+            } else {
+                toast.warning('本地化失败，请重试');
+            }
+        } catch (error) {
+            console.error('本地化失败:', error);
+            toast.error('本地化失败，请重试');
+        } finally {
+            setLocalizing(false);
+        }
+    };
+
+    const copyLocalizedResult = () => {
+        if (!localizedResult) return;
+        const { headers, rows } = localizedResult;
+        const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+        navigator.clipboard.writeText(tsv);
+        toast.success('已复制本地化表格');
+    };
+
+    const copyLocalizedBaseInstruction = () => {
+        if (!localizedBaseInstruction) return;
+        navigator.clipboard.writeText(localizedBaseInstruction);
+        toast.success('已复制本地化基础指令');
+    };
+
+    const applyLocalizedToMain = () => {
+        if (localizedBaseInstruction) setBaseInstruction(localizedBaseInstruction);
+        if (localizedResult) setLibraryResult(localizedResult);
+        toast.success('已应用本地化结果到当前工作区');
+    };
+
+    // ==================== AI 智能分类 ====================
+    const handleSmartClassify = async () => {
+        if (!smartClassifyInput.trim()) {
+            toast.warning('请先粘贴库数据');
+            return;
+        }
+        const ai = getAiInstance();
+        if (!ai) { toast.error('请先设置 API 密钥'); return; }
+
+        setSmartClassifying(true);
+        setSmartClassifyResult('');
+
+        const inputLines = smartClassifyInput.trim().split('\n');
+        if (inputLines.length < 2) {
+            toast.warning('数据至少需要2行（表头+数据）');
+            setSmartClassifying(false);
+            return;
+        }
+
+        // Parse & filter empty columns
+        const headers = inputLines[0].split('\t');
+        const dataRows = inputLines.slice(1).map(line => line.split('\t'));
+        const nonEmptyColIndices: number[] = [];
+        headers.forEach((header, colIndex) => {
+            const hasData = dataRows.some(row => row[colIndex] && row[colIndex].trim());
+            if (header.trim() && hasData) nonEmptyColIndices.push(colIndex);
+        });
+        if (nonEmptyColIndices.length === 0) {
+            toast.warning('没有找到有效的库数据');
+            setSmartClassifying(false);
+            return;
+        }
+
+        const filteredHeaders = nonEmptyColIndices.map(i => headers[i]).join('\t');
+        const filteredRows = dataRows.map(row =>
+            nonEmptyColIndices.map(i => row[i] || '').join('\t')
+        ).join('\n');
+        const filteredInput = `${filteredHeaders}\n${filteredRows}`;
+
+        const formatDesc = smartClassifyOutputFormat === 1
+            ? '格式1（多分页模式）：为每个分类创建独立的数据块，分页名格式为"分类-库名"'
+            : smartClassifyOutputFormat === 2
+                ? '格式2（单总库模式）：所有数据在一个表中，表头格式为"分类-库名"'
+                : '格式3（值+分类列）：返回JSON格式的分类映射';
+
+        const dimensionHint = smartClassifyDimension.trim()
+            ? `\n分类维度：请按照"${smartClassifyDimension}"这些分类来划分。`
+            : '\n分类维度：请自动分析合适的分类（如室内/室外/水边等）。';
+
+        const styleHint = smartClassifyStyle === 'strict'
+            ? `\n分类规则：【严格真实】组合必须符合客观事实和真实画面规律。例如：房间+自行车=合理，房间+轮船=不合理。`
+            : smartClassifyStyle === 'creative'
+                ? `\n分类规则：【创意宽松】允许跨界创新组合，追求创意效果。`
+                : `\n分类规则：【自定义】${smartClassifyCustomRule || '按用户需求灵活分类'}`;
+
+        const format3Prompt = `你是一个智能分类助手。请为以下库数据中的每个值进行分类。
+${dimensionHint}
+${styleHint}
+
+用户的库数据（Tab分隔）：
+${filteredInput}
+
+请返回JSON格式的分类映射，格式如下：
+{
+  "值1": "分类1",
+  "值2": "分类1,分类2",
+  "值3": "通用"
+}
+
+注意：
+1. 分类数量建议2-5个
+2. 一个值可以属于多个分类（用逗号分隔）
+3. 通用的值标记为"通用"
+4. 只输出JSON对象，不要有其他解释文字
+5. JSON必须是合法格式`;
+
+        const format12Prompt = `你是一个智能分类助手。请根据以下库数据进行分类。
+${dimensionHint}
+${styleHint}
+
+用户粘贴的库数据（Tab分隔，已过滤空列）：
+${filteredInput}
+
+请按照${formatDesc}输出分类结果。
+
+${smartClassifyOutputFormat === 1 ? `
+输出格式示例（Tab分隔）：
+===室内-场景===
+房间
+客厅
+===水边-场景===
+海边
+湖边
+` : `
+输出格式（Tab分隔，表头用"分类-库名"）：
+室内-场景\t室内-交通工具\t水边-场景
+房间\t自行车\t海边
+客厅\t滑板\t湖边
+`}
+
+注意：
+1. 分类数量建议2-5个
+2. 一个值可以属于多个分类
+3. 通用的值可以标记为"通用"
+4. 只输出表格数据，不要有其他解释文字`;
+
+        try {
+            if (smartClassifyOutputFormat === 3) {
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.0-flash',
+                    contents: format3Prompt,
+                });
+                const responseText = response.text ?? '';
+
+                let categoryMap: Record<string, string> = {};
+                try {
+                    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) categoryMap = JSON.parse(jsonMatch[0]);
+                } catch {
+                    toast.error('AI返回格式有误，请重试');
+                    setSmartClassifying(false);
+                    return;
+                }
+
+                // Assemble result table with category columns
+                const inputHeaders = inputLines[0].split('\t');
+                const inputDataRows = inputLines.slice(1).map(line => line.split('\t'));
+                const newHeaders: string[] = [];
+                inputHeaders.forEach(h => {
+                    newHeaders.push(h);
+                    newHeaders.push(h.trim() ? h.trim() + '分类' : '');
+                });
+                const newRows = inputDataRows.map(row => {
+                    const newRow: string[] = [];
+                    inputHeaders.forEach((_, colIndex) => {
+                        const value = row[colIndex] || '';
+                        newRow.push(value);
+                        const category = value.trim() ? (categoryMap[value.trim()] || '通用') : '';
+                        newRow.push(category);
+                    });
+                    return newRow;
+                });
+                setSmartClassifyResult([newHeaders.join('\t'), ...newRows.map(r => r.join('\t'))].join('\n'));
+            } else {
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.0-flash',
+                    contents: format12Prompt,
+                });
+                setSmartClassifyResult((response.text ?? '').trim());
+            }
+        } catch (e) {
+            console.error('AI分类失败:', e);
+            toast.error('AI分类失败，请重试');
+        }
+        setSmartClassifying(false);
+    };
+    // ==================================================
+
+    // Generate tiny thumbnail for history storage (max 80px, low quality)
+    const makeHistoryThumbnail = useCallback((base64: string): Promise<string> => {
+        return new Promise((resolve) => {
+            const img = document.createElement('img');
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxSize = 80;
+                const scale = Math.min(maxSize / img.naturalWidth, maxSize / img.naturalHeight, 1);
+                canvas.width = img.naturalWidth * scale;
+                canvas.height = img.naturalHeight * scale;
+                const ctx = canvas.getContext('2d')!;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.3));
+            };
+            img.onerror = () => resolve('');
+            img.src = base64;
+        });
+    }, []);
+
+    // Auto-save history when baseInstruction changes (after generation or chat refinement)
+    const saveToHistory = useCallback(async (instruction: string, library: LibraryResult | null) => {
+        if (!instruction.trim()) return;
+
+        // Generate thumbnails for current images (compressed)
+        const thumbnails = await Promise.all(
+            images.slice(0, 6).map(img => makeHistoryThumbnail(img.base64))
+        ).then(results => results.filter(t => t));
+
+        const entry: HistoryEntry = {
+            id: `hist-${Date.now()}`,
+            instruction,
+            library,
+            timestamp: Date.now(),
+            preview: instruction.replace(/\n/g, ' ').substring(0, 50) + (instruction.length > 50 ? '...' : ''),
+            samplePrompts: samplePrompts || undefined,
+            roughRules: roughRules || undefined,
+            customDimensions: customDimensions.length > 0 ? customDimensions : undefined,
+            imageThumbnails: thumbnails.length > 0 ? thumbnails : undefined,
+            imageCount: images.length > 0 ? images.length : undefined,
+        };
+        setHistory(prev => {
+            const existing = prev.findIndex(h => h.instruction === instruction);
+            let updated: HistoryEntry[];
+            if (existing >= 0) {
+                updated = [...prev];
+                updated[existing] = { ...entry, id: prev[existing].id };
+            } else {
+                updated = [entry, ...prev].slice(0, MAX_HISTORY);
+            }
+            saveHistory(updated);
+            return updated;
+        });
+    }, [images, samplePrompts, roughRules, customDimensions, makeHistoryThumbnail]);
+
+    const restoreFromHistory = (entry: HistoryEntry) => {
+        setBaseInstruction(entry.instruction);
+        setLibraryResult(entry.library);
+        // Restore input materials if available
+        if (entry.samplePrompts !== undefined) setSamplePrompts(entry.samplePrompts);
+        if (entry.roughRules !== undefined) setRoughRules(entry.roughRules);
+        if (entry.customDimensions !== undefined) setCustomDimensions(entry.customDimensions);
+        // Note: full-res images can't be restored from thumbnails, user needs to re-upload
+        setShowHistory(false);
+        const parts: string[] = ['已恢复历史配方'];
+        if (entry.imageCount) parts.push(`（原有 ${entry.imageCount} 张图片需重新上传）`);
+        toast.success(parts.join(''));
+        // Scroll to results area after React renders
+        setTimeout(() => {
+            document.querySelector('.skill-gen-outputs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+    };
+
+    const deleteFromHistory = (id: string) => {
+        setHistory(prev => {
+            const updated = prev.filter(h => h.id !== id);
+            saveHistory(updated);
+            return updated;
+        });
+    };
+
+    // === Has any input? ===
+    const hasInput = images.length > 0 || samplePrompts.trim() || roughRules.trim() || customDimensions.length > 0;
+    const hasBaseInstruction = baseInstruction.trim().length > 0;
+    const hasLibraryData = !!(libraryResult && libraryResult.headers.length > 0 && libraryResult.rows.length > 0);
+    const activeSkillFramework = skillFrameworks[promptPreset] ?? getDefaultSkillFramework(promptPreset);
+    const applyPresetDimensions = () => {
+        const preset = PROMPT_PRESETS[promptPreset];
+        setCustomDimensions(preset.recommendedDims);
+        setDimInput('');
+        toast.success(`已套用「${preset.label}」推荐维度`);
+    };
+    const resetSkillFrameworkForPreset = () => {
+        const presetLabel = PROMPT_PRESETS[promptPreset].label;
+        const defaultFramework = getDefaultSkillFramework(promptPreset);
+        setSkillFrameworks(prev => ({ ...prev, [promptPreset]: defaultFramework }));
+        toast.success(`已恢复「${presetLabel}」默认框架`);
+    };
+    const scrollToCategoryCodeSection = () => {
+        setActiveTab('codegen');
+        let attempts = 0;
+        const maxAttempts = 12;
+        const tryScroll = () => {
+            const section = document.querySelector('.skill-gen-category-link-section') as HTMLElement | null;
+            if (section) {
+                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+            }
+            attempts += 1;
+            if (attempts < maxAttempts) {
+                window.setTimeout(tryScroll, 80);
+            }
+        };
+        window.setTimeout(tryScroll, 0);
+    };
+
+    const openAICategoryTool = () => {
+        setAiCategoryModalInput(categoryRawTable);
+        setAiCategoryModalPresetNames(categoryPresetNames);
+        setAiCategoryModalPreview('');
+        setShowAICategoryModal(true);
+    };
+
+    // ========== Image Upload ==========
+    const handleFileUpload = useCallback((files: FileList | null) => {
+        if (!files) return;
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const base64 = ev.target?.result as string;
+                setImages(prev => [...prev, {
+                    id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    base64,
+                    name: file.name
+                }]);
+            };
+            reader.readAsDataURL(file);
+        });
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleFileUpload(e.dataTransfer.files);
+    }, [handleFileUpload]);
+
+    const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        // 1. Try raw image blobs first (screenshot paste, drag from browser)
+        let foundRawImages = false;
+        for (const item of Array.from(items)) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) {
+                    foundRawImages = true;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        const base64 = ev.target?.result as string;
+                        setImages(prev => [...prev, {
+                            id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            base64,
+                            name: `粘贴图片-${prev.length + 1}`
+                        }]);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+
+        if (foundRawImages) return;
+
+        // 2. Try HTML with <img> tags and =IMAGE() formulas (Google Sheets paste)
+        const html = e.clipboardData?.getData('text/html') || '';
+        const plainText = e.clipboardData?.getData('text/plain') || '';
+
+        // Collect image sources: can be http URLs or data: base64 URIs
+        const httpUrls: string[] = [];
+        const base64Sources: string[] = [];
+
+        // From HTML <img> tags
+        if (html) {
+            const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+            let match;
+            while ((match = imgRegex.exec(html)) !== null) {
+                const src = match[1];
+                if (!src) continue;
+                if (src.startsWith('data:image') && !src.includes('data:image/gif')) {
+                    base64Sources.push(src);
+                } else if (src.startsWith('http') && !src.includes('data:image/gif')) {
+                    httpUrls.push(src);
+                }
+            }
+        }
+
+        // From =IMAGE("...") formulas in plain text
+        if (httpUrls.length === 0 && base64Sources.length === 0 && plainText) {
+            const imageFormulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']/gi;
+            let match;
+            while ((match = imageFormulaRegex.exec(plainText)) !== null) {
+                const src = match[1];
+                if (!src) continue;
+                if (src.startsWith('data:image')) {
+                    base64Sources.push(src);
+                } else if (src.startsWith('http')) {
+                    httpUrls.push(src);
+                }
+            }
+            // Also try bare image URLs
+            if (httpUrls.length === 0 && base64Sources.length === 0) {
+                const urlRegex = /https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp)(\?[^\s]*)?/gi;
+                let urlMatch;
+                while ((urlMatch = urlRegex.exec(plainText)) !== null) {
+                    httpUrls.push(urlMatch[0]);
+                }
+            }
+        }
+
+        // Handle base64 sources directly (no download needed)
+        if (base64Sources.length > 0) {
+            e.preventDefault();
+            for (const src of base64Sources) {
+                setImages(prev => [...prev, {
+                    id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    base64: src,
+                    name: `Sheets图片-${prev.length + 1}`
+                }]);
+            }
+            toast.success(`✅ 已从表格粘贴 ${base64Sources.length} 张图片`);
+            return;
+        }
+
+        // Handle HTTP URLs via proxy
+        if (httpUrls.length > 0) {
+            e.preventDefault();
+            toast.info(`正在从表格加载 ${httpUrls.length} 张图片...`);
+
+            let loadedCount = 0;
+            let failCount = 0;
+            const total = httpUrls.length;
+
+            for (const url of httpUrls) {
+                // 使用 wsrv.nl 图片代理（同 AI 图片识别工具的方案，绕过 CORS）
+                const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(url)}`;
+                const img = document.createElement('img');
+                img.crossOrigin = 'anonymous';
+
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth;
+                        canvas.height = img.naturalHeight;
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.drawImage(img, 0, 0);
+                            const base64 = canvas.toDataURL('image/jpeg', 0.9);
+                            setImages(prev => [...prev, {
+                                id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                                base64,
+                                name: `Sheets图片-${prev.length + 1}`
+                            }]);
+                            loadedCount++;
+                        } else {
+                            failCount++;
+                        }
+                    } catch {
+                        failCount++;
+                    }
+                    if (loadedCount + failCount === total) {
+                        if (loadedCount > 0) toast.success(`✅ 已从表格粘贴 ${loadedCount} 张图片${failCount > 0 ? `（${failCount} 张失败）` : ''}`);
+                        else toast.error('图片加载失败，请手动保存图片后拖拽上传');
+                    }
+                };
+                img.onerror = () => {
+                    failCount++;
+                    console.warn('无法加载图片:', url);
+                    if (loadedCount + failCount === total && loadedCount === 0) {
+                        toast.error('图片加载失败，请手动保存图片后拖拽上传');
+                    }
+                };
+                img.src = proxyUrl;
+            }
+        }
+    }, [toast]);
+
+    const removeImage = (id: string) => {
+        setImages(prev => prev.filter(img => img.id !== id));
+    };
+
+    // ========== Auto-generate grid preview when images change ==========
+    useEffect(() => {
+        if (images.length === 0) {
+            setGridPreview(null);
+            return;
+        }
+        const generatePreview = async () => {
+            const sources = images.map(img => img.base64);
+            const grid = await combineImagesToGrid(sources);
+            setGridPreview(grid);
+        };
+        generatePreview();
+    }, [images]);
+
+    // ========== Smart Paste for Sample Prompts (Google Sheets support) ==========
+    // Google Sheets clipboard format: cells separated by \t, rows by \n
+    // If a cell contains newlines, the entire cell is wrapped in double quotes "..."
+    // and internal quotes are escaped as ""
+    const parseTsvCells = (text: string): string[] => {
+        const cells: string[] = [];
+        let i = 0;
+        const len = text.length;
+
+        while (i < len) {
+            // Skip separators (tab or newline between cells)
+            if (text[i] === '\t' || text[i] === '\n' || text[i] === '\r') {
+                i++;
+                if (text[i] === '\n' && i > 0 && text[i - 1] === '\r') i++; // skip \r\n
+                continue;
+            }
+
+            if (text[i] === '"') {
+                // Quoted field: read until closing quote (not followed by another quote)
+                i++; // skip opening quote
+                let cell = '';
+                while (i < len) {
+                    if (text[i] === '"') {
+                        if (i + 1 < len && text[i + 1] === '"') {
+                            // Escaped quote ""
+                            cell += '"';
+                            i += 2;
+                        } else {
+                            // End of quoted field
+                            i++; // skip closing quote
+                            break;
+                        }
+                    } else {
+                        cell += text[i];
+                        i++;
+                    }
+                }
+                if (cell.trim()) cells.push(cell.trim());
+            } else {
+                // Unquoted field: read until tab or newline
+                let cell = '';
+                while (i < len && text[i] !== '\t' && text[i] !== '\n' && text[i] !== '\r') {
+                    cell += text[i];
+                    i++;
+                }
+                if (cell.trim()) cells.push(cell.trim());
+            }
+        }
+        return cells;
+    };
+
+    const handleSamplePromptsPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const text = e.clipboardData?.getData('text/plain') || '';
+
+        // Detect Google Sheets paste: contains tabs (cell separators)
+        if (text.includes('\t')) {
+            e.preventDefault();
+
+            const cells = parseTsvCells(text);
+
+            if (cells.length > 0) {
+                // Use ===分隔=== markers between cells so internal newlines are preserved
+                const formatted = cells.join('\n\n---\n\n');
+                const textarea = e.currentTarget;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                const current = samplePrompts;
+                const newValue = current.substring(0, start) + formatted + current.substring(end);
+                setSamplePrompts(newValue);
+                toast.success(`已从表格粘贴 ${cells.length} 条描述词（用 --- 分隔）`);
+            }
+        }
+        // If no tabs, let the default paste behavior work (plain text)
+    }, [samplePrompts, toast]);
+
+    // ========== AI Generate ==========
+    // ========== Parse AI result for instruction + library ==========
+    const parseAIResult = (result: string): { instruction: string; library: LibraryResult | null } => {
+        console.log('[SkillGen] Raw AI result length:', result.length);
+        console.log('[SkillGen] Raw AI result preview:', result.substring(0, 500));
+
+        // Strip markdown code fences that may wrap the entire output
+        const cleaned = result
+            .replace(/```(?:json|text|markdown|plaintext)?\s*/gi, '')
+            .replace(/```\s*/g, '');
+
+        const baseInstructionMatch = cleaned.match(/===基础指令===\s*([\s\S]*?)(?====随机库数据===|$)/);
+        const libraryDataMatch = cleaned.match(/===随机库数据===\s*([\s\S]*?)$/);
+
+        let instruction = baseInstructionMatch?.[1]?.trim() || '';
+        const libraryData = libraryDataMatch?.[1]?.trim() || '';
+        const sourceForLibrary = libraryData || cleaned;
+
+        console.log('[SkillGen] Instruction found:', !!instruction, 'length:', instruction.length);
+        console.log('[SkillGen] Library section found:', !!libraryData, 'length:', libraryData.length);
+        if (libraryData) {
+            console.log('[SkillGen] Library data preview:', libraryData.substring(0, 500));
+        }
+
+        const cleanValue = (raw: string) => raw
+            .replace(/^[-*•]+\s*/, '')
+            .replace(/\*+$/g, '')
+            .replace(/^\d+[.)、]\s*/, '')
+            .replace(/^["'`]+|["'`]+$/g, '')
+            .trim();
+
+        const splitValues = (raw: string): string[] => {
+            const text = raw.trim();
+            if (!text) return [];
+
+            const byPunctuation = text
+                .split(/[、，,；;|｜]/)
+                .map(cleanValue)
+                .filter(Boolean);
+            if (byPunctuation.length > 1) return byPunctuation;
+
+            const byNumbering = text
+                .split(/\s*(?:\d+[.)、]\s*)/)
+                .map(cleanValue)
+                .filter(Boolean);
+            if (byNumbering.length > 1) return byNumbering;
+
+            const single = cleanValue(text);
+            return single ? [single] : [];
+        };
+
+        const parseColumnsFromSection = (
+            section: string,
+            strictInlineOnly: boolean
+        ): { header: string; values: string[] }[] => {
+            const lines = section.split('\n');
+            const columns: { header: string; values: string[] }[] = [];
+            let current: { header: string; values: string[] } | null = null;
+
+            const pushCurrent = () => {
+                if (!current) return;
+                const deduped = Array.from(new Set(current.values.map(v => v.trim()).filter(Boolean)));
+                if (current.header && deduped.length > 0) {
+                    columns.push({ header: current.header, values: deduped });
+                }
+                current = null;
+            };
+
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line) continue;
+                if (/^===/.test(line)) continue;
+
+                // Match 【维度名】 format (primary)
+                const headerMatch = line.match(/^(?:[-*#>\s]*)\*{0,2}【([^】]{1,30})】\*{0,2}[:：]?\s*(.*)$/);
+                // Match **维度名**： or **维度名**: format (fallback for bold headers without 【】)
+                const boldHeaderMatch = !headerMatch && line.match(/^(?:[-*#>\s]*)\*\*([^*]{1,30})\*\*[:：]\s*(.+)$/);
+                const match = headerMatch || boldHeaderMatch;
+
+                if (match) {
+                    pushCurrent();
+                    // Clean bold markers from captured values
+                    const rawValues = (match[2] || '').replace(/^\*+\s*/, '').replace(/\*+$/, '');
+                    const inlineValues = splitValues(rawValues);
+
+                    if (strictInlineOnly) {
+                        if (inlineValues.length >= 2) {
+                            columns.push({
+                                header: match[1].trim(),
+                                values: Array.from(new Set(inlineValues)),
+                            });
+                        }
+                        current = null;
+                    } else {
+                        current = { header: match[1].trim(), values: [] };
+                        if (inlineValues.length > 0) {
+                            current.values.push(...inlineValues);
+                        }
+                    }
+                    continue;
+                }
+
+                if (strictInlineOnly) continue;
+                if (!current) continue;
+                const nextValues = splitValues(line);
+                if (nextValues.length > 0) {
+                    current.values.push(...nextValues);
+                }
+            }
+
+            pushCurrent();
+            return columns;
+        };
+
+        let library: LibraryResult | null = null;
+        const columns = parseColumnsFromSection(sourceForLibrary, !libraryData);
+
+        if (columns.length >= 1) {
+            const headers = columns.map(c => c.header);
+            const maxRows = Math.max(...columns.map(c => c.values.length));
+            const rows: string[][] = [];
+            for (let r = 0; r < maxRows; r++) {
+                rows.push(columns.map(c => c.values[r] || ''));
+            }
+            library = { headers, rows };
+            console.log(`[SkillGen] Parsed ${columns.length} columns (dimension format), max ${maxRows} values`);
+        } else {
+            // TSV fallback
+            const tsvLines = sourceForLibrary.split('\n').filter(line => line.trim());
+            if (tsvLines.length >= 2) {
+                const headers = tsvLines[0].split('\t').map(h => h.trim()).filter(h => h);
+                if (headers.length >= 1) {
+                    const dataRows = tsvLines.slice(1).map(line => {
+                        const cells = line.split('\t').map(c => c.trim());
+                        while (cells.length < headers.length) cells.push('');
+                        return cells.slice(0, headers.length);
+                    }).filter(row => row.some(c => c));
+                    library = { headers, rows: dataRows };
+                    console.log(`[SkillGen] Parsed ${headers.length} columns (TSV fallback), ${dataRows.length} rows`);
+                }
+            }
+        }
+
+        // JSON fallback: try parsing library data as JSON
+        if (!library && sourceForLibrary) {
+            try {
+                const jsonMatch = sourceForLibrary.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const jsonData = JSON.parse(jsonMatch[0]);
+
+                    // Format 1: { "dimensions": [{ "name": "...", "values": [...] }] }
+                    if (Array.isArray(jsonData.dimensions)) {
+                        const dims = (jsonData.dimensions as Array<{ name?: string; values?: string[] }>)
+                            .map(d => ({
+                                name: (d.name || '').trim(),
+                                values: Array.from(new Set((d.values || []).map(v => String(v || '').trim()).filter(Boolean))),
+                            }))
+                            .filter(d => d.name && d.values.length > 0);
+                        if (dims.length > 0) {
+                            const headers = dims.map(d => d.name);
+                            const maxRows = Math.max(...dims.map(d => d.values.length));
+                            const rows: string[][] = [];
+                            for (let r = 0; r < maxRows; r++) {
+                                rows.push(dims.map(d => d.values[r] || ''));
+                            }
+                            library = { headers, rows };
+                            console.log(`[SkillGen] Parsed ${dims.length} columns (JSON dimensions format)`);
+                        }
+                    }
+
+                    // Format 2: { "维度名1": ["值1", "值2"], "维度名2": [...] }
+                    if (!library) {
+                        const entries = Object.entries(jsonData).filter(
+                            ([, v]) => Array.isArray(v) && (v as string[]).length > 0
+                        );
+                        if (entries.length >= 2) {
+                            const headers = entries.map(([k]) => k);
+                            const values = entries.map(([, v]) => (v as string[]).map(x => String(x).trim()).filter(Boolean));
+                            const maxRows = Math.max(...values.map(v => v.length));
+                            const rows: string[][] = [];
+                            for (let r = 0; r < maxRows; r++) {
+                                rows.push(values.map(v => v[r] || ''));
+                            }
+                            library = { headers, rows };
+                            console.log(`[SkillGen] Parsed ${headers.length} columns (JSON key-value format)`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('[SkillGen] JSON fallback parse failed:', e);
+            }
+        }
+
+        console.log('[SkillGen] Final parse result — instruction:', !!instruction, 'library:', library ? `${library.headers.length}col × ${library.rows.length}row` : 'null');
+
+        if (!instruction && library) {
+            const firstDimPos = result.search(/【[^】]{1,30}】/);
+            if (firstDimPos > 0) {
+                instruction = result
+                    .slice(0, firstDimPos)
+                    .replace(/===基础指令===/g, '')
+                    .replace(/===随机库数据===/g, '')
+                    .trim();
+            }
+        }
+
+        return { instruction, library };
+    };
+
+    const generateLibraryFallback = async (ai: GoogleGenAI, instructionText: string): Promise<LibraryResult | null> => {
+        const presetConfig = PROMPT_PRESETS[promptPreset];
+        const dimRule = customDimensions.length > 0
+            ? `必须严格使用以下维度名称：${customDimensions.join('、')}。不要新增或删除维度。`
+            : `建议优先覆盖这些维度：${presetConfig.recommendedDims.join('、')}。输出 4-8 个维度。`;
+
+        const prompt = `请基于以下基础指令，补全可直接使用的随机库数据，并严格返回 JSON。
+
+目标：
+- 随机库用于批量生成同风格描述词
+- 每个维度值必须是完整、可独立使用的词组
+- 每个维度至少 8 个值
+- ⚠️ 所有维度名和值必须使用中文
+
+${dimRule}
+
+输出要求（只输出 JSON，不要解释，不要 markdown）：
+{
+  "dimensions": [
+    { "name": "维度1", "values": ["值1", "值2", "值3"] },
+    { "name": "维度2", "values": ["值1", "值2", "值3"] }
+  ]
+}
+
+【基础指令】
+${instructionText}`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+                responseMimeType: 'application/json',
+            },
+        });
+
+        const result = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        console.log('[SkillGen] Library fallback raw result length:', result.length);
+        console.log('[SkillGen] Library fallback raw result preview:', result.substring(0, 300));
+        let jsonText = result.trim();
+        if (jsonText.startsWith('```')) {
+            jsonText = jsonText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+        }
+        const match = jsonText.match(/\{[\s\S]*\}/);
+        if (match) jsonText = match[0];
+        console.log('[SkillGen] Library fallback jsonText preview:', jsonText.substring(0, 300));
+
+        type DimJson = { name?: string; values?: string[] };
+        const data = JSON.parse(jsonText) as { dimensions?: DimJson[] };
+        const dims = (data.dimensions || [])
+            .map(d => ({
+                name: (d.name || '').trim(),
+                values: Array.from(new Set((d.values || []).map(v => (v || '').trim()).filter(Boolean))),
+            }))
+            .filter(d => d.name && d.values.length > 0);
+
+        if (dims.length === 0) return null;
+
+        const headers = dims.map(d => d.name);
+        const maxRows = Math.max(...dims.map(d => d.values.length));
+        const rows: string[][] = [];
+        for (let r = 0; r < maxRows; r++) {
+            rows.push(dims.map(d => d.values[r] || ''));
+        }
+        return { headers, rows };
+    };
+
+    const applyLibraryToManualText = (library: LibraryResult | null) => {
+        if (!library) return;
+        const tsv = [library.headers.join('\t'), ...library.rows.map(row => row.join('\t'))].join('\n');
+        setManualLibraryText(tsv);
+    };
+
+    const handleInstructionToLibConvert = async () => {
+        if (!instructionToLibInput.trim()) {
+            toast.info('请先粘贴指令内容');
+            return;
+        }
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setInstructionToLibConverting(true);
+        try {
+            const prompt = `你是一个指令整理助手。请把用户输入拆分为：
+1) 可复用的基础指令
+2) 随机库数据
+
+请严格按下面结构输出：
+===基础指令===
+（正文）
+
+===随机库数据===
+【维度1】值1、值2、值3...
+【维度2】值1、值2、值3...
+
+要求：
+- 保留用户原意，不要过度改写
+- 如果无法识别某一部分，可留空，但仍保留结构
+- 不要输出解释
+
+【用户输入】
+${instructionToLibInput}`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: prompt,
+            });
+
+            const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const parsed = parseAIResult(text);
+            if (!parsed.instruction && !parsed.library) {
+                toast.warning('未识别到可用结构，请换一段更完整的输入再试');
+                return;
+            }
+            setInstructionToLibPreview(parsed);
+            toast.success('已完成指令转库解析');
+        } catch (error: any) {
+            console.error('指令转库失败:', error);
+            toast.error(`指令转库失败：${error?.message || '请重试'}`);
+        } finally {
+            setInstructionToLibConverting(false);
+        }
+    };
+
+    const applyInstructionToLibPreview = () => {
+        if (!instructionToLibPreview) return;
+        if (instructionToLibPreview.instruction) setBaseInstruction(instructionToLibPreview.instruction);
+        if (instructionToLibPreview.library) {
+            setLibraryResult(instructionToLibPreview.library);
+            applyLibraryToManualText(instructionToLibPreview.library);
+        }
+        setActiveTab('manual');
+        closeInstructionToLibModal();
+        toast.success('已应用到基础指令+随机库');
+    };
+
+    const handleImageToLibUpload = useCallback((files: FileList | null) => {
+        if (!files) return;
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const base64 = ev.target?.result as string;
+                setImageToLibImages(prev => [...prev, {
+                    id: `image-lib-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    base64,
+                    name: file.name
+                }]);
+            };
+            reader.readAsDataURL(file);
+        });
+    }, []);
+
+    const handleImageToLibPaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        const imageFiles: File[] = [];
+        for (const item of Array.from(items)) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) imageFiles.push(file);
+            }
+        }
+        if (imageFiles.length > 0) {
+            e.preventDefault();
+            const dt = {
+                length: imageFiles.length,
+                item: (index: number) => imageFiles[index] || null,
+                [Symbol.iterator]: function* () { for (const f of imageFiles) yield f; }
+            } as unknown as FileList;
+            handleImageToLibUpload(dt);
+        }
+    }, [handleImageToLibUpload]);
+
+    const handleImageToLibConvert = async () => {
+        if (imageToLibImages.length === 0) {
+            toast.info('请先上传参考图片');
+            return;
+        }
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setImageToLibConverting(true);
+        try {
+            const combined = await combineImagesToGrid(imageToLibImages.map(img => img.base64));
+            if (!combined) {
+                toast.error('图片处理失败，请重试');
+                return;
+            }
+            const match = combined.match(/^data:([^;]+);base64,(.+)$/);
+            if (!match) {
+                toast.error('图片格式异常，请重试');
+                return;
+            }
+
+            const userDesc = imageToLibUserDesc.trim()
+                ? `\n【用户补充】${imageToLibUserDesc.trim()}`
+                : '';
+
+            const prompt = `你是图像风格分析助手。请根据给定的拼图，输出：
+===基础指令===
+（总结这组图片的固定风格、结构、约束）
+
+===随机库数据===
+【维度1】值1、值2、值3...
+【维度2】值1、值2、值3...
+
+要求：
+- 维度 6-12 个
+- 每个维度尽量给 8 个以上值
+- 输出只包含上述两段，不要解释${userDesc}`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: [{
+                    role: 'user',
+                    parts: [
+                        { inlineData: { data: match[2], mimeType: match[1] } },
+                        { text: prompt + `\n注意：这是 ${imageToLibImages.length} 张图拼接的网格图。` }
+                    ]
+                }]
+            });
+
+            const text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const parsed = parseAIResult(text);
+            if (!parsed.instruction && !parsed.library) {
+                toast.warning('未识别到可用结构，请换一批图片重试');
+                return;
+            }
+            setImageToLibPreview(parsed);
+            toast.success('图片转库分析完成');
+        } catch (error: any) {
+            console.error('图片转库失败:', error);
+            toast.error(`图片转库失败：${error?.message || '请重试'}`);
+        } finally {
+            setImageToLibConverting(false);
+        }
+    };
+
+    const applyImageToLibPreview = () => {
+        if (!imageToLibPreview) return;
+        if (imageToLibPreview.instruction) setBaseInstruction(imageToLibPreview.instruction);
+        if (imageToLibPreview.library) {
+            setLibraryResult(imageToLibPreview.library);
+            applyLibraryToManualText(imageToLibPreview.library);
+        }
+        setActiveTab('manual');
+        closeImageToLibModal();
+        toast.success('已应用到基础指令+随机库');
+    };
+
+    const closeInstructionToLibModal = () => {
+        setShowInstructionToLibModal(false);
+        setInstructionToLibConverting(false);
+        setInstructionToLibInput('');
+        setInstructionToLibPreview(null);
+    };
+
+    const closeImageToLibModal = () => {
+        setShowImageToLibModal(false);
+        setImageToLibConverting(false);
+        setImageToLibImages([]);
+        setImageToLibUserDesc('');
+        setImageToLibPreview(null);
+    };
+
+    const handleAutoFillLibrary = async () => {
+        if (!baseInstruction.trim()) {
+            toast.info('请先有基础指令');
+            return;
+        }
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setIsFillingLibrary(true);
+        toast.info('🤖 正在根据基础指令补全随机库...');
+        try {
+            const filled = await generateLibraryFallback(ai, baseInstruction);
+            if (filled) {
+                setLibraryResult(filled);
+                toast.success(`已补全随机库（${filled.headers.length} 列 × ${filled.rows.length} 行）`);
+            } else {
+                toast.warning('补库失败：模型未返回可识别的随机库格式');
+            }
+        } catch (error: any) {
+            console.error('手动补库失败:', error);
+            toast.error(`补库失败：${error?.message || '请重试'}`);
+        } finally {
+            setIsFillingLibrary(false);
+        }
+    };
+
+    // ========== Build system prompt ==========
+    const buildSystemPrompt = (samplePromptsOverride?: string) => {
+        const presetConfig = PROMPT_PRESETS[promptPreset];
+        const skillFramework = activeSkillFramework.trim() || getDefaultSkillFramework(promptPreset);
+        const sections: string[] = [];
+        sections.push(`【目标模型/任务类型】${presetConfig.label}\n${presetConfig.summary}`);
+        const effectiveSamplePrompts = samplePromptsOverride !== undefined ? samplePromptsOverride : samplePrompts;
+        if (effectiveSamplePrompts.trim()) {
+            sections.push(`【用户满意的成品描述词样本】\n${effectiveSamplePrompts.trim()}`);
+        }
+        if (roughRules.trim()) {
+            sections.push(`【用户的粗略规则/要求】\n${roughRules.trim()}`);
+        }
+        if (images.length > 0) {
+            sections.push(`【参考图片】已提供 ${images.length} 张参考图片（拼接成网格图发送）`);
+        }
+
+        // User-defined dimensions (already an array)
+        const parsedDims = customDimensions;
+        if (parsedDims.length > 0) {
+            sections.push(`【用户指定的库维度】\n用户要求随机库必须使用以下 ${parsedDims.length} 个维度作为列标题：\n${parsedDims.join('、')}\n\n请严格按照这些维度生成随机库，不要自行增删维度。`);
+        }
+
+        const inputDescription = sections.join('\n\n');
+
+        // Build dimension section based on whether user specified dimensions
+        const dimensionSection = parsedDims.length > 0
+            ? `【用户已指定维度】请严格使用以下 ${parsedDims.length} 个维度作为列标题：
+${parsedDims.join('\\t')}
+不要自行增减维度。每个维度按照用户给定的名称作为表头。`
+            : presetConfig.dimensionReference;
+
+        const dimensionCountRule = parsedDims.length > 0
+            ? `- **维度数量**：严格使用用户指定的 ${parsedDims.length} 个维度`
+            : '- **维度数量**：只提取 4-8 个真正在描述词中有变化的维度，不要凑数';
+
+        return `你是一个专业的 AI 描述词配方拆解专家。你的目标是：根据用户提供的成品描述词，拆解出一套「基础指令（Skill） + 随机库」的创作配方，使系统能批量生成**风格高度一致、细节有所变化**的同类描述词。
+
+【语言要求】
+- 基础指令：以中文为主，可自然穿插英文术语或关键词（如 no watermark、flat lay 等模型常用表达）
+- 随机库：维度名和值统一使用中文
+- 描述词结构模板：以中文为主，允许保留必要的英文术语
+
+${inputDescription}
+
+【背景知识 - 创作配方的运行机制】
+创作配方由两部分组成：
+1. **基础指令（Skill）**：给“描述词生成 AI”使用的元指令，定义它如何把元素信息写成高质量描述词
+2. **随机库**：多个维度的可选值表。系统从每个维度随机抽取一个值，组装成"场景：花园, 人物：小女孩"这样的文字，附加在指令后面发给 AI
+
+关键理解：用户要的是**同类型的翻版描述词**，不是天马行空的创新。随机库的作用是让每次生成的描述词在细节上有变化，但整体风格、结构、审美要保持一致。
+再强调一次：这里的「基础指令」本身不是最终描述词，而是“生成描述词的通用规则/skill”。
+
+【核心分析方法 — 对比提取法】
+${effectiveSamplePrompts.trim() ? `请仔细对比用户提供的多条成品描述词：
+
+**第1步：找出"不变的骨架"**
+对比所有描述词，哪些元素在每条里都出现、或表达相似含义？
+→ 这些是固定模式，写进基础指令。
+
+**第2步：找出"变化的元素"**
+哪些元素在不同描述词之间有明显变化？
+→ 只有这些才是随机库的维度。
+例如：A说"花园"、B说"森林"、C说"海边" → "场景"是一个变化维度。
+
+**第3步：控制变化幅度**
+随机库的值不要跳出描述词的整体审美范围。
+如果成品风格是"温馨柔和"，随机值也应在温馨柔和范围内，不要出现"赛博朋克"这种跳跃。` : ''}
+${images.length > 0 ? '请分析参考图片的共同视觉特征，识别固定风格和可变元素。' : ''}
+${roughRules.trim() ? '请结合用户的规则意图，将其融入基础指令。' : ''}
+
+【平台适配规则】
+${presetConfig.platformRules}
+
+【用户自定义 Skill 指令框架（优先级最高）】
+请按以下框架组织基础指令，允许同义润色，但必须覆盖所有模块：
+${skillFramework}
+
+【输出格式要求】
+
+===基础指令===
+（输出的是“可复用 Skill 元指令”，用于让另一个 AI 生成描述词，不是直接写一条成品描述词。
+要求：
+- 明确这是给“描述词生成 AI”使用的指令，而不是最终描述词正文
+- 这是描述词的"固定骨架"，包含所有不变的风格、结构、语气要求
+- **保留成品中反复出现的固定句式和结构模板**。如果成品描述词都用"……的……，……着……"这样的句式，那基础指令里必须包含这个句式模板，用占位符标注可变部分即可
+- 不要把固定句式拆散成零散的维度。句式结构属于"骨架"，应该在基础指令中完整保留
+- 指令中不要提到"随机库"，应该说"根据系统提供的元素信息"
+- 要足够详细具体，包含用词偏好、句式结构、描写重点、语言风格
+- **最大程度保留用户原始描述词中的措辞和表述**，不要用自己的话改写用户的原始内容
+- 使用第二人称"你"来指示 AI
+- 必须确保最终描述词适配「${presetConfig.label}」的输入习惯
+- 基础指令正文必须严格对齐“用户自定义 Skill 指令框架（优先级最高）”中的模块，不得缺项
+- 禁止出现“由于用户未提供参数/如果用户未提供/自动随机决定以下维度”这类元话术
+- 统一使用中性表达：根据系统提供的元素信息生成描述词
+- **在指令末尾，附上一个「描述词结构模板」**，用 {维度名} 花括号标注可变部分，其余为固定文字。这样用户可以一眼看出最终描述词的结构。
+
+示例：
+\`\`\`
+【角色与目标】
+你是一名视觉描述词生成助手。你的任务是根据系统提供的元素信息，生成可直接用于 ${presetConfig.label} 的高质量画面描述词。
+
+【输入变量】
+系统会提供多组元素信息（例如 场景/主体/风格/光线/限制条件）。请将这些元素自然融入同一条描述词。
+
+【生成流程】
+1. 先组织“自然描述段”：把主体、场景、风格、构图写成连贯表达。
+2. 再补“硬约束信息”：必须出现、禁止出现、质量约束。
+3. 最后将两部分合并为一条可直接使用的最终描述词。
+
+【输出要求】
+- 默认仅输出 1 条最终描述词。
+- 仅输出描述词正文，不输出标题、解释、分段标签。
+
+【质量自检】
+- 信息是否完整、是否有冲突、是否包含禁用项、是否贴合目标风格。
+
+【描述词结构模板】
+[写实刺绣风格纺织艺术品]。[俯视平铺构图]。{背景材质}的背景上，{边框风格}的边框装饰着{边框图案}。{主体描述}。整体风格体现{文化风格}。[明亮的漫射光线，轻微浮雕质感，2D平铺构图，优雅布局，中心无文字，对称平衡]。
+\`\`\`
+
+模板说明：
+- 上述示例是 skill 指令框架，不是最终成品描述词
+- 自然描述段 + 硬约束流程 = 生成方法，不是固定输出格式标签
+- [ ] 方括号 = 每次都一样的固定文字
+- { } 花括号 = 从随机库维度抽取的可变内容
+- 模板要忠实反映成品描述词的实际结构和语序）
+
+===随机库数据===
+（请逐个维度输出值列表，系统会自动组装成表格。
+
+⚠️ 关键原则：
+- **只有在成品描述词中真正变化的元素才应该成为维度**
+- **不要为了"丰富"而凭空添加维度**
+- **维度越少越精准** — 宁可 4 个精准维度，也不要 12 个杂乱维度
+- ⚠️ **每个维度值必须是语义完整的词组或短语**，不能是半截句子！
+  - ❌ 错误示例："由黄色芸香"（不完整，缺后半句）、"由红色"（碎片）
+  - ✅ 正确示例："黄色芸香"、"红色郁金香"、"蓝色亚麻花和白色铃兰"
+  - 句式连接词（"由...和...组成的..."）应放在基础指令的结构模板中，维度值只写核心内容
+
+请用以下格式逐维度独立输出，不要输出表格/TSV:
+
+【维度名称1】值1、值2、值3、值4、值5...
+【维度名称2】值1、值2、值3、值4、值5...
+（继续...）
+
+${dimensionSection}
+
+要求：
+- 维度名称用简洁中文（2-6 个字），写在【】内
+- 每个维度用顿号「、」分隔值
+${dimensionCountRule}
+- **值的数量**：每个维度提供 8 个以上的值
+- ⚠️ **严禁修改用户原始内容**：用户成品描述词中出现的值，必须原封不动地保留，不得改写、替换、删减、润色。哪怕你觉得措辞不完美也不能改
+- 先列出所有用户提供的原始值，然后在末尾可以追加同风格的扩展值（用 + 号标注扩展值）
+- 扩展的值要和原始值"同家族"，不要跳出整体风格
+- **每个值必须能独立使用**，不依赖其他维度值就能读通。不允许出现残句碎片
+- 各维度的值数量可以不同，按实际情况填充）
+
+【重要】用户之后可能会继续跟你对话，要求你修改指令或随机库。每次回复都必须包含完整的最新版 ===基础指令=== 和 ===随机库数据===，不要只输出修改部分。
+⚠️ 【最小修改原则】用户提出修改时，只动用户明确要求改的地方，其余文字、结构、用词必须原封不动保留。绝对不要趁机"润色""重组""精简"用户没有提到的内容。`;
+    };
+
+    // ========== Scroll chat to bottom ==========
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatHistory]);
+
+    // ========== Initial Generate ==========
+    const handleGenerate = async () => {
+        if (!hasInput) {
+            toast.warning('请至少提供一种输入材料');
+            return;
+        }
+
+        // === 本地解析快捷路径 ===
+        // 如果粗略规则中包含完整的指令+随机库格式，直接本地解析，无需调用 AI
+        const allTextInput = [roughRules, samplePrompts].join('\n').trim();
+        const hasStructuredMarkers = allTextInput.includes('===基础指令===') && allTextInput.includes('===随机库数据===');
+        const dimLinePattern = /【[^】]{1,30}】[^\n]+/g;
+        const dimMatches = allTextInput.match(dimLinePattern) || [];
+        const hasInlineLibrary = dimMatches.length >= 2;
+
+        if (images.length === 0 && (hasStructuredMarkers || hasInlineLibrary)) {
+            // 尝试本地解析
+            let localInstruction = '';
+            let localLibrary: LibraryResult | null = null;
+
+            if (hasStructuredMarkers) {
+                // 标准 ===基础指令=== / ===随机库数据=== 格式
+                const parsed = parseAIResult(allTextInput);
+                localInstruction = parsed.instruction;
+                localLibrary = parsed.library;
+            } else if (hasInlineLibrary) {
+                // 文本中混合了指令和【维度名】格式的库
+                // 将【维度名】行提取为库，剩余部分作为基础指令
+                const lines = allTextInput.split('\n');
+                const dimLines: string[] = [];
+                const instructionLines: string[] = [];
+                for (const line of lines) {
+                    if (/^\s*【[^】]{1,30}】/.test(line)) {
+                        dimLines.push(line);
+                    } else {
+                        instructionLines.push(line);
+                    }
+                }
+                localInstruction = instructionLines.join('\n').trim();
+                // 解析维度行
+                const dims: { name: string; values: string[] }[] = [];
+                const dp = /^\s*【([^】]+)】(.+)$/;
+                for (const dl of dimLines) {
+                    const m = dl.match(dp);
+                    if (m) {
+                        const values = m[2].split(/[、，,；;|｜]/).map(v => v.trim()).filter(v => v);
+                        if (values.length > 0) dims.push({ name: m[1].trim(), values });
+                    }
+                }
+                if (dims.length > 0) {
+                    const headers = dims.map(d => d.name);
+                    const maxRows = Math.max(...dims.map(d => d.values.length));
+                    const rows: string[][] = [];
+                    for (let r = 0; r < maxRows; r++) {
+                        rows.push(dims.map(d => d.values[r] || ''));
+                    }
+                    localLibrary = { headers, rows };
+                }
+            }
+
+            if (localInstruction || (localLibrary && localLibrary.headers.length > 0)) {
+                setBaseInstruction(localInstruction);
+                setLibraryResult(localLibrary);
+                setGenerateDone(true);
+                setChatHistory([]);
+                conversationRef.current = [];
+                saveToHistory(localInstruction, localLibrary);
+                const parts = [];
+                if (localInstruction) parts.push('基础指令');
+                if (localLibrary && localLibrary.headers.length > 0) parts.push(`随机库（${localLibrary.headers.length} 列）`);
+                toast.success(`已从输入中智能解析出 ${parts.join(' + ')}`);
+                return;
+            }
+        }
+
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setGenerating(true);
+        setGenerateDone(false);
+        setBaseInstruction('');
+        setLibraryResult(null);
+        setChatHistory([]);
+        conversationRef.current = [];
+
+        try {
+            // === Auto-describe images pre-processing ===
+            let autoDescribedPrompts = '';
+            if (images.length > 0 && !samplePrompts.trim() && autoDescribeImages) {
+                setDescribingImages(true);
+                toast.info('正在识别参考图片，生成描述词...');
+                try {
+                    const describePrompt = [
+                        '详细描述图片。给我完整的AI描述词，方便我直接给其他软件生成图片或者视频使用。',
+                        '你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。并且英文回复我。',
+                        '',
+                        '关键细节要求：你对每个提示词的描述必须详尽且高度细致。切勿简略。',
+                        '',
+                        '主体与场景：极其精确地描述所有主体、物体和角色。对于人物，详细说明其外貌、服装（面料、款式、颜色）、配饰、姿势、表情和动作。指定他们彼此之间以及与环境的空间关系。',
+                        '',
+                        '构图与风格：明确定义镜头类型（如"特写"、"全景"）、摄像机角度（如"低角度"、"荷兰式倾斜角"）以及整体艺术风格（如"超写实 3D 渲染"、"印象派油画"、"动漫关键视觉图"）。',
+                        '',
+                        '艺术元素：如果图像具有独特的艺术风格，你必须描述其具体特征。这包括笔触、线条、调色板和光影。',
+                        '',
+                        '环境：详细描述背景和前景，包括地点、时间、天气和特定的环境元素。',
+                        '',
+                        '你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。并且英文回复我。'
+                    ].join('\n');
+
+                    const imageSources = images.map(img => img.base64);
+                    const combinedForDesc = await combineImagesToGrid(imageSources);
+
+                    if (combinedForDesc) {
+                        const matchDesc = combinedForDesc.match(/^data:([^;]+);base64,(.+)$/);
+                        if (matchDesc) {
+                            const descParts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
+                            descParts.push({ inlineData: { data: matchDesc[2], mimeType: matchDesc[1] } });
+                            descParts.push({ text: `这是${images.length}张图片拼接成的网格图。请分别为每张图片生成独立的描述词，用空行分隔每条描述词。\n\n${describePrompt}` });
+
+                            const descResponse = await ai.models.generateContent({
+                                model: 'gemini-3-pro-preview',
+                                contents: [{ role: 'user', parts: descParts }]
+                            });
+                            const descResult = descResponse?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                            if (descResult.trim()) {
+                                autoDescribedPrompts = descResult.trim();
+                                toast.success(`已自动识别 ${images.length} 张图片的描述词，正在继续生成配方...`);
+                            }
+                        }
+                    }
+                } catch (descError) {
+                    console.warn('自动识图失败，将使用纯图片模式继续:', descError);
+                    toast.warning('自动识图未成功，将直接使用图片分析模式');
+                } finally {
+                    setDescribingImages(false);
+                }
+            }
+
+            const prompt = buildSystemPrompt(autoDescribedPrompts || undefined);
+            let result = '';
+            const userParts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
+
+            if (images.length > 0) {
+                const imageSources = images.map(img => img.base64);
+                const combinedImage = await combineImagesToGrid(imageSources);
+
+                if (combinedImage) {
+                    const match = combinedImage.match(/^data:([^;]+);base64,(.+)$/);
+                    if (match) {
+                        userParts.push({ inlineData: { data: match[2], mimeType: match[1] } });
+                        userParts.push({ text: prompt + `\n\n注意：这是${images.length}张参考图片拼接成的网格图，请分析所有图片的共同特征。` });
+
+                        const response = await ai.models.generateContent({
+                            model: 'gemini-3-pro-preview',
+                            contents: [{ role: 'user', parts: userParts }]
+                        });
+                        result = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    }
+                }
+
+                if (!result) {
+                    userParts.length = 0;
+                    userParts.push({ text: prompt });
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-3-pro-preview',
+                        contents: prompt
+                    });
+                    result = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                }
+            } else {
+                userParts.push({ text: prompt });
+                const response = await ai.models.generateContent({
+                    model: 'gemini-3-pro-preview',
+                    contents: prompt,
+                });
+                result = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            }
+
+            // Store conversation history for follow-up
+            conversationRef.current = [
+                { role: 'user', parts: userParts },
+                { role: 'model', parts: [{ text: result }] }
+            ];
+
+            // Parse and display
+            let { instruction, library } = parseAIResult(result);
+            if (instruction && (!library || library.headers.length === 0 || library.rows.length === 0)) {
+                toast.info('基础指令已生成，正在自动补全随机库...');
+                try {
+                    const fallbackLibrary = await generateLibraryFallback(ai, instruction);
+                    if (fallbackLibrary) {
+                        library = fallbackLibrary;
+                        toast.success(`已自动补全随机库（${fallbackLibrary.headers.length} 列）`);
+                    } else {
+                        toast.warning('基础指令已生成，但随机库仍未生成成功。可在手动输入里粘贴随机库或继续对话补库。');
+                    }
+                } catch (fallbackError) {
+                    console.error('自动补库失败:', fallbackError);
+                    toast.warning('基础指令已生成，但自动补库失败。可在手动输入里补充随机库。');
+                }
+            }
+
+            setBaseInstruction(instruction);
+            setLibraryResult(library);
+            saveToHistory(instruction, library);
+            setGenerateDone(!!instruction || !!library);
+
+            // 自动校验
+            if (library && library.headers.length > 0 && library.rows.length > 0) {
+                await validateLibrary(library, instruction);
+            } else if (instruction) {
+                toast.success('成功生成基础指令！可继续对话微调 ↓');
+            } else {
+                toast.warning('AI 未能识别出有效内容，请重试或调整输入');
+            }
+
+        } catch (error: any) {
+            console.error('生成失败:', error);
+            toast.error(`生成失败: ${error.message || '请重试'}`);
+            setGenerateDone(false);
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    // ========== Chat: Add images ==========
+    const handleChatImageAdd = useCallback((files: FileList | File[] | null) => {
+        if (!files) return;
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const base64 = ev.target?.result as string;
+                setChatImages(prev => [...prev, {
+                    id: `chat-img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    base64,
+                    name: file.name || `参考图-${prev.length + 1}`
+                }]);
+            };
+            reader.readAsDataURL(file);
+        });
+    }, []);
+
+    const handleChatPaste = useCallback((e: React.ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        const imageFiles: File[] = [];
+        for (const item of Array.from(items)) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) imageFiles.push(file);
+            }
+        }
+        if (imageFiles.length > 0) {
+            e.preventDefault();
+            handleChatImageAdd(imageFiles);
+        }
+        // If no images, let the text paste through normally
+    }, [handleChatImageAdd]);
+
+    const handleChatDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleChatImageAdd(e.dataTransfer.files);
+    }, [handleChatImageAdd]);
+
+    // ========== Chat: Send follow-up message ==========
+    const handleChatSend = async () => {
+        const msg = chatInput.trim();
+        if (!msg && chatImages.length === 0) return;
+        if (chatSending) return;
+
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        // Snapshot current chat images for display
+        const sentImages = chatImages.map(img => img.base64);
+        const displayText = msg || `发送了 ${sentImages.length} 张参考图`;
+
+        // Add user message to chat (with image thumbnails)
+        setChatHistory(prev => [...prev, { role: 'user', text: displayText, timestamp: Date.now(), images: sentImages.length > 0 ? sentImages : undefined }]);
+        setChatInput('');
+        setChatImages([]);
+        setChatSending(true);
+
+        try {
+            // Build user parts: text + optional images
+            const userParts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
+
+            // If images are attached, combine them into a grid and include
+            if (sentImages.length > 0) {
+                const gridBase64 = await combineImagesToGrid(sentImages);
+                if (gridBase64) {
+                    const base64Data = gridBase64.split(',')[1];
+                    const mimeType = gridBase64.split(';')[0].split(':')[1] || 'image/jpeg';
+                    userParts.push({ inlineData: { data: base64Data, mimeType } });
+                    const imageContext = sentImages.length > 1
+                        ? `[用户附带了 ${sentImages.length} 张参考图片（已拼成网格图）]\n\n`
+                        : `[用户附带了 1 张参考图片]\n\n`;
+                    userParts.push({ text: imageContext + (msg || '请根据这些参考图片扩充随机库') + '\n\n⚠️ 请输出完整的最新版 ===基础指令=== 和 ===随机库数据===。\n【最小修改原则】只修改用户明确要求改动的部分，其余内容必须原封不动保留，禁止擅自重写、润色或重组未提及的段落。' });
+                } else {
+                    userParts.push({ text: (msg || '') + '\n\n⚠️ 请输出完整的最新版 ===基础指令=== 和 ===随机库数据===。\n【最小修改原则】只修改用户明确要求改动的部分，其余内容必须原封不动保留，禁止擅自重写、润色或重组未提及的段落。' });
+                }
+            } else {
+                userParts.push({ text: msg + '\n\n⚠️ 请输出完整的最新版 ===基础指令=== 和 ===随机库数据===。\n【最小修改原则】只修改用户明确要求改动的部分，其余内容必须原封不动保留，禁止擅自重写、润色或重组未提及的段落。' });
+            }
+
+            // Append user message to conversation
+            conversationRef.current.push({
+                role: 'user',
+                parts: userParts
+            });
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: conversationRef.current
+            });
+
+            const result = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+            // Store model response in conversation
+            conversationRef.current.push({
+                role: 'model',
+                parts: [{ text: result }]
+            });
+
+            // Try to parse updated results
+            const { instruction, library } = parseAIResult(result);
+
+            if (instruction) setBaseInstruction(instruction);
+            if (library) setLibraryResult(library);
+            if (instruction) saveToHistory(instruction, library || libraryResult);
+
+            // Add model reply to chat display
+            const updateNotes: string[] = [];
+            if (instruction) updateNotes.push('指令已更新');
+            if (library) updateNotes.push(`随机库已更新 (${library.headers.length}列 × ${library.rows.length}行)`);
+            const updateTag = updateNotes.length > 0 ? `\n\n✅ ${updateNotes.join('，')}` : '';
+
+            // Extract just the conversational part (before the markers)
+            const conversationalPart = result.split('===基础指令===')[0]?.trim() || '已更新配方。';
+            setChatHistory(prev => [...prev, {
+                role: 'model',
+                text: conversationalPart + updateTag,
+                timestamp: Date.now()
+            }]);
+
+            if (updateNotes.length > 0) {
+                toast.success(`🔄 ${updateNotes.join('，')}`);
+            }
+
+        } catch (error: any) {
+            console.error('对话失败:', error);
+            setChatHistory(prev => [...prev, {
+                role: 'model',
+                text: `❌ 发送失败: ${error.message || '请重试'}`,
+                timestamp: Date.now()
+            }]);
+        } finally {
+            setChatSending(false);
+            // Focus back to input
+            setTimeout(() => chatInputRef.current?.focus(), 100);
+        }
+    };
+
+    // ========== Chat: handle Enter key ==========
+    const handleChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleChatSend();
+        }
+    };
+
+    // ========== Copy Functions ==========
+    const copyInstruction = () => {
+        if (!baseInstruction) return;
+        navigator.clipboard.writeText(baseInstruction);
+        setCopiedInstruction(true);
+        toast.success('已复制基础指令');
+        setTimeout(() => setCopiedInstruction(false), 2000);
+    };
+
+    const copyLibraryTSV = () => {
+        if (!libraryResult) return;
+        const { headers, rows } = libraryResult;
+        const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+        navigator.clipboard.writeText(tsv);
+        setCopiedLibrary(true);
+        toast.success('已复制随机库（TSV 格式），可直接粘贴到 Google Sheets');
+        setTimeout(() => setCopiedLibrary(false), 2000);
+    };
+
+    const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const syncInstructionDimensionRefs = (
+        instruction: string,
+        prevHeaders: string[],
+        nextHeaders: string[],
+        merges: { dims: string[]; mergedName: string; reason: string }[] = []
+    ) => {
+        let updated = instruction;
+        let replacedCount = 0;
+
+        const renameMap = new Map<string, string>();
+        for (const merge of merges) {
+            for (const dim of merge.dims) {
+                if (dim && merge.mergedName && dim !== merge.mergedName) {
+                    renameMap.set(dim, merge.mergedName);
+                }
+            }
+        }
+
+        for (const [oldName, newName] of renameMap.entries()) {
+            const braceRegex = new RegExp(`\\{\\s*${escapeRegExp(oldName)}\\s*\\}`, 'g');
+            const bracketRegex = new RegExp(`【\\s*${escapeRegExp(oldName)}\\s*】`, 'g');
+
+            const beforeBrace = updated;
+            updated = updated.replace(braceRegex, () => {
+                replacedCount++;
+                return `{${newName}}`;
+            });
+            if (beforeBrace !== updated) {
+                // noop: count already accumulated
+            }
+
+            updated = updated.replace(bracketRegex, () => {
+                replacedCount++;
+                return `【${newName}】`;
+            });
+        }
+
+        const nextHeaderSet = new Set(nextHeaders);
+        const removedHeaders = prevHeaders.filter(h => !nextHeaderSet.has(h));
+        const unresolvedRemovedRefs = removedHeaders.filter(h =>
+            updated.includes(`{${h}}`) || updated.includes(`【${h}】`)
+        );
+
+        return { updated, replacedCount, unresolvedRemovedRefs };
+    };
+
+    const alignInstructionWithCurrentLibrary = async () => {
+        if (!baseInstruction.trim()) {
+            toast.info('请先填写基础指令');
+            return;
+        }
+        if (!libraryResult || libraryResult.headers.length === 0) {
+            toast.info('请先提供随机库数据');
+            return;
+        }
+
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setIsAligningInstruction(true);
+        try {
+            const prompt = `你是提示词结构对齐助手。请把用户的基础指令与当前随机库维度严格对齐。
+
+当前随机库维度（唯一可用变量名）：
+${libraryResult.headers.map(h => `- ${h}`).join('\n')}
+
+任务：
+1. 保持原始意图和风格。
+2. 若基础指令里出现不在上述列表的变量名/维度名，请映射到最接近的现有维度名。
+3. 基础指令中的变量占位符仅允许使用上述维度名（如 {维度名} 或 【维度名】）。
+4. 保持“Skill 元指令”形态，不要改成直接成品描述词。
+5. 仅输出改写后的基础指令正文，不要输出解释。
+
+【原始基础指令】
+${baseInstruction}`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: prompt,
+            });
+
+            const aligned = response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+            if (!aligned) throw new Error('模型未返回有效内容');
+
+            setBaseInstruction(aligned);
+            if (manualRewritePreview) setManualRewritePreview(null);
+            toast.success('基础指令已与随机库维度对齐');
+        } catch (error: any) {
+            console.error('对齐失败:', error);
+            toast.error(`对齐失败：${error?.message || '请重试'}`);
+        } finally {
+            setIsAligningInstruction(false);
+        }
+    };
+
+    // ========== AI 校验修复（独立函数） ==========
+    const validateLibrary = async (targetLibrary?: LibraryResult | null, targetInstruction?: string) => {
+        const lib = targetLibrary || libraryResult;
+        const instructionForSync = typeof targetInstruction === 'string' ? targetInstruction : baseInstruction;
+        if (!lib || lib.headers.length === 0 || lib.rows.length === 0) {
+            toast.info('没有随机库数据可校验');
+            return;
+        }
+
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setIsValidating(true);
+        toast.info('🔍 正在校验随机库质量...');
+
+        try {
+            const validationData = lib.headers.map((h, i) => {
+                const values = lib.rows.map(r => r[i]).filter(v => v && v.trim());
+                return `【${h}】${values.join('、')}`;
+            }).join('\n');
+
+            const validationPrompt = `你是随机库质量检查员。请检查以下随机库，执行三项检查：
+
+【检查一：值的质量】
+1. **完整性**：值必须是完整的词组或短语，不能是半截句子（如"由黄色"❌ → "黄色芸香"✅）
+2. **独立性**：每个值单独读出来要通顺
+3. **去除连接词前缀**：值不应以"由"、"用"、"以"、"和"等连接词开头
+4. **合理性**：值的内容要合乎常理
+
+【检查二：维度冗余】
+检查是否有两个或多个维度内容过于相似，应该合并。例如：
+- "花艺主题与形态" 和 "花卉品种与色彩" 如果值类型高度重叠 → 应合并
+- "场景类型" 和 "环境描述" 如果本质上描述同一件事 → 应合并
+
+【检查三：值与表头匹配】
+检查每个值是否属于它所在的维度。例如：
+- "粉色" 出现在 "花艺主题与形态" 维度下 → 应属于"颜色"相关维度
+- "挂在乡村木质挂钩架上" 出现在 "花卉品种" 维度下 → 应属于"场景"相关维度
+如果一个值明显不属于当前维度，标记为misplaced。
+
+当前随机库内容：
+${validationData}
+
+请返回JSON格式（不要有其他文字）：
+{
+  "issues": [
+    { "dim": "维度名", "bad": "有问题的值", "fixed": "修复后的值", "reason": "原因" }
+  ],
+  "merges": [
+    { "dims": ["维度A", "维度B"], "mergedName": "合并后的维度名", "reason": "合并原因" }
+  ],
+  "misplacements": [
+    { "value": "错放的值", "fromDim": "当前所在维度", "toDim": "应该属于的维度", "reason": "原因" }
+  ]
+}
+
+如果没有任何问题，返回：{ "issues": [], "merges": [], "misplacements": [] }`;
+
+            const valResponse = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: validationPrompt,
+                config: {
+                    responseMimeType: 'application/json',
+                },
+            });
+
+            let valText = valResponse?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            console.log('[SkillGen] 校验原始返回:', valText.substring(0, 500));
+
+            // 清理 markdown 代码块标记
+            valText = valText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+            try {
+                const valResult = JSON.parse(valText) as {
+                    issues: { dim: string; bad: string; fixed: string; reason: string }[];
+                    merges?: { dims: string[]; mergedName: string; reason: string }[];
+                    misplacements?: { value: string; fromDim: string; toDim: string; reason: string }[];
+                };
+
+                let fixedLibrary = { ...lib, rows: lib.rows.map(row => [...row]), headers: [...lib.headers] };
+                let fixCount = 0;
+                let mergeCount = 0;
+                let moveCount = 0;
+
+                // 1. 应用值修复
+                if (valResult.issues && valResult.issues.length > 0) {
+                    console.log(`[SkillGen] 发现 ${valResult.issues.length} 个值问题`);
+                    for (const issue of valResult.issues) {
+                        const colIdx = fixedLibrary.headers.indexOf(issue.dim);
+                        if (colIdx < 0) continue;
+                        for (let r = 0; r < fixedLibrary.rows.length; r++) {
+                            if (fixedLibrary.rows[r][colIdx] === issue.bad) {
+                                fixedLibrary.rows[r][colIdx] = issue.fixed;
+                                fixCount++;
+                            }
+                        }
+                    }
+                }
+
+                // 2. 应用维度合并
+                if (valResult.merges && valResult.merges.length > 0) {
+                    console.log(`[SkillGen] 发现 ${valResult.merges.length} 组可合并维度`);
+                    for (const merge of valResult.merges) {
+                        const colIndices = merge.dims.map(d => fixedLibrary.headers.indexOf(d)).filter(i => i >= 0);
+                        if (colIndices.length < 2) continue;
+
+                        // 合并值：收集所有列的值去重
+                        const allValues = new Set<string>();
+                        for (const ci of colIndices) {
+                            for (const row of fixedLibrary.rows) {
+                                if (row[ci] && row[ci].trim()) allValues.add(row[ci].trim());
+                            }
+                        }
+                        const mergedValues = Array.from(allValues);
+
+                        // 保留第一个列，用合并后的值和名称替换
+                        const keepIdx = colIndices[0];
+                        fixedLibrary.headers[keepIdx] = merge.mergedName;
+
+                        // 重建行
+                        const newRows: string[][] = [];
+                        for (let r = 0; r < Math.max(mergedValues.length, fixedLibrary.rows.length); r++) {
+                            const row = r < fixedLibrary.rows.length ? [...fixedLibrary.rows[r]] : fixedLibrary.headers.map(() => '');
+                            row[keepIdx] = mergedValues[r] || '';
+                            newRows.push(row);
+                        }
+
+                        // 删除被合并的其他列
+                        const removeIndices = colIndices.slice(1).sort((a, b) => b - a);
+                        for (const ri of removeIndices) {
+                            fixedLibrary.headers.splice(ri, 1);
+                            for (const row of newRows) {
+                                row.splice(ri, 1);
+                            }
+                        }
+                        fixedLibrary.rows = newRows;
+                        mergeCount++;
+                    }
+                }
+
+                // 3. 应用值迁移（错放的值移到正确列）
+                if (valResult.misplacements && valResult.misplacements.length > 0) {
+                    console.log(`[SkillGen] 发现 ${valResult.misplacements.length} 个错放的值`);
+                    for (const mp of valResult.misplacements) {
+                        const fromIdx = fixedLibrary.headers.indexOf(mp.fromDim);
+                        const toIdx = fixedLibrary.headers.indexOf(mp.toDim);
+                        if (fromIdx < 0 || toIdx < 0) continue;
+
+                        // 找到这个值所在的行，从 from 列清除，加到 to 列的空位
+                        for (let r = 0; r < fixedLibrary.rows.length; r++) {
+                            if (fixedLibrary.rows[r][fromIdx] === mp.value) {
+                                fixedLibrary.rows[r][fromIdx] = ''; // 清除原位置
+                                // 找 to 列的空行放进去
+                                let placed = false;
+                                for (let r2 = 0; r2 < fixedLibrary.rows.length; r2++) {
+                                    if (!fixedLibrary.rows[r2][toIdx] || !fixedLibrary.rows[r2][toIdx].trim()) {
+                                        fixedLibrary.rows[r2][toIdx] = mp.value;
+                                        placed = true;
+                                        break;
+                                    }
+                                }
+                                if (!placed) {
+                                    // 没有空行，新增一行
+                                    const newRow = fixedLibrary.headers.map(() => '');
+                                    newRow[toIdx] = mp.value;
+                                    fixedLibrary.rows.push(newRow);
+                                }
+                                moveCount++;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 保存校验报告
+                const appliedFixes = (valResult.issues || []).filter(issue => {
+                    const colIdx = lib.headers.indexOf(issue.dim);
+                    return colIdx >= 0 && lib.rows.some(r => r[colIdx] === issue.bad);
+                });
+                const appliedMerges = valResult.merges || [];
+                const appliedMisplacements = valResult.misplacements || [];
+
+                const hasChanges = fixCount > 0 || mergeCount > 0 || moveCount > 0;
+                if (hasChanges) {
+                    const syncResult = instructionForSync.trim()
+                        ? syncInstructionDimensionRefs(instructionForSync, lib.headers, fixedLibrary.headers, appliedMerges)
+                        : { updated: instructionForSync, replacedCount: 0, unresolvedRemovedRefs: [] as string[] };
+
+                    setLibraryResult(fixedLibrary);
+                    if (syncResult.replacedCount > 0 && syncResult.updated !== instructionForSync) {
+                        setBaseInstruction(syncResult.updated);
+                    }
+                    setValidationReport({ fixes: appliedFixes, merges: appliedMerges, misplacements: appliedMisplacements });
+                    const msgs: string[] = [];
+                    if (fixCount > 0) msgs.push(`修复了 ${fixCount} 个值`);
+                    if (mergeCount > 0) msgs.push(`合并了 ${mergeCount} 组相似维度`);
+                    if (moveCount > 0) msgs.push(`迁移了 ${moveCount} 个错放的值`);
+                    if (syncResult.replacedCount > 0) msgs.push(`同步了 ${syncResult.replacedCount} 处指令维度`);
+                    toast.success(`🔧 校验完成！${msgs.join('，')}，详见下方报告`);
+                    if (syncResult.unresolvedRemovedRefs.length > 0) {
+                        toast.warning(`⚠️ 指令仍包含已移除维度：${syncResult.unresolvedRemovedRefs.join('、')}。可点击「🔗 对齐指令」自动修正。`);
+                    }
+                } else {
+                    setValidationReport({ fixes: [], merges: [], misplacements: [] });
+                    toast.success('✅ 校验通过！所有值都合格，维度划分合理');
+                }
+            } catch (parseError) {
+                console.error('[SkillGen] 校验 JSON 解析失败:', parseError, '原文:', valText.substring(0, 300));
+                toast.warning('校验结果解析失败，请重试');
+            }
+        } catch (error: any) {
+            console.error('校验失败:', error);
+            toast.error(`校验失败: ${error.message || '请重试'}`);
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    // ========== Opal Export ==========
+    const generateOpalExport = () => {
+        if (!libraryResult || !baseInstruction) return { randomCode: '', completeInstruction: '' };
+        const { headers, rows } = libraryResult;
+
+        // 1. Generate Python random node code
+        const randomLines = headers.map((h, i) => {
+            const maxVal = rows.map(r => r[i]).filter(v => v && v.trim()).length;
+            return `${h} = random.randint(1, ${maxVal})\nprint(f'${h}: {${h}}')`;
+        });
+        const randomCode = `import random\n\n${randomLines.join('\n\n')}`;
+
+        // 2. Build complete instruction with embedded numbered library
+        const libraryBlocks = headers.map((h, i) => {
+            const values = rows.map(r => r[i]).filter(v => v && v.trim());
+            const numberedList = values.map((v, j) => `${j + 1}. ${v}`).join('\n');
+            return `【${h}】(共 ${values.length} 项)\n${numberedList}`;
+        });
+
+        const completeInstruction = `${baseInstruction}\n\n` +
+            `---\n\n` +
+            `【Opal 运行输入说明】\n` +
+            `系统会提供每个维度的序号变量（例如：场景=3、主体=5）。\n` +
+            `请先按下方编号库把序号映射为具体词值，再将所有词值整合为一条最终描述词。\n` +
+            `仅输出最终描述词正文，不输出解释、中间过程或分段标题。\n\n` +
+            libraryBlocks.join('\n\n');
+
+        return { randomCode, completeInstruction };
+    };
+
+    const copyOpalRandom = () => {
+        const { randomCode } = generateOpalExport();
+        navigator.clipboard.writeText(randomCode);
+        setCopiedOpalRandom(true);
+        toast.success('已复制随机节点代码');
+        setTimeout(() => setCopiedOpalRandom(false), 2000);
+    };
+
+    const copyOpalInstruction = () => {
+        const { completeInstruction } = generateOpalExport();
+        navigator.clipboard.writeText(completeInstruction);
+        setCopiedOpalInstruction(true);
+        toast.success('已复制完整指令（含嵌入库）');
+        setTimeout(() => setCopiedOpalInstruction(false), 2000);
+    };
+
+    // ========== 手动输入：按 Skill 模式改写 ==========
+    const rewriteManualInstruction = async () => {
+        if (!manualMixedRewriteEnabled) {
+            toast.info('请先开启「指令结构化」');
+            return;
+        }
+        if (!baseInstruction.trim()) {
+            toast.info('请先填写基础指令');
+            return;
+        }
+
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setManualRewriting(true);
+        try {
+            const presetConfig = PROMPT_PRESETS[promptPreset];
+            const skillFramework = activeSkillFramework.trim() || getDefaultSkillFramework(promptPreset);
+            const libraryContext = libraryResult
+                ? `【随机库维度】${libraryResult.headers.join('、')}
+【随机库行数】${libraryResult.rows.length}`
+                : '【随机库维度】将在运行时由系统注入，请使用通用占位符说明输入变量';
+
+            const prompt = `你是提示词系统设计专家。请把用户给出的「基础指令」改写成“可复用的 Skill 元指令”，用于 ${presetConfig.label}。
+
+改写目标：
+1. 保留原始意图和核心内容，不要改变任务方向。
+2. 明确这是一份“指导 AI 产出描述词”的指令，不是直接输出成品描述词。
+3. 改写后的基础指令必须覆盖以下 Skill 指令框架全部模块（允许同义改写，但不能缺项）：
+${skillFramework}
+4. 若原文缺少约束项，请补齐常见安全约束（如无水印、无 logo、无畸变），但不要添加与主题冲突内容。
+5. 禁止输出解释、前后缀、Markdown 代码块；只输出最终改写后的基础指令正文。
+6. 语言保持中文，表达专业、清晰。
+7. 禁止出现“由于用户未提供参数/如果用户未提供/可自动随机决定”等元话术；不要讨论用户是否提供参数。
+8. 统一写法：直接说明“根据系统提供的元素信息生成描述词”，不要添加前置条件句。
+
+${libraryContext}
+
+【原始基础指令】
+${baseInstruction}`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: prompt,
+            });
+
+            const rewritten = response?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+            if (!rewritten) {
+                throw new Error('模型未返回有效内容');
+            }
+
+            setManualRewritePreview({
+                original: baseInstruction,
+                rewritten,
+            });
+            toast.success('已生成优化草案，请在对比窗口确认是否替换');
+        } catch (error: any) {
+            console.error('手动改写失败:', error);
+            toast.error(`改写失败：${error?.message || '请重试'}`);
+        } finally {
+            setManualRewriting(false);
+        }
+    };
+
+    const applyManualRewritePreview = () => {
+        if (!manualRewritePreview) return;
+        setBaseInstruction(manualRewritePreview.rewritten);
+        setManualRewritePreview(null);
+        toast.success('已替换为优化后的 Skill 指令');
+    };
+
+    // ========== 手动输入解析 ==========
+    const parseManualLibrary = (text: string) => {
+        if (!text.trim()) {
+            setLibraryResult(null);
+            return;
+        }
+        // 支持两种格式：
+        // 1. TSV格式：第一行是表头，后续行是数据
+        // 2. 【维度名】值1、值2、值3 格式
+        const lines = text.trim().split('\n').filter(l => l.trim());
+
+        // 检测格式：如果包含【】则是维度格式
+        const dimPattern = /^\u3010(.+?)\u3011(.+)$/;
+        const hasDimFormat = lines.some(l => dimPattern.test(l.trim()));
+
+        if (hasDimFormat) {
+            // 维度格式：【场景】花园、森林、海边
+            const dims: { name: string; values: string[] }[] = [];
+            for (const line of lines) {
+                const m = line.trim().match(dimPattern);
+                if (m) {
+                    const name = m[1].trim();
+                    const values = m[2].split(/[\u3001,，]/).map(v => v.trim()).filter(v => v);
+                    dims.push({ name, values });
+                }
+            }
+            if (dims.length > 0) {
+                const headers = dims.map(d => d.name);
+                const maxRows = Math.max(...dims.map(d => d.values.length));
+                const rows: string[][] = [];
+                for (let r = 0; r < maxRows; r++) {
+                    rows.push(dims.map(d => d.values[r] || ''));
+                }
+                setLibraryResult({ headers, rows });
+            }
+        } else {
+            // TSV 格式
+            const tsvLines = lines.map(l => l.split('\t'));
+            if (tsvLines.length >= 2) {
+                const headers = tsvLines[0];
+                const rows = tsvLines.slice(1).filter(r => r.some(c => c.trim()));
+                setLibraryResult({ headers, rows });
+            }
+        }
+    };
+
+    const getDimensionValues = useCallback((dimension: string): string[] => {
+        if (!libraryResult || !dimension) return [];
+        const dimIndex = libraryResult.headers.findIndex(h => h === dimension);
+        if (dimIndex < 0) return [];
+        const values = libraryResult.rows
+            .map(row => String(row[dimIndex] || '').trim())
+            .filter(Boolean);
+        return Array.from(new Set(values));
+    }, [libraryResult]);
+
+    useEffect(() => {
+        if (!libraryResult || libraryResult.headers.length === 0) {
+            setExtendTargetDimension('');
+            return;
+        }
+        if (!extendTargetDimension || !libraryResult.headers.includes(extendTargetDimension)) {
+            setExtendTargetDimension(libraryResult.headers[0]);
+        }
+    }, [libraryResult, extendTargetDimension]);
+
+    useEffect(() => {
+        setExtendGeneratedValues([]);
+    }, [libraryResult, extendTargetDimension]);
+
+    const parseExtendValueLines = useCallback((rawText: string, existingValues: string[] = [], limit = 100): string[] => {
+        const existingSet = new Set(existingValues);
+        const parsed = rawText
+            .replace(/```[\s\S]*?```/g, '')
+            .split('\n')
+            .flatMap(line => line.split(/[，,]/))
+            .map(line => line.replace(/^[-*•\d.\)\s]+/, '').trim())
+            .filter(Boolean)
+            .filter(v => !existingSet.has(v));
+        return Array.from(new Set(parsed)).slice(0, limit);
+    }, []);
+
+    const handleGenerateDimensionExtension = async () => {
+        if (!libraryResult || !extendTargetDimension) {
+            toast.info('请先准备随机库并选择要扩展的维度');
+            return;
+        }
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        const existingValues = getDimensionValues(extendTargetDimension);
+        const relatedDimensions = libraryResult.headers
+            .filter(h => h !== extendTargetDimension)
+            .slice(0, 8)
+            .map(h => `${h}：${getDimensionValues(h).slice(0, 12).join('、') || '（暂无）'}`)
+            .join('\n');
+
+        const prompt = `你是随机库扩展助手。请为维度「${extendTargetDimension}」生成 ${extendCount} 个新值。
+
+当前已有值（禁止重复）：
+${existingValues.join('、') || '（暂无）'}
+
+其他维度上下文（用于保持风格一致）：
+${relatedDimensions || '（暂无）'}
+
+补充要求：
+${extendPrompt.trim() || '保持和现有库同风格，优先可直接用于生图/生视频描述词。'}
+
+输出要求（必须严格遵守）：
+1. 只输出值本身，每行一个
+2. 不要编号、不要解释、不要分组标题
+3. 不要和已有值重复
+4. 值尽量简洁（2-12字）且可独立使用`;
+
+        setExtendGenerating(true);
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.0-flash',
+                contents: prompt,
+            });
+            const text = response.text ?? '';
+            const unique = parseExtendValueLines(text, existingValues, extendCount);
+            setExtendGeneratedValues(unique);
+
+            if (unique.length > 0) {
+                toast.success(`已生成 ${unique.length} 个新值`);
+            } else {
+                toast.warning('未生成可用新值，请调整要求后重试');
+            }
+        } catch (error) {
+            console.error('维度扩展失败:', error);
+            toast.error('AI 扩展失败，请重试');
+        } finally {
+            setExtendGenerating(false);
+        }
+    };
+
+    const openExtendAIModal = () => {
+        if (!libraryResult || !extendTargetDimension) {
+            toast.info('请先准备随机库并选择要扩展的维度');
+            return;
+        }
+        setExtendAIModalPrompt(extendPrompt.trim());
+        setExtendAIModalCount(Math.max(1, Math.min(100, extendCount || 10)));
+        setShowExtendAIModal(true);
+    };
+
+    const closeExtendAIModal = () => {
+        if (extendAIModalGenerating) return;
+        setShowExtendAIModal(false);
+    };
+
+    const handleGenerateDimensionExtensionFromModal = async () => {
+        if (!libraryResult || !extendTargetDimension) {
+            toast.info('请先准备随机库并选择扩展维度');
+            return;
+        }
+        const userPrompt = extendAIModalPrompt.trim();
+        if (!userPrompt) {
+            toast.info('请先描述你想生成的内容');
+            return;
+        }
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        setExtendAIModalGenerating(true);
+        try {
+            const existingValues = getDimensionValues(extendTargetDimension);
+            const relatedDimensions = libraryResult.headers
+                .filter(h => h !== extendTargetDimension)
+                .slice(0, 8)
+                .map(h => `${h}：${getDimensionValues(h).slice(0, 10).join('、') || '（暂无）'}`)
+                .join('\n');
+
+            const prompt = `请根据以下要求，为随机库维度「${extendTargetDimension}」生成 ${extendAIModalCount} 个选项。
+
+用户描述：
+${userPrompt}
+
+当前维度已有值（禁止重复）：
+${existingValues.join('、') || '（暂无）'}
+
+其他维度上下文（用于保持风格一致）：
+${relatedDimensions || '（暂无）'}
+
+输出要求（必须严格遵守）：
+1. 每行一个值
+2. 不要编号、不要解释、不要分组标题
+3. 不要和已有值重复
+4. 值尽量简洁（2-12字）且可直接用于生图/生视频描述词`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.0-flash',
+                contents: prompt,
+            });
+            const text = response.text ?? '';
+            const blockedValues = [...existingValues, ...extendGeneratedValues];
+            const values = parseExtendValueLines(text, blockedValues, extendAIModalCount);
+
+            if (values.length > 0) {
+                setExtendGeneratedValues(prev => Array.from(new Set([...prev, ...values])).slice(0, 200));
+                setExtendPrompt(userPrompt);
+                setExtendCount(extendAIModalCount);
+                setShowExtendAIModal(false);
+                toast.success(`已生成 ${values.length} 个新值，已加入扩展结果预览`);
+            } else {
+                toast.warning('AI 未生成可用新值，请换个描述再试');
+            }
+        } catch (error) {
+            console.error('弹窗生成扩展值失败:', error);
+            toast.error('AI 生成失败，请重试');
+        } finally {
+            setExtendAIModalGenerating(false);
+        }
+    };
+
+    const handleApplyDimensionExtension = () => {
+        if (!libraryResult || !extendTargetDimension || extendGeneratedValues.length === 0) return;
+
+        const dimIndex = libraryResult.headers.findIndex(h => h === extendTargetDimension);
+        if (dimIndex < 0) return;
+
+        const headers = [...libraryResult.headers];
+        const rows = libraryResult.rows.map(row => {
+            const padded = [...row];
+            while (padded.length < headers.length) padded.push('');
+            return padded;
+        });
+
+        for (const value of extendGeneratedValues) {
+            let placed = false;
+            for (const row of rows) {
+                if (!String(row[dimIndex] || '').trim()) {
+                    row[dimIndex] = value;
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) {
+                const newRow = Array(headers.length).fill('');
+                newRow[dimIndex] = value;
+                rows.push(newRow);
+            }
+        }
+
+        setLibraryResult({ headers, rows });
+        toast.success(`已追加到「${extendTargetDimension}」(${extendGeneratedValues.length} 个)`);
+        setExtendGeneratedValues([]);
+    };
+
+    useEffect(() => {
+        if (!extendChatEndRef.current) return;
+        extendChatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, [extendChatHistory, extendChatSending]);
+
+    const handleExtendChatSend = async () => {
+        const userMsg = extendChatInput.trim();
+        if (!userMsg) return;
+
+        const ai = getAiInstance();
+        if (!ai) {
+            toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        const nextUserMessage = {
+            role: 'user' as const,
+            text: userMsg,
+            timestamp: Date.now(),
+        };
+        const historyForPrompt = [...extendChatHistory, nextUserMessage];
+        setExtendChatHistory(historyForPrompt);
+        setExtendChatInput('');
+        setExtendChatSending(true);
+
+        try {
+            const hasLinkedLibrary = !!libraryResult && !!extendTargetDimension;
+            const existingValues = hasLinkedLibrary ? getDimensionValues(extendTargetDimension) : [];
+            const historyText = historyForPrompt
+                .slice(-8)
+                .map(m => `${m.role === 'user' ? '用户' : '助手'}：${m.text}`)
+                .join('\n');
+
+            const prompt = hasLinkedLibrary ? `你是“随机库扩展对话助手”，任务是帮用户扩展维度「${extendTargetDimension}」。
+
+当前维度已有值（禁止重复）：
+${existingValues.join('、') || '（暂无）'}
+
+当前随机库其他维度（用于保持风格一致）：
+${libraryResult!.headers.filter(h => h !== extendTargetDimension).slice(0, 8).join('、') || '（暂无）'}
+
+对话历史：
+${historyText}
+
+请按以下格式输出：
+===思路建议===
+（用口语化短句给出 2-5 条可执行建议）
+
+===建议值===
+（给出可直接入库的新值，每行一个，建议不少于 12 个）
+
+规则：
+1) 不要和已有值重复
+2) 值尽量简洁（2-12 字）
+3) 不要输出编号和额外解释` : `你是“创意扩展助手”。请根据用户对话，直接输出可复用的扩展值列表。
+
+对话历史：
+${historyText}
+
+请按以下格式输出：
+===思路建议===
+（先给 2-5 条短建议，便于用户继续追问）
+
+===建议值===
+（给出可直接使用的扩展值，每行一个，建议不少于 12 个）
+
+规则：
+1) 不要编号、不要解释、不要多余标题
+2) 每个值尽量简洁（2-12 字）
+3) 尽量多样化，避免重复`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.0-flash',
+                contents: prompt,
+            });
+            const resultText = response.text ?? '';
+            const thoughtMatch = resultText.match(/===思路建议===\s*([\s\S]*?)(?====建议值===|$)/);
+            const valuesMatch = resultText.match(/===建议值===\s*([\s\S]*?)$/);
+            const thoughtText = thoughtMatch?.[1]?.trim() || resultText.trim();
+            const valuesText = valuesMatch?.[1]?.trim() || '';
+
+            const blockedValues = hasLinkedLibrary
+                ? [...existingValues, ...extendGeneratedValues]
+                : extendGeneratedValues;
+            const values = parseExtendValueLines(valuesText || resultText, blockedValues, 100);
+            if (values.length > 0) {
+                setExtendGeneratedValues(prev => {
+                    const merged = Array.from(new Set([...prev, ...values]));
+                    return merged.slice(0, 200);
+                });
+            }
+
+            const modelMessage = {
+                role: 'model' as const,
+                text: values.length > 0
+                    ? `${thoughtText}\n\n已补充 ${values.length} 个候选值到“扩展结果预览”。`
+                    : thoughtText,
+                timestamp: Date.now(),
+            };
+            setExtendChatHistory(prev => [...prev, modelMessage]);
+
+            if (values.length > 0) {
+                toast.success(`扩展完成，新增 ${values.length} 个候选值`);
+            } else {
+                toast.warning('已返回思路建议，但未识别到可入库的新值');
+            }
+        } catch (error) {
+            console.error('对话扩展失败:', error);
+            toast.error('对话扩展失败，请重试');
+        } finally {
+            setExtendChatSending(false);
+        }
+    };
+
+    const copyExtendGeneratedValues = () => {
+        if (extendGeneratedValues.length === 0) return;
+        navigator.clipboard.writeText(extendGeneratedValues.join('\n'));
+        setExtendCopied(true);
+        setTimeout(() => setExtendCopied(false), 1500);
+        toast.success('已复制扩展结果');
+    };
+
+    const clearAll = () => {
+        setImages([]);
+        setSamplePrompts('');
+        setRoughRules('');
+        setCustomDimensions([]);
+        setDimInput('');
+        setBaseInstruction('');
+        setLibraryResult(null);
+        setGenerateDone(false);
+        setValidationReport(null);
+        setShowOpalExport(false);
+        setChatHistory([]);
+        conversationRef.current = [];
+        setShowInstructionToLibModal(false);
+        setInstructionToLibInput('');
+        setInstructionToLibPreview(null);
+        setShowImageToLibModal(false);
+        setImageToLibImages([]);
+        setImageToLibUserDesc('');
+        setImageToLibPreview(null);
+        setShowAICategoryModal(false);
+        setAiCategoryModalInput('');
+        setAiCategoryModalPresetNames('');
+        setAiCategoryModalPreview('');
+        setExtendTargetDimension('');
+        setExtendPrompt('');
+        setExtendGeneratedValues([]);
+        setExtendChatHistory([]);
+        setExtendChatInput('');
+        setShowExtendAIModal(false);
+        setExtendAIModalPrompt('');
+        setExtendAIModalCount(10);
+        setExtendAIModalGenerating(false);
+    };
+
+    const extendCurrentValues = getDimensionValues(extendTargetDimension);
+    const hasExtendLibrary = !!libraryResult && libraryResult.headers.length > 0;
+
+    // ========== Render ==========
+    return (
+        <div className="skill-gen-app">
+            {/* Header */}
+            <div className="skill-gen-header">
+                <div className="skill-gen-header-left">
+                    <div className="skill-gen-icon">
+                        <Wand2 size={24} />
+                    </div>
+                    <div>
+                        <h1>模版指令 + 随机库生成器（支持导出到OPAL）</h1>
+                        <p className="skill-gen-subtitle">提供参考图片、成品描述词、粗略规则，AI 交叉分析生成可使用的随机库和描述指令，用于 Opal 流程和 AI 图片识别的创新模式。</p>
+                    </div>
+                </div>
+                <div className="skill-gen-header-actions">
+                    <button
+                        className="skill-gen-notes-btn"
+                        onClick={() => setShowFeatureNotes(true)}
+                        title="查看功能说明"
+                    >
+                        <Sparkles size={14} />
+                        功能说明
+                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button className="skill-gen-history-btn" onClick={() => setShowHistory(!showHistory)}>
+                            <History size={14} />
+                            历史记录{history.length > 0 ? ` (${history.length})` : ''}
+                        </button>
+                        {showHistory && (
+                            <div className="skill-gen-history-panel">
+                                <div className="skill-gen-history-header">
+                                    <span>📋 历史配方</span>
+                                    {history.length > 0 && (
+                                        <button className="skill-gen-history-clear" onClick={() => { setHistory([]); saveHistory([]); toast.success('已清空历史'); }}>
+                                            清空
+                                        </button>
+                                    )}
+                                </div>
+                                {history.length === 0 ? (
+                                    <div className="skill-gen-history-empty">暂无历史记录</div>
+                                ) : (
+                                    <div className="skill-gen-history-list">
+                                        {history.map(entry => (
+                                            <div key={entry.id} className="skill-gen-history-item">
+                                                <div className="skill-gen-history-item-content" onClick={() => restoreFromHistory(entry)}>
+                                                    {/* Thumbnails row */}
+                                                    {entry.imageThumbnails && entry.imageThumbnails.length > 0 && (
+                                                        <div className="skill-gen-history-thumbs">
+                                                            {entry.imageThumbnails.map((thumb, i) => (
+                                                                <img key={i} src={thumb} alt="" className="skill-gen-history-thumb" />
+                                                            ))}
+                                                            {entry.imageCount && entry.imageCount > 6 && (
+                                                                <span className="skill-gen-history-thumb-more">+{entry.imageCount - 6}</span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <div className="skill-gen-history-preview">{entry.preview}</div>
+                                                    <div className="skill-gen-history-meta">
+                                                        <Clock size={10} />
+                                                        {new Date(entry.timestamp).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                        {entry.library && <span>· {entry.library.headers.length} 列</span>}
+                                                        {entry.imageCount && <span>· {entry.imageCount} 图</span>}
+                                                        {entry.customDimensions && <span>· {entry.customDimensions.length} 维度</span>}
+                                                    </div>
+                                                </div>
+                                                <button className="skill-gen-history-delete" onClick={(e) => { e.stopPropagation(); deleteFromHistory(entry.id); }}>
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {hasInput && (
+                        <button className="skill-gen-clear-btn" onClick={clearAll}>
+                            <Trash2 size={14} />
+                            清空全部
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* ===== 工作区标签栏 ===== */}
+            <div className="skill-gen-workspace-bar">
+                {workspaces.map((ws) => {
+                    const isActive = ws.id === activeWorkspaceId;
+                    const isEditing = editingWsId === ws.id;
+                    return (
+                        <div
+                            key={ws.id}
+                            className={`skill-gen-ws-tab ${isActive ? 'active' : ''}`}
+                            onClick={() => !isEditing && handleWsSwitch(ws.id)}
+                        >
+                            {isEditing ? (
+                                <div className="skill-gen-ws-edit">
+                                    <input
+                                        ref={wsEditInputRef}
+                                        type="text"
+                                        value={editingWsName}
+                                        onChange={(e) => setEditingWsName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') { handleWsRename(ws.id, editingWsName); setEditingWsId(null); }
+                                            if (e.key === 'Escape') setEditingWsId(null);
+                                        }}
+                                        onBlur={() => { handleWsRename(ws.id, editingWsName); setEditingWsId(null); }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
+                                    <button onClick={(e) => { e.stopPropagation(); handleWsRename(ws.id, editingWsName); setEditingWsId(null); }}>
+                                        <Check size={12} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <>
+                                    <span className="skill-gen-ws-name" title={ws.name}>{ws.name}</span>
+                                    <div className="skill-gen-ws-actions">
+                                        <button onClick={(e) => { e.stopPropagation(); setEditingWsId(ws.id); setEditingWsName(ws.name); setTimeout(() => wsEditInputRef.current?.focus(), 50); }} title="重命名">
+                                            <Edit2 size={11} />
+                                        </button>
+                                        {workspaces.length > 1 && (
+                                            <button onClick={(e) => { e.stopPropagation(); handleWsRemove(ws.id); }} title="关闭" className="skill-gen-ws-close">
+                                                <X size={11} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    );
+                })}
+                <button className="skill-gen-ws-add" onClick={handleWsAdd} title="新建工作区">
+                    <Plus size={16} />
+                </button>
+            </div>
+
+            <div className="skill-gen-body">
+                {/* 顶部标签页 */}
+                <div className="skill-gen-tab-bar">
+                    <button
+                        className={`skill-gen-tab-item ${activeTab === 'ai' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('ai')}
+                    >
+                        <Sparkles size={14} />
+                        生成
+                    </button>
+                    <button
+                        className={`skill-gen-tab-item ${activeTab === 'manual' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('manual')}
+                    >
+                        <FileText size={14} />
+                        优化
+                    </button>
+                    <button
+                        className={`skill-gen-tab-item ${activeTab === 'extend' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('extend')}
+                    >
+                        🧩 AI 扩展类型
+                    </button>
+                    <button
+                        className={`skill-gen-tab-item ${activeTab === 'localize' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('localize')}
+                    >
+                        🌍 本地化
+                    </button>
+                    <button
+                        className={`skill-gen-tab-item ${activeTab === 'classify' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('classify')}
+                    >
+                        🏷️ 智能分类
+                    </button>
+                    <button
+                        className={`skill-gen-tab-item ${activeTab === 'codegen' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('codegen')}
+                    >
+                        🎲 代码生成
+                    </button>
+
+                    {/* 全局平台设置 — 右侧按钮 */}
+                    {(activeTab === 'ai' || activeTab === 'manual') && (
+                        <button
+                            type="button"
+                            className="skill-gen-tab-settings-btn"
+                            onClick={() => setShowPreset(true)}
+                        >
+                            <Settings size={14} />
+                            {PROMPT_PRESETS[promptPreset].label}
+                        </button>
+                    )}
+                </div>
+
+                {/* 全局平台设置弹框 */}
+                {showPreset && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-tool-modal-overlay" onClick={() => setShowPreset(false)}>
+                        <div className="skill-gen-tool-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+                            <div className="skill-gen-tool-modal-header">
+                                <div>
+                                    <h3>⚙️ 全局平台设置</h3>
+                                    <p>该设置为全局生效：会同时影响「生成」和「优化」中的指令结构化。</p>
+                                </div>
+                                <button className="skill-gen-tool-modal-close" onClick={() => setShowPreset(false)}><X size={16} /></button>
+                            </div>
+                            <div className="skill-gen-tool-modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                                <div className="skill-gen-preset-row">
+                                    <select
+                                        className="skill-gen-preset-select"
+                                        value={promptPreset}
+                                        onChange={(e) => setPromptPreset(e.target.value as PromptPreset)}
+                                    >
+                                        {Object.entries(PROMPT_PRESETS).map(([key, cfg]) => (
+                                            <option key={key} value={key}>{cfg.label}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        className="skill-gen-preset-apply-btn"
+                                        onClick={applyPresetDimensions}
+                                        title="仅用于 AI 生成模式的库维度建议"
+                                    >
+                                        套用推荐维度
+                                    </button>
+                                </div>
+                                <p className="skill-gen-preset-summary">{PROMPT_PRESETS[promptPreset].summary}</p>
+                                <p className="skill-gen-preset-dims">推荐维度（AI 生成模式）：{PROMPT_PRESETS[promptPreset].recommendedDims.join('、')}</p>
+                                <div className="skill-gen-preset-mixed-card">
+                                    <div className="skill-gen-preset-mixed-head">
+                                        <p className="skill-gen-preset-mixed-title">Skill 指令框架（可编辑）</p>
+                                        <button
+                                            type="button"
+                                            className="skill-gen-preset-mixed-reset-btn"
+                                            onClick={resetSkillFrameworkForPreset}
+                                        >
+                                            恢复默认
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        className="skill-gen-preset-mixed-editor"
+                                        rows={8}
+                                        value={activeSkillFramework}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            setSkillFrameworks(prev => ({ ...prev, [promptPreset]: value }));
+                                        }}
+                                        placeholder="在这里自定义你的 Skill 指令框架..."
+                                    />
+                                    <p className="skill-gen-preset-mixed-foot">该框架会直接用于「AI 生成」和「指令结构化」，并按平台预设分别保存。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )}
+
+                {/* AI 生成模式 - Input Area */}
+                {activeTab === 'ai' && (
+                    <div className="skill-gen-inputs">
+                        {/* Section 1: Reference Images */}
+                        <div className="skill-gen-section">
+                            <button
+                                type="button"
+                                className="skill-gen-section-header"
+                                onClick={() => setShowImages(!showImages)}
+                                aria-expanded={showImages}
+                                aria-controls="skill-gen-section-images"
+                            >
+                                <div className="skill-gen-section-title">
+                                    <ImageIcon size={16} />
+                                    <span>参考图片</span>
+                                    <span className="skill-gen-badge optional">可选</span>
+                                    {images.length > 0 && <span className="skill-gen-badge count">{images.length} 张</span>}
+                                </div>
+                                {showImages ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {showImages && (
+                                <div id="skill-gen-section-images" className="skill-gen-section-body">
+                                    <p className="skill-gen-hint">上传你想要的风格示例图，AI 会将所有图片拼成网格图后一起分析共同视觉特征</p>
+                                    <label className="skill-gen-auto-describe-toggle" title="开启后，当只有参考图片且没有成品描述词时，会先自动识别图片生成描述词，再用于 Skill 分析">
+                                        <input
+                                            type="checkbox"
+                                            checked={autoDescribeImages}
+                                            onChange={(e) => setAutoDescribeImages(e.target.checked)}
+                                        />
+                                        <span className="skill-gen-auto-describe-label">
+                                            {describingImages ? '🔄 识图中...' : '🔍 仅图片时自动识图'}
+                                        </span>
+                                        <span className="skill-gen-badge optional">推荐</span>
+                                    </label>
+                                    <div
+                                        className="skill-gen-dropzone"
+                                        onDrop={handleDrop}
+                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onDoubleClick={() => fileInputRef.current?.click()}
+                                        onClick={(e) => (e.currentTarget as HTMLElement).focus()}
+                                        tabIndex={0}
+                                        onPaste={handlePaste}
+                                        style={{ outline: 'none' }}
+                                    >
+                                        <Upload size={20} />
+                                        <span>拖拽图片到此处，或直接粘贴 (Ctrl+V)</span>
+                                        <span className="skill-gen-hint" style={{ fontSize: '0.7rem', marginTop: '2px' }}>双击选择文件 · 支持从 Google Sheets 粘贴图片</span>
+                                    </div>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => handleFileUpload(e.target.files)}
+                                    />
+                                    {images.length > 0 && (
+                                        <>
+                                            <div className="skill-gen-image-grid">
+                                                {images.map(img => (
+                                                    <div key={img.id} className="skill-gen-image-thumb">
+                                                        <img src={img.base64} alt={img.name} />
+                                                        <button className="skill-gen-image-remove" onClick={() => removeImage(img.id)}>
+                                                            <X size={12} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            {/* Grid Preview: show what AI sees */}
+                                            <div className="skill-gen-grid-preview-toggle">
+                                                <button
+                                                    className="skill-gen-preview-btn"
+                                                    onClick={() => setShowGridPreview(!showGridPreview)}
+                                                >
+                                                    {showGridPreview ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                    {showGridPreview ? '隐藏 AI 视角' : '👁️ 查看 AI 看到的图（网格拼图）'}
+                                                </button>
+                                            </div>
+                                            {showGridPreview && gridPreview && (
+                                                <div className="skill-gen-grid-preview">
+                                                    <p className="skill-gen-grid-preview-label">⬇️ AI 实际看到的网格拼图（{images.length} 张图 → 1 张网格图发送给 AI）</p>
+                                                    <img src={gridPreview} alt="AI 视角网格图" className="skill-gen-grid-preview-img" />
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Section 2: Sample Prompts */}
+                        <div className="skill-gen-section">
+                            <button
+                                type="button"
+                                className="skill-gen-section-header"
+                                onClick={() => setShowSamples(!showSamples)}
+                                aria-expanded={showSamples}
+                                aria-controls="skill-gen-section-samples"
+                            >
+                                <div className="skill-gen-section-title">
+                                    <FileText size={16} />
+                                    <span>成品描述词</span>
+                                    <span className="skill-gen-badge optional">可选</span>
+                                    {samplePrompts.trim() && <span className="skill-gen-badge count">已填</span>}
+                                </div>
+                                {showSamples ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {showSamples && (
+                                <div id="skill-gen-section-samples" className="skill-gen-section-body">
+                                    <p className="skill-gen-hint">粘贴你已满意的最终描述词样本，AI 会反推写作规律（建议 3-5 条）。支持从 Google Sheets 直接粘贴（每个单元格 = 一条描述词）</p>
+                                    <textarea
+                                        className="skill-gen-textarea"
+                                        value={samplePrompts}
+                                        onChange={(e) => setSamplePrompts(e.target.value)}
+                                        onPaste={handleSamplePromptsPaste}
+                                        placeholder={"粘贴你满意的描述词，每条之间用空行分隔。\n支持从 Google Sheets 直接粘贴（自动将单元格转为每行一条）。\n\n例如：\n\n一个8岁的英国女孩微笑看向镜头，金色卷发，穿着蓝色碎花连衣裙......\n\n一个6岁的英国男孩在花园里展示手工作品，棕色短发，穿着绿色T恤......"}
+                                        rows={8}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Section 3: Rough Rules */}
+                        <div className="skill-gen-section">
+                            <button
+                                type="button"
+                                className="skill-gen-section-header"
+                                onClick={() => setShowRules(!showRules)}
+                                aria-expanded={showRules}
+                                aria-controls="skill-gen-section-rules"
+                            >
+                                <div className="skill-gen-section-title">
+                                    <ClipboardList size={16} />
+                                    <span>粗略规则</span>
+                                    <span className="skill-gen-badge optional">可选</span>
+                                    {roughRules.trim() && <span className="skill-gen-badge count">已填</span>}
+                                </div>
+                                {showRules ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {showRules && (
+                                <div id="skill-gen-section-rules" className="skill-gen-section-body">
+                                    <p className="skill-gen-hint">写下你对风格/规则的要求（可以不完善，AI 会帮你补全）或者直接将成品的指令+库的完整指令贴这里</p>
+                                    <textarea
+                                        className="skill-gen-textarea"
+                                        value={roughRules}
+                                        onChange={(e) => setRoughRules(e.target.value)}
+                                        placeholder={"例如：\n- 白人儿童为主\n- 英国乡村场景\n- 手工作品展示\n- 自然光，微笑看向镜头\n- 细节丰富，写实风格"}
+                                        rows={6}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Section 4: Custom Dimensions */}
+                        <div className="skill-gen-section">
+                            <button
+                                type="button"
+                                className="skill-gen-section-header"
+                                onClick={() => setShowDimensions(!showDimensions)}
+                                aria-expanded={showDimensions}
+                                aria-controls="skill-gen-section-dimensions"
+                            >
+                                <div className="skill-gen-section-title">
+                                    <ClipboardList size={16} />
+                                    <span>库维度指定</span>
+                                    <span className="skill-gen-badge optional">可选</span>
+                                    {customDimensions.length > 0 && <span className="skill-gen-badge count">{customDimensions.length} 个</span>}
+                                </div>
+                                {showDimensions ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {showDimensions && (
+                                <div id="skill-gen-section-dimensions" className="skill-gen-section-body">
+                                    <p className="skill-gen-hint">指定随机库的列名（维度）。输入后按回车添加，也可直接粘贴多个。不填则 AI 自动分析</p>
+                                    <div className="skill-gen-dim-input-area" onClick={() => dimInputRef.current?.focus()}>
+                                        {customDimensions.map((dim, i) => (
+                                            <span key={i} className="skill-gen-dim-tag">
+                                                {dim}
+                                                <button onClick={(e) => { e.stopPropagation(); setCustomDimensions(prev => prev.filter((_, j) => j !== i)); }}>
+                                                    <X size={10} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                        <input
+                                            ref={dimInputRef}
+                                            className="skill-gen-dim-text-input"
+                                            value={dimInput}
+                                            onChange={(e) => setDimInput(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+                                                    e.preventDefault();
+                                                    const val = dimInput.trim();
+                                                    if (val && !customDimensions.includes(val)) {
+                                                        setCustomDimensions(prev => [...prev, val]);
+                                                    }
+                                                    setDimInput('');
+                                                } else if (e.key === 'Backspace' && !dimInput && customDimensions.length > 0) {
+                                                    setCustomDimensions(prev => prev.slice(0, -1));
+                                                }
+                                            }}
+                                            onPaste={(e) => {
+                                                const text = e.clipboardData?.getData('text/plain') || '';
+                                                if (text.includes('\t') || text.includes('\n') || text.includes(',') || text.includes('，') || text.includes('、')) {
+                                                    e.preventDefault();
+                                                    const newDims = text.split(/[\t\n,，、]+/).map(d => d.trim()).filter(d => d && !customDimensions.includes(d));
+                                                    if (newDims.length > 0) {
+                                                        setCustomDimensions(prev => [...prev, ...newDims]);
+                                                        toast.success(`已添加 ${newDims.length} 个维度`);
+                                                    }
+                                                }
+                                            }}
+                                            placeholder={customDimensions.length === 0 ? '输入维度名，按回车添加…' : '继续添加…'}
+                                        />
+                                    </div>
+                                    {customDimensions.length > 0 && (
+                                        <div className="skill-gen-dim-footer">
+                                            共 {customDimensions.length} 个维度
+                                            <button onClick={() => { setCustomDimensions([]); setDimInput(''); }}>全部清除</button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Generate Button */}
+                        <button
+                            className={`skill-gen-generate-btn ${generating ? 'generating' : ''}`}
+                            onClick={handleGenerate}
+                            disabled={generating || !hasInput}
+                        >
+                            {generating ? (
+                                <>
+                                    <Loader2 size={18} className="spin" />
+                                    {describingImages ? '正在识别图片...' : 'AI 正在分析生成中...'}
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles size={18} />
+                                    生成模版指令 + 随机库
+                                </>
+                            )}
+                        </button>
+
+                        {/* 生成完成后的跳转提示 */}
+                        {generateDone && !generating && (
+                            <button
+                                className="skill-gen-generate-done-btn"
+                                onClick={() => setActiveTab('manual')}
+                            >
+                                <Check size={16} />
+                                ✅ 已生成 → 点击查看结果
+                            </button>
+                        )}
+
+                        {!hasInput && (
+                            <div className="skill-gen-empty-hint">
+                                <Info size={14} />
+                                <span>请至少填写一种输入材料。提供的材料越多，生成的配方越精准。</span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Tab: 优化（编辑指令+库 + 优化工具） */}
+                {activeTab === 'manual' && (
+                    <div className="skill-gen-tab-content">
+                        {/* 基础指令编辑区 */}
+                        <div className="skill-gen-manual-block">
+                            <div className="skill-gen-result-header">
+                                <label>📜 基础指令</label>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        className="skill-gen-copy-btn"
+                                        onClick={rewriteManualInstruction}
+                                        disabled={manualRewriting || !baseInstruction.trim()}
+                                    >
+                                        {manualRewriting ? (
+                                            <><Loader2 size={14} className="spin" />改写中...</>
+                                        ) : (
+                                            <><Sparkles size={14} />✨ 指令结构化</>
+                                        )}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="skill-gen-copy-btn"
+                                        onClick={alignInstructionWithCurrentLibrary}
+                                        disabled={isAligningInstruction || !baseInstruction.trim() || !libraryResult || libraryResult.headers.length === 0}
+                                        title={libraryResult && libraryResult.headers.length > 0 ? '将基础指令中的变量名对齐到当前随机库维度' : '需先有随机库数据'}
+                                    >
+                                        {isAligningInstruction ? (
+                                            <><Loader2 size={14} className="spin" />对齐中...</>
+                                        ) : (
+                                            <><RefreshCw size={14} />🔗 同步变量名</>
+                                        )}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="skill-gen-copy-btn"
+                                        onClick={() => setShowInstructionToLibModal(true)}
+                                        title="粘贴 Opal 指令，AI 自动拆分为基础指令+随机库"
+                                    >
+                                        📥 指令转库
+                                    </button>
+                                    <button
+                                        className="skill-gen-copy-btn"
+                                        onClick={copyInstruction}
+                                        disabled={!hasBaseInstruction}
+                                    >
+                                        {copiedInstruction ? <Check size={14} /> : <Copy size={14} />}
+                                        {copiedInstruction ? '已复制' : '复制'}
+                                    </button>
+                                </div>
+                            </div>
+                            <textarea
+                                className="skill-gen-manual-textarea"
+                                value={baseInstruction}
+                                onChange={(e) => {
+                                    setBaseInstruction(e.target.value);
+                                    if (manualRewritePreview) setManualRewritePreview(null);
+                                }}
+                                placeholder="粘贴或输入你的基础指令..."
+                                rows={8}
+                            />
+                            {manualRewritePreview && (
+                                <div className="skill-gen-manual-compare">
+                                    <div className="skill-gen-manual-compare-header">
+                                        <span>改写对比窗口</span>
+                                    </div>
+                                    <div className="skill-gen-manual-compare-grid">
+                                        <div className="skill-gen-manual-compare-col">
+                                            <p className="skill-gen-manual-compare-title">原始指令</p>
+                                            <pre className="skill-gen-manual-compare-text">{manualRewritePreview.original}</pre>
+                                        </div>
+                                        <div className="skill-gen-manual-compare-col">
+                                            <p className="skill-gen-manual-compare-title">优化后指令</p>
+                                            <pre className="skill-gen-manual-compare-text">{manualRewritePreview.rewritten}</pre>
+                                        </div>
+                                    </div>
+                                    <div className="skill-gen-manual-compare-actions">
+                                        <button
+                                            type="button"
+                                            className="skill-gen-manual-compare-cancel"
+                                            onClick={() => setManualRewritePreview(null)}
+                                        >
+                                            保留原文
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="skill-gen-manual-compare-apply"
+                                            onClick={applyManualRewritePreview}
+                                        >
+                                            替换为优化版
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 随机库编辑区 */}
+                        <div className="skill-gen-manual-block">
+                            <div className="skill-gen-result-header">
+                                <label>
+                                    📊 随机库
+                                    {hasLibraryData && <span className="skill-gen-dim">{libraryResult!.headers.length} 列 × {libraryResult!.rows.length} 行</span>}
+                                </label>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                    <button
+                                        className="skill-gen-copy-btn"
+                                        onClick={() => validateLibrary()}
+                                        disabled={isValidating || !hasLibraryData}
+                                        title={hasLibraryData ? 'AI 校验：合并相似维度、修正错放值、补全不完整值' : '请先生成随机库'}
+                                    >
+                                        {isValidating ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />}
+                                        {isValidating ? '校验中...' : '🔍 验证修复'}
+                                    </button>
+                                    <button
+                                        className="skill-gen-copy-btn"
+                                        onClick={handleAutoFillLibrary}
+                                        disabled={isFillingLibrary || !hasBaseInstruction}
+                                        title="根据指令自动补充随机库维度和值"
+                                    >
+                                        {isFillingLibrary ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />}
+                                        {isFillingLibrary ? '补库中...' : '🤖 自动补库'}
+                                    </button>
+                                    <button
+                                        className="skill-gen-copy-btn"
+                                        onClick={copyLibraryTSV}
+                                        disabled={!hasLibraryData}
+                                    >
+                                        {copiedLibrary ? <Check size={14} /> : <Copy size={14} />}
+                                        {copiedLibrary ? '已复制' : '复制 TSV'}
+                                    </button>
+                                </div>
+                            </div>
+                            {/* 随机库网格区域（支持粘贴） */}
+                            <div
+                                className="skill-gen-library-paste-zone"
+                                tabIndex={0}
+                                onPaste={(e) => {
+                                    const text = e.clipboardData.getData('text/plain');
+                                    if (text.trim()) {
+                                        e.preventDefault();
+                                        parseManualLibrary(text);
+                                        toast.success('已从剪贴板解析随机库数据');
+                                    }
+                                }}
+                            >
+                                {hasLibraryData ? (
+                                    <div className="skill-gen-table-wrapper">
+                                        <table className="skill-gen-table">
+                                            <thead>
+                                                <tr>
+                                                    {libraryResult!.headers.map((h, i) => (
+                                                        <th key={i}>{h}</th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {libraryResult!.rows.slice(0, 10).map((row, ri) => (
+                                                    <tr key={ri}>
+                                                        {row.map((cell, ci) => (
+                                                            <td key={ci}>{cell}</td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                                {libraryResult!.rows.length > 10 && (
+                                                    <tr><td colSpan={libraryResult!.headers.length} style={{ opacity: 0.5, textAlign: 'center' }}>
+                                                        ... 还有 {libraryResult!.rows.length - 10} 行
+                                                    </td></tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                        <p className="skill-gen-hint" style={{ marginTop: '0.4rem', textAlign: 'center' }}>
+                                            点击此区域后可直接粘贴新数据覆盖
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="skill-gen-library-empty">
+                                        <ClipboardList size={28} style={{ opacity: 0.4 }} />
+                                        <p>点击此区域，然后粘贴随机库数据</p>
+                                        <p className="skill-gen-hint">
+                                            支持 TSV 表格（从 Google Sheets 复制）<br />
+                                            或【维度名】值1、值2、值3 格式
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 验证报告 */}
+                        {validationReport && hasLibraryData && (
+                            <div className="skill-gen-validation-report" style={{
+                                marginTop: '0.5rem',
+                                padding: '0.8rem 1rem',
+                                borderRadius: '8px',
+                                maxHeight: '200px',
+                                overflowY: 'auto',
+                                background: validationReport.fixes.length > 0 || validationReport.merges.length > 0 || validationReport.misplacements.length > 0
+                                    ? 'rgba(255, 165, 0, 0.08)' : 'rgba(0, 200, 100, 0.08)',
+                                border: `1px solid ${validationReport.fixes.length > 0 || validationReport.merges.length > 0 || validationReport.misplacements.length > 0
+                                    ? 'rgba(255, 165, 0, 0.25)' : 'rgba(0, 200, 100, 0.25)'}`,
+                            }}>
+                                <div style={{ fontWeight: 600, marginBottom: '0.4rem' }}>
+                                    {validationReport.fixes.length > 0 || validationReport.merges.length > 0 || validationReport.misplacements.length > 0
+                                        ? '⚠️ 发现以下问题并已自动修复：' : '✅ 校验通过'}
+                                </div>
+                                {validationReport.fixes.length > 0 && (
+                                    <div style={{ marginBottom: '0.3rem' }}>
+                                        <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>值修复：</div>
+                                        {validationReport.fixes.map((f, i) => (
+                                            <div key={i} style={{ fontSize: '0.8rem', opacity: 0.85 }}>• [{f.dim}] {f.bad} → {f.fixed}（{f.reason}）</div>
+                                        ))}
+                                    </div>
+                                )}
+                                {validationReport.merges.length > 0 && (
+                                    <div style={{ marginBottom: '0.3rem' }}>
+                                        <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>维度合并：</div>
+                                        {validationReport.merges.map((m, i) => (
+                                            <div key={i} style={{ fontSize: '0.8rem', opacity: 0.85 }}>• {m.dims.join(' + ')} → {m.mergedName}（{m.reason}）</div>
+                                        ))}
+                                    </div>
+                                )}
+                                {validationReport.misplacements.length > 0 && (
+                                    <div style={{ marginBottom: '0.3rem' }}>
+                                        <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>值迁移：</div>
+                                        {validationReport.misplacements.map((mp, i) => (
+                                            <div key={i} style={{ fontSize: '0.8rem', opacity: 0.85 }}>• 「{mp.value}」从 [{mp.fromDim}] → [{mp.toDim}]（{mp.reason}）</div>
+                                        ))}
+                                    </div>
+                                )}
+                                {validationReport.fixes.length === 0 && validationReport.merges.length === 0 && validationReport.misplacements.length === 0 && (
+                                    <div style={{ opacity: 0.7 }}>所有值都完整合理，维度划分无冗余，值与表头匹配 👍</div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 对话微调区域（可折叠，默认收起） */}
+                        <div className="skill-gen-chat-section" style={{ marginTop: '0.8rem' }}>
+                            <div className="skill-gen-chat-header" onClick={() => setChatCollapsed(!chatCollapsed)} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                                <MessageCircle size={16} />
+                                <span>对话微调</span>
+                                <span className="skill-gen-chat-hint">告诉 AI 你想怎么改，它会更新指令和随机库</span>
+                                <span style={{ marginLeft: 'auto' }}>{chatCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</span>
+                            </div>
+
+                            {!chatCollapsed && (
+                                <>
+                                    {/* Chat Messages */}
+                                    {chatHistory.length > 0 && (
+                                        <div className="skill-gen-chat-messages">
+                                            {chatHistory.map((msg, i) => (
+                                                <div key={i} className={`skill-gen-chat-msg ${msg.role}`}>
+                                                    <div className="skill-gen-chat-bubble">
+                                                        {msg.images && msg.images.length > 0 && (
+                                                            <div className="skill-gen-chat-images">
+                                                                {msg.images.map((img, j) => (
+                                                                    <img key={j} src={img} alt={`参考图${j + 1}`} className="skill-gen-chat-thumb" />
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {msg.text}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {chatSending && (
+                                                <div className="skill-gen-chat-msg model">
+                                                    <div className="skill-gen-chat-bubble loading">
+                                                        <Loader2 size={14} className="spin" />
+                                                        AI 正在分析{chatImages.length > 0 ? '图片' : ''}...
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div ref={chatEndRef} />
+                                        </div>
+                                    )}
+
+                                    {/* Chat Image Previews */}
+                                    {chatImages.length > 0 && (
+                                        <div className="skill-gen-chat-attached">
+                                            <span className="skill-gen-chat-attached-label">📎 附带的参考图：</span>
+                                            <div className="skill-gen-chat-attached-images">
+                                                {chatImages.map(img => (
+                                                    <div key={img.id} className="skill-gen-chat-attached-item">
+                                                        <img src={img.base64} alt={img.name} />
+                                                        <button onClick={() => setChatImages(prev => prev.filter(i => i.id !== img.id))}>
+                                                            <X size={10} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div
+                                        className="skill-gen-chat-input-area"
+                                        onPaste={handleChatPaste}
+                                        onDrop={handleChatDrop}
+                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    >
+                                        <button
+                                            className="skill-gen-chat-img-btn"
+                                            onClick={() => chatFileInputRef.current?.click()}
+                                            title="添加参考图片"
+                                        >
+                                            <ImageIcon size={16} />
+                                        </button>
+                                        <input
+                                            ref={chatFileInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            style={{ display: 'none' }}
+                                            onChange={(e) => { handleChatImageAdd(e.target.files); e.target.value = ''; }}
+                                        />
+                                        <textarea
+                                            ref={chatInputRef}
+                                            className="skill-gen-chat-input"
+                                            value={chatInput}
+                                            onChange={(e) => setChatInput(e.target.value)}
+                                            onKeyDown={handleChatKeyDown}
+                                            placeholder='文字 + 图片一起发 · 例如「根据这些图扩充场景列」'
+                                            rows={2}
+                                            disabled={chatSending}
+                                        />
+                                        <button
+                                            className="skill-gen-chat-send"
+                                            onClick={handleChatSend}
+                                            disabled={chatSending || (!chatInput.trim() && chatImages.length === 0)}
+                                        >
+                                            <Send size={16} />
+                                        </button>
+                                    </div>
+
+                                    {/* Quick suggestions */}
+                                    {chatHistory.length === 0 && (
+                                        <div className="skill-gen-chat-suggestions">
+                                            {[
+                                                '随机库多加几列变量',
+                                                '每列的选项扩充到 20 个',
+                                                '指令里强调必须用英文',
+                                                '📎 粘贴参考图 + 说「根据这些扩充场景列」',
+                                                '加一列关于光线/色调的变量',
+                                            ].map((suggestion, i) => (
+                                                <button
+                                                    key={i}
+                                                    className="skill-gen-suggestion-chip"
+                                                    onClick={() => { setChatInput(suggestion.replace(/^📎 /, '')); setChatCollapsed(false); chatInputRef.current?.focus(); }}
+                                                >
+                                                    {suggestion}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        {/* Opal 导出按钮 */}
+                        <button
+                            className={`skill-gen-opal-toggle-btn ${showOpalExport ? 'active' : ''}`}
+                            onClick={() => setShowOpalExport(!showOpalExport)}
+                            disabled={!hasBaseInstruction || !hasLibraryData}
+                            style={{ marginTop: '0.8rem' }}
+                        >
+                            <Wand2 size={16} />
+                            {showOpalExport ? '收起 Opal 流程' : '🔮 导出为 Opal 流程'}
+                        </button>
+                        {showOpalExport && hasBaseInstruction && hasLibraryData && (() => {
+                            const { randomCode, completeInstruction } = generateOpalExport();
+                            return (
+                                <div className="skill-gen-opal-panel">
+                                    <div className="skill-gen-opal-title">
+                                        🔮 Opal 流程导出
+                                        <span className="skill-gen-opal-title-hint">将配方转换为 Google Opal 节点格式</span>
+                                    </div>
+                                    <div className="skill-gen-opal-block">
+                                        <div className="skill-gen-opal-block-header">
+                                            <span>📦 节点1：随机节点 (Code Node)</span>
+                                            <button className="skill-gen-copy-btn" onClick={copyOpalRandom}>
+                                                {copiedOpalRandom ? <Check size={14} /> : <Copy size={14} />}
+                                                {copiedOpalRandom ? '已复制' : '复制代码'}
+                                            </button>
+                                        </div>
+                                        <pre className="skill-gen-opal-code">{randomCode}</pre>
+                                    </div>
+                                    <div className="skill-gen-opal-block">
+                                        <div className="skill-gen-opal-block-header">
+                                            <span>🤖 节点2：AI 生成节点 (System Instructions)</span>
+                                            <button className="skill-gen-copy-btn" onClick={copyOpalInstruction}>
+                                                {copiedOpalInstruction ? <Check size={14} /> : <Copy size={14} />}
+                                                {copiedOpalInstruction ? '已复制' : '复制指令'}
+                                            </button>
+                                        </div>
+                                        <pre className="skill-gen-opal-code instruction">{completeInstruction}</pre>
+                                    </div>
+                                </div>
+                            );
+                        })()}
+
+                    </div>
+                )}
+
+                {/* Tab: AI 扩展类型 */}
+                {activeTab === 'extend' && (
+                    <div className="skill-gen-tab-content">
+                        {/* 子标签切换 */}
+                        <div className="skill-gen-codegen-subtabs">
+                            <button
+                                className={`skill-gen-codegen-subtab ${extendSubTab === 'chat' ? 'active' : ''}`}
+                                onClick={() => setExtendSubTab('chat')}
+                            >
+                                💬 自由对话生成
+                            </button>
+                            <button
+                                className={`skill-gen-codegen-subtab ${extendSubTab === 'dimension' ? 'active' : ''}`}
+                                onClick={() => setExtendSubTab('dimension')}
+                            >
+                                📐 按维度精准扩展
+                            </button>
+                        </div>
+
+                        {/* 子标签：自由对话生成 */}
+                        {extendSubTab === 'chat' && (
+                            <div className="skill-gen-classify-section" style={{ borderTop: 'none', paddingTop: 0 }}>
+                                <div className="skill-gen-classify-block">
+                                    <div className="skill-gen-classify-step-header">
+                                        直接告诉 AI 你想要什么值
+                                        <span className="skill-gen-localize-hint">（无需随机库，对话即可生成）</span>
+                                        {extendChatHistory.length > 0 && (
+                                            <button
+                                                className="skill-gen-classify-clear-btn"
+                                                onClick={() => setExtendChatHistory([])}
+                                            >
+                                                清空对话
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="skill-gen-chat-section skill-gen-extend-chat-section">
+                                        <div className="skill-gen-chat-messages skill-gen-extend-chat-messages">
+                                            {extendChatHistory.length === 0 && !extendChatSending && (
+                                                <div className="skill-gen-extend-chat-empty">
+                                                    直接输入你想扩展的方向，例如"给我 30 个轻奢电商场景"。
+                                                    <br />
+                                                    AI 会返回可直接使用的扩展值，并追加到下方「扩展结果预览」。
+                                                </div>
+                                            )}
+                                            {extendChatHistory.map((message, idx) => (
+                                                <div
+                                                    key={`${message.timestamp}-${idx}`}
+                                                    className={`skill-gen-chat-msg ${message.role === 'user' ? 'user' : 'model'}`}
+                                                >
+                                                    <div className="skill-gen-chat-bubble">{message.text}</div>
+                                                </div>
+                                            ))}
+                                            {extendChatSending && (
+                                                <div className="skill-gen-chat-msg model">
+                                                    <div className="skill-gen-chat-bubble loading">
+                                                        <Loader2 size={13} className="animate-spin" />
+                                                        正在扩展...
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div ref={extendChatEndRef} />
+                                        </div>
+                                        <div className="skill-gen-extend-chat-quick">
+                                            {[
+                                                '给我 30 个适合电商产品主图的场景值',
+                                                '扩展一批偏高端、干净、现代的风格值',
+                                                '补充节日营销可用的主题关键词',
+                                            ].map((quickPrompt) => (
+                                                <button
+                                                    key={quickPrompt}
+                                                    type="button"
+                                                    className="skill-gen-extend-chat-quick-btn"
+                                                    onClick={() => setExtendChatInput(quickPrompt)}
+                                                >
+                                                    {quickPrompt}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="skill-gen-chat-input-area skill-gen-extend-chat-input-area">
+                                            <textarea
+                                                className="skill-gen-chat-input skill-gen-extend-chat-input"
+                                                placeholder="输入需求（Enter 发送，Shift+Enter 换行）"
+                                                value={extendChatInput}
+                                                onChange={(e) => setExtendChatInput(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        if (!extendChatSending) void handleExtendChatSend();
+                                                    }
+                                                }}
+                                                rows={2}
+                                                disabled={extendChatSending}
+                                            />
+                                            <button
+                                                className="skill-gen-chat-send"
+                                                onClick={handleExtendChatSend}
+                                                disabled={extendChatSending || !extendChatInput.trim()}
+                                                title="发送扩展需求"
+                                            >
+                                                {extendChatSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 子标签：按维度精准扩展 */}
+                        {extendSubTab === 'dimension' && (
+                            <div className="skill-gen-classify-section" style={{ borderTop: 'none', paddingTop: 0 }}>
+                                <div className="skill-gen-classify-block">
+                                    <div className="skill-gen-classify-step-header">
+                                        选择随机库中的维度，AI 按上下文生成新值
+                                    </div>
+
+                                    {!hasExtendLibrary ? (
+                                        <div className="skill-gen-extend-paste-area">
+                                            <p className="skill-gen-hint" style={{ marginBottom: '0.5rem' }}>
+                                                暂无随机库。粘贴数据到下方输入框，会自动预览为表格：
+                                            </p>
+                                            <textarea
+                                                className="skill-gen-extend-grid-textarea"
+                                                placeholder={`粘贴随机库数据，支持两种格式：\n\n格式一：【场景】花园、森林、海边\n格式二（表格）：\n场景\t风格\t光线\n花园\t写实\t自然光`}
+                                                rows={4}
+                                                onPaste={(e) => {
+                                                    setTimeout(() => {
+                                                        const text = (e.target as HTMLTextAreaElement).value.trim();
+                                                        if (text) {
+                                                            setExtendPastePreview(text);
+                                                        }
+                                                    }, 0);
+                                                }}
+                                                onChange={(e) => {
+                                                    const text = e.target.value.trim();
+                                                    setExtendPastePreview(text);
+                                                }}
+                                            />
+                                            {extendPastePreview && (() => {
+                                                const lines = extendPastePreview.split('\n').filter(l => l.trim());
+                                                const hasDimFormat = lines.some(l => /^【.+?】/.test(l.trim()));
+                                                if (hasDimFormat) {
+                                                    const dims = lines
+                                                        .filter(l => /^【.+?】/.test(l.trim()))
+                                                        .map(l => {
+                                                            const match = l.match(/^【(.+?)】(.*)$/);
+                                                            if (!match) return null;
+                                                            const name = match[1];
+                                                            const vals = match[2].split(/[,，、]/).map(v => v.trim()).filter(Boolean);
+                                                            return { name, vals };
+                                                        })
+                                                        .filter(Boolean) as { name: string; vals: string[] }[];
+                                                    return (
+                                                        <div className="skill-gen-extend-table-preview">
+                                                            <table>
+                                                                <thead>
+                                                                    <tr>
+                                                                        {dims.map(d => <th key={d.name}>{d.name}</th>)}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {Array.from({ length: Math.max(...dims.map(d => d.vals.length)) }).map((_, rowIdx) => (
+                                                                        <tr key={rowIdx}>
+                                                                            {dims.map(d => (
+                                                                                <td key={d.name}>{d.vals[rowIdx] || ''}</td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    );
+                                                } else {
+                                                    const rows = lines.map(l => l.split('\t'));
+                                                    const headers = rows[0] || [];
+                                                    const dataRows = rows.slice(1);
+                                                    return (
+                                                        <div className="skill-gen-extend-table-preview">
+                                                            <table>
+                                                                <thead>
+                                                                    <tr>
+                                                                        {headers.map((h, i) => <th key={i}>{h}</th>)}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {dataRows.map((row, rowIdx) => (
+                                                                        <tr key={rowIdx}>
+                                                                            {headers.map((_, colIdx) => (
+                                                                                <td key={colIdx}>{row[colIdx] || ''}</td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    );
+                                                }
+                                            })()}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
+                                                {extendPastePreview ? (
+                                                    <button
+                                                        type="button"
+                                                        className="skill-gen-classify-run-btn"
+                                                        style={{ fontSize: '0.8rem' }}
+                                                        onClick={() => {
+                                                            parseManualLibrary(extendPastePreview);
+                                                            setExtendPastePreview('');
+                                                        }}
+                                                    >
+                                                        <Check size={14} /> 确认导入随机库
+                                                    </button>
+                                                ) : (
+                                                    <p className="skill-gen-hint">
+                                                        粘贴后自动预览表格，确认后点击导入
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.5rem', alignItems: 'center' }}>
+                                                <select
+                                                    className="skill-gen-preset-select"
+                                                    value={extendTargetDimension}
+                                                    onChange={(e) => {
+                                                        setExtendTargetDimension(e.target.value);
+                                                        setExtendGeneratedValues([]);
+                                                    }}
+                                                >
+                                                    {libraryResult!.headers.map((header) => (
+                                                        <option key={header} value={header}>{header}</option>
+                                                    ))}
+                                                </select>
+                                                <span className="skill-gen-badge count">{extendCurrentValues.length} 个现有值</span>
+                                            </div>
+                                            {extendCurrentValues.length > 0 && (
+                                                <div className="skill-gen-chat-suggestions" style={{ marginTop: '0.6rem' }}>
+                                                    {extendCurrentValues.slice(0, 10).map((value, i) => (
+                                                        <span key={`${value}-${i}`} className="skill-gen-suggestion-chip" style={{ cursor: 'default' }}>
+                                                            {value}
+                                                        </span>
+                                                    ))}
+                                                    {extendCurrentValues.length > 10 && (
+                                                        <span className="skill-gen-hint">... 还有 {extendCurrentValues.length - 10} 个</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                            <textarea
+                                                className="skill-gen-classify-custom-textarea"
+                                                value={extendPrompt}
+                                                onChange={(e) => setExtendPrompt(e.target.value)}
+                                                placeholder={`可选：补充你要的扩展方向。\n例如：更偏电商拍摄场景、宗教节日氛围、卡通风格、欧洲街景等。\n留空则按当前库风格自动扩展。`}
+                                            />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.6rem', marginTop: '0.6rem' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                                    <span className="skill-gen-localize-hint">生成数量</span>
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={100}
+                                                        value={extendCount}
+                                                        onChange={(e) => setExtendCount(Math.max(1, Math.min(100, Number(e.target.value) || 20)))}
+                                                        className="skill-gen-codegen-input num"
+                                                        style={{ width: '80px' }}
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={handleGenerateDimensionExtension}
+                                                    disabled={extendGenerating || !extendTargetDimension}
+                                                    className="skill-gen-classify-run-btn"
+                                                >
+                                                    {extendGenerating ? (
+                                                        <><Loader2 size={14} className="animate-spin" /> 生成中...</>
+                                                    ) : (
+                                                        <><Sparkles size={14} /> 生成扩展值</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 共享：扩展结果预览 */}
+                        {extendGeneratedValues.length > 0 && (
+                            <div className="skill-gen-classify-section" style={{ borderTop: 'none', paddingTop: 0 }}>
+                                <div className="skill-gen-classify-block">
+                                    <div className="skill-gen-classify-step-header">
+                                        扩展结果预览
+                                        <span className="skill-gen-localize-hint">（{extendGeneratedValues.length} 个新值）</span>
+                                        <button className="skill-gen-classify-copy-btn" onClick={copyExtendGeneratedValues}>
+                                            {extendCopied ? <Check size={12} /> : <Copy size={12} />}
+                                            {extendCopied ? '已复制' : '复制'}
+                                        </button>
+                                    </div>
+                                    <div className="skill-gen-chat-suggestions">
+                                        {extendGeneratedValues.map((value, i) => (
+                                            <span key={`${value}-${i}`} className="skill-gen-suggestion-chip" style={{ cursor: 'default' }}>
+                                                {value}
+                                            </span>
+                                        ))}
+                                    </div>
+                                    {hasExtendLibrary ? (
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.8rem' }}>
+                                            <button
+                                                className="skill-gen-localize-apply-btn"
+                                                onClick={handleApplyDimensionExtension}
+                                            >
+                                                <Check size={14} />
+                                                应用到当前随机库
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <p className="skill-gen-hint" style={{ marginTop: '0.8rem' }}>
+                                            当前是独立扩展模式，仅做生成与复制；如需写入随机库，请先在「生成/优化」中准备随机库。
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Tab: 库本地化 */}
+                {activeTab === 'localize' && (
+                    <div className="skill-gen-tab-content">
+                        <div className="skill-gen-localize-section" style={{ borderTop: 'none', paddingTop: 0 }}>
+                            {/* 数据来源说明 */}
+                            <div className="skill-gen-localize-source-note">
+                                <p>💡 <strong>数据来源：</strong>
+                                    {(libraryResult || baseInstruction)
+                                        ? '自动使用当前已生成的基础指令 + 随机库，AI 会同时本地化两者。也可在下方直接粘贴覆盖'
+                                        : '请在下方直接粘贴随机库表格（从 Google Sheets 复制），并粘贴基础指令以便一起本地化'}
+                                </p>
+                                {(libraryResult || baseInstruction) && (
+                                    <button
+                                        className="skill-gen-localize-fill-btn"
+                                        onClick={() => {
+                                            if (baseInstruction) setLocalizeDirectInstruction(baseInstruction);
+                                            if (libraryResult) {
+                                                const { headers, rows } = libraryResult;
+                                                const tsv = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
+                                                setLocalizeDirectTable(tsv);
+                                            }
+                                            toast.success('已填入当前生成结果');
+                                        }}
+                                    >
+                                        📥 使用当前生成结果
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* 直接粘贴区域 */}
+                            <div className="skill-gen-localize-inputs">
+                                <div>
+                                    <label>随机库表格（TSV格式）</label>
+                                    <textarea
+                                        value={localizeDirectTable}
+                                        onChange={(e) => setLocalizeDirectTable(e.target.value)}
+                                        placeholder={"直接粘贴表格数据（从 Google Sheets 复制）\n例如：\n风格\t场景\t人物\n水墨画\t故宫\t古装美女\n国潮风\t长城\t武士"}
+                                    />
+                                </div>
+                                <div>
+                                    <label>基础指令（可选）</label>
+                                    <textarea
+                                        value={localizeDirectInstruction}
+                                        onChange={(e) => setLocalizeDirectInstruction(e.target.value)}
+                                        placeholder={"粘贴基础指令（可选）\n例如：生成一张中国风插画，画面精美..."}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 目标国家输入 */}
+                            <div className="skill-gen-localize-country-row">
+                                <input
+                                    type="text"
+                                    value={localizeTargetCountry}
+                                    onChange={(e) => setLocalizeTargetCountry(e.target.value)}
+                                    placeholder="输入目标国家（如：日本、美国、法国、韩国...）"
+                                />
+                                <button
+                                    onClick={handleLocalizeLibrary}
+                                    disabled={!localizeTargetCountry.trim() || localizing}
+                                    className="skill-gen-localize-btn"
+                                >
+                                    {localizing ? (
+                                        <><Loader2 size={14} className="spin" /> 本地化中...</>
+                                    ) : (
+                                        <><Sparkles size={14} /> 智能本地化</>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* 常用国家快捷按钮 */}
+                            <div className="skill-gen-localize-quick-countries">
+                                <span className="skill-gen-localize-group-label">🇪🇺 欧盟</span>
+                                {['法国', '德国', '意大利', '西班牙', '荷兰', '波兰', '奥地利', '比利时', '瑞典', '葡萄牙', '希腊', '捷克', '爱尔兰', '立陶宛'].map(country => (
+                                    <button
+                                        key={country}
+                                        onClick={() => setLocalizeTargetCountry(country)}
+                                        className={localizeTargetCountry === country ? 'active' : ''}
+                                    >
+                                        {country}
+                                    </button>
+                                ))}
+                                <span className="skill-gen-localize-group-divider" />
+                                <span className="skill-gen-localize-group-label">🌏 其他</span>
+                                {['英国', '美国', '印度', '菲律宾', '乌克兰', '俄罗斯'].map(country => (
+                                    <button
+                                        key={country}
+                                        onClick={() => setLocalizeTargetCountry(country)}
+                                        className={localizeTargetCountry === country ? 'active' : ''}
+                                    >
+                                        {country}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* 本地化后的基础指令 */}
+                            {localizedBaseInstruction && (
+                                <div className="skill-gen-localize-result-block">
+                                    <div className="skill-gen-localize-result-header">
+                                        <span>📝 本地化基础指令</span>
+                                        <button onClick={copyLocalizedBaseInstruction} className="skill-gen-copy-btn">
+                                            <Copy size={12} /> 复制
+                                        </button>
+                                    </div>
+                                    <pre className="skill-gen-localize-result-pre">{localizedBaseInstruction}</pre>
+                                </div>
+                            )}
+
+                            {/* 本地化后的随机库表格 */}
+                            {localizedResult && (
+                                <div className="skill-gen-localize-result-block">
+                                    <div className="skill-gen-localize-result-header">
+                                        <span>📊 本地化随机库 ({localizedResult.headers.length} 列 × {localizedResult.rows.length} 行)</span>
+                                        <button onClick={copyLocalizedResult} className="skill-gen-copy-btn">
+                                            <Copy size={12} /> 复制表格
+                                        </button>
+                                    </div>
+                                    <div className="skill-gen-localize-table-wrap">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    {localizedResult.headers.map((h, i) => (
+                                                        <th key={i}>{h}</th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {localizedResult.rows.map((row, ri) => (
+                                                    <tr key={ri}>
+                                                        {row.map((cell, ci) => (
+                                                            <td key={ci} className={cell ? '' : 'empty'}>{cell || '-'}</td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 应用按钮 */}
+                            {(localizedBaseInstruction || localizedResult) && (
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                                    <button className="skill-gen-localize-apply-btn" onClick={applyLocalizedToMain}>
+                                        <Check size={14} />
+                                        应用到当前工作区
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Tab: AI 智能分类 */}
+                {activeTab === 'classify' && (
+                    <div className="skill-gen-tab-content">
+                        <div className="skill-gen-classify-section" style={{ borderTop: 'none', paddingTop: 0 }}>
+                            {/* 步骤1：粘贴数据 */}
+                            <div className="skill-gen-classify-block">
+                                <div className="skill-gen-classify-step-header">
+                                    <span className="skill-gen-classify-step-num">1</span>
+                                    粘贴库数据
+                                    {smartClassifyInput.trim() && (
+                                        <button className="skill-gen-classify-clear-btn" onClick={() => setSmartClassifyInput('')}>清空</button>
+                                    )}
+                                    {libraryResult && !smartClassifyInput.trim() && (
+                                        <button className="skill-gen-localize-fill-btn" onClick={() => {
+                                            if (libraryResult) {
+                                                const { headers, rows } = libraryResult;
+                                                const tsv = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
+                                                setSmartClassifyInput(tsv);
+                                                toast.success('已填入当前生成的随机库');
+                                            }
+                                        }}>📥 使用当前随机库</button>
+                                    )}
+                                </div>
+                                <div
+                                    className="skill-gen-classify-paste-area"
+                                    tabIndex={0}
+                                    onPaste={(e) => {
+                                        e.preventDefault();
+                                        const text = e.clipboardData.getData('text');
+                                        if (text.trim()) setSmartClassifyInput(text);
+                                    }}
+                                >
+                                    {!smartClassifyInput.trim() ? (
+                                        <div className="skill-gen-classify-paste-placeholder">
+                                            <p>点击此处后按 Ctrl+V / Cmd+V 粘贴</p>
+                                            <p className="sub">从 Google Sheets 复制表格数据</p>
+                                        </div>
+                                    ) : (() => {
+                                        const lines = smartClassifyInput.trim().split('\n');
+                                        const pHeaders = lines[0]?.split('\t') || [];
+                                        const pRows = lines.slice(1).map(line => line.split('\t'));
+                                        return (
+                                            <div>
+                                                <div className="skill-gen-classify-table-info">
+                                                    {pHeaders.filter(h => h.trim()).length} 列 × {pRows.length} 行
+                                                </div>
+                                                <div className="skill-gen-classify-table-wrapper">
+                                                    <table className="skill-gen-classify-table">
+                                                        <thead>
+                                                            <tr>
+                                                                {pHeaders.map((h, i) => (
+                                                                    <th key={i}>{h.trim() || <span style={{ fontStyle: 'italic', opacity: 0.5 }}>空列</span>}</th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {pRows.slice(0, 20).map((row, ri) => (
+                                                                <tr key={ri}>
+                                                                    {pHeaders.map((_, ci) => (
+                                                                        <td key={ci}>{row[ci]?.trim() || '-'}</td>
+                                                                    ))}
+                                                                </tr>
+                                                            ))}
+                                                            {pRows.length > 20 && (
+                                                                <tr><td colSpan={pHeaders.length} style={{ textAlign: 'center', opacity: 0.5 }}>... 还有 {pRows.length - 20} 行</td></tr>
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+
+                            {/* 分类维度 */}
+                            <div className="skill-gen-classify-block">
+                                <div className="skill-gen-classify-step-header">
+                                    <span className="skill-gen-classify-step-num orange">★</span>
+                                    分类维度
+                                    <span className="skill-gen-localize-hint">（可选，指定AI按什么维度分类）</span>
+                                </div>
+                                <input
+                                    type="text"
+                                    value={smartClassifyDimension}
+                                    onChange={(e) => setSmartClassifyDimension(e.target.value)}
+                                    placeholder="如：室内/室外/水边 或 白天/夜晚 或 春/夏/秋/冬 ..."
+                                    className="skill-gen-classify-dim-input"
+                                />
+                                <div className="skill-gen-classify-dim-presets">
+                                    {['室内/室外/水边', '白天/夜晚', '春/夏/秋/冬', '现代/复古/自然', '正式/休闲'].map(preset => (
+                                        <button
+                                            key={preset}
+                                            onClick={() => setSmartClassifyDimension(preset)}
+                                            className={smartClassifyDimension === preset ? 'active' : ''}
+                                        >
+                                            {preset}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* 分类风格 */}
+                            <div className="skill-gen-classify-block">
+                                <div className="skill-gen-classify-step-header">
+                                    <span className="skill-gen-classify-step-num cyan">◎</span>
+                                    分类风格
+                                    <span className="skill-gen-localize-hint">（分类的严格程度）</span>
+                                </div>
+                                <div className="skill-gen-classify-style-grid">
+                                    <button
+                                        onClick={() => setSmartClassifyStyle('strict')}
+                                        className={`skill-gen-classify-style-btn ${smartClassifyStyle === 'strict' ? 'active blue' : ''}`}
+                                    >
+                                        <div className="title">🔒 严格真实</div>
+                                        <div className="desc">符合真实画面规律</div>
+                                    </button>
+                                    <button
+                                        onClick={() => setSmartClassifyStyle('creative')}
+                                        className={`skill-gen-classify-style-btn ${smartClassifyStyle === 'creative' ? 'active pink' : ''}`}
+                                    >
+                                        <div className="title">✨ 创意宽松</div>
+                                        <div className="desc">允许跨界创新组合</div>
+                                    </button>
+                                    <button
+                                        onClick={() => setSmartClassifyStyle('custom')}
+                                        className={`skill-gen-classify-style-btn ${smartClassifyStyle === 'custom' ? 'active amber' : ''}`}
+                                    >
+                                        <div className="title">📝 自定义规则</div>
+                                        <div className="desc">输入你的分类逻辑</div>
+                                    </button>
+                                </div>
+                                {smartClassifyStyle === 'custom' && (
+                                    <textarea
+                                        value={smartClassifyCustomRule}
+                                        onChange={(e) => setSmartClassifyCustomRule(e.target.value)}
+                                        placeholder={"输入你的分类规则说明，例如：\n- 按科幻风格分类\n- 同组合物品必须在视觉上形成对比"}
+                                        className="skill-gen-classify-custom-textarea"
+                                    />
+                                )}
+                                <div className="skill-gen-classify-style-hint">
+                                    {smartClassifyStyle === 'strict' && '💡 严格模式：房间+自行车=✓，房间+轮船=✗（不符合真实场景）'}
+                                    {smartClassifyStyle === 'creative' && '💡 创意模式：房间+轮船=✓（超现实主义、梦境风格允许）'}
+                                    {smartClassifyStyle === 'custom' && '💡 自定义：按照你输入的规则来分类'}
+                                </div>
+                            </div>
+
+                            {/* 输出格式 */}
+                            <div className="skill-gen-classify-block">
+                                <div className="skill-gen-classify-step-header">
+                                    <span className="skill-gen-classify-step-num">2</span>
+                                    选择输出格式
+                                </div>
+                                <div className="skill-gen-classify-style-grid">
+                                    <button
+                                        onClick={() => setSmartClassifyOutputFormat(1)}
+                                        className={`skill-gen-classify-style-btn ${smartClassifyOutputFormat === 1 ? 'active blue' : ''}`}
+                                    >
+                                        <div className="title">格式1：多分页</div>
+                                        <div className="desc">分页名 = 分类-库名</div>
+                                    </button>
+                                    <button
+                                        onClick={() => setSmartClassifyOutputFormat(2)}
+                                        className={`skill-gen-classify-style-btn ${smartClassifyOutputFormat === 2 ? 'active green' : ''}`}
+                                    >
+                                        <div className="title">格式2：单总库</div>
+                                        <div className="desc">表头 = 分类-库名</div>
+                                    </button>
+                                    <button
+                                        onClick={() => setSmartClassifyOutputFormat(3)}
+                                        className={`skill-gen-classify-style-btn ${smartClassifyOutputFormat === 3 ? 'active purple' : ''}`}
+                                    >
+                                        <div className="title">格式3：值+分类列</div>
+                                        <div className="desc">库名 | 库名分类</div>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 开始分类按钮 */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div className="skill-gen-classify-format-hint">
+                                    {smartClassifyOutputFormat === 1 && '💡 格式1：每个分类一个分页，分页名如"室内-场景"'}
+                                    {smartClassifyOutputFormat === 2 && '💡 格式2：单个总库分页，表头如"室内-场景"'}
+                                    {smartClassifyOutputFormat === 3 && '💡 格式3：值后跟分类列，如"场景 | 场景分类"'}
+                                </div>
+                                <button
+                                    onClick={handleSmartClassify}
+                                    disabled={smartClassifying || !smartClassifyInput.trim()}
+                                    className="skill-gen-classify-run-btn"
+                                >
+                                    {smartClassifying ? (
+                                        <><Loader2 size={14} className="animate-spin" /> AI分类中...</>
+                                    ) : (
+                                        <><Sparkles size={14} /> 开始AI分类</>
+                                    )}
+                                </button>
+                            </div>
+
+                            {/* 分类结果 */}
+                            {smartClassifyResult && (() => {
+                                const resultLines = smartClassifyResult.trim().split('\n').filter(l => l.trim() && !l.startsWith('==='));
+                                const rHeaders = resultLines[0]?.split('\t') || [];
+                                const rRows = resultLines.slice(1).map(line => line.split('\t'));
+                                return (
+                                    <div className="skill-gen-classify-block">
+                                        <div className="skill-gen-classify-step-header">
+                                            <span className="skill-gen-classify-step-num green">✓</span>
+                                            分类结果
+                                            <span className="skill-gen-localize-hint">（{rHeaders.length} 列 × {rRows.length} 行）</span>
+                                            <button
+                                                className="skill-gen-classify-copy-btn"
+                                                onClick={() => {
+                                                    const cleaned = smartClassifyResult.split('\n').filter(l => l.trim()).join('\n');
+                                                    navigator.clipboard.writeText(cleaned);
+                                                    toast.success('已复制！可直接粘贴到 Google Sheets');
+                                                }}
+                                            >
+                                                <Copy size={12} /> 复制结果
+                                            </button>
+                                        </div>
+                                        <div className="skill-gen-classify-table-wrapper result">
+                                            <table className="skill-gen-classify-table result">
+                                                <thead>
+                                                    <tr>
+                                                        {rHeaders.map((h, i) => (
+                                                            <th key={i}>{h.trim() || '-'}</th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {rRows.map((row, ri) => (
+                                                        <tr key={ri}>
+                                                            {rHeaders.map((_, ci) => (
+                                                                <td key={ci}>{row[ci]?.trim() || '-'}</td>
+                                                            ))}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                )}
+
+                {/* Tab: 随机代码生成器 */}
+                {activeTab === 'codegen' && (
+                    <div className="skill-gen-tab-content">
+                        {/* ===== 随机代码生成器 ===== */}
+                        {/* 子标签切换 */}
+                        <div className="skill-gen-codegen-subtabs">
+                            <button
+                                className={`skill-gen-codegen-subtab ${codegenSubTab === 'random' ? 'active' : ''}`}
+                                onClick={() => setCodegenSubTab('random')}
+                            >
+                                🎲 随机代码生成器
+                            </button>
+                            <button
+                                className={`skill-gen-codegen-subtab ${codegenSubTab === 'category' ? 'active' : ''}`}
+                                onClick={() => setCodegenSubTab('category')}
+                            >
+                                🔗 分类联动代码生成器
+                            </button>
+                        </div>
+
+                        {/* 子标签内容 */}
+                        {codegenSubTab === 'random' && (
+                            <div className="skill-gen-codegen-section">
+                                <div className="skill-gen-codegen-section-header amber">
+                                    <span>🎲 随机代码生成器</span>
+                                    <span className="skill-gen-codegen-section-hint">为每个库生成独立的随机数，无分类关联</span>
+                                </div>
+
+                                <div className="skill-gen-codegen-batch-row skill-gen-codegen-batch-row--single">
+                                    <div className="skill-gen-codegen-batch-group">
+                                        <span className="skill-gen-codegen-batch-label">批量范围：</span>
+                                        <input
+                                            className="skill-gen-codegen-input num"
+                                            type="number"
+                                            value={batchRangeMin}
+                                            onChange={(e) => setBatchRangeMin(Number(e.target.value) || 1)}
+                                            placeholder="起始"
+                                        />
+                                        <span className="skill-gen-codegen-dash">–</span>
+                                        <input
+                                            className="skill-gen-codegen-input num"
+                                            type="number"
+                                            value={batchRangeMax}
+                                            onChange={(e) => setBatchRangeMax(Number(e.target.value) || 1)}
+                                            placeholder="结束"
+                                        />
+                                        <button
+                                            className="skill-gen-codegen-batch-apply"
+                                            onClick={() => {
+                                                const safeMin = Math.min(batchRangeMin, batchRangeMax);
+                                                const safeMax = Math.max(batchRangeMin, batchRangeMax);
+                                                setCodeEntries(prev => prev.map(e => ({ ...e, min: safeMin, max: safeMax })));
+                                                toast.success(`已将所有库范围设为 ${safeMin} – ${safeMax}`);
+                                            }}
+                                        >
+                                            应用范围
+                                        </button>
+                                    </div>
+
+                                    <div className="skill-gen-codegen-batch-group skill-gen-codegen-batch-group--grow">
+                                        <span className="skill-gen-codegen-batch-label">批量权重：</span>
+                                        <select
+                                            className="skill-gen-codegen-select"
+                                            value={batchWeightMode}
+                                            onChange={(e) => setBatchWeightMode(e.target.value as WeightMode)}
+                                        >
+                                            <option value="">⚖️ 均匀 — 每个值概率相同</option>
+                                            <option value="low">⬇️ 小值优先 — 越小概率越高</option>
+                                            <option value="high">⬆️ 大值优先 — 越大概率越高</option>
+                                            <option value="center">🎯 中间集中 — 中间高两端低</option>
+                                            <option value="edge">⇔ 两端集中 — 两端高中间低</option>
+                                        </select>
+                                        <button
+                                            className="skill-gen-codegen-batch-apply"
+                                            onClick={() => {
+                                                setCodeEntries(prev => prev.map(e => ({ ...e, weight: batchWeightMode })));
+                                                toast.success(`已将所有库权重设为「${weightModeLabels[batchWeightMode]}」`);
+                                            }}
+                                        >
+                                            应用权重
+                                        </button>
+                                    </div>
+                                </div>
+                                {codeEntries.map((entry, idx) => (
+                                    <div key={entry.id} className="skill-gen-codegen-row">
+                                        <input
+                                            className="skill-gen-codegen-input name"
+                                            value={entry.name}
+                                            onChange={(e) => {
+                                                const updated = [...codeEntries];
+                                                updated[idx] = { ...entry, name: e.target.value };
+                                                setCodeEntries(updated);
+                                            }}
+                                            onPaste={(e) => {
+                                                const text = e.clipboardData?.getData('text/plain') || '';
+                                                if (text.includes('\n') || text.includes(',') || text.includes('，') || text.includes('、') || text.includes('\t')) {
+                                                    e.preventDefault();
+                                                    const names = text.split(/[\n,，、\t]+/).map(n => n.trim()).filter(n => n);
+                                                    if (names.length > 0) {
+                                                        const newEntries = names.map((name, i) => ({
+                                                            id: `e${Date.now()}_${i}`,
+                                                            name,
+                                                            min: 1,
+                                                            max: 20,
+                                                            weight: ''
+                                                        }));
+                                                        if (!entry.name.trim()) {
+                                                            setCodeEntries(prev => [
+                                                                ...prev.slice(0, idx),
+                                                                ...newEntries,
+                                                                ...prev.slice(idx + 1)
+                                                            ]);
+                                                        } else {
+                                                            setCodeEntries(prev => [...prev, ...newEntries]);
+                                                        }
+                                                        toast.success(`已批量添加 ${names.length} 个库`);
+                                                    }
+                                                }
+                                            }}
+                                            placeholder="库名称（可批量粘贴）"
+                                        />
+                                        <input
+                                            className="skill-gen-codegen-input num"
+                                            type="number"
+                                            value={entry.min}
+                                            onChange={(e) => {
+                                                const updated = [...codeEntries];
+                                                updated[idx] = { ...entry, min: Number(e.target.value) };
+                                                setCodeEntries(updated);
+                                            }}
+                                            placeholder="起始"
+                                        />
+                                        <span className="skill-gen-codegen-dash">–</span>
+                                        <input
+                                            className="skill-gen-codegen-input num"
+                                            type="number"
+                                            value={entry.max}
+                                            onChange={(e) => {
+                                                const updated = [...codeEntries];
+                                                updated[idx] = { ...entry, max: Number(e.target.value) };
+                                                setCodeEntries(updated);
+                                            }}
+                                            placeholder="结束"
+                                        />
+                                        <select
+                                            className="skill-gen-codegen-select"
+                                            value={entry.weight}
+                                            onChange={(e) => {
+                                                const updated = [...codeEntries];
+                                                updated[idx] = { ...entry, weight: e.target.value };
+                                                setCodeEntries(updated);
+                                            }}
+                                        >
+                                            <option value="">⚖️ 均匀 — 每个值概率相同</option>
+                                            <option value="low">⬇️ 小值优先 — 越小概率越高</option>
+                                            <option value="high">⬆️ 大值优先 — 越大概率越高</option>
+                                            <option value="center">🎯 中间集中 — 中间高两端低</option>
+                                            <option value="edge">⇔ 两端集中 — 两端高中间低</option>
+                                        </select>
+                                        {codeEntries.length > 1 && (
+                                            <button
+                                                className="skill-gen-codegen-remove"
+                                                onClick={() => setCodeEntries(prev => prev.filter((_, i) => i !== idx))}
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+
+                                <div className="skill-gen-codegen-actions">
+                                    <button
+                                        className="skill-gen-codegen-add"
+                                        onClick={() => setCodeEntries(prev => [...prev, { id: `e${Date.now()}`, name: '', min: 1, max: 20, weight: '' }])}
+                                    >
+                                        <Plus size={14} />
+                                        添加库
+                                    </button>
+                                    <button
+                                        className="skill-gen-codegen-gen"
+                                        onClick={() => {
+                                            const validEntries = codeEntries.filter(e => e.name.trim());
+                                            if (validEntries.length === 0) {
+                                                toast.info('请至少填写一个库名称');
+                                                return;
+                                            }
+                                            const lines = ['import random', ''];
+                                            // 权重生成函数
+                                            const genWeights = (mode: string, total: number): number[] => {
+                                                if (mode === 'low') return Array.from({ length: total }, (_, i) => total - i);
+                                                if (mode === 'high') return Array.from({ length: total }, (_, i) => i + 1);
+                                                if (mode === 'center') {
+                                                    const mid = (total - 1) / 2;
+                                                    return Array.from({ length: total }, (_, i) => Math.max(1, Math.round(total - Math.abs(i - mid) * 2)));
+                                                }
+                                                if (mode === 'edge') {
+                                                    const mid = (total - 1) / 2;
+                                                    return Array.from({ length: total }, (_, i) => Math.max(1, Math.round(Math.abs(i - mid) * 2 + 1)));
+                                                }
+                                                return [];
+                                            };
+                                            const modeLabels: Record<string, string> = { low: '小值优先', high: '大值优先', center: '中间集中', edge: '两端集中' };
+                                            for (const e of validEntries) {
+                                                const total = e.max - e.min + 1;
+                                                if (e.weight && e.weight !== '') {
+                                                    const wArr = genWeights(e.weight, total);
+                                                    lines.push(`# ${e.name} (${modeLabels[e.weight] || e.weight})`);
+                                                    lines.push(`${e.name} = random.choices(range(${e.min}, ${e.max + 1}), weights=[${wArr.join(', ')}], k=1)[0]`);
+                                                } else {
+                                                    lines.push(`${e.name} = random.randint(${e.min}, ${e.max})`);
+                                                }
+                                                lines.push(`print(f'${e.name}: {${e.name}}')`);
+                                                lines.push('');
+                                            }
+                                            setGeneratedCode(lines.join('\n').trimEnd());
+                                        }}
+                                    >
+                                        <Sparkles size={14} />
+                                        生成代码
+                                    </button>
+                                </div>
+
+                                <div className="skill-gen-range-reminder">
+                                    <Info size={14} />
+                                    <span>💡 记得设置每个库的数值范围和权重模式，再生成代码</span>
+                                </div>
+
+                                {generatedCode && (
+                                    <div className="skill-gen-codegen-output">
+                                        <div className="skill-gen-opal-block-header">
+                                            <span>💻 生成的随机代码</span>
+                                            <button className="skill-gen-copy-btn" onClick={() => {
+                                                navigator.clipboard.writeText(generatedCode);
+                                                setCopiedGenCode(true);
+                                                toast.success('已复制随机代码');
+                                                setTimeout(() => setCopiedGenCode(false), 2000);
+                                            }}>
+                                                {copiedGenCode ? <Check size={14} /> : <Copy size={14} />}
+                                                {copiedGenCode ? '已复制' : '复制'}
+                                            </button>
+                                        </div>
+                                        <pre className="skill-gen-opal-code">{generatedCode}</pre>
+                                        <div className="skill-gen-codegen-run-bar">
+                                            <button className="skill-gen-codegen-run-btn" onClick={runRandomCode}>
+                                                {codeRunResult.length > 0 ? '🔄 重新运行' : '▶️ 运行测试'}
+                                            </button>
+                                        </div>
+                                        {codeRunResult.length > 0 && (
+                                            <div className="skill-gen-codegen-results">
+                                                {codeRunResult.map((r, i) => (
+                                                    <div key={i} className="skill-gen-codegen-result-item">
+                                                        <span className="skill-gen-codegen-result-name">{r.name}</span>
+                                                        <span className="skill-gen-codegen-result-value">{r.value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ===== 分类联动代码生成器 ===== */}
+                        {codegenSubTab === 'category' && (
+                            <div className="skill-gen-category-link-section">
+                                <div className="skill-gen-category-link-header">
+                                    <span>🔗 分类联动代码生成器</span>
+                                    <span className="skill-gen-category-link-hint">同一分类下的维度值会联动随机，避免不合理组合</span>
+                                </div>
+
+                                {/* 输入模式切换 */}
+                                <div className="skill-gen-category-mode-tabs">
+                                    <button
+                                        className={`skill-gen-category-mode-tab ${categoryInputMode === 'table' ? 'active' : ''}`}
+                                        onClick={() => setCategoryInputMode('table')}
+                                    >
+                                        📋 粘贴表格
+                                    </button>
+                                    <button
+                                        className={`skill-gen-category-mode-tab ${categoryInputMode === 'text' ? 'active' : ''}`}
+                                        onClick={() => setCategoryInputMode('text')}
+                                    >
+                                        ✏️ 手动编排
+                                    </button>
+                                </div>
+
+                                {/* 模式 1：粘贴表格 */}
+                                {categoryInputMode === 'table' && (
+                                    <div className="skill-gen-category-table-mode">
+                                        <div className="skill-gen-category-link-format-guide">
+                                            <span className="skill-gen-category-link-format-title">💡 从 Google Sheets 复制表格粘贴</span>
+                                            格式：维度列 + 维度分类列交替排列（如 <code>场景 | 场景分类 | 人物 | 人物分类</code>）
+                                        </div>
+                                        <textarea
+                                            className="skill-gen-category-link-textarea"
+                                            value={categoryRawTable}
+                                            onChange={(e) => handleCategoryTablePaste(e.target.value)}
+                                            placeholder={`从 Google Sheets 粘贴 TSV 表格，格式举例：\n场景\t场景分类\t交通工具\t交通工具分类\n房间\t室内\t自行车\t室内,室外\n海边\t水边\t轮船\t水边\n马路\t室外\t滑板\t通用\n\n也可以粘贴不含分类列的表格，再用 AI 智能分类`}
+                                            rows={6}
+                                        />
+
+                                        {/* 表格预览 */}
+                                        {categoryTableData && categoryTableData.rows.length > 0 && (
+                                            <div className="skill-gen-category-table-preview">
+                                                <div className="skill-gen-category-table-scroll">
+                                                    <table className="skill-gen-category-table">
+                                                        <thead>
+                                                            <tr>
+                                                                {categoryTableData.headers.map((h, i) => (
+                                                                    <th key={i} className={h.endsWith('分类') ? 'cat-col' : ''}>
+                                                                        {h}
+                                                                    </th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {categoryTableData.rows.slice(0, 8).map((row, i) => (
+                                                                <tr key={i}>
+                                                                    {categoryTableData!.headers.map((h, j) => (
+                                                                        <td key={j} className={h.endsWith('分类') ? 'cat-col' : ''}>
+                                                                            {row[j] || ''}
+                                                                        </td>
+                                                                    ))}
+                                                                </tr>
+                                                            ))}
+                                                            {categoryTableData.rows.length > 8 && (
+                                                                <tr><td colSpan={categoryTableData.headers.length} className="more-rows">
+                                                                    ... 还有 {categoryTableData.rows.length - 8} 行
+                                                                </td></tr>
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                                <div className="skill-gen-category-table-status">
+                                                    {categoryTableData.hasCategoryColumns ? (
+                                                        <span className="status-ok">✅ 检测到分类列，已自动解析 — 可直接生成代码或拆分导出</span>
+                                                    ) : (
+                                                        <span className="status-need-ai">💡 未检测到分类列 — 需要 AI 智能分类</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 无分类列时：显示 AI 分类选项 */}
+                                        {categoryTableData && !categoryTableData.hasCategoryColumns && categoryTableData.dimHeaders.length > 0 && (
+                                            <>
+                                                <div className="skill-gen-category-preset-row">
+                                                    <label className="skill-gen-category-preset-label">
+                                                        🏷️ 指定分类名（可选）
+                                                    </label>
+                                                    <input
+                                                        className="skill-gen-category-preset-input"
+                                                        type="text"
+                                                        value={categoryPresetNames}
+                                                        onChange={(e) => setCategoryPresetNames(e.target.value)}
+                                                        placeholder="留空让 AI 自动决定，或输入如：室外, 室内, 水边"
+                                                    />
+                                                </div>
+                                                <div className="skill-gen-codegen-actions">
+                                                    <button
+                                                        className="skill-gen-category-ai-btn"
+                                                        onClick={handleAICategorize}
+                                                        disabled={categoryAILoading || categoryParsedDims.length === 0}
+                                                    >
+                                                        {categoryAILoading ? <Loader2 size={14} className="spinning" /> : <Wand2 size={14} />}
+                                                        {categoryAILoading ? 'AI 分类中...' : '🤖 AI 智能分类'}
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 模式 2：手动编排 */}
+                                {categoryInputMode === 'text' && (
+                                    <div className="skill-gen-category-text-mode">
+                                        <div className="skill-gen-category-link-format-guide">
+                                            <span className="skill-gen-category-link-format-title">📝 格式</span>
+                                            <code>[分类名]</code> 定义分类，下方写 <code>维度: 值1, 值2, 值3</code>
+                                        </div>
+                                        <textarea
+                                            className="skill-gen-category-link-textarea"
+                                            value={categoryLinkText}
+                                            onChange={(e) => setCategoryLinkText(e.target.value)}
+                                            placeholder={`[室外]\n场景: 花园, 森林, 海边\n人物: 园丁, 探险家\n道具: 铲子, 背包\n\n[室内]\n场景: 卧室, 厨房, 书房\n人物: 厨师, 学生\n道具: 书本, 茶杯`}
+                                            rows={12}
+                                        />
+
+                                        {/* 分类表格预览 */}
+                                        {categoryLinkText.trim() && (() => {
+                                            const parsed = parseCategoryLinkText(categoryLinkText);
+                                            const catNames = Object.keys(parsed);
+                                            if (catNames.length === 0) return null;
+
+                                            // 收集所有维度名
+                                            const allDims = new Set<string>();
+                                            for (const cat of catNames) {
+                                                Object.keys(parsed[cat]).forEach(d => allDims.add(d));
+                                            }
+                                            const dimArray = Array.from(allDims);
+
+                                            return (
+                                                <div className="skill-gen-category-table-preview">
+                                                    <div className="skill-gen-category-table-scroll">
+                                                        <table className="skill-gen-category-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>维度</th>
+                                                                    {catNames.map((cat, i) => (
+                                                                        <th key={i} className="cat-col">{cat}</th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {dimArray.map((dim, i) => (
+                                                                    <tr key={i}>
+                                                                        <td style={{ fontWeight: 600 }}>{dim}</td>
+                                                                        {catNames.map((cat, j) => (
+                                                                            <td key={j} className="cat-col">
+                                                                                {parsed[cat]?.[dim]?.join(', ') || '-'}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                )}
+
+                                {/* 生成代码按钮（仅在有分类文本时显示） */}
+                                {categoryLinkText.trim() && (
+                                    <div className="skill-gen-codegen-actions">
+                                        <button
+                                            className="skill-gen-codegen-gen"
+                                            onClick={generateCategoryLinkCode}
+                                        >
+                                            <Sparkles size={14} />
+                                            生成联动代码
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* 生成的联动代码 */}
+                                {categoryLinkCode && (
+                                    <div className="skill-gen-codegen-output">
+                                        <div className="skill-gen-opal-block-header">
+                                            <span>💻 联动代码（单个 Code Node）</span>
+                                            <button className="skill-gen-copy-btn" onClick={() => {
+                                                navigator.clipboard.writeText(categoryLinkCode);
+                                                setCopiedCategoryCode(true);
+                                                toast.success('已复制联动代码');
+                                                setTimeout(() => setCopiedCategoryCode(false), 2000);
+                                            }}>
+                                                {copiedCategoryCode ? <Check size={14} /> : <Copy size={14} />}
+                                                {copiedCategoryCode ? '已复制' : '复制'}
+                                            </button>
+                                        </div>
+                                        <pre className="skill-gen-opal-code">{categoryLinkCode}</pre>
+                                        <div className="skill-gen-codegen-run-bar">
+                                            <button className="skill-gen-codegen-run-btn" onClick={runCategoryLinkCode}>
+                                                {categoryRunResult ? '🔄 重新运行' : '▶️ 运行测试'}
+                                            </button>
+                                        </div>
+                                        {categoryRunResult && (
+                                            <div className="skill-gen-codegen-results">
+                                                <div className="skill-gen-codegen-result-item" style={{ background: 'rgba(139, 92, 246, 0.12)', borderColor: 'rgba(139, 92, 246, 0.25)' }}>
+                                                    <span className="skill-gen-codegen-result-name">分类</span>
+                                                    <span className="skill-gen-codegen-result-value" style={{ color: '#c4b5fd' }}>{categoryRunResult.category}</span>
+                                                </div>
+                                                {categoryRunResult.dims.map((d, i) => (
+                                                    <div key={i} className="skill-gen-codegen-result-item">
+                                                        <span className="skill-gen-codegen-result-name">{d.name}</span>
+                                                        <span className="skill-gen-codegen-result-value">{d.value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 按分类拆分导出 */}
+                                {categoryLinkText.trim() && (
+                                    <div className="skill-gen-codegen-actions">
+                                        <button
+                                            className="skill-gen-category-ai-btn"
+                                            onClick={generateSplitExport}
+                                        >
+                                            📦 按分类拆分导出
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* 拆分导出结果 */}
+                                {categorySplitResults.length > 0 && (
+                                    <div className="skill-gen-split-export">
+                                        <div className="skill-gen-split-tabs">
+                                            {categorySplitResults.map((r, i) => (
+                                                <button
+                                                    key={i}
+                                                    className={`skill-gen-split-tab ${categorySplitActiveTab === i ? 'active' : ''}`}
+                                                    onClick={() => setCategorySplitActiveTab(i)}
+                                                >
+                                                    {r.category}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {categorySplitResults[categorySplitActiveTab] && (
+                                            <div className="skill-gen-split-content">
+                                                {/* 随机代码 */}
+                                                <div className="skill-gen-opal-block-header">
+                                                    <span>🎲 随机代码 — {categorySplitResults[categorySplitActiveTab].category}</span>
+                                                    <button className="skill-gen-copy-btn" onClick={() => {
+                                                        const cat = categorySplitResults[categorySplitActiveTab].category;
+                                                        navigator.clipboard.writeText(categorySplitResults[categorySplitActiveTab].code);
+                                                        setCopiedSplitCode(cat);
+                                                        toast.success(`已复制「${cat}」随机代码`);
+                                                        setTimeout(() => setCopiedSplitCode(null), 2000);
+                                                    }}>
+                                                        {copiedSplitCode === categorySplitResults[categorySplitActiveTab].category ? <Check size={14} /> : <Copy size={14} />}
+                                                        {copiedSplitCode === categorySplitResults[categorySplitActiveTab].category ? '已复制' : '复制代码'}
+                                                    </button>
+                                                </div>
+                                                <pre className="skill-gen-opal-code">{categorySplitResults[categorySplitActiveTab].code}</pre>
+
+                                                {/* 指令 */}
+                                                <div className="skill-gen-opal-block-header" style={{ marginTop: '0.6rem' }}>
+                                                    <span>📝 指令嵌入库 — {categorySplitResults[categorySplitActiveTab].category}</span>
+                                                    <button className="skill-gen-copy-btn" onClick={() => {
+                                                        const cat = categorySplitResults[categorySplitActiveTab].category;
+                                                        navigator.clipboard.writeText(categorySplitResults[categorySplitActiveTab].instruction);
+                                                        setCopiedSplitInstruction(cat);
+                                                        toast.success(`已复制「${cat}」指令`);
+                                                        setTimeout(() => setCopiedSplitInstruction(null), 2000);
+                                                    }}>
+                                                        {copiedSplitInstruction === categorySplitResults[categorySplitActiveTab].category ? <Check size={14} /> : <Copy size={14} />}
+                                                        {copiedSplitInstruction === categorySplitResults[categorySplitActiveTab].category ? '已复制' : '复制指令'}
+                                                    </button>
+                                                </div>
+                                                <pre className="skill-gen-opal-code instruction">{categorySplitResults[categorySplitActiveTab].instruction}</pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+
+            </div>
+
+
+            {/* AI智能生成库值弹窗（独立小功能） */}
+            {
+                showExtendAIModal && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-tool-modal-overlay" onClick={closeExtendAIModal}>
+                        <div className="skill-gen-tool-modal skill-gen-extend-ai-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="skill-gen-tool-modal-header">
+                                <div>
+                                    <h3>✨ AI智能生成库值</h3>
+                                    <p>按描述快速生成当前维度的新值，先预览再决定是否应用</p>
+                                </div>
+                                <button className="skill-gen-tool-modal-close" onClick={closeExtendAIModal} disabled={extendAIModalGenerating}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div className="skill-gen-tool-modal-body">
+                                <div>
+                                    <label className="skill-gen-extend-ai-modal-label">
+                                        描述你想要的内容（AI会根据描述生成）
+                                    </label>
+                                    <textarea
+                                        className="skill-gen-tool-textarea skill-gen-extend-ai-modal-textarea"
+                                        value={extendAIModalPrompt}
+                                        onChange={(e) => setExtendAIModalPrompt(e.target.value)}
+                                        placeholder={'例如：\n• 适合产品摄影的场景\n• 流行的艺术风格\n• 常见的配色方案\n• 节日主题创意'}
+                                        rows={6}
+                                        disabled={extendAIModalGenerating}
+                                    />
+                                </div>
+                                <div className="skill-gen-extend-ai-modal-count-row">
+                                    <label className="skill-gen-extend-ai-modal-label">生成数量：</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={100}
+                                        value={extendAIModalCount}
+                                        onChange={(e) => setExtendAIModalCount(Math.max(1, Math.min(100, Number(e.target.value) || 10)))}
+                                        className="skill-gen-codegen-input num"
+                                        disabled={extendAIModalGenerating}
+                                    />
+                                </div>
+                                <div className="skill-gen-extend-ai-modal-example">
+                                    <p className="skill-gen-extend-ai-modal-example-title">💡 示例指令：</p>
+                                    <p>• "10个适合电商产品的拍摄场景"</p>
+                                    <p>• "流行的插画艺术风格"</p>
+                                    <p>• "创意配色名称，如莫兰迪色系"</p>
+                                </div>
+                            </div>
+                            <div className="skill-gen-tool-modal-footer">
+                                <button
+                                    type="button"
+                                    className="skill-gen-tool-ghost-btn"
+                                    onClick={closeExtendAIModal}
+                                    disabled={extendAIModalGenerating}
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    type="button"
+                                    className="skill-gen-tool-primary-btn"
+                                    onClick={handleGenerateDimensionExtensionFromModal}
+                                    disabled={!extendAIModalPrompt.trim() || extendAIModalGenerating}
+                                >
+                                    {extendAIModalGenerating ? (
+                                        <>
+                                            <Loader2 size={14} className="spin" />
+                                            生成中...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles size={14} />
+                                            开始生成
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )
+            }
+
+            {/* AI 智能分类弹窗 */}
+            {
+                showAICategoryModal && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-tool-modal-overlay" onClick={closeAICategoryModal}>
+                        <div className="skill-gen-tool-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="skill-gen-tool-modal-header">
+                                <div>
+                                    <h3>🤖 AI 智能分类</h3>
+                                    <p>和 AI 图片识别一致：先做分类，再应用到分类联动代码生成器</p>
+                                </div>
+                                <button className="skill-gen-tool-modal-close" onClick={closeAICategoryModal}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div className="skill-gen-tool-modal-body">
+                                <textarea
+                                    className="skill-gen-tool-textarea"
+                                    value={aiCategoryModalInput}
+                                    onChange={(e) => setAiCategoryModalInput(e.target.value)}
+                                    placeholder={'粘贴 TSV 表格（从 Google Sheets 复制）\n例如：\n场景\t交通工具\t人物\n房间\t自行车\t学生\n海边\t轮船\t水手'}
+                                    rows={8}
+                                />
+                                <input
+                                    className="skill-gen-preset-select"
+                                    value={aiCategoryModalPresetNames}
+                                    onChange={(e) => setAiCategoryModalPresetNames(e.target.value)}
+                                    placeholder="可选：指定分类名，如 室内, 室外, 水边"
+                                />
+                                <div className="skill-gen-tool-modal-actions">
+                                    <button
+                                        type="button"
+                                        className="skill-gen-tool-primary-btn purple"
+                                        onClick={handleAICategoryModalRun}
+                                        disabled={!aiCategoryModalInput.trim() || aiCategoryModalLoading}
+                                    >
+                                        {aiCategoryModalLoading ? (
+                                            <>
+                                                <Loader2 size={14} className="spin" />
+                                                分类中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={14} />
+                                                AI 智能分类
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                                {aiCategoryModalPreview && (
+                                    <div className="skill-gen-tool-preview-wrap">
+                                        <div className="skill-gen-tool-preview-block">
+                                            <p className="skill-gen-tool-preview-title">分类结果预览</p>
+                                            <pre className="skill-gen-tool-preview-text">{aiCategoryModalPreview}</pre>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="skill-gen-tool-modal-footer">
+                                <button type="button" className="skill-gen-tool-ghost-btn" onClick={closeAICategoryModal}>
+                                    关闭
+                                </button>
+                                <button
+                                    type="button"
+                                    className="skill-gen-tool-primary-btn"
+                                    onClick={applyAICategoryModalResult}
+                                    disabled={!aiCategoryModalPreview.trim()}
+                                >
+                                    应用到分类代码区
+                                </button>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )
+            }
+
+            {/* 指令转库弹窗 */}
+            {
+                showInstructionToLibModal && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-tool-modal-overlay" onClick={closeInstructionToLibModal}>
+                        <div className="skill-gen-tool-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="skill-gen-tool-modal-header">
+                                <div>
+                                    <h3>🔁 指令转库</h3>
+                                    <p>粘贴已有指令，自动拆成“基础指令 + 随机库”</p>
+                                </div>
+                                <button className="skill-gen-tool-modal-close" onClick={closeInstructionToLibModal}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div className="skill-gen-tool-modal-body">
+                                <textarea
+                                    className="skill-gen-tool-textarea"
+                                    value={instructionToLibInput}
+                                    onChange={(e) => setInstructionToLibInput(e.target.value)}
+                                    placeholder="粘贴你已有的通用指令、创意规则或成品描述词..."
+                                    rows={8}
+                                />
+                                <div className="skill-gen-tool-modal-actions">
+                                    <button
+                                        type="button"
+                                        className="skill-gen-tool-primary-btn green"
+                                        onClick={handleInstructionToLibConvert}
+                                        disabled={!instructionToLibInput.trim() || instructionToLibConverting}
+                                    >
+                                        {instructionToLibConverting ? (
+                                            <>
+                                                <Loader2 size={14} className="spin" />
+                                                解析中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={14} />
+                                                智能转库
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+
+                                {instructionToLibPreview && (
+                                    <div className="skill-gen-tool-preview-wrap">
+                                        <div className="skill-gen-tool-preview-block">
+                                            <p className="skill-gen-tool-preview-title">基础指令预览</p>
+                                            <pre className="skill-gen-tool-preview-text">
+                                                {instructionToLibPreview.instruction || '未识别到基础指令'}
+                                            </pre>
+                                        </div>
+                                        <div className="skill-gen-tool-preview-block">
+                                            <p className="skill-gen-tool-preview-title">
+                                                随机库预览
+                                                {instructionToLibPreview.library
+                                                    ? `（${instructionToLibPreview.library.headers.length} 列 × ${instructionToLibPreview.library.rows.length} 行）`
+                                                    : '（未识别）'}
+                                            </p>
+                                            {instructionToLibPreview.library ? (
+                                                <div className="skill-gen-tool-table-wrap">
+                                                    <table className="skill-gen-tool-table">
+                                                        <thead>
+                                                            <tr>
+                                                                {instructionToLibPreview.library.headers.map((h, i) => (
+                                                                    <th key={i}>{h}</th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {instructionToLibPreview.library.rows.map((row, ri) => (
+                                                                <tr key={ri}>
+                                                                    {row.map((cell, ci) => (
+                                                                        <td key={ci}>{cell}</td>
+                                                                    ))}
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <div className="skill-gen-tool-empty">未识别到随机库数据</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="skill-gen-tool-modal-footer">
+                                <button type="button" className="skill-gen-tool-ghost-btn" onClick={closeInstructionToLibModal}>
+                                    关闭
+                                </button>
+                                <button
+                                    type="button"
+                                    className="skill-gen-tool-primary-btn"
+                                    onClick={applyInstructionToLibPreview}
+                                    disabled={!instructionToLibPreview}
+                                >
+                                    应用到基础指令+随机库
+                                </button>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )
+            }
+
+            {/* 图片转库弹窗 */}
+            {
+                showImageToLibModal && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-tool-modal-overlay" onClick={closeImageToLibModal}>
+                        <div className="skill-gen-tool-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="skill-gen-tool-modal-header">
+                                <div>
+                                    <h3>🖼 图片转库</h3>
+                                    <p>上传参考图，分析共同特征并生成“基础指令 + 随机库”</p>
+                                </div>
+                                <button className="skill-gen-tool-modal-close" onClick={closeImageToLibModal}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div className="skill-gen-tool-modal-body">
+                                <div className="skill-gen-tool-upload-row">
+                                    <button
+                                        type="button"
+                                        className="skill-gen-tool-upload-btn"
+                                        onClick={() => imageToLibInputRef.current?.click()}
+                                    >
+                                        <Upload size={14} />
+                                        选择图片
+                                    </button>
+                                    <input
+                                        ref={imageToLibInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        multiple
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => {
+                                            handleImageToLibUpload(e.target.files);
+                                            e.target.value = '';
+                                        }}
+                                    />
+                                    <div
+                                        tabIndex={0}
+                                        onPaste={handleImageToLibPaste}
+                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onDrop={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleImageToLibUpload(e.dataTransfer.files);
+                                        }}
+                                        className="skill-gen-tool-paste-box"
+                                    >
+                                        点击这里后 Ctrl+V 粘贴图片
+                                    </div>
+                                </div>
+
+                                {imageToLibImages.length > 0 && (
+                                    <div className="skill-gen-tool-thumb-grid">
+                                        {imageToLibImages.map((img) => (
+                                            <div key={img.id} className="skill-gen-tool-thumb">
+                                                <img src={img.base64} alt={img.name} />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setImageToLibImages(prev => prev.filter(item => item.id !== img.id))}
+                                                >
+                                                    <X size={11} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <textarea
+                                    className="skill-gen-tool-textarea"
+                                    value={imageToLibUserDesc}
+                                    onChange={(e) => setImageToLibUserDesc(e.target.value)}
+                                    placeholder="可选：补充这批图片的主题、场景用途、你希望重点提取的维度..."
+                                    rows={4}
+                                />
+                                <div className="skill-gen-tool-modal-actions">
+                                    <button
+                                        type="button"
+                                        className="skill-gen-tool-primary-btn orange"
+                                        onClick={handleImageToLibConvert}
+                                        disabled={imageToLibImages.length === 0 || imageToLibConverting}
+                                    >
+                                        {imageToLibConverting ? (
+                                            <>
+                                                <Loader2 size={14} className="spin" />
+                                                分析中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles size={14} />
+                                                图片转库
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+
+                                {imageToLibPreview && (
+                                    <div className="skill-gen-tool-preview-wrap">
+                                        <div className="skill-gen-tool-preview-block">
+                                            <p className="skill-gen-tool-preview-title">基础指令预览</p>
+                                            <pre className="skill-gen-tool-preview-text">
+                                                {imageToLibPreview.instruction || '未识别到基础指令'}
+                                            </pre>
+                                        </div>
+                                        <div className="skill-gen-tool-preview-block">
+                                            <p className="skill-gen-tool-preview-title">
+                                                随机库预览
+                                                {imageToLibPreview.library
+                                                    ? `（${imageToLibPreview.library.headers.length} 列 × ${imageToLibPreview.library.rows.length} 行）`
+                                                    : '（未识别）'}
+                                            </p>
+                                            {imageToLibPreview.library ? (
+                                                <div className="skill-gen-tool-table-wrap">
+                                                    <table className="skill-gen-tool-table">
+                                                        <thead>
+                                                            <tr>
+                                                                {imageToLibPreview.library.headers.map((h, i) => (
+                                                                    <th key={i}>{h}</th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {imageToLibPreview.library.rows.map((row, ri) => (
+                                                                <tr key={ri}>
+                                                                    {row.map((cell, ci) => (
+                                                                        <td key={ci}>{cell}</td>
+                                                                    ))}
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            ) : (
+                                                <div className="skill-gen-tool-empty">未识别到随机库数据</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="skill-gen-tool-modal-footer">
+                                <button type="button" className="skill-gen-tool-ghost-btn" onClick={closeImageToLibModal}>
+                                    关闭
+                                </button>
+                                <button
+                                    type="button"
+                                    className="skill-gen-tool-primary-btn"
+                                    onClick={applyImageToLibPreview}
+                                    disabled={!imageToLibPreview}
+                                >
+                                    应用到基础指令+随机库
+                                </button>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )
+            }
+
+            {/* 功能说明弹窗 */}
+            {
+                showFeatureNotes && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-notes-overlay" onClick={closeFeatureNotes}>
+                        <div className="skill-gen-notes-modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="skill-gen-notes-header">
+                                <div className="skill-gen-notes-header-left">
+                                    <div className="skill-gen-notes-icon-wrap">
+                                        <Sparkles size={18} />
+                                    </div>
+                                    <div>
+                                        <h2 className="skill-gen-notes-title">功能说明</h2>
+                                        <p className="skill-gen-notes-subtitle">描述词配方工具是做什么的</p>
+                                    </div>
+                                </div>
+                                <button className="skill-gen-notes-close-btn" onClick={closeFeatureNotes}>
+                                    知道了
+                                </button>
+                            </div>
+
+                            <div className="skill-gen-notes-body">
+                                <div className="skill-gen-notes-card">
+                                    <div className="skill-gen-notes-section">
+                                        <p className="skill-gen-notes-section-title">1. 这个工具是做什么的</p>
+                                        <ul className="skill-gen-notes-list">
+                                            <li>把你的成品描述词和成品图，分析整理成一套可复用的"基础指令 + 随机库"。</li>
+                                            <li>基础指令负责"如何写最终生图用的描述词"，随机库负责"批量变化描述词中的细节"。</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="skill-gen-notes-section">
+                                        <p className="skill-gen-notes-section-title">2. 六个标签页分别做什么</p>
+                                        <ul className="skill-gen-notes-list">
+                                            <li><strong>✨ 生成</strong>：上传参考图 + 成品描述词 + 粗略规则，AI 自动分析并生成基础指令 + 随机库。支持「仅图片自动识图」模式（见下方第5点）。</li>
+                                            <li><strong>📄 优化</strong>：直接粘贴你已有的基础指令和随机库，可进行指令结构化改写、校验修复、同步变量名、导出 Opal 流程等。</li>
+                                            <li><strong>🧩 AI 扩展类型</strong>：两种模式 — ①「对话扩展」不依赖随机库，直接对话生成扩展值（如"给我 30 个电商场景"）；②「关联随机库扩展」可选，有库时可针对某一列做精准扩展。结果汇总到预览区，可复制或一键追加到随机库。</li>
+                                            <li><strong>🌍 本地化</strong>：将已有的基础指令和随机库一键本地化到目标国家（如日本、法国等），AI 自动翻译并适配当地文化元素。</li>
+                                            <li><strong>🏷️ 智能分类</strong>：对随机库数据进行 AI 智能分类，按维度自动归类（如室内/室外、白天/夜晚），可直接应用到代码生成。</li>
+                                            <li><strong>🎲 代码生成</strong>：包含两个子功能 ——「随机代码生成器」为每个库独立生成随机代码；「分类联动代码生成器」根据分类结果生成联动随机代码，避免不合理的组合。</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="skill-gen-notes-section">
+                                        <p className="skill-gen-notes-section-title">3. 全局平台设置有什么用</p>
+                                        <ul className="skill-gen-notes-list">
+                                            <li>页面上方的全局平台设置按钮（仅在「生成」和「优化」标签页显示）。</li>
+                                            <li>它会同时影响 AI 生成的指令框架和优化标签页中的指令结构化。</li>
+                                            <li>你可以选择平台预设（通用图片、Nano Banana Pro、通用视频），也可以自定义基础指令框架。</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="skill-gen-notes-section">
+                                        <p className="skill-gen-notes-section-title">4. 最终可以导出什么</p>
+                                        <ul className="skill-gen-notes-list">
+                                            <li>可复制基础指令。</li>
+                                            <li>可复制随机库 TSV（可直接粘贴到 Google Sheets），用于 AI 创作工具包批量写描述词。</li>
+                                            <li>可导出 Opal 流程（随机代码 + 完整指令），直接用于 Opal 工作流。</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="skill-gen-notes-section">
+                                        <p className="skill-gen-notes-section-title">5. 🔍 仅图片自动识图（新功能）</p>
+                                        <ul className="skill-gen-notes-list">
+                                            <li>当你只上传了参考图片、没有提供成品描述词时，开启此功能后系统会自动执行两阶段分析。</li>
+                                            <li><strong>第一阶段</strong>：AI 先识别每张参考图，为其生成详细的英文描述词（包含主体、场景、构图、风格、光影等细节）。</li>
+                                            <li><strong>第二阶段</strong>：将识别出的描述词作为"成品描述词样本"，再进行对比分析，提取固定骨架和可变维度，生成完整的基础指令 + 随机库。</li>
+                                            <li>此功能默认开启（推荐），你也可以在「参考图片」区域手动关闭，使用原来的纯视觉分析模式。</li>
+                                        </ul>
+                                    </div>
+
+                                    <div className="skill-gen-notes-summary">
+                                        一句话：这个工具可以根据你提供的成品图片和描述词（甚至只有图片），智能生成用于 Opal 工作流的指令和随机库，还支持 AI 扩展类型、本地化、智能分类和随机代码生成。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body
+                )
+            }
+        </div >
+    );
+};
+
+export default SkillGeneratorApp;

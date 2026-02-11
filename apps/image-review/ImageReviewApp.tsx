@@ -11,12 +11,13 @@
  * - 批量操作
  * - PDF/Google Docs 报告导出
  */
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Upload, Grid, Image as ImageIcon, LayoutGrid, Trash2, Download,
-    HelpCircle, Settings, ChevronLeft, ChevronRight, Maximize2, Minimize2,
+    Settings, ChevronLeft, ChevronRight, Maximize2, Minimize2,
     FolderPlus, Layers, Eye, EyeOff, RefreshCw, Check, X, Loader2,
-    FileText, Copy, Clipboard, ListChecks, MessageCircle, List, Globe
+    FileText, Copy, Clipboard, ListChecks, MessageCircle, List, Globe, Sparkles
 } from 'lucide-react';
 import {
     ImageReviewState, ImageReview, ReviewStatus, TranslationResult,
@@ -28,7 +29,14 @@ import ReviewPanelEnhanced from './components/ReviewPanelEnhanced';
 import ImageCanvas from './components/ImageCanvas';
 import ExecutionView from './components/ExecutionView';
 import ListReviewView from './components/ListReviewView';
-import { translateFeedback, ToneLevel, TONE_CONFIG } from './services/translationService';
+import {
+    translateFeedback,
+    ToneLevel,
+    TONE_CONFIG,
+    TranslationTargetLanguage,
+    TRANSLATION_TARGET_LANGUAGES,
+    getTranslationTargetConfig
+} from './services/translationService';
 import {
     generateReportSummary, downloadPDFReport, downloadTextReport, copyReportToClipboard, downloadHTMLReport,
     generateReportImageAndUploadToGyazo, type HTMLExportMode
@@ -38,6 +46,10 @@ import { uploadBase64ToGyazo, getGyazoToken, uploadBase64ToGyazoAndShorten } fro
 interface ImageReviewAppProps {
     standalone?: boolean;
 }
+
+const IMAGE_REVIEW_UPDATE_VERSION = 'v2.2.0';
+const IMAGE_REVIEW_UPDATE_STORAGE_KEY = `image-review-update-${IMAGE_REVIEW_UPDATE_VERSION}-seen`;
+const TRANSLATION_LANGUAGE_DATALIST_ID = 'image-review-translation-language-options';
 
 const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) => {
     // 状态
@@ -57,7 +69,19 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
         notes: '',
     });
     const [showProjectModal, setShowProjectModal] = useState(false);
+    // 更新说明弹窗（按版本号记忆是否已读）
+    const [showUpdateNotes, setShowUpdateNotes] = useState(() => {
+        const hasSeenUpdate = localStorage.getItem(IMAGE_REVIEW_UPDATE_STORAGE_KEY);
+        return !hasSeenUpdate;
+    });
     const [showExportMenu, setShowExportMenu] = useState(false);
+    const [exportLanguage, setExportLanguage] = useState<'zh' | 'en'>('zh');
+    const [showAdvancedExport, setShowAdvancedExport] = useState(false);
+
+    const closeUpdateNotes = useCallback(() => {
+        localStorage.setItem(IMAGE_REVIEW_UPDATE_STORAGE_KEY, 'true');
+        setShowUpdateNotes(false);
+    }, []);
 
     // Gyazo 长图分享
     const [isGeneratingShareLink, setIsGeneratingShareLink] = useState(false);
@@ -68,8 +92,31 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
 
     // 语气级别
     const [toneLevel, setToneLevel] = useState<ToneLevel>('suggestive');
+    const [translationTargetLanguage, setTranslationTargetLanguage] = useState<TranslationTargetLanguage>('en');
+    const [translationLanguageSearch, setTranslationLanguageSearch] = useState('');
+    const [viewportHeight, setViewportHeight] = useState<number>(() => {
+        if (typeof window === 'undefined') return 900;
+        return Math.floor(window.visualViewport?.height || window.innerHeight || 900);
+    });
 
     const dropZoneRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const updateViewportHeight = () => {
+            setViewportHeight(Math.floor(window.visualViewport?.height || window.innerHeight || 900));
+        };
+
+        updateViewportHeight();
+        window.addEventListener('resize', updateViewportHeight);
+        window.visualViewport?.addEventListener('resize', updateViewportHeight);
+        window.visualViewport?.addEventListener('scroll', updateViewportHeight);
+
+        return () => {
+            window.removeEventListener('resize', updateViewportHeight);
+            window.visualViewport?.removeEventListener('resize', updateViewportHeight);
+            window.visualViewport?.removeEventListener('scroll', updateViewportHeight);
+        };
+    }, []);
 
     // 解构状态
     const {
@@ -556,13 +603,23 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
             const updated = { ...item };
 
             if (item.problemCn.trim()) {
-                updated.problemTranslation = await translateFeedback(item.problemCn);
+                updated.problemTranslation = await translateFeedback(
+                    item.problemCn,
+                    undefined,
+                    toneLevel,
+                    translationTargetLanguage
+                );
                 progress++;
                 setBatchProgress({ current: progress, total: items.length * 2 });
             }
 
             if (item.suggestionCn.trim()) {
-                updated.suggestionTranslation = await translateFeedback(item.suggestionCn);
+                updated.suggestionTranslation = await translateFeedback(
+                    item.suggestionCn,
+                    undefined,
+                    toneLevel,
+                    translationTargetLanguage
+                );
                 progress++;
                 setBatchProgress({ current: progress, total: items.length * 2 });
             }
@@ -572,7 +629,7 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
 
         handleFeedbackItemsChange(translatedItems);
         setIsBatchTranslating(false);
-    }, [activeImage, handleFeedbackItemsChange]);
+    }, [activeImage, handleFeedbackItemsChange, toneLevel, translationTargetLanguage]);
 
     // 批量翻译所有图片
     const handleBatchTranslateAll = useCallback(async () => {
@@ -606,13 +663,23 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                 const updated = { ...item };
 
                 if (item.problemCn.trim() && !item.problemTranslation) {
-                    updated.problemTranslation = await translateFeedback(item.problemCn);
+                    updated.problemTranslation = await translateFeedback(
+                        item.problemCn,
+                        undefined,
+                        toneLevel,
+                        translationTargetLanguage
+                    );
                     progress++;
                     setBatchProgress({ current: progress, total: totalTasks });
                 }
 
                 if (item.suggestionCn.trim() && !item.suggestionTranslation) {
-                    updated.suggestionTranslation = await translateFeedback(item.suggestionCn);
+                    updated.suggestionTranslation = await translateFeedback(
+                        item.suggestionCn,
+                        undefined,
+                        toneLevel,
+                        translationTargetLanguage
+                    );
                     progress++;
                     setBatchProgress({ current: progress, total: totalTasks });
                 }
@@ -631,32 +698,52 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
         }
 
         setIsBatchTranslating(false);
-    }, [images]);
+    }, [images, toneLevel, translationTargetLanguage]);
 
     // ========== 导出功能 ==========
 
     const handleExportPDF = useCallback(async (useEnglish: boolean) => {
         if (images.length === 0) return;
-        await downloadPDFReport(images, projectInfo, useEnglish);
-        setShowExportMenu(false);
+        try {
+            await downloadPDFReport(images, projectInfo, useEnglish);
+            setShowExportMenu(false);
+        } catch (error) {
+            console.error('Export PDF failed:', error);
+            alert('导出 PDF 失败，请检查浏览器弹窗权限后重试');
+        }
     }, [images, projectInfo]);
 
     const handleExportText = useCallback((useEnglish: boolean) => {
         if (images.length === 0) return;
-        downloadTextReport(images, projectInfo, useEnglish);
-        setShowExportMenu(false);
+        try {
+            downloadTextReport(images, projectInfo, useEnglish);
+            setShowExportMenu(false);
+        } catch (error) {
+            console.error('Export text failed:', error);
+            alert('导出文本失败，请重试');
+        }
     }, [images, projectInfo]);
 
     const handleCopyReport = useCallback(async (useEnglish: boolean) => {
         if (images.length === 0) return;
-        await copyReportToClipboard(images, projectInfo, useEnglish);
-        setShowExportMenu(false);
+        try {
+            await copyReportToClipboard(images, projectInfo, useEnglish);
+            setShowExportMenu(false);
+        } catch (error) {
+            console.error('Copy report failed:', error);
+            alert('复制报告失败，请检查剪贴板权限后重试');
+        }
     }, [images, projectInfo]);
 
-    const handleExportHTML = useCallback((mode: HTMLExportMode = 'online') => {
+    const handleExportHTML = useCallback(async (mode: HTMLExportMode = 'online') => {
         if (images.length === 0) return;
-        downloadHTMLReport(images, projectInfo, mode);
-        setShowExportMenu(false);
+        try {
+            await downloadHTMLReport(images, projectInfo, mode);
+            setShowExportMenu(false);
+        } catch (error) {
+            console.error('Export HTML failed:', error);
+            alert('导出 HTML 失败，请重试');
+        }
     }, [images, projectInfo]);
 
     // 生成 Gyazo 长图分享链接
@@ -749,6 +836,23 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
 
     // ========== 统计 ==========
     const stats = generateReportSummary(images);
+    const currentTranslationTargetConfig = getTranslationTargetConfig(translationTargetLanguage);
+    const offlineReadyCount = images.filter(img => img.base64Data).length;
+    const gyazoUploadingCount = images.filter(img => img.isUploadingToGyazo).length;
+    const isCompactModal = viewportHeight < 820;
+    const projectModalMaxHeight = Math.max(360, viewportHeight - 20);
+    const translationListMaxHeight = Math.max(120, Math.min(280, Math.floor(viewportHeight * 0.24)));
+    const filteredTranslationLanguages = useMemo(() => {
+        const query = translationLanguageSearch.trim().toLowerCase();
+        if (!query) return TRANSLATION_TARGET_LANGUAGES;
+        return TRANSLATION_TARGET_LANGUAGES.filter((language) => {
+            return (
+                language.code.toLowerCase().includes(query) ||
+                language.label.toLowerCase().includes(query) ||
+                language.labelEn.toLowerCase().includes(query)
+            );
+        });
+    }, [translationLanguageSearch]);
 
     return (
         <div
@@ -834,6 +938,16 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                         <span className="text-sm">项目信息</span>
                     </button>
 
+                    {/* 功能说明 */}
+                    <button
+                        onClick={() => setShowUpdateNotes(true)}
+                        className="flex items-center gap-1 px-2 py-1 text-[11px] text-emerald-400 hover:bg-emerald-900/30 rounded-lg transition-colors"
+                        title="查看功能说明"
+                    >
+                        <Sparkles size={12} />
+                        <span>功能说明</span>
+                    </button>
+
                     {/* 批量翻译 */}
                     <button
                         onClick={handleBatchTranslateAll}
@@ -865,146 +979,129 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                         </button>
 
                         {showExportMenu && (
-                            <div className="absolute top-full left-0 mt-1 w-56 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50">
-                                <div className="p-2 border-b border-zinc-700">
-                                    <p className="text-xs text-zinc-400 px-2">英文报告 (For Team)</p>
-                                </div>
-                                <button
-                                    onClick={() => handleExportPDF(true)}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                >
-                                    <Download size={14} />
-                                    打印/下载 PDF (英文)
-                                </button>
-                                <button
-                                    onClick={() => handleExportText(true)}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                >
-                                    <FileText size={14} />
-                                    下载文本 (英文)
-                                </button>
-                                <button
-                                    onClick={() => handleCopyReport(true)}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                >
-                                    <Copy size={14} />
-                                    复制到剪贴板 (英文)
-                                </button>
-
-                                <div className="p-2 border-t border-zinc-700 mt-1">
-                                    <p className="text-xs text-zinc-400 px-2">中文报告</p>
-                                </div>
-                                <button
-                                    onClick={() => handleExportPDF(false)}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                >
-                                    <Download size={14} />
-                                    打印/下载 PDF (中文)
-                                </button>
-                                <button
-                                    onClick={() => handleExportText(false)}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                >
-                                    <FileText size={14} />
-                                    下载文本 (中文)
-                                </button>
-
-                                <div className="p-2 border-t border-zinc-700 mt-1">
-                                    <div className="flex items-center justify-between px-2">
-                                        <p className="text-xs text-zinc-400">📱 网页版 (手机友好)</p>
-                                        {/* Gyazo 上传状态 */}
-                                        {(() => {
-                                            const uploadingCount = images.filter(img => img.isUploadingToGyazo).length;
-                                            const uploadedCount = images.filter(img => img.gyazoUrl).length;
-                                            const totalWithBase64 = images.filter(img => img.base64Data).length;
-
-                                            if (uploadingCount > 0) {
-                                                return <span className="text-xs text-amber-400">🔄 {uploadingCount} 上传中...</span>;
-                                            } else if (uploadedCount > 0) {
-                                                return <span className="text-xs text-emerald-400">☁️ {uploadedCount}/{images.length}</span>;
-                                            }
-                                            return null;
-                                        })()}
+                            <div className="absolute top-full left-0 mt-1 w-80 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50">
+                                <div className="p-3 border-b border-zinc-700">
+                                    <p className="text-sm font-medium text-white">导出报告</p>
+                                    <p className="text-xs text-zinc-400 mt-1">先选语言，再选择导出方式</p>
+                                    <div className="mt-3 inline-flex bg-zinc-700 rounded-lg p-0.5">
+                                        <button
+                                            onClick={() => setExportLanguage('zh')}
+                                            className={`px-3 py-1 text-xs rounded-md transition-colors ${exportLanguage === 'zh'
+                                                ? 'bg-teal-600 text-white'
+                                                : 'text-zinc-300 hover:text-white'
+                                                }`}
+                                        >
+                                            中文
+                                        </button>
+                                        <button
+                                            onClick={() => setExportLanguage('en')}
+                                            className={`px-3 py-1 text-xs rounded-md transition-colors ${exportLanguage === 'en'
+                                                ? 'bg-teal-600 text-white'
+                                                : 'text-zinc-300 hover:text-white'
+                                                }`}
+                                        >
+                                            English
+                                        </button>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => handleExportHTML('online')}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                    title="使用 Gyazo 云端链接，文件小，需要联网查看"
-                                >
-                                    <Globe size={14} />
-                                    🌐 在线版 (文件小)
-                                    <span className="ml-auto text-xs text-zinc-500">
-                                        {images.filter(img => img.gyazoUrl).length}/{images.length}
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => handleExportHTML('offline')}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                    title="使用 base64 嵌入图片，文件大，离线可用"
-                                >
-                                    <Download size={14} />
-                                    💾 离线版 (原图)
-                                    <span className="ml-auto text-xs text-zinc-500">
-                                        {images.filter(img => img.base64Data).length}/{images.length}
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => handleExportHTML('compressed')}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                    title="压缩图片后嵌入，文件较小，离线可用"
-                                >
-                                    <Download size={14} />
-                                    📦 压缩版 (中英对照)
-                                    <span className="ml-auto text-xs text-zinc-500">800px</span>
-                                </button>
-                                <button
-                                    onClick={() => handleExportHTML('compressed-english')}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 flex items-center gap-2"
-                                    title="纯英文版本，适合发送给海外团队"
-                                >
-                                    <Download size={14} />
-                                    🇺🇸 压缩版 (纯英文)
-                                    <span className="ml-auto text-xs text-zinc-500">English</span>
-                                </button>
 
-                                {/* Gyazo 长图分享 */}
-                                <div className="p-2 border-t border-zinc-700 mt-1">
-                                    <p className="text-xs text-zinc-400 px-2">🔗 在线分享 (Gyazo)</p>
+                                <div className="p-2">
+                                    <p className="px-2 py-1 text-[11px] text-zinc-400">快速操作（推荐）</p>
+                                    <button
+                                        onClick={() => handleExportPDF(exportLanguage === 'en')}
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 rounded-md flex items-center gap-2"
+                                    >
+                                        <Download size={14} />
+                                        {exportLanguage === 'en' ? '打印/下载 PDF (英文)' : '打印/下载 PDF (中文)'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleCopyReport(exportLanguage === 'en')}
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 rounded-md flex items-center gap-2"
+                                    >
+                                        <Copy size={14} />
+                                        {exportLanguage === 'en' ? '复制报告 (英文)' : '复制报告 (中文)'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleExportHTML(exportLanguage === 'en' ? 'compressed-english' : 'compressed')}
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 rounded-md flex items-center gap-2"
+                                        title="压缩 HTML（推荐）"
+                                    >
+                                        <Download size={14} />
+                                        压缩网页（{exportLanguage === 'en' ? '英文' : '中英'}）
+                                        <span className="ml-auto text-xs text-zinc-500">800px</span>
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={handleGenerateGyazoShareLink}
-                                    disabled={isGeneratingShareLink || images.length === 0}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 disabled:text-zinc-500 flex items-center gap-2"
-                                    title="生成报告长图并上传到 Gyazo，获取分享链接"
-                                >
-                                    {isGeneratingShareLink ? (
-                                        <>
-                                            <Loader2 size={14} className="animate-spin" />
-                                            生成中...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Globe size={14} />
-                                            📸 生成分享长图
-                                        </>
-                                    )}
-                                </button>
 
-                                {/* 显示生成的链接 */}
-                                {gyazoShareLink && (
-                                    <div className="px-3 py-2 bg-emerald-900/30 border-t border-emerald-700">
-                                        <p className="text-xs text-emerald-400 mb-1">✅ 链接已复制!</p>
-                                        <a
-                                            href={gyazoShareLink}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-xs text-blue-400 hover:underline break-all"
+                                <div className="px-2 pb-2">
+                                    <button
+                                        onClick={() => setShowAdvancedExport(!showAdvancedExport)}
+                                        className="w-full px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-700 rounded-md transition-colors"
+                                    >
+                                        {showAdvancedExport ? '收起更多格式' : '更多格式'}
+                                    </button>
+                                </div>
+
+                                {showAdvancedExport && (
+                                    <div className="px-2 pb-2 border-t border-zinc-700 pt-2">
+                                        <button
+                                            onClick={() => handleExportText(exportLanguage === 'en')}
+                                            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 rounded-md flex items-center gap-2"
                                         >
-                                            {gyazoShareLink}
-                                        </a>
+                                            <FileText size={14} />
+                                            {exportLanguage === 'en' ? '下载文本 (英文)' : '下载文本 (中文)'}
+                                        </button>
+                                        <button
+                                            onClick={() => handleExportHTML('offline')}
+                                            className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 rounded-md flex items-center gap-2"
+                                            title="离线 HTML（原图）"
+                                        >
+                                            <Download size={14} />
+                                            离线网页（原图）
+                                            <span className="ml-auto text-xs text-zinc-500">{offlineReadyCount}/{images.length}</span>
+                                        </button>
                                     </div>
                                 )}
+
+                                <div className="p-2 border-t border-zinc-700">
+                                    <div className="px-2 py-1 flex items-center justify-between">
+                                        <p className="text-[11px] text-zinc-400">在线分享（Gyazo）</p>
+                                        {gyazoUploadingCount > 0 && (
+                                            <span className="text-xs text-amber-400">上传中 {gyazoUploadingCount}</span>
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={handleGenerateGyazoShareLink}
+                                        disabled={isGeneratingShareLink || images.length === 0}
+                                        className="w-full px-3 py-2 text-left text-sm hover:bg-zinc-700 disabled:text-zinc-500 rounded-md flex items-center gap-2"
+                                        title="生成报告长图并上传到 Gyazo"
+                                    >
+                                        {isGeneratingShareLink ? (
+                                            <>
+                                                <Loader2 size={14} className="animate-spin" />
+                                                生成中...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Globe size={14} />
+                                                生成分享长图
+                                            </>
+                                        )}
+                                    </button>
+
+                                    {gyazoShareLink && (
+                                        <div className="px-3 py-2 mt-2 bg-emerald-900/30 border border-emerald-700 rounded-md">
+                                            <p className="text-xs text-emerald-400 mb-1">✅ 链接已复制</p>
+                                            <a
+                                                href={gyazoShareLink}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-blue-400 hover:underline break-all"
+                                            >
+                                                {gyazoShareLink}
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -1102,6 +1199,7 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                         groups={groups}
                         selectedIds={selectedIds}
                         toneLevel={toneLevel}
+                        translationTargetLanguage={translationTargetLanguage}
                         onStatusChange={(imageId, status) => {
                             setState(prev => ({
                                 ...prev,
@@ -1228,6 +1326,8 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                                     onFeedbackItemsChange={handleFeedbackItemsChange}
                                     onTranslateAll={handleTranslateCurrentImage}
                                     isTranslating={isBatchTranslating}
+                                    toneLevel={toneLevel}
+                                    translationTargetLanguage={translationTargetLanguage}
                                 />
                             </div>
                         )}
@@ -1255,11 +1355,16 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
             </div>
 
             {/* 项目信息模态框 */}
-            {showProjectModal && (
-                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-                    <div className="bg-zinc-800 rounded-xl p-6 w-[500px] max-w-[90vw]">
-                        <h2 className="text-lg font-semibold mb-4">项目信息</h2>
-                        <div className="space-y-3">
+            {showProjectModal && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 bg-black/60 flex items-start sm:items-center justify-center z-[2147483647] p-4 sm:p-6 overflow-y-auto">
+                    <div
+                        className="bg-zinc-800 rounded-xl w-[560px] max-w-[96vw] overflow-hidden flex flex-col"
+                        style={{ maxHeight: `${projectModalMaxHeight}px` }}
+                    >
+                        <div className={`${isCompactModal ? 'px-4 py-3' : 'px-6 py-4'} border-b border-zinc-700/80`}>
+                            <h2 className="text-lg font-semibold">项目信息</h2>
+                        </div>
+                        <div className={`flex-1 overflow-y-auto ${isCompactModal ? 'px-4 py-3 space-y-2.5' : 'px-6 py-4 space-y-3'}`}>
                             <div>
                                 <label className="text-xs text-zinc-400 mb-1 block">项目名称</label>
                                 <input
@@ -1307,7 +1412,7 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                                     value={projectInfo.notes}
                                     onChange={(e) => setProjectInfo(prev => ({ ...prev, notes: e.target.value }))}
                                     placeholder="其他备注..."
-                                    className="w-full h-20 px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white placeholder-zinc-500 resize-none"
+                                    className={`w-full ${isCompactModal ? 'h-16' : 'h-20'} px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white placeholder-zinc-500 resize-none`}
                                 />
                             </div>
 
@@ -1315,8 +1420,63 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                             <div className="pt-3 border-t border-zinc-700">
                                 <label className="text-xs text-zinc-400 mb-2 block flex items-center gap-2">
                                     <MessageCircle size={12} />
-                                    英文翻译语气
+                                    翻译设置
                                 </label>
+                                <div className="mb-2">
+                                    <p className="text-xs text-zinc-500 mb-1">目标语言</p>
+                                    <input
+                                        list={TRANSLATION_LANGUAGE_DATALIST_ID}
+                                        value={translationTargetLanguage}
+                                        onChange={(e) => setTranslationTargetLanguage(e.target.value || 'en')}
+                                        placeholder="输入语言代码或名称（默认 en）"
+                                        className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white text-sm"
+                                    />
+                                    <datalist id={TRANSLATION_LANGUAGE_DATALIST_ID}>
+                                        {TRANSLATION_TARGET_LANGUAGES.map((language) => (
+                                            <option key={language.code} value={language.code}>
+                                                {language.label} ({language.labelEn})
+                                            </option>
+                                        ))}
+                                    </datalist>
+                                </div>
+                                <div className="mb-2">
+                                    <p className="text-xs text-zinc-500 mb-1">搜索语言</p>
+                                    <input
+                                        type="text"
+                                        value={translationLanguageSearch}
+                                        onChange={(e) => setTranslationLanguageSearch(e.target.value)}
+                                        placeholder="输入中文/English/语言代码搜索"
+                                        className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white text-sm"
+                                    />
+                                    <div
+                                        className="mt-2 overflow-y-auto overscroll-contain bg-zinc-800 border border-zinc-700 rounded-lg touch-pan-y"
+                                        style={{ maxHeight: `${translationListMaxHeight}px` }}
+                                        onWheel={(e) => e.stopPropagation()}
+                                    >
+                                        {filteredTranslationLanguages.map((language) => (
+                                            <button
+                                                key={language.code}
+                                                type="button"
+                                                onClick={() => setTranslationTargetLanguage(language.code)}
+                                                className={`w-full px-3 py-2 text-left text-xs border-b border-zinc-700/60 last:border-b-0 hover:bg-zinc-700 ${translationTargetLanguage.toLowerCase() === language.code.toLowerCase()
+                                                    ? 'bg-teal-700/30 text-teal-300'
+                                                    : 'text-zinc-300'
+                                                    }`}
+                                            >
+                                                {language.label} ({language.labelEn}) · {language.code}
+                                            </button>
+                                        ))}
+                                        {filteredTranslationLanguages.length === 0 && (
+                                            <div className="px-3 py-2 text-xs text-zinc-500">未找到匹配语言</div>
+                                        )}
+                                    </div>
+                                </div>
+                                <p className="text-xs text-zinc-500 mb-2">
+                                    当前输出目标：{currentTranslationTargetConfig.label} ({currentTranslationTargetConfig.labelEn})
+                                </p>
+                                <p className="text-xs text-zinc-500 mb-2">
+                                    支持输入任意语言代码（如 de / pt-BR / ar），不限于下拉建议项
+                                </p>
                                 <div className="flex gap-2">
                                     {(['neutral', 'suggestive', 'collaborative'] as ToneLevel[]).map(tone => {
                                         const config = TONE_CONFIG[tone];
@@ -1342,7 +1502,7 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                                 </p>
                             </div>
                         </div>
-                        <div className="flex justify-end gap-2 mt-4">
+                        <div className={`${isCompactModal ? 'px-4 py-3' : 'px-6 py-4'} border-t border-zinc-700/80 flex justify-end gap-2 shrink-0`}>
                             <button
                                 onClick={() => setShowProjectModal(false)}
                                 className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors"
@@ -1357,7 +1517,68 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
+            )}
+
+            {/* 功能说明弹窗 */}
+            {showUpdateNotes && typeof document !== 'undefined' && createPortal(
+                <div
+                    className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[2147483647] flex items-center justify-center p-4"
+                    onClick={closeUpdateNotes}
+                >
+                    <div
+                        className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-950/30 border border-emerald-700/40 rounded-2xl shadow-2xl max-w-md w-full max-h-[58vh] overflow-hidden flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-4 py-3 border-b border-emerald-800/30 flex items-start justify-between bg-gradient-to-r from-emerald-900/20 to-transparent">
+                            <div className="flex items-start gap-4">
+                                <div className="bg-emerald-500/20 rounded-xl p-2 mt-0.5">
+                                    <Sparkles className="text-emerald-400 w-5 h-5" fill="currentColor" />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-emerald-400">功能说明</h2>
+                                    <p className="text-sm text-zinc-400 mt-1">图片审核工具是做什么的</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={closeUpdateNotes}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors"
+                            >
+                                知道了
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-4 py-3">
+                            <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50 space-y-3">
+                                <div>
+                                    <p className="text-xs text-emerald-300 font-semibold mb-1">1. 导入与分组</p>
+                                    <ul className="text-sm text-zinc-300 leading-relaxed space-y-1 list-disc list-inside">
+                                        <li>支持拖拽、粘贴、批量导入图片。</li>
+                                        <li>可多选图片创建分组，便于同类问题一起审核。</li>
+                                    </ul>
+                                </div>
+
+                                <div>
+                                    <p className="text-xs text-emerald-300 font-semibold mb-1">2. 审核与标注</p>
+                                    <ul className="text-sm text-zinc-300 leading-relaxed space-y-1 list-disc list-inside">
+                                        <li>状态分为：合格、有建议、不合格。</li>
+                                        <li>支持在图片上标注问题区域，并填写“问题 + 建议”双栏反馈。</li>
+                                    </ul>
+                                </div>
+
+                                <div>
+                                    <p className="text-xs text-emerald-300 font-semibold mb-1">3. 翻译与导出</p>
+                                    <ul className="text-sm text-zinc-300 leading-relaxed space-y-1 list-disc list-inside">
+                                        <li>可批量翻译英文反馈，便于跨语言反馈建议。</li>
+                                        <li>支持导出 PDF、文本、HTML 报告，以及 Gyazo 在线分享链接。</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
 
             {/* 加载指示器 */}

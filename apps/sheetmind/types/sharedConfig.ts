@@ -130,6 +130,7 @@ export interface SharedConfig {
     imageColumn: string;              // 图片列
     linkColumn: string;               // 链接列
     accountColumn: string;            // 账号列
+    detailColumn?: string;            // 右键完整内容默认列
 
     // === 筛选设置 ===
     filtersEnabled?: boolean;         // 是否启用筛选（日期+自定义+数字）
@@ -143,6 +144,9 @@ export interface SharedConfig {
     // === 高亮设置 ===
     highlightEnabled?: boolean;       // 是否启用高亮
     highlightRules: HighlightRule[];  // 高亮规则
+
+    // === 分组排序 ===
+    groupOrder?: string[];            // 手动分组排序顺序
 }
 
 // 配置版本/预设
@@ -179,6 +183,7 @@ export const getDefaultSharedConfig = (): SharedConfig => ({
     imageColumn: '',
     linkColumn: '',
     accountColumn: '',
+    detailColumn: '',
     // 筛选
     filtersEnabled: true,
     customFilters: [],
@@ -189,4 +194,6 @@ export const getDefaultSharedConfig = (): SharedConfig => ({
     // 高亮
     highlightEnabled: true,
     highlightRules: [],
+    // 分组排序
+    groupOrder: [],
 });

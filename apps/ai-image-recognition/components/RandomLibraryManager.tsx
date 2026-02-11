@@ -140,6 +140,15 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
     // 同步刷新状态
     const [isSyncing, setIsSyncing] = useState(false);
 
+    // 快捷模式下隐藏高级工具弹窗，避免通过残留状态显示
+    useEffect(() => {
+        if (workMode === 'quick') {
+            setShowAiCategoryModal(false);
+            setShowInstructionToLibModal(false);
+            setShowImageToLibModal(false);
+        }
+    }, [workMode]);
+
     // 指令转库功能状态
     const [showInstructionToLibModal, setShowInstructionToLibModal] = useState(false);
     const [instructionToLibInput, setInstructionToLibInput] = useState(''); // 用户粘贴的通用指令
@@ -294,20 +303,38 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
                     return;
                 }
 
-                // 更新库数据
-                let updatedLibraries: RandomLibrary[] = [];
-                const linkedInstructions: Record<string, string> = {};
-
+                // Build a map of refreshed libraries
+                const refreshedMap = new Map<string, RandomLibrary>();
                 for (const masterSheet of refreshedSheets) {
                     for (const lib of masterSheet.libraries) {
-                        const existing = updatedLibraries.find(l => l.name === lib.name && l.sourceSheet === lib.sourceSheet);
-                        if (existing) {
-                            existing.values = lib.values;
-                            existing.valuesWithCategory = lib.valuesWithCategory;
-                        } else {
-                            updatedLibraries.push(lib);
-                        }
+                        const key = `${lib.sourceSheet || ''}::${lib.name}`;
+                        refreshedMap.set(key, lib);
                     }
+                }
+
+                // Update existing libraries: preserve user settings, only update values
+                const updatedLibraries = config.libraries.map(existingLib => {
+                    const key = `${existingLib.sourceSheet || ''}::${existingLib.name}`;
+                    const refreshedLib = refreshedMap.get(key);
+                    if (refreshedLib) {
+                        refreshedMap.delete(key);
+                        return {
+                            ...existingLib,
+                            values: refreshedLib.values,
+                            valuesWithCategory: refreshedLib.valuesWithCategory,
+                        };
+                    }
+                    return existingLib;
+                });
+
+                // Add any new libraries
+                for (const [, lib] of refreshedMap) {
+                    updatedLibraries.push(lib);
+                }
+
+                // Preserve existing linkedInstructions, update only refreshed ones
+                const linkedInstructions: Record<string, string> = { ...config.linkedInstructions };
+                for (const masterSheet of refreshedSheets) {
                     if (masterSheet.linkedInstruction) {
                         linkedInstructions[masterSheet.sheetName] = masterSheet.linkedInstruction;
                     }
@@ -1256,22 +1283,46 @@ ${targetCountry}
                 return;
             }
 
-            // 更新库数据
-            let updatedLibraries: RandomLibrary[] = [];
-            const linkedInstructions: Record<string, string> = {};
-
+            // Build a map of refreshed libraries by (name + sourceSheet) for matching
+            const refreshedMap = new Map<string, RandomLibrary>();
             for (const masterSheet of refreshedSheets) {
                 for (const lib of masterSheet.libraries) {
-                    const existing = updatedLibraries.find(l => l.name === lib.name && l.sourceSheet === lib.sourceSheet);
-                    if (existing) {
-                        // 合并值
-                        existing.values = lib.values;
-                        existing.valuesWithCategory = lib.valuesWithCategory;
-                    } else {
-                        updatedLibraries.push(lib);
-                    }
+                    const key = `${lib.sourceSheet || ''}::${lib.name}`;
+                    refreshedMap.set(key, lib);
                 }
-                // 保存创新指令
+            }
+
+            // Update existing libraries: preserve user settings, only update values
+            let updatedCount = 0;
+            const updatedLibraries = config.libraries.map(existingLib => {
+                const key = `${existingLib.sourceSheet || ''}::${existingLib.name}`;
+                const refreshedLib = refreshedMap.get(key);
+                if (refreshedLib) {
+                    refreshedMap.delete(key); // Mark as matched
+                    updatedCount++;
+                    // Preserve user settings (enabled, color, participationRate, pickMode, etc.)
+                    // Only update data fields (values, valuesWithCategory)
+                    return {
+                        ...existingLib,
+                        values: refreshedLib.values,
+                        valuesWithCategory: refreshedLib.valuesWithCategory,
+                    };
+                }
+                return existingLib; // Not refreshed, keep as-is
+            });
+
+            // Add any new libraries that didn't exist before
+            const newLibs: RandomLibrary[] = [];
+            for (const [, lib] of refreshedMap) {
+                newLibs.push(lib);
+            }
+            if (newLibs.length > 0) {
+                updatedLibraries.push(...newLibs);
+            }
+
+            // Preserve existing linkedInstructions, update only refreshed ones
+            const linkedInstructions: Record<string, string> = { ...config.linkedInstructions };
+            for (const masterSheet of refreshedSheets) {
                 if (masterSheet.linkedInstruction) {
                     linkedInstructions[masterSheet.sheetName] = masterSheet.linkedInstruction;
                 }
@@ -1283,7 +1334,7 @@ ${targetCountry}
                 linkedInstructions,
             });
 
-            toast.success(`同步完成！更新了 ${updatedLibraries.length} 个库`);
+            toast.success(`同步完成！更新了 ${updatedCount} 个库${newLibs.length > 0 ? `，新增 ${newLibs.length} 个` : ''}`);
         } catch (error: any) {
             console.error('同步失败:', error);
             toast.error(error.message || '同步失败');
@@ -1437,30 +1488,34 @@ ${targetCountry}
                                         </span>
                                     </div>
                                 </label>
-                                {/* AI智能分类按钮 */}
-                                <button
-                                    onClick={() => setShowAiCategoryModal(true)}
-                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center gap-1.5"
-                                >
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    AI智能分类
-                                </button>
-                                {/* 指令转库按钮 */}
-                                <button
-                                    onClick={() => setShowInstructionToLibModal(true)}
-                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg flex items-center gap-1.5"
-                                >
-                                    <ArrowRightLeft className="w-3.5 h-3.5" />
-                                    指令转库
-                                </button>
-                                {/* 图片转库按钮 */}
-                                <button
-                                    onClick={() => setShowImageToLibModal(true)}
-                                    className="px-3 py-1.5 text-xs bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg flex items-center gap-1.5"
-                                >
-                                    <ImageIcon className="w-3.5 h-3.5" />
-                                    图片转库
-                                </button>
+                                {workMode !== 'quick' && (
+                                    <>
+                                        {/* AI智能分类按钮 */}
+                                        <button
+                                            onClick={() => setShowAiCategoryModal(true)}
+                                            className="px-3 py-1.5 text-xs bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg flex items-center gap-1.5"
+                                        >
+                                            <Sparkles className="w-3.5 h-3.5" />
+                                            AI智能分类
+                                        </button>
+                                        {/* 指令转库按钮 */}
+                                        <button
+                                            onClick={() => setShowInstructionToLibModal(true)}
+                                            className="px-3 py-1.5 text-xs bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg flex items-center gap-1.5"
+                                        >
+                                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                                            指令转库
+                                        </button>
+                                        {/* 图片转库按钮 */}
+                                        <button
+                                            onClick={() => setShowImageToLibModal(true)}
+                                            className="px-3 py-1.5 text-xs bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-lg flex items-center gap-1.5"
+                                        >
+                                            <ImageIcon className="w-3.5 h-3.5" />
+                                            图片转库
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1806,18 +1861,20 @@ ${targetCountry}
                         </div>
                     )}
 
-                    {/* 3. 过渡指令 - 只读显示 */}
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-zinc-500">过渡指令:</span>
-                            <span className="text-xs text-zinc-600">
-                                (连接创新指令和随机组合的文本，不可修改)
-                            </span>
+                    {/* 3. 过渡指令 - 快捷模式下隐藏 */}
+                    {workMode !== 'quick' && (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-zinc-500">过渡指令:</span>
+                                <span className="text-xs text-zinc-600">
+                                    (连接创新指令和随机组合的文本，不可修改)
+                                </span>
+                            </div>
+                            <div className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700 rounded text-zinc-400 min-h-[40px]">
+                                {DEFAULT_TRANSITION_INSTRUCTION}
+                            </div>
                         </div>
-                        <div className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700 rounded text-zinc-400 min-h-[40px]">
-                            {DEFAULT_TRANSITION_INSTRUCTION}
-                        </div>
-                    </div>
+                    )}
 
                     {/* 4. 输出格式 - 快捷模式下隐藏（使用默认格式） */}
                     {workMode !== 'quick' && (
@@ -1958,10 +2015,12 @@ ${targetCountry}
                                             <span className="w-3 h-3 rounded bg-green-500"></span>
                                             <span className="text-zinc-400">用户特殊要求</span>
                                         </span>
-                                        <span className="flex items-center gap-1.5">
-                                            <span className="w-3 h-3 rounded bg-yellow-500"></span>
-                                            <span className="text-zinc-400">过渡指令</span>
-                                        </span>
+                                        {workMode !== 'quick' && (
+                                            <span className="flex items-center gap-1.5">
+                                                <span className="w-3 h-3 rounded bg-yellow-500"></span>
+                                                <span className="text-zinc-400">过渡指令</span>
+                                            </span>
+                                        )}
                                         <span className="flex items-center gap-1.5">
                                             <span className="w-3 h-3 rounded bg-purple-500"></span>
                                             <span className="text-zinc-400">随机库组合</span>
@@ -2000,9 +2059,11 @@ ${targetCountry}
                                                     )}
 
                                                     {/* 过渡指令 */}
-                                                    <div className="p-2 rounded border-l-4 border-yellow-500 bg-yellow-900/20">
-                                                        <span className="text-yellow-300 whitespace-pre-wrap">{DEFAULT_TRANSITION_INSTRUCTION}</span>
-                                                    </div>
+                                                    {workMode !== 'quick' && (
+                                                        <div className="p-2 rounded border-l-4 border-yellow-500 bg-yellow-900/20">
+                                                            <span className="text-yellow-300 whitespace-pre-wrap">{DEFAULT_TRANSITION_INSTRUCTION}</span>
+                                                        </div>
+                                                    )}
 
                                                     {/* 随机库组合 */}
                                                     <div className="p-2 rounded border-l-4 border-purple-500 bg-purple-900/20">
@@ -2718,7 +2779,7 @@ ${targetCountry}
             )}
 
             {/* AI智能分类工具弹窗 */}
-            {showAiCategoryModal && (
+            {workMode !== 'quick' && showAiCategoryModal && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
                         <div className="border-b border-zinc-700 p-4 flex items-center justify-between">
@@ -3292,7 +3353,7 @@ ${aiCategoryOutputFormat === 1 ? `
             })()}
 
             {/* 指令转库弹窗 */}
-            {showInstructionToLibModal && (
+            {workMode !== 'quick' && showInstructionToLibModal && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
                         <div className="border-b border-zinc-700 p-4 flex items-center justify-between">
@@ -3452,8 +3513,8 @@ ${aiCategoryOutputFormat === 1 ? `
                             <section className="border-t border-zinc-700 pt-4 mt-4">
                                 <h3 className="text-sm font-medium text-zinc-300 mb-3 flex items-center gap-2">
                                     <span className="w-5 h-5 bg-orange-600 rounded-full text-xs flex items-center justify-center">★</span>
-                                    库本地化
-                                    <span className="text-xs text-zinc-500">将库内容调整为其他国家特色</span>
+                                    指令 + 库本地化
+                                    <span className="text-xs text-zinc-500">将基础指令和随机库内容一起调整为其他国家特色</span>
                                 </h3>
 
                                 {/* 数据来源说明 */}
@@ -3461,8 +3522,8 @@ ${aiCategoryOutputFormat === 1 ? `
                                     <p className="text-xs text-orange-300">
                                         💡 <strong>数据来源：</strong>
                                         {(instructionToLibResult || extractedBaseInstruction)
-                                            ? '使用上方解析结果，或在下方直接粘贴表格覆盖'
-                                            : '请在下方直接粘贴随机库表格（从 Google Sheets 复制）'}
+                                            ? '使用上方解析结果，AI 会同时本地化基础指令和随机库。也可在下方直接粘贴覆盖'
+                                            : '请在下方直接粘贴随机库表格（从 Google Sheets 复制），并粘贴基础指令以便一起本地化'}
                                     </p>
                                 </div>
 
@@ -3518,8 +3579,19 @@ ${aiCategoryOutputFormat === 1 ? `
 
                                 {/* 常用国家快捷按钮 */}
                                 <div className="flex gap-1.5 flex-wrap mb-3">
-                                    <span className="text-xs text-zinc-500">快捷：</span>
-                                    {['日本', '韩国', '美国', '法国', '英国', '泰国', '印度', '俄罗斯', '巴西', '墨西哥'].map(country => (
+                                    <span className="text-xs text-zinc-500 font-medium">🇪🇺 欧盟</span>
+                                    {['法国', '德国', '意大利', '西班牙', '荷兰', '波兰', '奥地利', '比利时', '瑞典', '葡萄牙', '希腊', '捷克', '爱尔兰', '立陶宛'].map(country => (
+                                        <button
+                                            key={country}
+                                            onClick={() => setTargetCountry(country)}
+                                            className={`px-2 py-0.5 text-xs rounded ${targetCountry === country ? 'bg-orange-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:bg-zinc-600'}`}
+                                        >
+                                            {country}
+                                        </button>
+                                    ))}
+                                    <span className="w-px h-4 bg-zinc-600 mx-1" />
+                                    <span className="text-xs text-zinc-500 font-medium">🌏 其他</span>
+                                    {['英国', '美国', '印度', '菲律宾', '乌克兰', '俄罗斯'].map(country => (
                                         <button
                                             key={country}
                                             onClick={() => setTargetCountry(country)}
@@ -3618,7 +3690,7 @@ ${aiCategoryOutputFormat === 1 ? `
             )}
 
             {/* 图片转库弹窗 */}
-            {showImageToLibModal && (
+            {workMode !== 'quick' && showImageToLibModal && (
                 <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
                     <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
                         <div className="border-b border-zinc-700 p-4 flex items-center justify-between">

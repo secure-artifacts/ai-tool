@@ -33,6 +33,8 @@ import {
 } from '../services/firebaseService';
 import { getGoogleAccessToken } from '@/services/authService';
 import { openExternalUrl } from '../utils/openExternal';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 interface MediaGalleryPanelProps {
     data: SheetData;
@@ -184,6 +186,8 @@ interface GalleryConfig {
     thumbnailFit: 'cover' | 'contain';  // 'cover' = fill grid, 'contain' = original ratio
     // Label overlay on hover
     showLabelOverlay: boolean;  // Show label overlay on thumbnail hover (default true)
+    // Hover preview - show enlarged image when hovering over thumbnail
+    hoverPreview: boolean;  // Enable hover-to-enlarge preview (default false)
     // Group notes - user-defined notes for each group
     groupNotes: Record<string, string>;  // Map of groupKey -> note text
     // Transpose horizontal data to vertical format
@@ -196,6 +200,7 @@ interface GalleryConfig {
     fuzzyRuleText?: string;    // Keyword merge rules (format: "keyword1,keyword2=group;...")
     // Display columns configuration
     displayColumns?: string[]; // Columns to display in detail view
+    detailColumn?: string; // Preferred full-content column for context menu
     // Pure image mode - extract all image URLs from any cell, ignore row/column structure
     pureImageMode?: boolean;
 }
@@ -730,6 +735,7 @@ const getDefaultConfig = (): GalleryConfig => ({
     showFavoriteIcon: true, // Show favorite icon on thumbnails
     showCategoryIcon: true, // Show category icon on thumbnails
     showLabelOverlay: false, // Show label overlay permanently (false=hover only)
+    hoverPreview: true, // Hover-to-enlarge preview enabled by default
     categoryOptions: ['安东尼奥', '边框设计', '成年男性', '成年女性', '祷告主词', '风景', '黑色背景', '家庭', '教堂', '旧纸张', '卡通插画耶稣', '卡通人物', '蜡烛', '老人', '卢西亚', '玛丽亚', '玛丽亚骑驴', '玙瑰花', '年轻人', '其他', '神父', '圣家族', '圣丽塔', '圣婴耶稣', '十字架', '石头石板', '手拿纸', '书本', '特蔕莎', '天使', '小学生/学生', '修女', '耶稣帮助人', '耶稣骑驴', '婴儿/幼儿', '游行', '灾难', '知更鸟', '主耶稣', '文档'], // Default: 画面细节分类预设
     categoryTargetColumn: CATEGORY_COLUMN, // Fixed to column B
     // Thumbnail display mode
@@ -743,6 +749,7 @@ const getDefaultConfig = (): GalleryConfig => ({
     highlightEnabled: true, // Default: highlight enabled
     fuzzyRuleText: '',     // Default: no fuzzy rules
     displayColumns: [],    // Default: no display columns
+    detailColumn: '',      // Default: auto pick
 });
 
 const normalizeGalleryConfig = (incoming?: Partial<GalleryConfig>): GalleryConfig => {
@@ -1030,6 +1037,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const effectiveImageColumn = effectivePureImageMode ? '图片' : (isUsingSharedConfig && sharedConfig!.imageColumn ? sharedConfig!.imageColumn : config.imageColumn);
     const effectiveLinkColumn = isUsingSharedConfig && sharedConfig!.linkColumn ? sharedConfig!.linkColumn : config.linkColumn;
     const effectiveAccountColumn = isUsingSharedConfig && sharedConfig!.accountColumn ? sharedConfig!.accountColumn : config.accountColumn;
+    const effectiveDetailColumn = isUsingSharedConfig && (sharedConfig?.detailColumn || '').trim()
+        ? (sharedConfig?.detailColumn || '').trim()
+        : (config.detailColumn || '').trim();
     const effectiveLabelColumns = (() => {
         const rawCols = isUsingSharedConfig && sharedConfig!.displayColumns.length > 0 ? sharedConfig!.displayColumns : config.labelColumns;
         // Sort: numeric/stats columns first, link/media columns last
@@ -1086,6 +1096,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             linkColumn: sharedConfig.linkColumn,
             accountColumn: sharedConfig.accountColumn,
             labelColumns: sharedConfig.displayColumns.length > 0 ? sharedConfig.displayColumns : prev.labelColumns,
+            detailColumn: (sharedConfig.detailColumn || prev.detailColumn || ''),
             customFilters: sharedConfig.customFilters,
             numFilters: sharedConfig.numFilters,
             sortRules: sharedConfig.sortRules,
@@ -1213,12 +1224,45 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         imageFormula: string; // The original cell value (formula)
     }
     const [contextMenu, setContextMenu] = useState<ContextMenuData | null>(null);
+    const [contextDetailColumn, setContextDetailColumn] = useState<string>('');
     const contextMenuRef = React.useRef<HTMLDivElement | null>(null);
     const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
     const contextMenuCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const contextDetailColumns = useMemo(() => {
+        if (!contextMenu) return [];
+        const rowKeys = Object.keys(contextMenu.row || {});
+        const textFirst = rowKeys.filter(col => /文案|描述|prompt|caption|copy|正文|标题|内容|text|script/i.test(col));
+        const ordered = [effectiveDetailColumn, ...textFirst, ...effectiveLabelColumns, ...rowKeys];
+        return ordered.filter((col, idx, arr) =>
+            !!col &&
+            col !== effectiveImageColumn &&
+            col !== effectiveLinkColumn &&
+            arr.indexOf(col) === idx
+        );
+    }, [contextMenu, effectiveDetailColumn, effectiveLabelColumns, effectiveImageColumn, effectiveLinkColumn]);
+
+    const pickDefaultContextDetailColumn = useCallback((row: DataRow): string => {
+        const rowKeys = Object.keys(row || {});
+        const textFirst = rowKeys.filter(col => /文案|描述|prompt|caption|copy|正文|标题|内容|text|script/i.test(col));
+        const ordered = [effectiveDetailColumn, ...textFirst, ...effectiveLabelColumns, ...rowKeys];
+        const validColumns = ordered.filter((col, idx, arr) =>
+            !!col &&
+            col !== effectiveImageColumn &&
+            col !== effectiveLinkColumn &&
+            arr.indexOf(col) === idx
+        );
+        if (effectiveDetailColumn && validColumns.includes(effectiveDetailColumn)) {
+            return effectiveDetailColumn;
+        }
+        const firstNonEmpty = validColumns.find(col => String(row[col] ?? '').trim().length > 0);
+        return firstNonEmpty || validColumns[0] || '';
+    }, [effectiveDetailColumn, effectiveLabelColumns, effectiveImageColumn, effectiveLinkColumn]);
+
     // Gallery collapsed groups (for grouped thumbnails - default expanded, track collapsed)
     const [collapsedGalleryGroups, setCollapsedGalleryGroups] = useState<Set<string>>(new Set());
+    // Manual group order for reordering groups (stores ordered group keys)
+    const [manualGroupOrder, setManualGroupOrder] = useState<string[]>([]);
 
     // Editing group note state (groupKey being edited, null if not editing)
     const [editingGroupNote, setEditingGroupNote] = useState<string | null>(null);
@@ -1346,6 +1390,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         'linkColumn',
         'accountColumn',
         'labelColumns',
+        'detailColumn',
         'customFilters',
         'numFilters',
         'sortRules',
@@ -2434,6 +2479,12 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             needsUpdate = true;
         }
 
+        // Clean detailColumn
+        if (config.detailColumn && !availableCols.has(config.detailColumn)) {
+            updates.detailColumn = '';
+            needsUpdate = true;
+        }
+
         // Clean imageColumn
         if (config.imageColumn && !availableCols.has(config.imageColumn)) {
             updates.imageColumn = '';
@@ -2618,6 +2669,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 : '',
             linkColumn: availableColumns.includes(preset.config.linkColumn)
                 ? preset.config.linkColumn
+                : '',
+            detailColumn: availableColumns.includes(preset.config.detailColumn || '')
+                ? preset.config.detailColumn
                 : '',
             labelColumns: preset.config.labelColumns?.filter(col => availableColumns.includes(col)) || [],
             sortRules: preset.config.sortRules?.filter(rule => !rule.column || availableColumns.includes(rule.column)) || [],
@@ -2940,7 +2994,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             imageUrl,
             imageFormula
         });
-    }, [config.imageColumn]);
+        setContextDetailColumn(pickDefaultContextDetailColumn(row));
+    }, [config.imageColumn, pickDefaultContextDetailColumn]);
 
     // Close context menu on click outside
     React.useEffect(() => {
@@ -2950,6 +3005,16 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             return () => document.removeEventListener('click', handleClick);
         }
     }, [contextMenu]);
+
+    React.useEffect(() => {
+        if (!contextMenu) {
+            setContextDetailColumn('');
+            return;
+        }
+        if (!contextDetailColumn || contextMenu.row[contextDetailColumn] === undefined) {
+            setContextDetailColumn(pickDefaultContextDetailColumn(contextMenu.row));
+        }
+    }, [contextMenu, contextDetailColumn, pickDefaultContextDetailColumn]);
 
     React.useLayoutEffect(() => {
         if (!contextMenu) {
@@ -4327,8 +4392,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [autoSyncCategoriesToSheet]); // Only trigger when toggle changes
 
-    // Hover handlers with delay
+    // Hover handlers with delay (gated by hoverPreview toggle)
     const handleThumbnailMouseEnter = useCallback((imageUrl: string, e: React.MouseEvent) => {
+        if (!config.hoverPreview) return; // Skip if hover preview is disabled
         if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
         hoverTimerRef.current = setTimeout(() => {
@@ -4336,7 +4402,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             setHoverPosition({ x: e.clientX, y: e.clientY });
             setThumbnailRect(rect);
         }, 200); // 200ms delay
-    }, []);
+    }, [config.hoverPreview]);
 
     const handleThumbnailMouseLeave = useCallback(() => {
         if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
@@ -4775,6 +4841,132 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     React.useEffect(() => {
         copyDataToClipboardRef.current = copyDataToClipboard;
     }, [copyDataToClipboard]);
+
+    // Download all thumbnails as ZIP
+    const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number; status: string } | null>(null);
+
+    const downloadAllThumbnails = useCallback(async () => {
+        if (!effectiveImageColumn) {
+            alert('请先配置图片列');
+            return;
+        }
+
+        const primaryGroupColumn = effectiveGroupColumns[0];
+        const allImages: { url: string; group: string; index: number }[] = [];
+
+        processedRows.forEach((row, idx) => {
+            const imageUrl = extractImageUrl(row[effectiveImageColumn]);
+            if (!imageUrl) return;
+            const group = primaryGroupColumn
+                ? String(row[primaryGroupColumn] || '未分组').replace(/[\/\\:*?"<>|]/g, '_')
+                : '';
+            allImages.push({ url: imageUrl, group, index: idx });
+        });
+
+        if (allImages.length === 0) {
+            alert('没有找到可下载的图片');
+            return;
+        }
+
+        if (!confirm(`确定下载 ${allImages.length} 张缩略图？\n${primaryGroupColumn ? '将按分组建立子文件夹' : '所有图片在同一目录'}`)) {
+            return;
+        }
+
+        const zip = new JSZip();
+        let completed = 0;
+        let failed = 0;
+        const total = allImages.length;
+        const concurrency = 4; // 并发下载数（canvas方式稍减少并发）
+
+        setDownloadProgress({ current: 0, total, status: '准备下载...' });
+
+        // Group images by folder
+        const groupCounters: Record<string, number> = {};
+
+        // 检测是否在 Electron 环境（无 CORS 限制）
+        const inElectron = !!(window as any).electronCache?.isElectron;
+
+        // 获取文件扩展名
+        const getExtFromUrl = (url: string, contentType?: string): string => {
+            if (contentType) {
+                if (contentType.includes('png')) return 'png';
+                if (contentType.includes('webp')) return 'webp';
+                if (contentType.includes('gif')) return 'gif';
+                if (contentType.includes('jpeg') || contentType.includes('jpg')) return 'jpg';
+            }
+            const match = url.match(/\.(png|webp|gif|jpeg|jpg)($|\?)/i);
+            if (match) return match[1].toLowerCase();
+            return 'jpg';
+        };
+
+        // 通过本地代理下载图片（绕过 CORS）
+        const fetchViaLocalProxy = async (url: string): Promise<{ blob: Blob; ext: string }> => {
+            const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(url)}`;
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error(`Proxy: ${response.status}`);
+            const blob = await response.blob();
+            const ext = getExtFromUrl(url, response.headers.get('content-type') || '');
+            return { blob, ext };
+        };
+
+        // 直接 fetch（Electron 环境）
+        const fetchDirect = async (url: string): Promise<{ blob: Blob; ext: string }> => {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            const ext = getExtFromUrl(url, response.headers.get('content-type') || '');
+            return { blob, ext };
+        };
+
+        const downloadOne = async (img: typeof allImages[0]) => {
+            try {
+                let result: { blob: Blob; ext: string };
+
+                if (inElectron) {
+                    result = await fetchDirect(img.url);
+                } else {
+                    result = await fetchViaLocalProxy(img.url);
+                }
+
+                // Build filename with counter per group
+                const folder = img.group || '';
+                const counterKey = folder || '__root__';
+                groupCounters[counterKey] = (groupCounters[counterKey] || 0) + 1;
+                const filename = `${String(groupCounters[counterKey]).padStart(4, '0')}.${result.ext}`;
+                const path = folder ? `${folder}/${filename}` : filename;
+
+                zip.file(path, result.blob);
+                completed++;
+                setDownloadProgress({ current: completed, total, status: `下载中 ${completed}/${total}` });
+            } catch (err) {
+                console.warn(`下载失败: ${img.url}`, err);
+                failed++;
+                completed++;
+                setDownloadProgress({ current: completed, total, status: `下载中 ${completed}/${total} (${failed} 失败)` });
+            }
+        };
+
+        // Process in batches for concurrency control
+        for (let i = 0; i < allImages.length; i += concurrency) {
+            const batch = allImages.slice(i, i + concurrency);
+            await Promise.all(batch.map(downloadOne));
+        }
+
+        setDownloadProgress({ current: total, total, status: '正在打包 ZIP...' });
+
+        try {
+            const content = await zip.generateAsync({ type: 'blob' });
+            const zipName = `缩略图_${new Date().toISOString().slice(0, 10)}_${allImages.length}张.zip`;
+            saveAs(content, zipName);
+            setDownloadProgress(null);
+            setCopyFeedback(`✅ 已下载 ${allImages.length - failed} 张图片${failed > 0 ? `（${failed} 张失败）` : ''}`);
+            setTimeout(() => setCopyFeedback(null), 3000);
+        } catch (err) {
+            console.error('ZIP 生成失败:', err);
+            setDownloadProgress(null);
+            alert('ZIP 打包失败，请重试');
+        }
+    }, [processedRows, effectiveImageColumn, effectiveGroupColumns, extractImageUrl]);
 
     // Copy view layout to clipboard (grouped thumbnails in grid format)
     const copyViewLayoutToClipboard = useCallback((columnsPerRow: number, includeExtraData: boolean, selectedColumns: string[], applyOverrides: boolean) => {
@@ -6454,6 +6646,23 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         >
                                             <Image size={10} /> 复制视图布局
                                         </button>
+                                        <button
+                                            onClick={downloadAllThumbnails}
+                                            disabled={!!downloadProgress}
+                                            className="w-full py-1.5 text-[10px] bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-70 flex items-center justify-center gap-1 tooltip-bottom"
+                                            data-tip="下载当前筛选后的所有图片为 ZIP 压缩包"
+                                        >
+                                            {downloadProgress ? (
+                                                <>
+                                                    <Loader2 size={10} className="animate-spin" />
+                                                    {downloadProgress.status}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Download size={10} /> 下载所有缩略图 ({processedRows.length})
+                                                </>
+                                            )}
+                                        </button>
                                         <div className="grid grid-cols-2 gap-2">
                                             <button
                                                 onClick={syncAllNotesToSheet}
@@ -6728,6 +6937,19 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                 />
                                 <label htmlFor="showCategoryIcon" className="text-xs text-slate-600">
                                     显示媒体标签按钮 <Tag size={12} className="inline ml-1" />
+                                </label>
+                            </div>
+                            {/* Hover Preview Toggle */}
+                            <div className="flex items-center justify-between mt-2">
+                                <span className="text-xs text-slate-600">悬浮放大缩略图</span>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={config.hoverPreview}
+                                        onChange={() => updateConfig({ hoverPreview: !config.hoverPreview })}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-9 h-5 bg-slate-300 peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500"></div>
                                 </label>
                             </div>
                         </div>
@@ -8362,6 +8584,18 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                     });
                                                 }
 
+                                                // Apply manual group order if set
+                                                if (manualGroupOrder.length > 0) {
+                                                    filteredGroups = filteredGroups.sort((a, b) => {
+                                                        const idxA = manualGroupOrder.indexOf(a[0]);
+                                                        const idxB = manualGroupOrder.indexOf(b[0]);
+                                                        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                                                        if (idxA !== -1) return -1;
+                                                        if (idxB !== -1) return 1;
+                                                        return 0; // preserve natural sort for unlisted
+                                                    });
+                                                }
+
                                                 if (filteredGroups.length === 0) {
                                                     return (
                                                         <div className="flex flex-col items-center justify-center py-20 text-slate-400">
@@ -8925,7 +9159,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 )}
                                                             </div>
                                                         )}
-                                                        {filteredGroups.map(([groupKey, rows]) => {
+                                                        {filteredGroups.map(([groupKey, rows], groupIdx) => {
                                                             // Default is expanded, collapsed only if in collapsedGalleryGroups set
                                                             const isExpanded = !collapsedGalleryGroups.has(groupKey);
                                                             const imageCount = rows.filter(r => extractImageUrl(r[effectiveImageColumn])).length;
@@ -9002,6 +9236,38 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             )}
                                                                         </div>
                                                                         <div className="flex items-center gap-1 flex-shrink-0">
+                                                                            {/* Move group up/down buttons */}
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (groupIdx === 0) return;
+                                                                                    const allKeys = filteredGroups.map(g => g[0]);
+                                                                                    const newOrder = [...allKeys];
+                                                                                    [newOrder[groupIdx - 1], newOrder[groupIdx]] = [newOrder[groupIdx], newOrder[groupIdx - 1]];
+                                                                                    setManualGroupOrder(newOrder);
+                                                                                }}
+                                                                                disabled={groupIdx === 0}
+                                                                                className={`p-1 rounded transition-colors tooltip-bottom ${groupIdx === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}
+                                                                                data-tip="上移"
+                                                                            >
+                                                                                <ArrowUp size={13} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    if (groupIdx === filteredGroups.length - 1) return;
+                                                                                    const allKeys = filteredGroups.map(g => g[0]);
+                                                                                    const newOrder = [...allKeys];
+                                                                                    [newOrder[groupIdx], newOrder[groupIdx + 1]] = [newOrder[groupIdx + 1], newOrder[groupIdx]];
+                                                                                    setManualGroupOrder(newOrder);
+                                                                                }}
+                                                                                disabled={groupIdx === filteredGroups.length - 1}
+                                                                                className={`p-1 rounded transition-colors tooltip-bottom ${groupIdx === filteredGroups.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'}`}
+                                                                                data-tip="下移"
+                                                                            >
+                                                                                <ArrowDown size={13} />
+                                                                            </button>
+                                                                            <div className="w-px h-4 bg-slate-200 mx-0.5"></div>
                                                                             {/* Copy group data button */}
                                                                             <button
                                                                                 onClick={(e) => {
@@ -10667,11 +10933,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 contextMenu && (
                     <div
                         ref={contextMenuRef}
-                        className="fixed z-[100] bg-white rounded-lg shadow-2xl border border-slate-200 py-1 min-w-[180px] animate-in fade-in zoom-in-95 duration-100"
+                        className="fixed z-[100] bg-white rounded-lg shadow-2xl border border-slate-200 py-1 w-[360px] max-w-[calc(100vw-16px)] animate-in fade-in zoom-in-95 duration-100"
                         style={{
                             left: contextMenuPos ? contextMenuPos.x : contextMenu.x,
                             top: contextMenuPos ? contextMenuPos.y : contextMenu.y,
-                            maxHeight: '420px',
+                            maxHeight: 'min(560px, 78vh)',
                             overflowY: 'auto'
                         }}
                         onClick={(e) => e.stopPropagation()}
@@ -10741,6 +11007,48 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                         </button>
                                     );
                                 })}
+                            </>
+                        )}
+
+                        {/* Full text preview area for selected column */}
+                        {contextDetailColumns.length > 0 && (
+                            <>
+                                <div className="border-t border-slate-100 my-1"></div>
+                                <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">完整内容</div>
+                                <div className="px-3 pb-2 space-y-2">
+                                    <select
+                                        value={contextDetailColumn}
+                                        onChange={(e) => setContextDetailColumn(e.target.value)}
+                                        className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 bg-slate-50 text-slate-700 focus:outline-none focus:border-blue-400"
+                                    >
+                                        {contextDetailColumns.map(col => (
+                                            <option key={col} value={col}>{col}</option>
+                                        ))}
+                                    </select>
+                                    <div className="max-h-36 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
+                                        {String(contextMenu.row[contextDetailColumn] ?? '').trim() ? (
+                                            <pre className="text-xs text-slate-700 whitespace-pre-wrap break-words font-sans m-0">
+                                                {String(contextMenu.row[contextDetailColumn])}
+                                            </pre>
+                                        ) : (
+                                            <span className="text-xs text-slate-400">(空)</span>
+                                        )}
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            const fullText = String(contextMenu.row[contextDetailColumn] ?? '');
+                                            if (!fullText.trim()) return;
+                                            copyTextToClipboard(fullText, `${contextDetailColumn}完整内容`);
+                                        }}
+                                        disabled={!String(contextMenu.row[contextDetailColumn] ?? '').trim()}
+                                        className={`w-full px-2 py-1.5 text-xs rounded-md border transition-colors ${String(contextMenu.row[contextDetailColumn] ?? '').trim()
+                                            ? 'text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100'
+                                            : 'text-slate-300 border-slate-200 bg-slate-50 cursor-not-allowed'
+                                            }`}
+                                    >
+                                        复制当前完整内容
+                                    </button>
+                                </div>
                             </>
                         )}
 

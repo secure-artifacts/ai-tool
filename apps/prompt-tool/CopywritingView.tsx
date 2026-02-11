@@ -288,7 +288,7 @@ const VOICE_MODE_SYSTEM_INSTRUCTION = `你是一个专业的配音文案标注�
 
 断行规则：
 - 断句合理，符合语言习惯
-- 每行不要太长（建议不超过30个字符/字母 + 空格），便于字幕显示
+- 每行不超过 4 个单词，便于字幕显示
 - 也不要太短（至少有完整的意思单元）
 - 在 [pause] 标签处自然断行
 - 断句结果不包含情感标签，只保留纯文本
@@ -2428,8 +2428,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 onClick={handleSaveToSheet}
                                 disabled={sheetSaveStatus === 'saving'}
                                 className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors border ${sheetSaveStatus === 'success' ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50' :
-                                        sheetSaveStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-500/30' :
-                                            'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border-blue-600/30'
+                                    sheetSaveStatus === 'error' ? 'bg-red-600/20 text-red-400 border-red-500/30' :
+                                        'bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border-blue-600/30'
                                     }`}
                                 title={sheetSaveStatus === 'error' ? sheetSaveError : '保存到 Google Sheets'}
                             >

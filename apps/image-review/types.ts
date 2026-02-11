@@ -62,9 +62,11 @@ export interface Annotation {
 // 翻译结果
 export interface TranslationResult {
     original: string;           // 原始中文
-    english: string;            // 英文翻译
+    english: string;            // 目标语言翻译（兼容旧字段名）
     backTranslation: string;    // 回译中文
     isAccurate: boolean;        // 是否准确（AI 判断）
+    targetLanguage?: string;    // 目标语言代码（支持任意 code，如 en/de/pt-BR/ar）
+    targetLanguageLabel?: string; // 目标语言名称（English/German/...）
     timestamp: number;
 }
 

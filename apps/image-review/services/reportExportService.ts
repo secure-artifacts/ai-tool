@@ -6,25 +6,24 @@
 import { ImageReview, ImageGroup, ProjectInfo, REVIEW_STATUS_CONFIG, SEVERITY_CONFIG, FeedbackItem } from '../types';
 import { compressBase64Image } from './imageCompressService';
 
+const isRemoteImageUrl = (url?: string): boolean => {
+    return Boolean(url && (url.startsWith('http://') || url.startsWith('https://')));
+};
+
 /**
- * 获取可用的图片源 - 优先 Gyazo URL，然后 base64，最后 HTTP URL
- * blob URL 在导出后无法使用，所以返回空占位
+ * 获取远程图片源（Gyazo 或 HTTP）
+ */
+const getRemoteImageSrc = (img: ImageReview): string => {
+    if (img.gyazoUrl) return img.gyazoUrl;
+    if (isRemoteImageUrl(img.imageUrl)) return img.imageUrl;
+    return '';
+};
+
+/**
+ * 获取可用图片源（快照场景使用）
  */
 const getImageSrc = (img: ImageReview): string => {
-    // 优先使用 Gyazo 永久链接（最可靠）
-    if (img.gyazoUrl) {
-        return img.gyazoUrl;
-    }
-    // 其次使用 base64 数据（离线可用但文件大）
-    if (img.base64Data) {
-        return img.base64Data;
-    }
-    // 如果是在线图片 URL（http/https），可以直接使用
-    if (img.imageUrl && (img.imageUrl.startsWith('http://') || img.imageUrl.startsWith('https://'))) {
-        return img.imageUrl;
-    }
-    // blob URL 或本地路径在导出后无法访问
-    return '';
+    return getRemoteImageSrc(img) || img.base64Data || '';
 };
 
 // 报告数据结构
@@ -127,8 +126,9 @@ export const generateTextReport = (
     projectInfo: ProjectInfo,
     useEnglish: boolean = true
 ): string => {
-    // 默认生成中英对照版
-    return generateBilingualTextReport(images, projectInfo);
+    return useEnglish
+        ? generateEnglishTextReport(images, projectInfo)
+        : generateBilingualTextReport(images, projectInfo);
 };
 
 /**
@@ -206,6 +206,95 @@ export const generateBilingualTextReport = (
 };
 
 /**
+ * 生成纯英文纯文本报告
+ */
+export const generateEnglishTextReport = (
+    images: ImageReview[],
+    projectInfo: ProjectInfo
+): string => {
+    const summary = generateReportSummary(images);
+    const lines: string[] = [];
+
+    lines.push('===============================================================');
+    lines.push('                    IMAGE REVIEW REPORT');
+    lines.push('===============================================================');
+    lines.push('');
+    lines.push(`Project: ${projectInfo.name || '-'}`);
+    lines.push(`Batch: ${projectInfo.batchNumber || '-'}`);
+    lines.push(`Reviewer: ${projectInfo.reviewerName || '-'}`);
+    lines.push(`Date: ${projectInfo.reviewDate || '-'}`);
+    if (projectInfo.notes) lines.push(`Notes: ${projectInfo.notes}`);
+
+    lines.push('');
+    lines.push('---------------------------------------------------------------');
+    lines.push('SUMMARY');
+    lines.push('---------------------------------------------------------------');
+    lines.push(`Total: ${summary.total}`);
+    lines.push(`Approved: ${summary.approved}`);
+    lines.push(`Needs Revision: ${summary.revision}`);
+    lines.push(`Rejected: ${summary.rejected}`);
+    lines.push(`Pending: ${summary.pending}`);
+    lines.push('');
+    lines.push(`Critical: ${summary.criticalIssues}`);
+    lines.push(`Major: ${summary.majorIssues}`);
+    lines.push(`Minor: ${summary.minorIssues}`);
+    lines.push(`Suggestions: ${summary.suggestions}`);
+
+    const statusOrder = ['rejected', 'revision', 'pending', 'approved'] as const;
+    lines.push('');
+    lines.push('---------------------------------------------------------------');
+    lines.push('DETAILED FEEDBACK');
+    lines.push('---------------------------------------------------------------');
+
+    statusOrder.forEach(status => {
+        const statusImages = images.filter(img => img.status === status);
+        if (statusImages.length === 0) return;
+
+        lines.push('');
+        lines.push(`[${status.toUpperCase()}] (${statusImages.length})`);
+        lines.push('');
+
+        statusImages.forEach((img, imgIndex) => {
+            lines.push(`--- Image: ${img.originalInput || `Image ${imgIndex + 1}`} ---`);
+
+            if (img.feedbackItems.length === 0) {
+                lines.push('  (No feedback)');
+                lines.push('');
+                return;
+            }
+
+            img.feedbackItems.forEach((item, itemIndex) => {
+                const severityConfig = SEVERITY_CONFIG[item.severity];
+                lines.push(`  ${itemIndex + 1}. [${severityConfig.icon} ${severityConfig.labelEn}]`);
+
+                if (item.suggestionTranslation?.english) {
+                    lines.push(`     Suggestion: ${item.suggestionTranslation.english}`);
+                } else if (item.suggestionCn) {
+                    lines.push('     Suggestion: [Translation pending]');
+                }
+
+                if (item.problemTranslation?.english) {
+                    lines.push(`     Problem: ${item.problemTranslation.english}`);
+                } else if (item.problemCn) {
+                    lines.push('     Problem: [Translation pending]');
+                }
+
+                if (item.colorHex) lines.push(`     Color: ${item.colorHex}`);
+                if (item.referenceImageBase64 || item.referenceImageUrl) lines.push('     Reference Image: [Attached]');
+            });
+
+            lines.push('');
+        });
+    });
+
+    lines.push('===============================================================');
+    lines.push('END OF REPORT');
+    lines.push('===============================================================');
+
+    return lines.join('\n');
+};
+
+/**
  * 生成带图片的 HTML 报告（中英对照版）
  */
 export const generateHTMLReport = (
@@ -234,24 +323,32 @@ export const generateBilingualHTMLReport = (
     const statusOrder = ['rejected', 'revision', 'pending', 'approved'] as const;
     const isEnglishOnly = language === 'english';
 
-    // 根据模式选择图片源获取函数
-    const getImgSrc = (img: ImageReview): string => {
+    const getImgSources = (img: ImageReview): { primary: string; fallback: string } => {
+        const remoteSrc = getRemoteImageSrc(img);
+        const localSrc = img.base64Data || '';
+
         if (mode === 'online') {
-            // 优先 Gyazo URL
-            if (img.gyazoUrl) return img.gyazoUrl;
-            if (img.imageUrl && (img.imageUrl.startsWith('http://') || img.imageUrl.startsWith('https://'))) {
-                return img.imageUrl;
-            }
-            return '';
-        } else {
-            // 优先 base64
-            if (img.base64Data) return img.base64Data;
-            if (img.gyazoUrl) return img.gyazoUrl;
-            if (img.imageUrl && (img.imageUrl.startsWith('http://') || img.imageUrl.startsWith('https://'))) {
-                return img.imageUrl;
-            }
-            return '';
+            // 在线模式优先远程，失败时自动回退到 base64
+            if (remoteSrc && localSrc) return { primary: remoteSrc, fallback: localSrc };
+            return { primary: remoteSrc || localSrc, fallback: '' };
         }
+
+        // 离线模式优先 base64，缺失时退回远程
+        if (localSrc && remoteSrc) return { primary: localSrc, fallback: remoteSrc };
+        return { primary: localSrc || remoteSrc, fallback: '' };
+    };
+
+    const escapeSingleQuote = (text: string): string => text.replace(/'/g, '&#39;');
+
+    const renderImageTag = (
+        sources: { primary: string; fallback: string },
+        altText: string,
+        fallbackText: string
+    ): string => {
+        if (!sources.primary) return '';
+
+        const fallbackAttr = sources.fallback ? ` data-fallback-src="${sources.fallback}"` : '';
+        return `<img src="${sources.primary}" alt="${altText}" loading="lazy" referrerpolicy="no-referrer"${fallbackAttr} onerror="if(this.dataset.fallbackSrc&&this.src!==this.dataset.fallbackSrc){const fb=this.dataset.fallbackSrc;this.dataset.fallbackSrc='';this.src=fb;return;}this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;color:#999;\\'>${escapeSingleQuote(fallbackText)}</div>'">`;
     };
 
     return `
@@ -430,12 +527,16 @@ export const generateBilingualHTMLReport = (
                 </div>
                 <div class="group-images-grid">
                     ${groupImages.map((img, imgIdx) => {
-                const imgSrc = getImgSrc(img);
+                        const sources = getImgSources(img);
                 return `
                         <div class="group-image-item">
                             <span class="image-index">#${imgIdx + 1}</span>
-                            ${imgSrc
-                        ? `<img src="${imgSrc}" alt="${img.originalInput || 'Image'}" onerror="this.style.display='none'">`
+                            ${sources.primary
+                        ? renderImageTag(
+                            sources,
+                            img.originalInput || 'Image',
+                            isEnglishOnly ? 'Image load failed' : '图片加载失败'
+                        )
                         : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;">⚠️</div>`
                     }
                         </div>
@@ -464,13 +565,17 @@ export const generateBilingualHTMLReport = (
             return `
                 <div class="section-title">${statusConfig.icon} ${statusLabel} (${statusImages.length})</div>
                 ${statusImages.map((img, imgIndex) => {
-                const imgSrc = getImgSrc(img);
+                const sources = getImgSources(img);
                 return `
                     <div class="image-card">
                         <div class="image-card-header">
                             <div class="image-preview">
-                                ${imgSrc
-                        ? `<img src="${imgSrc}" alt="${img.originalInput || 'Image'}" onerror="this.parentElement.innerHTML='<div style=\\'display:flex;align-items:center;justify-content:center;height:100%;color:#999;\\'>${isEnglishOnly ? 'Image load failed' : '图片加载失败'}</div>'">`
+                                ${sources.primary
+                        ? renderImageTag(
+                            sources,
+                            img.originalInput || 'Image',
+                            isEnglishOnly ? 'Image load failed' : '图片加载失败'
+                        )
                         : `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;font-size:12px;text-align:center;padding:10px;">${isEnglishOnly ? '⚠️ Image only visible in app' : '⚠️ 图片仅在应用内可视<br/>Image only visible in app'}</div>`
                     }
                             </div>
@@ -580,7 +685,8 @@ export const downloadPDFReport = async (
     useEnglish: boolean = true
 ): Promise<void> => {
     // 使用离线模式（base64）确保图片能在 PDF 中显示
-    const html = generateBilingualHTMLReport(images, projectInfo, 'offline');
+    const language: 'bilingual' | 'english' = useEnglish ? 'english' : 'bilingual';
+    const html = generateBilingualHTMLReport(images, projectInfo, 'offline', [], language);
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -596,6 +702,24 @@ export const downloadPDFReport = async (
 };
 
 /**
+ * 触发浏览器下载（兼容 Safari/Firefox）
+ */
+const triggerBlobDownload = (blob: Blob, filename: string): void => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+
+    setTimeout(() => {
+        if (link.parentNode) link.parentNode.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, 1000);
+};
+
+/**
  * 下载纯文本报告
  */
 export const downloadTextReport = (
@@ -603,14 +727,10 @@ export const downloadTextReport = (
     projectInfo: ProjectInfo,
     useEnglish: boolean = true
 ): void => {
-    const text = generateBilingualTextReport(images, projectInfo);
+    const text = generateTextReport(images, projectInfo, useEnglish);
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `review-report-${projectInfo.batchNumber || 'export'}.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const langLabel = useEnglish ? 'en' : 'bilingual';
+    triggerBlobDownload(blob, `review-report-${projectInfo.batchNumber || 'export'}-${langLabel}.txt`);
 };
 
 /**
@@ -621,8 +741,23 @@ export const copyReportToClipboard = async (
     projectInfo: ProjectInfo,
     useEnglish: boolean = true
 ): Promise<void> => {
-    const text = generateBilingualTextReport(images, projectInfo);
-    await navigator.clipboard.writeText(text);
+    const text = generateTextReport(images, projectInfo, useEnglish);
+
+    try {
+        await navigator.clipboard.writeText(text);
+        return;
+    } catch {
+        // Safari / 非安全上下文降级方案
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!copied) throw new Error('复制失败');
+    }
 };
 
 /**
@@ -699,13 +834,8 @@ export const downloadHTMLReport = async (
     const language: 'bilingual' | 'english' = isEnglishOnly ? 'english' : 'bilingual';
     const html = generateBilingualHTMLReport(processedImages, projectInfo, effectiveMode, [], language);
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
     const modeLabel = mode === 'online' ? 'online' : mode === 'compressed-english' ? 'english' : mode === 'compressed' ? 'compressed' : 'offline';
-    link.download = `review-report-${projectInfo.batchNumber || 'export'}-${modeLabel}.html`;
-    link.click();
-    URL.revokeObjectURL(url);
+    triggerBlobDownload(blob, `review-report-${projectInfo.batchNumber || 'export'}-${modeLabel}.html`);
 };
 
 /**
@@ -716,12 +846,12 @@ export const generateReportImageAndUploadToGyazo = async (
     projectInfo: ProjectInfo,
     uploadFn: (base64: string) => Promise<string | null>
 ): Promise<string | null> => {
-    // 生成 HTML 报告（使用离线模式，用 base64 确保图片能显示）
-    const html = generateBilingualHTMLReport(images, projectInfo, 'offline');
+    // 生成轻量分享快照（避免完整报告过长导致渲染/上传失败）
+    const html = generateGyazoShareSnapshotHTML(images, projectInfo);
 
     // 创建隐藏的 iframe 来渲染报告
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:800px;height:auto;border:none;';
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1000px;height:auto;border:none;';
     document.body.appendChild(iframe);
 
     try {
@@ -738,15 +868,19 @@ export const generateReportImageAndUploadToGyazo = async (
 
         // 使用 html2canvas 截图
         const html2canvas = (await import('html2canvas')).default;
-        const container = iframeDoc.querySelector('.container') as HTMLElement || iframeDoc.body;
+        const container =
+            iframeDoc.querySelector('.share-snapshot-container') as HTMLElement ||
+            (iframeDoc.querySelector('.container') as HTMLElement) ||
+            iframeDoc.body;
 
         console.log('[reportExportService] Container found:', !!container, 'size:', container?.offsetWidth, 'x', container?.offsetHeight);
+        const renderScale = images.length > 1000 ? 0.85 : images.length > 400 ? 0.95 : images.length > 120 ? 1.1 : 1.3;
 
         const canvas = await html2canvas(container, {
             useCORS: true,
             allowTaint: true,
             backgroundColor: '#f9fafb',
-            scale: 1.5, // 提高清晰度
+            scale: renderScale, // 根据图片量动态降低渲染压力
             logging: true // 开启日志以便调试
         });
 
@@ -790,4 +924,194 @@ export const generateReportImageAndUploadToGyazo = async (
         // 清理 iframe
         document.body.removeChild(iframe);
     }
+};
+
+/**
+ * Gyazo 分享专用：生成轻量快照 HTML
+ * 目标：在大量图片场景下保持可渲染、可上传、可阅读
+ */
+const generateGyazoShareSnapshotHTML = (
+    images: ImageReview[],
+    projectInfo: ProjectInfo
+): string => {
+    const summary = generateReportSummary(images);
+    const total = images.length;
+    const isCompact = total > 80;
+    const isUltraCompact = total > 400;
+    const isSummaryOnly = total > 1000;
+
+    const escapeHtml = (text: string): string => {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
+    const shorten = (text: string, max = 72): string => {
+        if (!text) return '';
+        return text.length > max ? `${text.slice(0, max)}...` : text;
+    };
+
+    const statusRank: Record<ImageReview['status'], number> = {
+        rejected: 0,
+        revision: 1,
+        pending: 2,
+        approved: 3,
+    };
+
+    // 优先抽取“有问题、反馈多”的图片作为快照样本
+    const sampledImages = [...images]
+        .sort((a, b) => {
+            const rankDiff = statusRank[a.status] - statusRank[b.status];
+            if (rankDiff !== 0) return rankDiff;
+            return b.feedbackItems.length - a.feedbackItems.length;
+        })
+        .slice(0, isSummaryOnly ? 80 : isUltraCompact ? 160 : isCompact ? 240 : total);
+
+    const hiddenCount = Math.max(0, total - sampledImages.length);
+
+    // 统计高频问题关键词（用于超大批量摘要）
+    const issueKeywordCounts = new Map<string, number>();
+    images.forEach((img) => {
+        img.feedbackItems.forEach((item) => {
+            const source = (item.problemCn || item.suggestionCn || '').trim();
+            if (!source) return;
+            const firstChunk = source.split(/[，。,.;；\n]/)[0].trim();
+            if (!firstChunk) return;
+            const keyword = shorten(firstChunk, 20);
+            issueKeywordCounts.set(keyword, (issueKeywordCounts.get(keyword) || 0) + 1);
+        });
+    });
+    const topIssues = [...issueKeywordCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6);
+
+    const rowsHtml = sampledImages.map((img, index) => {
+        const statusConfig = REVIEW_STATUS_CONFIG[img.status];
+        const itemCount = img.feedbackItems.length;
+        const firstProblem = img.feedbackItems.find(i => i.problemCn?.trim())?.problemCn || '';
+        const firstSuggestion = img.feedbackItems.find(i => i.suggestionCn?.trim())?.suggestionCn || '';
+        const title = img.originalInput || `Image ${index + 1}`;
+
+        if (isCompact) {
+            return `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${escapeHtml(shorten(title, 64))}</td>
+                    <td>${statusConfig.icon} ${statusConfig.label}</td>
+                    <td>${itemCount}</td>
+                    <td>${escapeHtml(shorten(firstProblem || firstSuggestion || '-', 64))}</td>
+                </tr>
+            `;
+        }
+
+        const imgSrc = getImageSrc(img);
+        return `
+            <div class="card">
+                <div class="thumb">
+                    ${imgSrc
+                ? `<img src="${imgSrc}" alt="${escapeHtml(title)}" onerror="this.parentElement.innerHTML='<span>图片加载失败</span>'" />`
+                : '<span>无可用图片源</span>'
+            }
+                </div>
+                <div class="content">
+                    <div class="title">#${index + 1} ${escapeHtml(shorten(title, 80))}</div>
+                    <div class="meta">${statusConfig.icon} ${statusConfig.label} · 反馈 ${itemCount} 条</div>
+                    <div class="line"><strong>问题：</strong>${escapeHtml(shorten(firstProblem || '-', 88))}</div>
+                    <div class="line"><strong>建议：</strong>${escapeHtml(shorten(firstSuggestion || '-', 88))}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>图片审核分享快照</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Microsoft YaHei',sans-serif; background:#f5f7fb; color:#111827; padding:24px; }
+    .share-snapshot-container { max-width: 980px; margin: 0 auto; background:#fff; border-radius:12px; padding:24px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); }
+    h1 { font-size: 22px; margin-bottom: 10px; color:#0f766e; }
+    .sub { color:#6b7280; font-size: 13px; margin-bottom: 14px; }
+    .stats { display:grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap:8px; margin-bottom: 16px; }
+    .stat { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:10px; font-size:12px; color:#374151; }
+    .stat b { display:block; margin-top:4px; font-size:16px; color:#111827; }
+    .note { padding:10px 12px; border-radius:8px; background:#ecfeff; border:1px solid #99f6e4; color:#0f766e; font-size:12px; margin-bottom:12px; }
+    .cards { display:flex; flex-direction:column; gap:10px; }
+    .card { display:flex; gap:12px; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#fafafa; }
+    .thumb { width:120px; height:90px; flex-shrink:0; background:#f3f4f6; display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:12px; }
+    .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .content { padding:10px; min-width:0; flex:1; }
+    .title { font-size:13px; font-weight:600; color:#111827; margin-bottom:4px; }
+    .meta { font-size:12px; color:#6b7280; margin-bottom:6px; }
+    .line { font-size:12px; color:#374151; line-height:1.45; margin:2px 0; }
+    table { width:100%; border-collapse: collapse; font-size:12px; }
+    th, td { border:1px solid #e5e7eb; padding:7px 8px; text-align:left; vertical-align:top; }
+    th { background:#f8fafc; color:#374151; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="share-snapshot-container">
+    <h1>图片审核分享快照</h1>
+    <div class="sub">
+      项目：${escapeHtml(projectInfo.name || '-')} · 批次：${escapeHtml(projectInfo.batchNumber || '-')} · 审核人：${escapeHtml(projectInfo.reviewerName || '-')} · 日期：${escapeHtml(projectInfo.reviewDate || '-')}
+    </div>
+
+    <div class="stats">
+      <div class="stat">总数<b>${summary.total}</b></div>
+      <div class="stat">✅ 合格<b>${summary.approved}</b></div>
+      <div class="stat">✏️ 有建议<b>${summary.revision}</b></div>
+      <div class="stat">❌ 不合格<b>${summary.rejected}</b></div>
+      <div class="stat">⏳ 待审<b>${summary.pending}</b></div>
+    </div>
+
+    ${isSummaryOnly
+            ? `<div class="note">图片数量超大（${summary.total} 张），已启用超大批量模式：仅输出摘要 + 高风险样本，确保分享链接可生成。</div>
+         ${topIssues.length > 0 ? `
+         <div style="margin-bottom:10px; border:1px solid #e5e7eb; border-radius:8px; padding:10px; background:#f8fafc;">
+           <div style="font-size:12px; font-weight:600; color:#334155; margin-bottom:6px;">高频问题关键词（Top ${topIssues.length}）</div>
+           <div style="display:flex; flex-wrap:wrap; gap:6px;">
+             ${topIssues.map(([k, c]) => `<span style="font-size:11px; background:#e2e8f0; color:#334155; padding:3px 8px; border-radius:999px;">${escapeHtml(k)} · ${c}</span>`).join('')}
+           </div>
+         </div>
+         ` : ''}
+         <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>样本图片</th>
+                <th>状态</th>
+                <th>反馈数</th>
+                <th>首条问题/建议</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+         ${hiddenCount > 0 ? `<div class="note" style="margin-top:10px;">其余 ${hiddenCount} 张图片未在快照展开。请使用 HTML 报告查看完整明细。</div>` : ''}`
+            : isCompact
+                ? `<div class="note">图片数量较多（${summary.total} 张），已自动使用紧凑表格快照，避免超长截图上传失败。</div>
+         <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>图片</th>
+                <th>状态</th>
+                <th>反馈数</th>
+                <th>首条问题/建议</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>`
+                : `<div class="cards">${rowsHtml}</div>`
+        }
+  </div>
+</body>
+</html>
+    `.trim();
 };

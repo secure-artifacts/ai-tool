@@ -1116,6 +1116,10 @@ nav button.active {
   color: #23e5c4;
 }
 
+.collapsed-nav-btn .nav-icon-skillGenerator {
+  color: #f97316;
+}
+
 .collapsed-nav-btn.active .material-icons {
   color: inherit;
 }

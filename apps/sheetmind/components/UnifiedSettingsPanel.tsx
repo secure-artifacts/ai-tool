@@ -412,10 +412,16 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
             if (defaultCols.length > 0) updates.displayColumns = defaultCols;
         }
 
+        // 默认完整内容列：优先文案/描述/prompt类字段
+        if (!config.detailColumn) {
+            const detailCol = data.columns.find(c => /文案|描述|prompt|caption|copy|正文|标题|内容|text|script/i.test(c));
+            if (detailCol) updates.detailColumn = detailCol;
+        }
+
         if (Object.keys(updates).length > 0) {
             onConfigChange({ ...config, ...updates });
         }
-    }, [data.columns, config.imageColumn, config.linkColumn, config.dateColumn, config.displayColumns, onConfigChange]);
+    }, [data.columns, config.imageColumn, config.linkColumn, config.dateColumn, config.displayColumns, config.detailColumn, onConfigChange]);
 
     // 获取列的唯一值
     const getUniqueValues = (column: string): string[] => {
@@ -676,6 +682,9 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                     }
                     if (config.displayColumns.length > 0) {
                         summaryItems.push({ label: '显示列', value: `${config.displayColumns.length}列`, tab: 'display', color: 'purple' });
+                    }
+                    if (config.detailColumn) {
+                        summaryItems.push({ label: '完整列', value: config.detailColumn, tab: 'display', color: 'purple' });
                     }
                     // 高亮
                     if (config.highlightRules.length > 0) {
@@ -1860,7 +1869,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                         <div className="space-y-2">
                             {/* 列选择器 */}
                             <div className="p-2 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
-                                <div className="grid grid-cols-3 gap-2">
+                                <div className="grid grid-cols-2 gap-2">
                                     <div>
                                         <label className="block text-[10px] text-purple-700 mb-0.5">图片列</label>
                                         <select
@@ -1895,6 +1904,19 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             className="w-full px-1.5 py-1 text-[11px] text-slate-800 bg-white border border-slate-200 rounded"
                                         >
                                             <option value="">选择...</option>
+                                            {data.columns.map(col => (
+                                                <option key={col} value={col}>{col}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] text-purple-700 mb-0.5">完整内容列</label>
+                                        <select
+                                            value={config.detailColumn || ''}
+                                            onChange={e => updateConfig({ detailColumn: e.target.value })}
+                                            className="w-full px-1.5 py-1 text-[11px] text-slate-800 bg-white border border-slate-200 rounded"
+                                        >
+                                            <option value="">自动（智能选择）</option>
                                             {data.columns.map(col => (
                                                 <option key={col} value={col}>{col}</option>
                                             ))}
@@ -1958,7 +1980,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                         className={`relative w-9 h-5 rounded-full transition-colors ${filtersEnabled ? 'bg-blue-500' : 'bg-slate-300'}`}
                                         title={filtersEnabled ? '点击暂停筛选' : '点击启用筛选'}
                                     >
-                                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${filtersEnabled ? 'left-4' : 'left-0.5'}`} />
+                                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all pointer-events-none ${filtersEnabled ? 'left-4' : 'left-0.5'}`} />
                                     </button>
                                 </div>
                             </div>
@@ -2337,7 +2359,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                             className={`relative w-9 h-5 rounded-full transition-colors ${sortEnabled ? 'bg-orange-500' : 'bg-slate-300'}`}
                                             title={sortEnabled ? '点击暂停排序' : '点击启用排序'}
                                         >
-                                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${sortEnabled ? 'left-4' : 'left-0.5'}`} />
+                                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all pointer-events-none ${sortEnabled ? 'left-4' : 'left-0.5'}`} />
                                         </button>
                                     </div>
                                 </div>

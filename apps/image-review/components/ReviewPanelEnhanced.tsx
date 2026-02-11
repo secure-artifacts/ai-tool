@@ -17,7 +17,13 @@ import {
     FeedbackItem, SeverityLevel, SEVERITY_CONFIG,
     TranslationResult, createFeedbackItem
 } from '../types';
-import { translateFeedback, formatTranslationForCopy } from '../services/translationService';
+import {
+    translateFeedback,
+    formatTranslationForCopy,
+    ToneLevel,
+    TranslationTargetLanguage,
+    getTranslationTargetConfig
+} from '../services/translationService';
 import { CANNED_PHRASES, PHRASE_CATEGORIES, CannedPhrase, searchPhrases, getPhrasesByCategory } from '../services/cannedPhrases';
 
 interface ReviewPanelProps {
@@ -26,6 +32,8 @@ interface ReviewPanelProps {
     onFeedbackItemsChange: (items: FeedbackItem[]) => void;
     onTranslateAll: () => void;
     isTranslating: boolean;
+    toneLevel: ToneLevel;
+    translationTargetLanguage: TranslationTargetLanguage;
 }
 
 const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
@@ -34,6 +42,8 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
     onFeedbackItemsChange,
     onTranslateAll,
     isTranslating,
+    toneLevel,
+    translationTargetLanguage,
 }) => {
     const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
     const [copySuccess, setCopySuccess] = useState<string | null>(null);
@@ -43,6 +53,8 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
 
     const colorInputRef = useRef<HTMLInputElement>(null);
     const refImageInputRef = useRef<HTMLInputElement>(null);
+
+    const targetLanguageLabel = getTranslationTargetConfig(translationTargetLanguage).labelEn;
 
     // 添加反馈项
     const handleAddFeedbackItem = useCallback(() => {
@@ -60,27 +72,35 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
             ...createFeedbackItem('major'),
             problemCn: phrase.problemCn,
             suggestionCn: phrase.suggestionCn,
-            problemTranslation: {
+        };
+
+        // 常用语内置的是英文翻译，仅在目标语言为英文时预填
+        if (translationTargetLanguage === 'en') {
+            newItem.problemTranslation = {
                 original: phrase.problemCn,
                 english: phrase.problemEn,
                 backTranslation: phrase.problemCn,
                 isAccurate: true,
+                targetLanguage: 'en',
+                targetLanguageLabel: 'English',
                 timestamp: Date.now(),
-            },
-            suggestionTranslation: {
+            };
+            newItem.suggestionTranslation = {
                 original: phrase.suggestionCn,
                 english: phrase.suggestionEn,
                 backTranslation: phrase.suggestionCn,
                 isAccurate: true,
+                targetLanguage: 'en',
+                targetLanguageLabel: 'English',
                 timestamp: Date.now(),
-            },
-        };
+            };
+        }
 
         onFeedbackItemsChange([...image.feedbackItems, newItem]);
         setExpandedItemId(newItem.id);
         setShowPhraseSelector(null);
         setPhraseSearchQuery('');
-    }, [image, onFeedbackItemsChange]);
+    }, [image, onFeedbackItemsChange, translationTargetLanguage]);
 
     // 更新反馈项
     const handleUpdateFeedbackItem = useCallback((
@@ -109,10 +129,20 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
             const updatedItem = { ...item };
 
             if (item.problemCn.trim()) {
-                updatedItem.problemTranslation = await translateFeedback(item.problemCn);
+                updatedItem.problemTranslation = await translateFeedback(
+                    item.problemCn,
+                    undefined,
+                    toneLevel,
+                    translationTargetLanguage
+                );
             }
             if (item.suggestionCn.trim()) {
-                updatedItem.suggestionTranslation = await translateFeedback(item.suggestionCn);
+                updatedItem.suggestionTranslation = await translateFeedback(
+                    item.suggestionCn,
+                    undefined,
+                    toneLevel,
+                    translationTargetLanguage
+                );
             }
 
             if (image) {
@@ -124,7 +154,7 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
         } catch (error) {
             console.error('翻译失败:', error);
         }
-    }, [image, onFeedbackItemsChange]);
+    }, [image, onFeedbackItemsChange, toneLevel, translationTargetLanguage]);
 
     // 复制翻译结果
     const handleCopyTranslation = useCallback(async (text: string, id: string) => {
@@ -410,7 +440,7 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
                                             {item.problemTranslation && (
                                                 <div className="mt-2 p-2 bg-red-900/20 border border-red-700/30 rounded text-sm">
                                                     <div className="flex items-center justify-between mb-1">
-                                                        <span className="text-xs text-red-400">English:</span>
+                                                        <span className="text-xs text-red-400">{targetLanguageLabel}:</span>
                                                         <button
                                                             onClick={() => handleCopyTranslation(item.problemTranslation!.english, `problem-${item.id}`)}
                                                             className="text-xs text-zinc-500 hover:text-zinc-300"
@@ -441,7 +471,7 @@ const ReviewPanelEnhanced: React.FC<ReviewPanelProps> = ({
                                             {item.suggestionTranslation && (
                                                 <div className="mt-2 p-2 bg-emerald-900/20 border border-emerald-700/30 rounded text-sm">
                                                     <div className="flex items-center justify-between mb-1">
-                                                        <span className="text-xs text-emerald-400">English:</span>
+                                                        <span className="text-xs text-emerald-400">{targetLanguageLabel}:</span>
                                                         <button
                                                             onClick={() => handleCopyTranslation(item.suggestionTranslation!.english, `suggestion-${item.id}`)}
                                                             className="text-xs text-zinc-500 hover:text-zinc-300"

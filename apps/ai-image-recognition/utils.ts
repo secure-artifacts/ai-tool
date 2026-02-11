@@ -152,16 +152,43 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
 
 // Helper to fetch external image and convert to Blob (Handles CORS errors gracefully by trying a proxy)
 export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeType: string }> => {
-    // Special handling for Gyazo direct image URLs - try different extensions with proxy
+    // 优先尝试本地代理（Vite dev server 或 Electron 环境无 CORS 限制）
+    const inElectron = !!(window as any).electronCache?.isElectron;
+
+    const tryLocalProxy = async (targetUrl: string): Promise<{ blob: Blob; mimeType: string } | null> => {
+        try {
+            const fetchUrl = inElectron
+                ? targetUrl  // Electron 无 CORS 限制，直接 fetch
+                : `/api/image-proxy?url=${encodeURIComponent(targetUrl)}`;
+            const response = await fetch(fetchUrl);
+            if (response.ok) {
+                const blob = await response.blob();
+                if (blob.size > 100 && blob.type.startsWith('image/')) {
+                    return { blob, mimeType: blob.type };
+                }
+            }
+        } catch (e) {
+            // 本地代理不可用（可能是生产环境），继续走外部代理
+        }
+        return null;
+    };
+
+    // Gyazo URL 强制走本地代理（不再绕 weserv.nl）
     const gyazoMatch = url.match(/https:\/\/i\.gyazo\.com\/([a-f0-9]+)\.(png|jpg|gif)/i);
 
     if (gyazoMatch) {
         const gyazoId = gyazoMatch[1];
-        const extensions = ['jpg', 'png', 'gif']; // 优先尝试 jpg（大多数截图会被转为 jpg）
+        const extensions = ['jpg', 'png', 'gif'];
 
-        // 尝试使用代理服务获取，因为 Gyazo 可能阻止 CORS
+        // 先尝试本地代理（最快最可靠）
         for (const ext of extensions) {
-            // weserv.nl 要求 URL 不带协议
+            const directUrl = `https://i.gyazo.com/${gyazoId}.${ext}`;
+            const result = await tryLocalProxy(directUrl);
+            if (result) return result;
+        }
+
+        // 本地代理不可用时回退到 weserv.nl
+        for (const ext of extensions) {
             const directUrlNoProtocol = `i.gyazo.com/${gyazoId}.${ext}`;
             const weservUrl = `https://images.weserv.nl/?url=${encodeURIComponent(directUrlNoProtocol)}&output=jpg&q=100`;
 
@@ -177,8 +204,12 @@ export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeTyp
                 // 继续尝试下一个格式
             }
         }
-        console.warn('[fetchImageBlob] Gyazo: all extensions failed, trying other proxies...');
+        console.warn('[fetchImageBlob] Gyazo: all methods failed, trying general proxies...');
     }
+
+    // 非 Gyazo URL 也优先尝试本地代理
+    const localResult = await tryLocalProxy(url);
+    if (localResult) return localResult;
 
     const encodedUrl = encodeURIComponent(url);
     const stripped = stripProtocol(url);

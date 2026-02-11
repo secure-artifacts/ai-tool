@@ -1,0 +1,4037 @@
+/**
+ * 模版指令+随机库生成器 - Styles
+ */
+
+.skill-gen-app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 1.5rem;
+    overflow: auto;
+    color: var(--text-color, #e0e0e0);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ========== Header ========== */
+.skill-gen-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    flex-shrink: 0;
+}
+
+.skill-gen-header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.skill-gen-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6, #a78bfa);
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+    color: white;
+    flex-shrink: 0;
+}
+
+.skill-gen-header h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #c4b5fd, #a78bfa, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.skill-gen-subtitle {
+    margin: 2px 0 0;
+    font-size: 0.8rem;
+    color: var(--text-muted-color, #888);
+}
+
+.skill-gen-clear-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 0.78rem;
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-clear-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+/* ========== Header Actions ========== */
+.skill-gen-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.skill-gen-history-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 0.78rem;
+    background: rgba(139, 92, 246, 0.1);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-history-btn:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.35);
+}
+
+.skill-gen-notes-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 0.78rem;
+    background: rgba(16, 185, 129, 0.1);
+    color: #6ee7b7;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-notes-btn:hover {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.skill-gen-notes-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.skill-gen-notes-modal {
+    width: min(760px, 100%);
+    max-height: min(82vh, 720px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    background: linear-gradient(135deg, rgba(24, 24, 27, 0.98), rgba(6, 78, 59, 0.22));
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.skill-gen-notes-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px;
+    border-bottom: 1px solid rgba(16, 185, 129, 0.25);
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.14), rgba(16, 185, 129, 0.04));
+}
+
+.skill-gen-notes-header-left {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.skill-gen-notes-icon-wrap {
+    margin-top: 2px;
+    padding: 8px;
+    border-radius: 10px;
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.18);
+}
+
+.skill-gen-notes-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #34d399;
+}
+
+.skill-gen-notes-subtitle {
+    margin: 4px 0 0;
+    font-size: 0.82rem;
+    color: #a1a1aa;
+}
+
+.skill-gen-notes-close-btn {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 8px;
+    background: #059669;
+    color: #fff;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.skill-gen-notes-close-btn:hover {
+    background: #10b981;
+}
+
+.skill-gen-notes-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px 16px;
+}
+
+.skill-gen-notes-card {
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(39, 39, 42, 0.5);
+}
+
+.skill-gen-notes-card p {
+    margin: 0 0 10px;
+    font-size: 0.84rem;
+    line-height: 1.7;
+    color: #d4d4d8;
+}
+
+.skill-gen-notes-card p:last-child {
+    margin-bottom: 0;
+}
+
+.skill-gen-notes-section {
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.skill-gen-notes-section:last-of-type {
+    margin-bottom: 0;
+}
+
+.skill-gen-notes-section-title {
+    margin: 0 0 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #6ee7b7;
+}
+
+.skill-gen-notes-list {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: #d4d4d8;
+}
+
+.skill-gen-notes-list li {
+    margin-bottom: 3px;
+}
+
+.skill-gen-notes-list li:last-child {
+    margin-bottom: 0;
+}
+
+.skill-gen-notes-summary {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.12);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: #a7f3d0;
+}
+
+/* ========== 模式切换（标签页） ========== */
+.skill-gen-tab-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 10px;
+    margin-bottom: 1rem;
+}
+
+.skill-gen-tab-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 16px;
+    font-size: 0.78rem;
+    background: transparent;
+    color: var(--text-muted-color, #888);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.skill-gen-tab-item:hover {
+    color: var(--text-color, #ddd);
+}
+
+.skill-gen-tab-item.active {
+    background: rgba(139, 92, 246, 0.15);
+    color: #c4b5fd;
+    font-weight: 500;
+}
+
+/* 标签页右侧的设置按钮 */
+.skill-gen-tab-settings-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    padding: 5px 12px;
+    font-size: 0.74rem;
+    background: rgba(139, 92, 246, 0.08);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.skill-gen-tab-settings-btn:hover {
+    background: rgba(139, 92, 246, 0.16);
+    border-color: rgba(139, 92, 246, 0.35);
+    color: #c4b5fd;
+}
+
+.skill-gen-tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-bottom: 1.5rem;
+}
+
+.skill-gen-global-settings {
+    margin-bottom: 0.75rem;
+}
+
+.skill-gen-manual-block label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-color, #ddd);
+    margin-bottom: 0.4rem;
+}
+
+.skill-gen-manual-hint {
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #777);
+}
+
+.skill-gen-manual-textarea {
+    width: 100%;
+    padding: 0.8rem;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 10px;
+    color: var(--text-color, #e0e0e0);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    resize: vertical;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-manual-textarea:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.4);
+}
+
+.skill-gen-manual-textarea::placeholder {
+    color: var(--text-muted-color, #555);
+}
+
+.skill-gen-manual-mixed-row {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.skill-gen-manual-mixed-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 0.76rem;
+    color: var(--text-muted-color, #a0a0a0);
+    cursor: pointer;
+}
+
+.skill-gen-manual-mixed-toggle input {
+    margin: 0;
+    accent-color: #8b5cf6;
+}
+
+.skill-gen-manual-rewrite-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    background: rgba(139, 92, 246, 0.12);
+    color: #c4b5fd;
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-gen-manual-rewrite-btn:hover:not(:disabled) {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.5);
+}
+
+.skill-gen-manual-rewrite-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.skill-gen-manual-compare {
+    margin-top: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.22);
+    border-radius: 10px;
+    background: rgba(139, 92, 246, 0.06);
+    overflow: hidden;
+}
+
+.skill-gen-manual-compare-header {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(139, 92, 246, 0.18);
+    background: rgba(139, 92, 246, 0.1);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #c4b5fd;
+}
+
+.skill-gen-manual-compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+}
+
+.skill-gen-manual-compare-col {
+    min-width: 0;
+}
+
+.skill-gen-manual-compare-title {
+    margin: 0 0 6px;
+    font-size: 0.73rem;
+    color: var(--text-muted-color, #a0a0a0);
+}
+
+.skill-gen-manual-compare-text {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.22);
+    color: var(--text-color, #ddd);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.skill-gen-manual-compare-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 0 10px 10px;
+}
+
+.skill-gen-manual-compare-cancel,
+.skill-gen-manual-compare-apply {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-gen-manual-compare-cancel {
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(148, 163, 184, 0.08);
+    color: #cbd5e1;
+}
+
+.skill-gen-manual-compare-cancel:hover {
+    background: rgba(148, 163, 184, 0.14);
+}
+
+.skill-gen-manual-compare-apply {
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.14);
+    color: #6ee7b7;
+}
+
+.skill-gen-manual-compare-apply:hover {
+    background: rgba(16, 185, 129, 0.22);
+}
+
+.skill-gen-history-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 380px;
+    max-height: min(65vh, 420px);
+    background: var(--card-bg, #1e1e2e);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.skill-gen-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.skill-gen-history-clear {
+    font-size: 0.72rem;
+    color: #f87171;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.skill-gen-history-clear:hover {
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.skill-gen-history-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--text-muted-color, #666);
+    font-size: 0.82rem;
+}
+
+.skill-gen-history-list {
+    overflow-y: auto;
+    max-height: 360px;
+    padding: 4px;
+}
+
+.skill-gen-history-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 8px;
+    transition: background 0.15s;
+}
+
+.skill-gen-history-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.skill-gen-history-item-content {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 6px;
+}
+
+.skill-gen-history-item-content:hover {
+    background: rgba(139, 92, 246, 0.1);
+}
+
+.skill-gen-history-preview {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-color, #ddd);
+}
+
+.skill-gen-history-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.68rem;
+    color: var(--text-muted-color, #777);
+    margin-top: 3px;
+}
+
+.skill-gen-history-thumbs {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.skill-gen-history-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    object-fit: cover;
+    opacity: 0.8;
+}
+
+.skill-gen-history-thumb-more {
+    font-size: 0.6rem;
+    color: var(--text-muted-color, #777);
+    margin-left: 2px;
+}
+
+.skill-gen-history-delete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    color: var(--text-muted-color, #666);
+    cursor: pointer;
+    border-radius: 4px;
+    opacity: 0;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.skill-gen-history-item:hover .skill-gen-history-delete {
+    opacity: 1;
+}
+
+.skill-gen-history-delete:hover {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+/* ========== Workspace Tab Bar ========== */
+.skill-gen-workspace-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 1rem;
+    background: rgba(15, 23, 42, 0.6);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.skill-gen-ws-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    white-space: nowrap;
+    min-width: 80px;
+    max-width: 180px;
+    user-select: none;
+}
+
+.skill-gen-ws-tab:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.skill-gen-ws-tab.active {
+    background: rgba(20, 184, 166, 0.15);
+    color: rgb(94, 234, 212);
+    border-color: rgba(20, 184, 166, 0.35);
+}
+
+.skill-gen-ws-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.skill-gen-ws-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.skill-gen-ws-tab:hover .skill-gen-ws-actions {
+    opacity: 1;
+}
+
+.skill-gen-ws-actions button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border-radius: 3px;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.skill-gen-ws-actions button:hover {
+    color: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.skill-gen-ws-close:hover {
+    color: #f87171 !important;
+}
+
+.skill-gen-ws-edit {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.skill-gen-ws-edit input {
+    flex: 1;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(20, 184, 166, 0.5);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.8rem;
+    color: #e2e8f0;
+    outline: none;
+    min-width: 50px;
+}
+
+.skill-gen-ws-edit button {
+    display: flex;
+    padding: 2px;
+    color: rgb(94, 234, 212);
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.skill-gen-ws-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.4);
+    background: none;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.skill-gen-ws-add:hover {
+    color: rgb(94, 234, 212);
+    border-color: rgba(20, 184, 166, 0.4);
+    background: rgba(20, 184, 166, 0.1);
+}
+
+/* ========== Body Layout ========== */
+.skill-gen-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    flex: 1;
+    min-height: 0;
+}
+
+/* ========== Input Area ========== */
+.skill-gen-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* ========== Section ========== */
+.skill-gen-section {
+    background: var(--card-bg, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-section:hover {
+    border-color: rgba(139, 92, 246, 0.25);
+}
+
+.skill-gen-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.skill-gen-section-header:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.skill-gen-section-header:focus-visible {
+    outline: 2px solid rgba(139, 92, 246, 0.45);
+    outline-offset: -2px;
+}
+
+.skill-gen-section-header-static {
+    cursor: default;
+}
+
+.skill-gen-section-header-static:hover {
+    background: transparent;
+}
+
+.skill-gen-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.skill-gen-badge {
+    padding: 1px 8px;
+    font-size: 0.68rem;
+    font-weight: 500;
+    border-radius: 10px;
+}
+
+.skill-gen-badge.optional {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted-color, #888);
+}
+
+.skill-gen-badge.count {
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+}
+
+.skill-gen-section-body {
+    padding: 0 1rem 1rem;
+}
+
+.skill-gen-hint {
+    font-size: 0.76rem;
+    color: var(--text-muted-color, #888);
+    margin: 0 0 0.5rem;
+    line-height: 1.5;
+}
+
+/* ========== Auto-describe toggle ========== */
+.skill-gen-auto-describe-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    background: var(--control-bg-color, #f5f5f5);
+    border: 1px solid var(--border-color, #ddd);
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease;
+    font-size: 0.78rem;
+}
+
+.skill-gen-auto-describe-toggle:hover {
+    border-color: var(--primary-color, #4dabff);
+    background: var(--control-hover-bg-color, #eef);
+}
+
+.skill-gen-auto-describe-toggle input[type="checkbox"] {
+    accent-color: var(--primary-color, #4dabff);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.skill-gen-auto-describe-label {
+    color: var(--text-color, #333);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* ========== Dropzone ========== */
+.skill-gen-dropzone {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 1.25rem;
+    border: 2px dashed rgba(139, 92, 246, 0.25);
+    border-radius: 10px;
+    color: var(--text-muted-color, #888);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(139, 92, 246, 0.03);
+}
+
+.skill-gen-dropzone:hover {
+    border-color: rgba(139, 92, 246, 0.45);
+    background: rgba(139, 92, 246, 0.06);
+    color: #a78bfa;
+}
+
+/* ========== Image Grid ========== */
+.skill-gen-image-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 0.75rem;
+}
+
+.skill-gen-image-thumb {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+.skill-gen-image-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.skill-gen-image-remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.65);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.skill-gen-image-thumb:hover .skill-gen-image-remove {
+    opacity: 1;
+}
+
+/* ========== Grid Preview (AI 视角) ========== */
+.skill-gen-grid-preview-toggle {
+    margin-top: 0.5rem;
+}
+
+.skill-gen-preview-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 0.76rem;
+    background: rgba(59, 130, 246, 0.08);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-preview-btn:hover {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.skill-gen-grid-preview {
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    border-radius: 10px;
+}
+
+.skill-gen-grid-preview-label {
+    margin: 0 0 0.5rem;
+    font-size: 0.74rem;
+    color: #93c5fd;
+    font-weight: 500;
+}
+
+.skill-gen-grid-preview-img {
+    width: 100%;
+    max-width: 600px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+/* ========== Textarea ========== */
+.skill-gen-textarea {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 8px;
+    color: var(--text-color, #e0e0e0);
+    resize: vertical;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.skill-gen-textarea:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.5);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
+}
+
+.skill-gen-textarea::placeholder {
+    color: var(--text-muted-color, #666);
+    opacity: 0.6;
+}
+
+/* ========== Prompt Preset ========== */
+.skill-gen-preset-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.skill-gen-tools-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 8px;
+}
+
+.skill-gen-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-color, #e5e7eb);
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-gen-tool-btn:hover {
+    transform: translateY(-1px);
+}
+
+.skill-gen-tool-btn.purple {
+    border-color: rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.14);
+    color: #d8b4fe;
+}
+
+.skill-gen-tool-btn.purple:hover {
+    background: rgba(139, 92, 246, 0.22);
+}
+
+.skill-gen-tool-btn.green {
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.12);
+    color: #6ee7b7;
+}
+
+.skill-gen-tool-btn.green:hover {
+    background: rgba(16, 185, 129, 0.2);
+}
+
+.skill-gen-tool-btn.orange {
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.12);
+    color: #fcd34d;
+}
+
+.skill-gen-tool-btn.orange:hover {
+    background: rgba(245, 158, 11, 0.2);
+}
+
+.skill-gen-preset-select {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.8rem;
+}
+
+.skill-gen-preset-select:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.45);
+}
+
+.skill-gen-preset-apply-btn {
+    flex-shrink: 0;
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    background: rgba(139, 92, 246, 0.1);
+    color: #c4b5fd;
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-gen-preset-apply-btn:hover {
+    background: rgba(139, 92, 246, 0.18);
+    border-color: rgba(139, 92, 246, 0.5);
+}
+
+.skill-gen-preset-summary {
+    margin: 8px 0 2px;
+    font-size: 0.76rem;
+    color: var(--text-muted-color, #9a9a9a);
+    line-height: 1.5;
+}
+
+.skill-gen-preset-dims {
+    margin: 0;
+    font-size: 0.74rem;
+    color: #a78bfa;
+}
+
+.skill-gen-preset-mixed-card {
+    margin-top: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 8px;
+    background: rgba(139, 92, 246, 0.06);
+    overflow: hidden;
+}
+
+.skill-gen-preset-mixed-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(139, 92, 246, 0.18);
+    background: rgba(139, 92, 246, 0.08);
+}
+
+.skill-gen-preset-mixed-title {
+    margin: 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #c4b5fd;
+}
+
+.skill-gen-preset-mixed-reset-btn {
+    flex-shrink: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(139, 92, 246, 0.28);
+    background: rgba(139, 92, 246, 0.14);
+    color: #c4b5fd;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-gen-preset-mixed-reset-btn:hover {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(139, 92, 246, 0.45);
+}
+
+.skill-gen-preset-mixed-editor {
+    width: calc(100% - 20px);
+    margin: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.22);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-color, #ddd);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    resize: vertical;
+    min-height: 110px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    box-sizing: border-box;
+}
+
+.skill-gen-preset-mixed-editor:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.45);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.12);
+}
+
+.skill-gen-preset-mixed-editor::placeholder {
+    color: var(--text-muted-color, #777);
+}
+
+.skill-gen-preset-mixed-code {
+    margin: 0;
+    padding: 8px 10px;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--text-color, #d8d8d8);
+    white-space: pre-wrap;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.skill-gen-preset-mixed-foot {
+    margin: 0;
+    padding: 0 10px 10px;
+    font-size: 0.68rem;
+    color: var(--text-muted-color, #8f8f8f);
+}
+
+/* ========== Generate Button ========== */
+.skill-gen-generate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 0.9rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+    margin-top: 0.5rem;
+}
+
+.skill-gen-generate-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.4);
+    background: linear-gradient(135deg, #818cf8, #a78bfa);
+}
+
+.skill-gen-generate-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.skill-gen-generate-btn.generating {
+    opacity: 0.85;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+
+.skill-gen-generate-btn .spin {
+    animation: skill-gen-spin 1s linear infinite;
+}
+
+@keyframes skill-gen-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* "View Results" button after generation */
+.skill-gen-generate-done-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #059669, #10b981);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+    margin-top: 0.4rem;
+    animation: skill-gen-done-pulse 2s ease-in-out infinite;
+}
+
+.skill-gen-generate-done-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+    background: linear-gradient(135deg, #10b981, #34d399);
+}
+
+@keyframes skill-gen-done-pulse {
+
+    0%,
+    100% {
+        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+    }
+
+    50% {
+        box-shadow: 0 4px 20px rgba(16, 185, 129, 0.5);
+    }
+}
+
+/* Inline range reminder */
+.skill-gen-range-reminder {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(99, 102, 241, 0.1);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: 8px;
+    margin-top: 0.3rem;
+}
+
+/* ========== Empty Hint ========== */
+.skill-gen-empty-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.76rem;
+    color: var(--text-muted-color, #888);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 8px;
+}
+
+/* ========== Output Area ========== */
+.skill-gen-outputs {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.skill-gen-outputs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.skill-gen-outputs-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #a78bfa;
+}
+
+.skill-gen-regen-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 0.76rem;
+    background: rgba(139, 92, 246, 0.1);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-regen-btn:hover:not(:disabled) {
+    background: rgba(139, 92, 246, 0.2);
+}
+
+.skill-gen-regen-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ========== Result Block ========== */
+.skill-gen-result-block {
+    background: var(--card-bg, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.skill-gen-result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+}
+
+.skill-gen-result-header h3 {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.skill-gen-dim {
+    font-size: 0.74rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #888);
+    margin-left: 6px;
+}
+
+.skill-gen-copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    font-size: 0.74rem;
+    background: rgba(139, 92, 246, 0.1);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-copy-btn:hover {
+    background: rgba(139, 92, 246, 0.2);
+}
+
+.skill-gen-copy-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.skill-gen-copy-btn:disabled:hover {
+    background: rgba(139, 92, 246, 0.1);
+}
+
+/* ========== Instruction Preview ========== */
+.skill-gen-instruction-preview {
+    padding: 1rem;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+    color: var(--text-color, #d0d0d0);
+}
+
+.skill-gen-result-placeholder {
+    padding: 0.9rem 1rem;
+    font-size: 0.78rem;
+    color: var(--text-muted-color, #939393);
+    line-height: 1.6;
+    border-top: 1px dashed rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.015);
+}
+
+/* ========== Table ========== */
+/* ========== Library Paste Zone ========== */
+.skill-gen-library-paste-zone {
+    border: 1.5px dashed rgba(139, 92, 246, 0.2);
+    border-radius: 10px;
+    background: rgba(139, 92, 246, 0.03);
+    cursor: pointer;
+    transition: all 0.2s;
+    outline: none;
+}
+
+.skill-gen-library-paste-zone:focus {
+    border-color: rgba(139, 92, 246, 0.5);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
+}
+
+.skill-gen-library-paste-zone:hover {
+    border-color: rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.05);
+}
+
+.skill-gen-library-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 2rem 1rem;
+    color: rgba(167, 139, 250, 0.6);
+    font-size: 0.82rem;
+}
+
+.skill-gen-library-empty p {
+    margin: 0;
+}
+
+.skill-gen-table-wrapper {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 400px;
+    padding: 0.5rem;
+}
+
+.skill-gen-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.skill-gen-table th {
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    background: rgba(139, 92, 246, 0.08);
+    color: #a78bfa;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    white-space: nowrap;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    backdrop-filter: blur(8px);
+}
+
+.skill-gen-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.04));
+    color: var(--text-color, #ccc);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.skill-gen-table tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* ========== Usage Hint ========== */
+.skill-gen-usage-hint {
+    display: flex;
+    gap: 10px;
+    padding: 1rem;
+    font-size: 0.78rem;
+    background: rgba(59, 130, 246, 0.06);
+    border: 1px solid rgba(59, 130, 246, 0.12);
+    border-radius: 10px;
+    color: var(--text-muted-color, #999);
+    line-height: 1.6;
+}
+
+.skill-gen-usage-hint strong {
+    color: var(--text-color, #ccc);
+}
+
+.skill-gen-usage-hint ol {
+    margin: 4px 0 0;
+    padding-left: 1.2rem;
+}
+
+.skill-gen-usage-hint li {
+    margin-bottom: 2px;
+}
+
+/* ========== Outputs Actions ========== */
+.skill-gen-outputs-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* ========== Chat Training Section ========== */
+.skill-gen-chat-section {
+    background: var(--card-bg, rgba(255, 255, 255, 0.03));
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.skill-gen-chat-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #a78bfa;
+}
+
+.skill-gen-chat-hint {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #888);
+    margin-left: auto;
+}
+
+/* Chat Messages */
+.skill-gen-chat-messages {
+    max-height: 350px;
+    overflow-y: auto;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.skill-gen-chat-msg {
+    display: flex;
+}
+
+.skill-gen-chat-msg.user {
+    justify-content: flex-end;
+}
+
+.skill-gen-chat-msg.model {
+    justify-content: flex-start;
+}
+
+.skill-gen-chat-bubble {
+    max-width: 85%;
+    padding: 0.6rem 0.85rem;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.skill-gen-chat-msg.user .skill-gen-chat-bubble {
+    background: rgba(139, 92, 246, 0.15);
+    color: #e0d5ff;
+    border-bottom-right-radius: 4px;
+}
+
+.skill-gen-chat-msg.model .skill-gen-chat-bubble {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-color, #d0d0d0);
+    border-bottom-left-radius: 4px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+}
+
+.skill-gen-chat-bubble.loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted-color, #888);
+    font-style: italic;
+}
+
+/* Dimension Tag Input */
+.skill-gen-dim-input-area {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 10px;
+    cursor: text;
+    transition: border-color 0.2s;
+    min-height: 40px;
+}
+
+.skill-gen-dim-input-area:focus-within {
+    border-color: rgba(139, 92, 246, 0.5);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
+}
+
+.skill-gen-dim-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px 3px 10px;
+    background: rgba(139, 92, 246, 0.18);
+    color: #c4b5fd;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+    animation: dimTagIn 0.15s ease-out;
+}
+
+@keyframes dimTagIn {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.skill-gen-dim-tag button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #a78bfa;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.skill-gen-dim-tag button:hover {
+    background: rgba(239, 68, 68, 0.5);
+    color: white;
+}
+
+.skill-gen-dim-text-input {
+    flex: 1;
+    min-width: 100px;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.82rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 2px 0;
+}
+
+.skill-gen-dim-text-input::placeholder {
+    color: var(--text-muted-color, #666);
+    opacity: 0.5;
+}
+
+.skill-gen-dim-footer {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    color: var(--text-muted-color, #888);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.skill-gen-dim-footer button {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 0.72rem;
+    padding: 0;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+}
+
+.skill-gen-dim-footer button:hover {
+    opacity: 1;
+    text-decoration: underline;
+}
+
+/* Chat Attached Images Preview */
+.skill-gen-chat-attached {
+    padding: 8px 0.75rem 0;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+}
+
+.skill-gen-chat-attached-label {
+    font-size: 0.72rem;
+    color: var(--text-muted-color, #888);
+}
+
+.skill-gen-chat-attached-images {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+
+.skill-gen-chat-attached-item {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+.skill-gen-chat-attached-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.skill-gen-chat-attached-item button {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    padding: 0;
+}
+
+.skill-gen-chat-attached-item:hover button {
+    opacity: 1;
+}
+
+/* Chat Image Thumbnails in Messages */
+.skill-gen-chat-images {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.skill-gen-chat-thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Chat Input */
+.skill-gen-chat-input-area {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 0.75rem;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+}
+
+.skill-gen-chat-img-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted-color, #888);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.skill-gen-chat-img-btn:hover {
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+    border-color: rgba(139, 92, 246, 0.3);
+}
+
+.skill-gen-chat-input {
+    flex: 1;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+    border-radius: 10px;
+    color: var(--text-color, #e0e0e0);
+    resize: none;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.skill-gen-chat-input:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.5);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
+}
+
+.skill-gen-chat-input::placeholder {
+    color: var(--text-muted-color, #666);
+    opacity: 0.6;
+}
+
+.skill-gen-chat-send {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.skill-gen-chat-send:hover:not(:disabled) {
+    transform: scale(1.05);
+    box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+
+.skill-gen-chat-send:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Suggestion Chips */
+.skill-gen-chat-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 0.75rem 0.75rem;
+}
+
+.skill-gen-suggestion-chip {
+    padding: 4px 12px;
+    font-size: 0.72rem;
+    background: rgba(139, 92, 246, 0.08);
+    color: #c4b5fd;
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.skill-gen-suggestion-chip:hover {
+    background: rgba(139, 92, 246, 0.18);
+    border-color: rgba(139, 92, 246, 0.3);
+    color: #e0d5ff;
+}
+
+
+/* ========== Opal 导出 ========== */
+.skill-gen-opal-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 20px;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+    border: 1px dashed rgba(59, 130, 246, 0.3);
+    border-radius: 10px;
+    color: #93c5fd;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-opal-toggle-btn:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(139, 92, 246, 0.18));
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+.skill-gen-opal-toggle-btn.active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
+    border-style: solid;
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #bfdbfe;
+}
+
+.skill-gen-opal-toggle-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-style: dashed;
+}
+
+.skill-gen-manual-preview {
+    font-size: 0.78rem;
+    color: #6ee7b7;
+    padding: 6px 12px;
+    background: rgba(16, 185, 129, 0.08);
+    border-radius: 8px;
+}
+
+/* ========== 随机代码生成器 ========== */
+
+.skill-gen-codegen-batch-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: rgba(251, 191, 36, 0.06);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    border-radius: 8px;
+    margin-bottom: 0.3rem;
+}
+
+.skill-gen-codegen-batch-row--single {
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.skill-gen-codegen-batch-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.skill-gen-codegen-batch-group--grow {
+    flex: 1;
+}
+
+.skill-gen-codegen-batch-label {
+    font-size: 0.78rem;
+    color: #fbbf24;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.skill-gen-codegen-batch-apply {
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    border-radius: 6px;
+    color: #fbbf24;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.skill-gen-codegen-batch-apply:hover {
+    background: rgba(251, 191, 36, 0.2);
+    border-color: rgba(251, 191, 36, 0.4);
+}
+
+.skill-gen-codegen-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.skill-gen-codegen-input {
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.78rem;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-codegen-input:focus {
+    outline: none;
+    border-color: rgba(251, 191, 36, 0.4);
+}
+
+.skill-gen-codegen-input.name {
+    flex: 2;
+    min-width: 0;
+}
+
+.skill-gen-codegen-input.num {
+    width: 60px;
+    text-align: center;
+}
+
+.skill-gen-codegen-select {
+    flex: 1.2;
+    min-width: 180px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    appearance: auto;
+}
+
+.skill-gen-codegen-select:focus {
+    outline: none;
+    border-color: rgba(251, 191, 36, 0.4);
+}
+
+.skill-gen-codegen-dash {
+    color: var(--text-muted-color, #666);
+    font-size: 0.8rem;
+}
+
+.skill-gen-codegen-remove {
+    background: none;
+    border: none;
+    color: #f87171;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.skill-gen-codegen-remove:hover {
+    background: rgba(248, 113, 113, 0.15);
+}
+
+.skill-gen-codegen-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 0.3rem;
+}
+
+.skill-gen-codegen-add,
+.skill-gen-codegen-gen {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    font-size: 0.78rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid;
+}
+
+.skill-gen-codegen-add {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-muted-color, #aaa);
+}
+
+.skill-gen-codegen-add:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-color, #ddd);
+}
+
+.skill-gen-codegen-gen {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(245, 158, 11, 0.12));
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+    font-weight: 500;
+}
+
+.skill-gen-codegen-gen:hover {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.2));
+    border-color: rgba(251, 191, 36, 0.5);
+}
+
+.skill-gen-codegen-output {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 0.3rem;
+}
+
+.skill-gen-codegen-run-bar {
+    padding: 0.5rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.skill-gen-codegen-run-btn {
+    padding: 5px 14px;
+    font-size: 0.78rem;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 6px;
+    color: #6ee7b7;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-codegen-run-btn:hover {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: rgba(16, 185, 129, 0.5);
+}
+
+.skill-gen-codegen-results {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0.6rem 1rem 0.8rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(16, 185, 129, 0.04);
+}
+
+.skill-gen-codegen-result-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.15);
+    border-radius: 6px;
+    font-size: 0.78rem;
+}
+
+.skill-gen-codegen-result-name {
+    color: var(--text-muted-color, #aaa);
+}
+
+.skill-gen-codegen-result-value {
+    color: #6ee7b7;
+    font-weight: 600;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.skill-gen-opal-panel {
+    background: rgba(59, 130, 246, 0.04);
+    border: 1px solid rgba(59, 130, 246, 0.12);
+    border-radius: 12px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.skill-gen-opal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #93c5fd;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.skill-gen-opal-title-hint {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #888);
+}
+
+.skill-gen-opal-block {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.skill-gen-opal-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-color, #ddd);
+}
+
+.skill-gen-opal-code {
+    padding: 1rem;
+    margin: 0;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    color: #a5f3fc;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.skill-gen-opal-code.instruction {
+    color: var(--text-color, #d0d0d0);
+    max-height: 500px;
+}
+
+/* ========== 库本地化区域 ========== */
+.skill-gen-localize-section {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.skill-gen-localize-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.skill-gen-localize-header:hover {
+    color: #fb923c;
+}
+
+.skill-gen-localize-chevron {
+    margin-left: auto;
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.3);
+    transition: transform 0.2s;
+}
+
+.skill-gen-localize-chevron.open {
+    transform: rotate(90deg);
+}
+
+.skill-gen-localize-star {
+    width: 20px;
+    height: 20px;
+    background: #ea580c;
+    border-radius: 50%;
+    font-size: 0.65rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.skill-gen-localize-hint {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    font-weight: 400;
+}
+
+.skill-gen-localize-source-note {
+    padding: 0.5rem 0.75rem;
+    background: rgba(234, 88, 12, 0.1);
+    border: 1px solid rgba(234, 88, 12, 0.25);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.skill-gen-localize-source-note p {
+    font-size: 0.78rem;
+    color: #fb923c;
+    margin: 0;
+    flex: 1;
+}
+
+.skill-gen-localize-fill-btn {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    border-radius: 6px;
+    background: rgba(234, 88, 12, 0.2);
+    color: #fb923c;
+    border: 1px solid rgba(234, 88, 12, 0.4);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.skill-gen-localize-fill-btn:hover {
+    background: rgba(234, 88, 12, 0.35);
+    color: #fed7aa;
+}
+
+.skill-gen-localize-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.skill-gen-localize-inputs label {
+    display: block;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 4px;
+}
+
+.skill-gen-localize-inputs textarea {
+    width: 100%;
+    height: 110px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0.5rem;
+    font-size: 0.78rem;
+    color: #e2e8f0;
+    resize: none;
+    font-family: 'SF Mono', monospace;
+    transition: border-color 0.15s;
+}
+
+.skill-gen-localize-inputs textarea::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+}
+
+.skill-gen-localize-inputs textarea:focus {
+    outline: none;
+    border-color: rgba(234, 88, 12, 0.5);
+}
+
+.skill-gen-localize-country-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.skill-gen-localize-country-row input {
+    flex: 1;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    transition: border-color 0.15s;
+}
+
+.skill-gen-localize-country-row input::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+}
+
+.skill-gen-localize-country-row input:focus {
+    outline: none;
+    border-color: rgba(234, 88, 12, 0.5);
+}
+
+.skill-gen-localize-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #ea580c, #d97706);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.skill-gen-localize-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #f97316, #e5a00d);
+    transform: translateY(-1px);
+}
+
+.skill-gen-localize-btn:disabled {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.3);
+    cursor: not-allowed;
+}
+
+.skill-gen-localize-quick-countries {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.skill-gen-localize-quick-countries>span {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.skill-gen-localize-quick-countries button {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.5);
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-localize-quick-countries button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.skill-gen-localize-quick-countries button.active {
+    background: #ea580c;
+    color: white;
+}
+
+.skill-gen-localize-group-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.skill-gen-localize-group-divider {
+    width: 1px;
+    height: 16px;
+    background: rgba(255, 255, 255, 0.15);
+    margin: 0 4px;
+    flex-shrink: 0;
+}
+
+.skill-gen-localize-result-block {
+    margin-top: 0.25rem;
+}
+
+.skill-gen-localize-result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
+
+.skill-gen-localize-result-header span {
+    font-size: 0.78rem;
+    color: #fb923c;
+}
+
+.skill-gen-localize-result-pre {
+    background: rgba(234, 88, 12, 0.08);
+    border: 1px solid rgba(234, 88, 12, 0.25);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.82rem;
+    color: #fed7aa;
+    white-space: pre-wrap;
+    font-family: inherit;
+    margin: 0;
+}
+
+.skill-gen-localize-table-wrap {
+    border: 1px solid rgba(234, 88, 12, 0.25);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.skill-gen-localize-table-wrap table {
+    width: 100%;
+    font-size: 0.78rem;
+    border-collapse: collapse;
+}
+
+.skill-gen-localize-table-wrap thead {
+    background: rgba(234, 88, 12, 0.15);
+    position: sticky;
+    top: 0;
+}
+
+.skill-gen-localize-table-wrap th {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    font-weight: 500;
+    color: #fb923c;
+    white-space: nowrap;
+}
+
+.skill-gen-localize-table-wrap tbody tr {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.skill-gen-localize-table-wrap tbody tr:hover {
+    background: rgba(234, 88, 12, 0.05);
+}
+
+.skill-gen-localize-table-wrap td {
+    padding: 0.4rem 0.75rem;
+    color: #e2e8f0;
+    white-space: nowrap;
+}
+
+.skill-gen-localize-table-wrap td.empty {
+    color: rgba(255, 255, 255, 0.2);
+}
+
+.skill-gen-localize-table-wrap {
+    max-height: 250px;
+    overflow: auto;
+}
+
+.skill-gen-localize-apply-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #059669, #10b981);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-localize-apply-btn:hover {
+    background: linear-gradient(135deg, #10b981, #34d399);
+    transform: translateY(-1px);
+}
+
+/* ========== AI 智能分类区域 ========== */
+.skill-gen-classify-section {
+    border-top-color: rgba(168, 85, 247, 0.15) !important;
+}
+
+.skill-gen-classify-star {
+    width: 20px;
+    height: 20px;
+    background: #7c3aed;
+    border-radius: 50%;
+    font-size: 0.65rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+}
+
+.skill-gen-classify-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.skill-gen-classify-step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #e2e8f0;
+}
+
+.skill-gen-classify-step-num {
+    width: 20px;
+    height: 20px;
+    background: #7c3aed;
+    border-radius: 50%;
+    font-size: 0.7rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+}
+
+.skill-gen-classify-step-num.orange {
+    background: #ea580c;
+}
+
+.skill-gen-classify-step-num.cyan {
+    background: #0891b2;
+}
+
+.skill-gen-classify-step-num.green {
+    background: #16a34a;
+}
+
+.skill-gen-classify-clear-btn {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.skill-gen-classify-clear-btn:hover {
+    color: #ef4444;
+}
+
+.skill-gen-classify-paste-area {
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: text;
+    transition: border-color 0.15s;
+}
+
+.skill-gen-classify-paste-area:focus-within {
+    border-color: #7c3aed;
+}
+
+.skill-gen-classify-paste-placeholder {
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.85rem;
+}
+
+.skill-gen-classify-paste-placeholder .sub {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.25);
+    margin-top: 4px;
+}
+
+.skill-gen-classify-table-info {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 4px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.skill-gen-classify-table-wrapper {
+    overflow-x: auto;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+.skill-gen-classify-table-wrapper.result {
+    border: 1px solid rgba(22, 163, 74, 0.3);
+    border-radius: 8px;
+}
+
+.skill-gen-classify-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.skill-gen-classify-table thead {
+    background: rgba(124, 58, 237, 0.15);
+    position: sticky;
+    top: 0;
+}
+
+.skill-gen-classify-table.result thead {
+    background: rgba(22, 163, 74, 0.15);
+}
+
+.skill-gen-classify-table th {
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+    color: #c4b5fd;
+}
+
+.skill-gen-classify-table.result th {
+    color: #86efac;
+}
+
+.skill-gen-classify-table td {
+    padding: 4px 10px;
+    white-space: nowrap;
+    color: #e2e8f0;
+}
+
+.skill-gen-classify-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.skill-gen-classify-dim-input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.skill-gen-classify-dim-input:focus {
+    border-color: #ea580c;
+}
+
+.skill-gen-classify-dim-presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.skill-gen-classify-dim-presets button {
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-classify-dim-presets button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.skill-gen-classify-dim-presets button.active {
+    background: rgba(234, 88, 12, 0.2);
+    border-color: rgba(234, 88, 12, 0.5);
+    color: #fb923c;
+}
+
+.skill-gen-classify-style-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+}
+
+.skill-gen-classify-style-btn {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.3);
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.15s;
+}
+
+.skill-gen-classify-style-btn:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.skill-gen-classify-style-btn .title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+.skill-gen-classify-style-btn .desc {
+    font-size: 0.72rem;
+    opacity: 0.7;
+}
+
+.skill-gen-classify-style-btn.active.blue {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #93c5fd;
+}
+
+.skill-gen-classify-style-btn.active.pink {
+    background: rgba(236, 72, 153, 0.12);
+    border-color: rgba(236, 72, 153, 0.5);
+    color: #f9a8d4;
+}
+
+.skill-gen-classify-style-btn.active.amber {
+    background: rgba(217, 119, 6, 0.12);
+    border-color: rgba(217, 119, 6, 0.5);
+    color: #fcd34d;
+}
+
+.skill-gen-classify-style-btn.active.green {
+    background: rgba(22, 163, 74, 0.12);
+    border-color: rgba(22, 163, 74, 0.5);
+    color: #86efac;
+}
+
+.skill-gen-classify-style-btn.active.purple {
+    background: rgba(124, 58, 237, 0.12);
+    border-color: rgba(124, 58, 237, 0.5);
+    color: #c4b5fd;
+}
+
+.skill-gen-classify-custom-textarea {
+    width: 100%;
+    height: 80px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(217, 119, 6, 0.3);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    color: #e2e8f0;
+    resize: none;
+    outline: none;
+    font-family: monospace;
+}
+
+.skill-gen-classify-custom-textarea:focus {
+    border-color: rgba(217, 119, 6, 0.6);
+}
+
+.skill-gen-classify-style-hint {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 2px;
+}
+
+.skill-gen-classify-format-hint {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.skill-gen-classify-run-btn {
+    padding: 8px 18px;
+    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.skill-gen-classify-run-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+.skill-gen-classify-run-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.skill-gen-classify-copy-btn {
+    margin-left: auto;
+    padding: 3px 10px;
+    background: rgba(22, 163, 74, 0.8);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.15s;
+}
+
+.skill-gen-classify-copy-btn:hover {
+    background: rgba(22, 163, 74, 1);
+}
+
+.skill-gen-extend-modal-open-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.16);
+    color: #c4b5fd;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-extend-modal-open-btn:hover:not(:disabled) {
+    background: rgba(139, 92, 246, 0.25);
+    border-color: rgba(167, 139, 250, 0.58);
+}
+
+.skill-gen-extend-modal-open-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ========== AI 扩展类型 - 粘贴区 ========== */
+.skill-gen-extend-paste-area {
+    padding: 0.8rem;
+    border-radius: 10px;
+    background: rgba(8, 145, 178, 0.04);
+    border: 1px solid rgba(8, 145, 178, 0.15);
+}
+
+/* 输入框 */
+.skill-gen-extend-grid-textarea {
+    width: 100%;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(100, 200, 230, 0.2);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    color: var(--text-color, #e0e0e0);
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.skill-gen-extend-grid-textarea:focus {
+    border-color: rgba(8, 145, 178, 0.5);
+    box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.12);
+}
+
+.skill-gen-extend-grid-textarea::placeholder {
+    color: rgba(160, 200, 220, 0.35);
+}
+
+/* 表格预览 */
+.skill-gen-extend-table-preview {
+    margin-top: 0.6rem;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(100, 200, 230, 0.25);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.skill-gen-extend-table-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+.skill-gen-extend-table-preview thead tr {
+    background: rgba(8, 145, 178, 0.18);
+}
+
+.skill-gen-extend-table-preview th {
+    padding: 0.45rem 0.7rem;
+    text-align: left;
+    color: rgba(100, 220, 255, 0.95);
+    font-weight: 600;
+    font-size: 0.76rem;
+    border-bottom: 2px solid rgba(8, 145, 178, 0.35);
+    border-right: 1px solid rgba(100, 200, 230, 0.12);
+    white-space: nowrap;
+}
+
+.skill-gen-extend-table-preview th:last-child {
+    border-right: none;
+}
+
+.skill-gen-extend-table-preview td {
+    padding: 0.35rem 0.7rem;
+    color: var(--text-color, #e0e0e0);
+    border-bottom: 1px solid rgba(100, 200, 230, 0.1);
+    border-right: 1px solid rgba(100, 200, 230, 0.08);
+}
+
+.skill-gen-extend-table-preview td:last-child {
+    border-right: none;
+}
+
+.skill-gen-extend-table-preview tbody tr:hover {
+    background: rgba(8, 145, 178, 0.08);
+}
+
+.skill-gen-extend-table-preview tbody tr:nth-child(even) {
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.skill-gen-extend-table-preview tbody tr:nth-child(even):hover {
+    background: rgba(8, 145, 178, 0.1);
+}
+
+/* ========== AI 扩展类型 - 对话扩展 ========== */
+.skill-gen-extend-chat-section {
+    border-color: rgba(8, 145, 178, 0.28);
+    background: rgba(8, 145, 178, 0.05);
+}
+
+.skill-gen-extend-chat-messages {
+    max-height: min(32vh, 240px);
+    padding: 0.6rem;
+}
+
+.skill-gen-extend-chat-empty {
+    padding: 0.25rem 0.15rem 0.35rem;
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--text-muted-color, #8f8f8f);
+}
+
+.skill-gen-extend-chat-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    padding: 0 0.6rem 0.6rem;
+    border-top: 1px dashed rgba(8, 145, 178, 0.25);
+}
+
+.skill-gen-extend-chat-quick-btn {
+    padding: 4px 10px;
+    font-size: 0.72rem;
+    border-radius: 14px;
+    border: 1px solid rgba(8, 145, 178, 0.3);
+    background: rgba(8, 145, 178, 0.12);
+    color: #67e8f9;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.skill-gen-extend-chat-quick-btn:hover {
+    background: rgba(8, 145, 178, 0.22);
+    border-color: rgba(103, 232, 249, 0.45);
+}
+
+.skill-gen-extend-chat-input-area {
+    padding: 0.6rem;
+    gap: 0.55rem;
+}
+
+.skill-gen-extend-chat-input {
+    min-height: 44px;
+    max-height: 96px;
+}
+
+/* ========== AI智能生成库值弹窗 ========== */
+.skill-gen-extend-ai-modal {
+    width: min(760px, 100%);
+    max-height: min(82vh, 760px);
+}
+
+.skill-gen-extend-ai-modal-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.76rem;
+    color: var(--text-muted-color, #9ca3af);
+}
+
+.skill-gen-extend-ai-modal-textarea {
+    min-height: 130px;
+}
+
+.skill-gen-extend-ai-modal-count-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.skill-gen-extend-ai-modal-example {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+    padding: 10px 12px;
+    font-size: 0.76rem;
+    line-height: 1.6;
+    color: var(--text-muted-color, #9ca3af);
+}
+
+.skill-gen-extend-ai-modal-example-title {
+    margin: 0 0 4px;
+    color: #d1d5db;
+    font-weight: 600;
+}
+
+.skill-gen-extend-ai-modal-example p {
+    margin: 0;
+}
+
+/* ========== 代码生成器区域分隔 ========== */
+
+/* -- 代码生成器子标签 -- */
+.skill-gen-codegen-subtabs {
+    display: flex;
+    gap: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    margin-bottom: 0.6rem;
+}
+
+.skill-gen-codegen-subtab {
+    flex: 1;
+    padding: 9px 16px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: rgba(0, 0, 0, 0.15);
+    color: var(--text-muted-color, #999);
+    text-align: center;
+}
+
+.skill-gen-codegen-subtab:hover {
+    background: rgba(251, 191, 36, 0.08);
+    color: var(--text-color, #ccc);
+}
+
+.skill-gen-codegen-subtab.active {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+    box-shadow: inset 0 -2px 0 rgba(251, 191, 36, 0.5);
+}
+
+.skill-gen-codegen-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.skill-gen-codegen-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+.skill-gen-codegen-section-header.amber {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+    border-left: 3px solid rgba(251, 191, 36, 0.5);
+}
+
+.skill-gen-codegen-section-hint {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #888);
+}
+
+/* ========== 分类联动代码生成器 ========== */
+
+.skill-gen-category-link-section {
+    margin-top: 1.2rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.skill-gen-category-link-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #c4b5fd;
+    background: rgba(139, 92, 246, 0.08);
+    border-left: 3px solid rgba(139, 92, 246, 0.5);
+    margin-bottom: 0.3rem;
+}
+
+.skill-gen-category-link-hint {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #888);
+}
+
+.skill-gen-category-link-format-guide {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(139, 92, 246, 0.06);
+    border: 1px solid rgba(139, 92, 246, 0.12);
+    border-radius: 6px;
+    font-size: 0.72rem;
+    color: var(--text-muted-color, #aaa);
+}
+
+.skill-gen-category-link-format-guide code {
+    background: rgba(139, 92, 246, 0.15);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #c4b5fd;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.7rem;
+}
+
+.skill-gen-category-link-format-title {
+    font-weight: 500;
+    color: #c4b5fd;
+    margin-right: 4px;
+}
+
+.skill-gen-category-link-textarea {
+    width: 100%;
+    padding: 0.8rem;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: 8px;
+    color: var(--text-color, #e0e0e0);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    resize: vertical;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-category-link-textarea:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.4);
+}
+
+.skill-gen-category-link-textarea::placeholder {
+    color: var(--text-muted-color, #555);
+}
+
+/* 模式切换标签 */
+.skill-gen-category-mode-tabs {
+    display: flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(139, 92, 246, 0.15);
+}
+
+.skill-gen-category-mode-tab {
+    flex: 1;
+    padding: 7px 12px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(0, 0, 0, 0.15);
+    color: var(--text-muted-color, #999);
+}
+
+.skill-gen-category-mode-tab:hover {
+    background: rgba(139, 92, 246, 0.08);
+    color: var(--text-color, #ccc);
+}
+
+.skill-gen-category-mode-tab.active {
+    background: rgba(139, 92, 246, 0.15);
+    color: #c4b5fd;
+}
+
+/* 解析预览 */
+.skill-gen-category-parsed-preview {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    background: rgba(52, 211, 153, 0.06);
+    border: 1px solid rgba(52, 211, 153, 0.15);
+    border-radius: 6px;
+    font-size: 0.72rem;
+}
+
+.skill-gen-category-parsed-label {
+    color: #6ee7b7;
+    font-weight: 500;
+}
+
+.skill-gen-category-parsed-dim {
+    padding: 2px 8px;
+    background: rgba(139, 92, 246, 0.12);
+    border-radius: 10px;
+    color: #c4b5fd;
+    font-size: 0.7rem;
+}
+
+/* AI 分类按钮 */
+.skill-gen-category-ai-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(168, 85, 247, 0.1));
+    color: #c4b5fd;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-category-ai-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(168, 85, 247, 0.2));
+    border-color: rgba(139, 92, 246, 0.5);
+}
+
+.skill-gen-category-ai-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.skill-gen-category-ai-btn .spinning {
+    animation: spin 1s linear infinite;
+}
+
+/* 预设分类名 */
+.skill-gen-category-preset-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.skill-gen-category-preset-label {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #c4b5fd;
+}
+
+.skill-gen-category-preset-input {
+    padding: 7px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: 6px;
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.78rem;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-category-preset-input:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.4);
+}
+
+.skill-gen-category-preset-input::placeholder {
+    color: var(--text-muted-color, #666);
+    font-size: 0.72rem;
+}
+
+.skill-gen-category-table-mode,
+.skill-gen-category-text-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* ========== 表格预览 ========== */
+
+.skill-gen-category-table-preview {
+    margin-top: 0.2rem;
+}
+
+.skill-gen-category-table-scroll {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.12);
+}
+
+.skill-gen-category-table {
+    width: 100%;
+    font-size: 0.75rem;
+    border-collapse: collapse;
+    white-space: nowrap;
+}
+
+.skill-gen-category-table thead tr {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.skill-gen-category-table th {
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-color, #ccc);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.skill-gen-category-table th.cat-col {
+    color: #c4b5fd;
+    background: rgba(139, 92, 246, 0.08);
+}
+
+.skill-gen-category-table td {
+    padding: 5px 10px;
+    color: var(--text-color, #ddd);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.skill-gen-category-table td.cat-col {
+    color: #a78bfa;
+    font-weight: 500;
+    background: rgba(139, 92, 246, 0.04);
+}
+
+.skill-gen-category-table tbody tr:hover {
+    background: rgba(139, 92, 246, 0.04);
+}
+
+.skill-gen-category-table .more-rows {
+    text-align: center;
+    color: var(--text-muted-color, #888);
+    font-style: italic;
+    padding: 6px;
+}
+
+.skill-gen-category-table-status {
+    margin-top: 6px;
+    font-size: 0.72rem;
+}
+
+.skill-gen-category-table-status .status-ok {
+    color: #86efac;
+}
+
+.skill-gen-category-table-status .status-need-ai {
+    color: #fcd34d;
+}
+
+/* ========== 按分类拆分导出 ========== */
+
+.skill-gen-split-export {
+    margin-top: 0.6rem;
+    padding: 0.6rem;
+    background: rgba(139, 92, 246, 0.04);
+    border: 1px solid rgba(139, 92, 246, 0.12);
+    border-radius: 10px;
+}
+
+.skill-gen-split-tabs {
+    display: flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    margin-bottom: 0.6rem;
+}
+
+.skill-gen-split-tab {
+    flex: 1;
+    padding: 7px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: rgba(0, 0, 0, 0.15);
+    color: var(--text-muted-color, #999);
+}
+
+.skill-gen-split-tab:hover {
+    background: rgba(139, 92, 246, 0.08);
+    color: var(--text-color, #ccc);
+}
+
+.skill-gen-split-tab.active {
+    background: rgba(139, 92, 246, 0.2);
+    color: #c4b5fd;
+}
+
+.skill-gen-split-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+/* ========== 指令转库 / 图片转库弹窗 ========== */
+.skill-gen-tool-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+}
+
+.skill-gen-tool-modal {
+    width: min(980px, 100%);
+    max-height: min(84vh, 860px);
+    background: linear-gradient(180deg, rgba(20, 24, 39, 0.98), rgba(17, 24, 39, 0.98));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+
+.skill-gen-tool-modal-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.skill-gen-tool-modal-header h3 {
+    margin: 0;
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #f5f5f5;
+}
+
+.skill-gen-tool-modal-header p {
+    margin: 3px 0 0;
+    font-size: 0.74rem;
+    color: var(--text-muted-color, #9ca3af);
+}
+
+.skill-gen-tool-modal-close {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-color, #e5e7eb);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.skill-gen-tool-modal-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.skill-gen-tool-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.skill-gen-tool-textarea {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.22);
+    color: var(--text-color, #f3f4f6);
+    font-size: 0.78rem;
+    line-height: 1.6;
+    padding: 10px 12px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.skill-gen-tool-textarea:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.4);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.14);
+}
+
+.skill-gen-tool-modal-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.skill-gen-tool-primary-btn,
+.skill-gen-tool-ghost-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 0.76rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.skill-gen-tool-primary-btn {
+    border: 1px solid rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.2);
+    color: #ddd6fe;
+}
+
+.skill-gen-tool-primary-btn.green {
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.2);
+    color: #a7f3d0;
+}
+
+.skill-gen-tool-primary-btn.orange {
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.2);
+    color: #fde68a;
+}
+
+.skill-gen-tool-primary-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+.skill-gen-tool-primary-btn:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+}
+
+.skill-gen-tool-ghost-btn {
+    border: 1px solid rgba(148, 163, 184, 0.26);
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5e1;
+}
+
+.skill-gen-tool-ghost-btn:hover {
+    background: rgba(148, 163, 184, 0.2);
+}
+
+.skill-gen-tool-preview-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.skill-gen-tool-preview-block {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    overflow: hidden;
+}
+
+.skill-gen-tool-preview-title {
+    margin: 0;
+    padding: 7px 10px;
+    font-size: 0.74rem;
+    color: #93c5fd;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.skill-gen-tool-preview-text {
+    margin: 0;
+    padding: 10px;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.74rem;
+    line-height: 1.55;
+    color: var(--text-color, #e5e7eb);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.skill-gen-tool-table-wrap {
+    max-height: 260px;
+    overflow: auto;
+}
+
+.skill-gen-tool-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.74rem;
+}
+
+.skill-gen-tool-table th,
+.skill-gen-tool-table td {
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.skill-gen-tool-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(30, 41, 59, 0.95);
+    color: #93c5fd;
+    font-weight: 600;
+}
+
+.skill-gen-tool-table td {
+    color: var(--text-color, #ddd);
+}
+
+.skill-gen-tool-empty {
+    padding: 10px;
+    font-size: 0.74rem;
+    color: var(--text-muted-color, #9ca3af);
+}
+
+.skill-gen-tool-modal-footer {
+    padding: 10px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.skill-gen-tool-upload-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.skill-gen-tool-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px dashed rgba(96, 165, 250, 0.45);
+    background: rgba(30, 64, 175, 0.16);
+    color: #bfdbfe;
+    font-size: 0.74rem;
+    cursor: pointer;
+}
+
+.skill-gen-tool-upload-btn:hover {
+    background: rgba(30, 64, 175, 0.24);
+}
+
+.skill-gen-tool-paste-box {
+    flex: 1;
+    min-width: 220px;
+    border-radius: 8px;
+    border: 1px dashed rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.12);
+    color: #fde68a;
+    font-size: 0.74rem;
+    padding: 8px 10px;
+    cursor: text;
+}
+
+.skill-gen-tool-paste-box:focus {
+    outline: none;
+    border-color: rgba(245, 158, 11, 0.75);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.skill-gen-tool-thumb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+    gap: 8px;
+}
+
+.skill-gen-tool-thumb {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    aspect-ratio: 1 / 1;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.skill-gen-tool-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.skill-gen-tool-thumb button {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: none;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+    .skill-gen-app {
+        padding: 1rem;
+    }
+
+    .skill-gen-header {
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 0.8rem;
+    }
+
+    .skill-gen-header-actions {
+        width: 100%;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-tab-bar {
+        width: 100%;
+        overflow-x: auto;
+        scrollbar-width: thin;
+    }
+
+    .skill-gen-tab-item {
+        flex: 1 0 auto;
+    }
+
+    .skill-gen-history-panel {
+        width: min(92vw, 380px);
+        right: 0;
+    }
+
+    .skill-gen-notes-btn {
+        width: auto;
+    }
+
+    .skill-gen-codegen-batch-row {
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-codegen-batch-group {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .skill-gen-codegen-row {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .skill-gen-codegen-input.name {
+        flex: 1 1 100%;
+    }
+
+    .skill-gen-codegen-input.num {
+        width: 88px;
+    }
+
+    .skill-gen-codegen-select {
+        flex: 1 1 100%;
+    }
+
+    .skill-gen-codegen-actions {
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-preset-row {
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-tools-row {
+        width: 100%;
+    }
+
+    .skill-gen-tool-btn {
+        flex: 1 1 180px;
+        justify-content: center;
+    }
+
+    .skill-gen-preset-apply-btn {
+        width: 100%;
+    }
+
+    .skill-gen-preset-mixed-head {
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-preset-mixed-reset-btn {
+        width: 100%;
+    }
+
+    .skill-gen-manual-rewrite-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .skill-gen-manual-compare-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .skill-gen-manual-compare-actions {
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-manual-compare-cancel,
+    .skill-gen-manual-compare-apply {
+        width: 100%;
+    }
+}
+
+@media (max-width: 640px) {
+    .skill-gen-header-left {
+        width: 100%;
+    }
+
+    .skill-gen-header h1 {
+        font-size: 1.05rem;
+    }
+
+    .skill-gen-subtitle {
+        font-size: 0.74rem;
+    }
+
+    .skill-gen-tool-modal {
+        max-height: min(88vh, 860px);
+    }
+
+    .skill-gen-tool-modal-footer {
+        flex-wrap: wrap;
+    }
+
+    .skill-gen-tool-modal-footer .skill-gen-tool-ghost-btn,
+    .skill-gen-tool-modal-footer .skill-gen-tool-primary-btn {
+        width: 100%;
+    }
+
+    .skill-gen-tool-upload-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .skill-gen-tool-paste-box {
+        min-width: 0;
+    }
+
+    .skill-gen-history-panel {
+        position: fixed;
+        top: 72px;
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        width: min(94vw, 420px);
+        max-height: min(72vh, 520px);
+        z-index: 1100;
+    }
+
+    .skill-gen-chat-input-area {
+        padding: 0.6rem;
+    }
+}

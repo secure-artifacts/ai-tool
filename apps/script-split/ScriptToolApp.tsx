@@ -37,6 +37,7 @@ function ScriptToolApp() {
   const [gridStyles, setGridStyles] = useState<GridStyles>(new Map()); // 单元格样式（橙色标记）
   const [showPrefixModal, setShowPrefixModal] = useState(false); // 自定义前缀弹窗
   const [customPrefix, setCustomPrefix] = useState('prompt'); // 自定义前缀内容
+  const [copiedSelection, setCopiedSelection] = useState(false);
 
   // Initialize empty grid
   useEffect(() => {
@@ -153,29 +154,106 @@ function ScriptToolApp() {
     doProcess(ToolType.AddPromptPrefix, customPrefix);
   };
 
-  const handleCopyAll = async () => {
-    const text = formatForClipboard(gridData);
-    const html = buildGoogleSheetsHtml(gridData, {
+  const getContentBounds = (
+    minR: number,
+    maxR: number,
+    minC: number,
+    maxC: number
+  ): { minR: number; maxR: number; minC: number; maxC: number } | null => {
+    let found = false;
+    let contentMinR = maxR;
+    let contentMaxR = minR;
+    let contentMinC = maxC;
+    let contentMaxC = minC;
+
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        if (gridData[r]?.[c]?.trim()) {
+          found = true;
+          contentMinR = Math.min(contentMinR, r);
+          contentMaxR = Math.max(contentMaxR, r);
+          contentMinC = Math.min(contentMinC, c);
+          contentMaxC = Math.max(contentMaxC, c);
+        }
+      }
+    }
+
+    if (!found) return null;
+    return { minR: contentMinR, maxR: contentMaxR, minC: contentMinC, maxC: contentMaxC };
+  };
+
+  const copyRange = async (
+    range: { minR: number; maxR: number; minC: number; maxC: number } | null,
+    mode: 'all' | 'selection'
+  ) => {
+    if (!range) {
+      setStatusMsg(mode === 'all' ? '没有可复制的内容' : '选区内没有可复制的内容');
+      return;
+    }
+
+    const subGrid: GridData = [];
+    for (let r = range.minR; r <= range.maxR; r++) {
+      const row: string[] = [];
+      for (let c = range.minC; c <= range.maxC; c++) {
+        row.push(gridData[r]?.[c] || '');
+      }
+      subGrid.push(row);
+    }
+
+    const text = formatForClipboard(subGrid);
+    const html = buildGoogleSheetsHtml(subGrid, {
       styles: gridStyles,
+      rowOffset: range.minR,
+      colOffset: range.minC,
       includeEmptyRows: false
     });
 
     const result = await copyToClipboard(text, html);
     if (result === 'rich') {
-      setCopied(true);
-      setStatusMsg('已复制！粘贴到 Google Sheets 试试');
-      setTimeout(() => setCopied(false), 2000);
+      if (mode === 'all') {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        setCopiedSelection(true);
+        setTimeout(() => setCopiedSelection(false), 2000);
+      }
+      setStatusMsg(`已复制内容: ${colToLetter(range.minC)}${range.minR + 1}:${colToLetter(range.maxC)}${range.maxR + 1}`);
       return;
     }
 
     if (result === 'text') {
-      setCopied(true);
-      setStatusMsg('已复制（纯文本）');
-      setTimeout(() => setCopied(false), 2000);
+      if (mode === 'all') {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        setCopiedSelection(true);
+        setTimeout(() => setCopiedSelection(false), 2000);
+      }
+      setStatusMsg(`已复制（纯文本）: ${colToLetter(range.minC)}${range.minR + 1}:${colToLetter(range.maxC)}${range.maxR + 1}`);
       return;
     }
 
     setStatusMsg('复制失败');
+  };
+
+  const handleCopyAll = async () => {
+    const maxR = Math.max(0, gridData.length - 1);
+    const maxC = Math.max(0, ...gridData.map(row => Math.max(0, (row?.length || 0) - 1)));
+    const contentBounds = getContentBounds(0, maxR, 0, maxC);
+    await copyRange(contentBounds, 'all');
+  };
+
+  const handleCopySelection = async () => {
+    if (!selection) {
+      setStatusMsg('请先框选要复制的区域');
+      return;
+    }
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+    const contentBounds = getContentBounds(minR, maxR, minC, maxC);
+    await copyRange(contentBounds, 'selection');
   };
 
   const handleSelectAll = () => {
@@ -238,6 +316,15 @@ function ScriptToolApp() {
             <Button variant="primary" onClick={handleCopyAll} className="bg-[#107c41] hover:bg-[#0b6a37] text-white border-transparent shadow-sm text-xs whitespace-nowrap">
               {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
               {copied ? '已复制' : '复制全部'}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleCopySelection}
+              disabled={!selection}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent shadow-sm text-xs whitespace-nowrap"
+            >
+              {copiedSelection ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
+              {copiedSelection ? '已复制' : '复制选中'}
             </Button>
 
             <div className="w-px h-6 bg-slate-300 mx-1"></div>

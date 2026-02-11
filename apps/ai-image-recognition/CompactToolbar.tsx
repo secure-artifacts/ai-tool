@@ -26,12 +26,14 @@ interface CompactToolbarProps {
     unuploadedCount: number;
     isUploading: boolean;
     workMode?: WorkMode; // 工作模式
+    imageBatchSize: number; // 图片批次大小
     setImageModel: (val: string) => void;
     setPrompt: (val: string) => void;
     setPresets: (val: any[]) => void;
     setViewMode: (val: 'grid' | 'list' | 'compact') => void;
     setAutoUploadGyazo: (val: boolean) => void;
     setWorkMode?: (mode: WorkMode) => void; // 切换工作模式
+    setImageBatchSize: (val: number) => void; // 设置图片批次大小
     handleFiles: (files: File[]) => void;
     handleTextPaste: (text: string) => void;
     handleHtmlPaste: (urls: { originalUrl: string; fetchUrl: string }[]) => void;
@@ -57,8 +59,9 @@ interface CompactToolbarProps {
 export default function CompactToolbar({
     images, prompt, imageModel, isProcessing, isPaused, viewMode, autoUploadGyazo,
     isBulkInnovating, copySuccess, presets, templateState, unifiedPresets,
-    unuploadedCount, isUploading, workMode = 'standard',
+    unuploadedCount, isUploading, workMode = 'standard', imageBatchSize,
     setImageModel, setPrompt, setPresets, setViewMode, setAutoUploadGyazo, setWorkMode,
+    setImageBatchSize,
     handleFiles, handleTextPaste, handleHtmlPaste, runAnalysis, handlePauseResume,
     handleStop, copyAllLinks, copyAllFormulas, copyAllResults, copyAllOriginalAndResults,
     handleBulkInnovation, handleSendAllToDesc, uploadAllUnuploadedToGyazo,
@@ -431,6 +434,25 @@ export default function CompactToolbar({
 
                 {/* 分隔线 */}
                 <div className="w-px h-5 bg-zinc-700 shrink-0"></div>
+
+                {/* 批次模式 */}
+                <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-800 shrink-0 h-7 items-center">
+                    {[1, 3, 5, 8].map(size => (
+                        <button
+                            key={size}
+                            onClick={() => setImageBatchSize(size)}
+                            className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-medium transition-colors ${imageBatchSize === size
+                                    ? size === 1
+                                        ? 'bg-zinc-700 text-zinc-200'
+                                        : 'bg-cyan-600/30 text-cyan-300'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                            data-tip={size === 1 ? '逐张处理' : `每 ${size} 张图合并为一次 API 调用`}
+                        >
+                            {size === 1 ? '1' : size}
+                        </button>
+                    ))}
+                </div>
 
                 {/* 识别按钮 */}
                 {!isProcessing ? (

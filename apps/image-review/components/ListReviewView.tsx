@@ -16,7 +16,12 @@ import {
     Annotation, AnnotationType, ANNOTATION_TOOLS
 } from '../types';
 import { CANNED_PHRASES, PHRASE_CATEGORIES, CannedPhrase, searchPhrases, getPhrasesByCategory } from '../services/cannedPhrases';
-import { translateFeedback, ToneLevel } from '../services/translationService';
+import {
+    translateFeedback,
+    ToneLevel,
+    TranslationTargetLanguage,
+    getTranslationTargetConfig
+} from '../services/translationService';
 import { generateOverallSummary, translateSummaryToEnglish } from '../services/aiSummaryService';
 
 // 预设颜色
@@ -31,6 +36,7 @@ interface ListReviewViewProps {
     groups: ImageGroup[];
     selectedIds: string[];
     toneLevel: ToneLevel;
+    translationTargetLanguage: TranslationTargetLanguage;
     onStatusChange: (imageId: string, status: ReviewStatus) => void;
     onFeedbackItemsChange: (imageId: string, items: FeedbackItem[]) => void;
     onAnnotationsChange: (imageId: string, annotations: Annotation[]) => void;
@@ -64,6 +70,7 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
     groups,
     selectedIds,
     toneLevel,
+    translationTargetLanguage,
     onStatusChange,
     onFeedbackItemsChange,
     onAnnotationsChange,
@@ -88,6 +95,7 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
     onOverallSummaryEnChange,
     onOverallSummaryTranslationUpdate,
 }) => {
+    const targetLanguageLabel = getTranslationTargetConfig(translationTargetLanguage).labelEn;
     const [hoveredImageId, setHoveredImageId] = useState<string | null>(null);
     const [showPhraseSelector, setShowPhraseSelector] = useState<string | null>(null);
     const [phraseSearchQuery, setPhraseSearchQuery] = useState('');
@@ -170,21 +178,29 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
             ...createFeedbackItem('major'),
             problemCn: phrase.problemCn,
             suggestionCn: phrase.suggestionCn,
-            problemTranslation: {
+        };
+
+        // 常用语仅预置英文翻译，目标语言为英文时才直接带入
+        if (translationTargetLanguage === 'en') {
+            newItem.problemTranslation = {
                 original: phrase.problemCn,
                 english: phrase.problemEn,
                 backTranslation: phrase.problemCn,
                 isAccurate: true,
+                targetLanguage: 'en',
+                targetLanguageLabel: 'English',
                 timestamp: Date.now(),
-            },
-            suggestionTranslation: {
+            };
+            newItem.suggestionTranslation = {
                 original: phrase.suggestionCn,
                 english: phrase.suggestionEn,
                 backTranslation: phrase.suggestionCn,
                 isAccurate: true,
+                targetLanguage: 'en',
+                targetLanguageLabel: 'English',
                 timestamp: Date.now(),
-            },
-        };
+            };
+        }
 
         onFeedbackItemsChange(imageId, [...image.feedbackItems, newItem]);
         setShowPhraseSelector(null);
@@ -225,11 +241,11 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
 
             // 翻译问题描述
             if (item.problemCn) {
-                problemResult = await translateFeedback(item.problemCn, undefined, toneLevel);
+                problemResult = await translateFeedback(item.problemCn, undefined, toneLevel, translationTargetLanguage);
             }
             // 翻译建议
             if (item.suggestionCn) {
-                suggestionResult = await translateFeedback(item.suggestionCn, undefined, toneLevel);
+                suggestionResult = await translateFeedback(item.suggestionCn, undefined, toneLevel, translationTargetLanguage);
             }
 
             const updated = image.feedbackItems.map(i => {
@@ -1696,7 +1712,7 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
                                                                         {item.problemTranslation && (
                                                                             <div className="mt-2 p-2 bg-red-900/20 border border-red-700/30 rounded text-xs space-y-1">
                                                                                 <div>
-                                                                                    <span className="text-red-400">EN: </span>
+                                                                                    <span className="text-red-400">{targetLanguageLabel}: </span>
                                                                                     <span className="text-red-200">{item.problemTranslation.english}</span>
                                                                                 </div>
                                                                                 <div>
@@ -1721,7 +1737,7 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
                                                                         {item.suggestionTranslation && (
                                                                             <div className="mt-2 p-2 bg-emerald-900/20 border border-emerald-700/30 rounded text-xs space-y-1">
                                                                                 <div>
-                                                                                    <span className="text-emerald-400">EN: </span>
+                                                                                    <span className="text-emerald-400">{targetLanguageLabel}: </span>
                                                                                     <span className="text-emerald-200">{item.suggestionTranslation.english}</span>
                                                                                 </div>
                                                                                 <div>
@@ -1885,4 +1901,3 @@ const ListReviewView: React.FC<ListReviewViewProps> = ({
 };
 
 export default ListReviewView;
-

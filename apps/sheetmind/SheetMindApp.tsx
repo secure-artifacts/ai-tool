@@ -1284,7 +1284,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     return (
         <div className="h-full w-full flex flex-col bg-slate-100 overflow-hidden sheetmind-app">
             {/* Header */}
-            <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 shadow-sm z-20 relative">
+            <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 shadow-sm z-50 relative">
                 <div className="flex items-center gap-3">
                     <div className="bg-green-600 p-1.5 rounded-md shadow-sm">
                         <Table className="text-white" size={20} />
@@ -1531,7 +1531,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 <button
                                     onClick={() => setShowAppendModal(true)}
                                     className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors flex items-center gap-1 text-xs tooltip-bottom"
-                                     data-tip="追加粘贴数据到当前表格"
+                                    data-tip="追加粘贴数据到当前表格"
                                 >
                                     <Plus size={16} />
                                     <span className="hidden sm:inline">追加</span>
@@ -1568,7 +1568,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     {/* 列对齐工具可以独立使用，无需加载数据 */}
                     {view === 'align' ? (
                         <div className="flex-1 p-4 lg:p-6 overflow-hidden flex flex-col min-w-0 relative">
-                            <ColumnAlignPanel getAiInstance={getAiInstance} />
+                            <ColumnAlignPanel getAiInstance={getAiInstance} onBack={() => setView(data ? 'grid' : 'grid')} />
                         </div>
                     ) : !data ? (
                         <div className="flex-1 flex flex-col items-center pt-8 p-8 overflow-y-auto bg-slate-50">
@@ -1664,7 +1664,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                                         onClick={() => switchGalleryTab(tab.id)}
                                                         onDoubleClick={() => handleRenameGalleryTab(tab.id)}
                                                         className="text-xs font-medium whitespace-nowrap tooltip-bottom"
-                                                         data-tip="双击重命名"
+                                                        data-tip="双击重命名"
                                                     >
                                                         {tab.name}
                                                     </button>

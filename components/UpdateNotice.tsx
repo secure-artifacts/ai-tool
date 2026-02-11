@@ -29,13 +29,18 @@ interface UpdateNoticeProps {
 
 // 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
-
+    {
+        version: 'v2.95.0',
+        date: '2026-02-09',
+        description: '全面升级：快捷模式 + 随机库同步 + Skill 生成器自动识图 + Image Review 增强',
+        url: '#',
+        isCurrent: true
+    },
     {
         version: 'v2.90.0',
         date: '2026-02-03',
-        description: 'AI 图片识别 重大更新 ',
-        url: '#',
-        isCurrent: true
+        description: 'AI 图片识别 重大更新',
+        url: '#'
     },
     {
         version: 'v2.8.5',
@@ -65,105 +70,128 @@ const versionHistory: VersionInfo[] = [
         version: 'v2.5.1',
         date: '2025-12-21',
         description: '版本切换功能 + 多设备记录同步',
-        url: 'https://ai.studio/apps/drive/1q7sgI9FjAAB5tG8KaxxHt5Vj_Bxy8SU3?fullscreenApplet=true',  // 历史版本
+        url: 'https://ai.studio/apps/drive/1q7sgI9FjAAB5tG8KaxxHt5Vj_Bxy8SU3?fullscreenApplet=true',
     },
     {
         version: 'v2.4.7',
         date: '2025-12-17',
         description: '智能翻译批量模式大幅增强',
-        url: 'https://ai.studio/apps/drive/1jTJqRHAbpiTgELfDKT7aOSjeBsj_qQs-?fullscreenApplet=true',  // 历史版本
+        url: 'https://ai.studio/apps/drive/1jTJqRHAbpiTgELfDKT7aOSjeBsj_qQs-?fullscreenApplet=true',
     },
     {
         version: 'v2.4.6',
         date: '2025-12-12',
         description: '新增 Gyazo/Imgur/Facebook 图片链接兼容支持',
-        url: '#',  // 历史版本
+        url: '#',
     },
     {
         version: 'v2.4.4',
         date: '2025-12-08',
         description: '界面UI简单优化调整',
-        url: '#',  // 历史版本
+        url: '#',
     },
     {
         version: 'v2.4.3',
         date: '2025-12-07',
-        description: '指令模版增强、AI图片识别新增创新功能、反推提示词简化'
-        ,
-        url: '#',  // 历史版本
+        description: '指令模版增强、AI图片识别新增创新功能、反推提示词简化',
+        url: '#',
     },
-
-
-
     {
         version: 'v2.4.2',
         date: '2025-12-05',
-        description: '反推提示词新增精确/快速双模式'
-        ,
-        url: 'https://ai.studio/apps/drive/1EM4c9MPlHot5aZlwLHoK3-dfpdPxTqbN?fullscreenApplet=true',  // 当前版本，链接可以留空或指向当前页面
-
+        description: '反推提示词新增精确/快速双模式',
+        url: 'https://ai.studio/apps/drive/1EM4c9MPlHot5aZlwLHoK3-dfpdPxTqbN?fullscreenApplet=true',
     },
-
-
-
-
     {
         version: 'v2.3.1',
         date: '2025-12-04',
         description: '升级部分功能，详情看更新说明',
-        url: '#',  // 待贴链接
+        url: '#',
     },
-
     {
         version: 'v2.2.0',
         date: '2025-11-24',
         description: 'Gemini模型选择功能',
         url: 'https://ai.studio/apps/drive/1edblRYmMWJbBJZaqy5-rnF2HzrnRxRuA?fullscreenApplet=true',
-
     },
     {
         version: 'v2.1.0',
         date: '2025-11-21',
         description: '即时翻译与云端同步预设，新增输入api key功能，支持批量输入api key，开启api key自动循环使用功能',
-        url: 'https://ai.studio/apps/drive/1CmxIlW7LEFIGPISjNwgxttVe1jrCvPn0?fullscreenApplet=true'  // 替换为实际链接
+        url: 'https://ai.studio/apps/drive/1CmxIlW7LEFIGPISjNwgxttVe1jrCvPn0?fullscreenApplet=true'
     },
-
     {
         version: '0.0.0',
         date: '/',
         description: '创艺魔盒',
-        url: 'https://ai.studio/apps/drive/1EmWckgvKjDG_m619495BaeS9Qa1ko02j'  // 替换为实际链接
+        url: 'https://ai.studio/apps/drive/1EmWckgvKjDG_m619495BaeS9Qa1ko02j'
     },
     {
         version: '0.0.0',
         date: '/',
         description: '幻影迁移',
-        url: 'https://ai.studio/apps/drive/1kCeJjjh6iE-YS69gjneHGrwrLjS4OYDO'  // 替换为实际链接
+        url: 'https://ai.studio/apps/drive/1kCeJjjh6iE-YS69gjneHGrwrLjS4OYDO'
     },
-
-
-
 ];
-
 
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v2.90.0',
-    date: '2026-02-03',
+    version: 'v2.95.0',
+    date: '2026-02-09',
     features: {
         en: [
-            'AI Image Recognition: No-Image Mode creativity features',
-            'Translation support: English to Chinese with separate copy',
-            'Retry failed cards button',
-            'Session persistence for no-image mode'
+            'AI Image Recognition: New Quick Mode for text-only batch innovation',
+            'Random Library: Google Sheets sync, linked instructions, multi-source',
+            'Skill Generator: Auto-describe images + AI Dimension Extension (chat-based + library-linked)',
+            'Image Review: Batch operations and performance optimization',
+            'Project management and preset cloud sync'
         ],
         zh: [
             '✨如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
+            '2026.02.09 v2.95.0',
+            '-',
+            '⚡ AI 图片识别新增「快捷模式」',
+            '• 新增快捷模式：无需图片，纯文本批量创新的高效工作模式',
+            '• 自动集成随机库系统，实现组合式创新',
+            '• 支持配套指令：每个随机库数据源可绑定专属创新指令，切换数据源时自动切换',
+            '• 紧凑的快捷创新面板（QuickInnovationPanel），一站式管理',
+            '-',
+            '🎲 随机库系统全面升级',
+            '• 新增 Google Sheets 同步：支持从 Google Sheets 导入/导出随机库数据',
+            '• 新增多数据源切换：可创建多个随机库数据源，各自独立管理',
+            '• 新增配套指令绑定：每个数据源可关联专用创新指令',
+            '• AI 智能填充：使用 AI 自动生成随机库内容或分析图片提取元素',
+            '• 笛卡尔积模式：可生成所有可能的组合，或智能随机抽取不重复组合',
+            '-',
+            '🔍 Skill 生成器新增「自动识图」',
+            '• 当只上传参考图片（无成品描述词）时，可自动先识别图片生成描述词',
+            '• 两阶段分析：先 AI 识图 → 再用识别结果进行 Skill 分析',
+            '• 默认开启，可在参考图片区域手动关闭',
+            '-',
+            '🧩 Skill 生成器新增「AI 扩展类型」',
+            '• 对话扩展模式：不依赖随机库，直接对话生成扩展值（如"给我 30 个电商场景"）',
+            '• 关联随机库扩展：有库时可针对某一列做精准 AI 扩展，可直接追加到库中',
+            '• AI 智能生成库值弹窗：按描述快速生成并预览',
+            '-',
+            '📋 Image Review 图片审阅增强',
+            '• 新增批量操作：勾选多张图片批量审批/存图',
+            '• 性能优化：大量图片缩放和输入更流畅',
+            '• Gyazo 上传稳定性提升',
+            '-',
+            '📂 项目管理与云同步',
+            '• 多项目管理：创建多个项目，每个项目独立保存图片、结果、预设等',
+            '• 自动保存：操作过程中自动保存到当前项目',
+            '• 云端同步：项目数据可同步到 Firestore 云端',
+            '• 预设同步：自定义预设支持上传/下载到 Google Sheets',
+            '-',
+            '-',
+            '-',
+
             '2026.02.03 v2.90.0',
-            '🎯 AI 图片识别「无图模式」重大更新',
+            '🎯 AI 图片识别「创新模式」重大更新',
             '• 新增「全部重新创新」按钮：一键清空并重新生成所有卡片',
             '• 新增「重试失败」按钮：批量重试所有生成失败的卡片',
             '• 新增「翻译功能」：支持一键翻译结果为中文，中英文可分别复制',
@@ -175,14 +203,11 @@ const latestUpdate: UpdateInfo = {
             '• 修复全局复制粘贴功能失效的问题',
             '• 反推提示词工具：切换标签页后状态保持不丢失',
 
-
-
             '上一版本2.6.11更新补充：',
             '• 批量改写文案',
             '• 批量文案专业查重工具',
             '• 批量文案多语言翻译',
             '• 数据分析模块更新新增部分功能',
-
 
             '12.21',
             '-',
@@ -360,15 +385,9 @@ const latestUpdate: UpdateInfo = {
             '修复切换工具后，图片编辑器图层丢失的问题。-',
             '修复切换工具后，智能翻译的批量任务丢失的问题。',
 
-
-
-
-
             '-',
             '-',
             '-',
-
-
 
             '11.24',
             '新增模型选择功能，可选择最新的Gemini 3 文本模型和图片模型（图片模型仅限付费API可以使用）',
@@ -377,8 +396,6 @@ const latestUpdate: UpdateInfo = {
             '-',
             '-',
             '-',
-
-
 
             '11.21',
             '填写谷歌邮箱即可解锁云端同步保存预设功能和批量预设API KEY功能',

@@ -9,17 +9,18 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
     AlignLeft, Copy, Check, AlertCircle, Loader2,
     ArrowRight, Sparkles, Table2, RefreshCw, Download,
-    Columns, MoveVertical
+    Columns, MoveVertical, ArrowLeft
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 
 interface ColumnAlignPanelProps {
     getAiInstance?: () => GoogleGenAI;
+    onBack?: () => void;
 }
 
 type MatchMode = 'exact' | 'ai';
 
-export default function ColumnAlignPanel({ getAiInstance }: ColumnAlignPanelProps) {
+export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignPanelProps) {
     // 基准列（原始数据）
     const [baseColumn, setBaseColumn] = useState<string>('');
 
@@ -29,6 +30,9 @@ export default function ColumnAlignPanel({ getAiInstance }: ColumnAlignPanelProp
     // 匹配模式
     const [matchMode, setMatchMode] = useState<MatchMode>('exact');
     const [matchKeyColumn, setMatchKeyColumn] = useState<string>('0');
+
+    // 追加模式（待匹配数据分批粘贴）
+    const [appendMode, setAppendMode] = useState(false);
 
     // 状态
     const [isProcessing, setIsProcessing] = useState(false);
@@ -69,6 +73,29 @@ export default function ColumnAlignPanel({ getAiInstance }: ColumnAlignPanelProp
     // 处理粘贴事件 - 优先解析 HTML 表格格式
     const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>, target: 'base' | 'match') => {
         const htmlData = e.clipboardData.getData('text/html');
+        const plainText = e.clipboardData.getData('text/plain');
+
+        if (target === 'match' && appendMode) {
+            // 追加模式：将新数据追加到已有数据后面
+            e.preventDefault();
+            let newContent = '';
+            if (htmlData) {
+                const htmlRows = parseHtmlTable(htmlData);
+                if (htmlRows && htmlRows.length > 0) {
+                    newContent = htmlRows.map(row => row.join('\t')).join('\n');
+                }
+            }
+            if (!newContent && plainText) {
+                newContent = plainText;
+            }
+            if (newContent) {
+                setMatchInput(prev => {
+                    if (!prev.trim()) return newContent;
+                    return prev.trimEnd() + '\n' + newContent;
+                });
+            }
+            return;
+        }
 
         if (htmlData) {
             const htmlRows = parseHtmlTable(htmlData);
@@ -82,7 +109,7 @@ export default function ColumnAlignPanel({ getAiInstance }: ColumnAlignPanelProp
                 return;
             }
         }
-    }, []);
+    }, [appendMode]);
 
     // 解析粘贴的数据 - 保留空行以确保行对齐
     const parseData = (text: string): string[][] => {
@@ -325,6 +352,15 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
             <div className="bg-white border-b border-slate-200 px-4 py-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
+                        {onBack && (
+                            <button
+                                onClick={onBack}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                title="返回"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                        )}
                         <div className="bg-indigo-100 p-1.5 rounded-lg">
                             <MoveVertical className="w-5 h-5 text-indigo-600" />
                         </div>
@@ -406,10 +442,22 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                             <div className="flex items-center gap-2">
                                 <Columns size={14} className="text-blue-600" />
                                 <span className="text-sm font-medium text-slate-700">待匹配数据</span>
+                                <span className="text-xs text-slate-400">
+                                    {matchData.rows.length} 行 × {matchData.columns} 列
+                                </span>
                             </div>
-                            <span className="text-xs text-slate-400">
-                                {matchData.rows.length} 行 × {matchData.columns} 列
-                            </span>
+                            <label className="flex items-center gap-1.5 cursor-pointer" title="开启后，每次粘贴会追加到已有数据后面，方便分批粘贴大量数据">
+                                <span className="text-xs text-slate-500">追加模式</span>
+                                <div className="relative inline-flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={appendMode}
+                                        onChange={() => setAppendMode(!appendMode)}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-8 h-4 bg-slate-300 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                                </div>
+                            </label>
                         </div>
                         <textarea
                             value={matchInput}

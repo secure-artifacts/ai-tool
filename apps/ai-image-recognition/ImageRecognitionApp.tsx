@@ -496,6 +496,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         const saved = localStorage.getItem('ai-image-recognition-card-batch-size');
         return saved ? parseInt(saved, 10) : 1; // 默认1（单条模式）
     }); // 批次处理大小：多个卡片合并成一次AI请求
+    const [imageBatchSize, setImageBatchSize] = useState(() => {
+        const saved = localStorage.getItem('ai-image-recognition-image-batch-size');
+        return saved ? parseInt(saved, 10) : 1; // 默认1（单张模式）
+    }); // 图片批次分类大小：多张图片合并成一次AI请求
 
     // 自动保存无图模式状态和卡片到localStorage
     useEffect(() => {
@@ -517,6 +521,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     useEffect(() => {
         localStorage.setItem('ai-image-recognition-card-batch-size', String(cardBatchSize));
     }, [cardBatchSize]);
+    // 保存图片批次大小设置
+    useEffect(() => {
+        localStorage.setItem('ai-image-recognition-image-batch-size', String(imageBatchSize));
+    }, [imageBatchSize]);
     const [toastMessage, setToastMessage] = useState<string | null>(null); // Toast提示
     const [confirmModal, setConfirmModal] = useState<{ show: boolean; message: string; onConfirm: () => void }>({
         show: false,
@@ -546,14 +554,14 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [translationCache]);
     // 更新说明弹窗状态
     const [showUpdateNotes, setShowUpdateNotes] = useState(() => {
-        // 检查是否已经看过v2.90更新说明
-        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v2.90-seen');
+        // 检查是否已经看过v2.95更新说明
+        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v2.95-seen');
         return !hasSeenUpdate;
     });
 
     // 关闭更新说明时标记已读
     const closeUpdateNotes = useCallback(() => {
-        localStorage.setItem('ai-image-recognition-update-v2.90-seen', 'true');
+        localStorage.setItem('ai-image-recognition-update-v2.95-seen', 'true');
         setShowUpdateNotes(false);
     }, []);
 
@@ -1099,6 +1107,86 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 onRotateApiKey();
             } else {
                 console.warn('[classifyImage] onRotateApiKey is not defined!');
+            }
+        });
+    };
+
+    // 批量分类：一次 API 调用处理多张图片
+    const classifyImagesBatch = async (
+        items: { base64Data: string; mimeType: string; id: string }[],
+        prompt: string
+    ): Promise<Map<string, string>> => {
+        return retryWithBackoff(async () => {
+            const ai = getAiInstance();
+            const modelId = imageModel;
+
+            // 构建 parts：交替放置图片和编号标记
+            const parts: any[] = [];
+            items.forEach((item, index) => {
+                parts.push({
+                    inlineData: {
+                        mimeType: item.mimeType,
+                        data: item.base64Data,
+                    },
+                });
+                parts.push({
+                    text: `[图片 ${index + 1}]`,
+                });
+            });
+
+            // 最后追加用户 prompt + 批次要求
+            parts.push({
+                text: `${prompt}
+
+【批次处理说明】
+以上共有 ${items.length} 张图片，已按 [图片 1]、[图片 2]... 编号。
+请对每张图片分别执行上述指令，并严格按以下格式返回结果：
+
+=== [1] ===
+（图片1的分析结果）
+=== [2] ===
+（图片2的分析结果）
+...以此类推
+
+注意：
+- 每张图片的结果必须用 === [编号] === 分隔
+- 编号从 1 开始，与图片顺序一一对应
+- 每张图片的结果格式与单张处理时完全相同`,
+            });
+
+            const response = await ai.models.generateContent({
+                model: modelId,
+                contents: { parts },
+                config: {
+                    temperature: 0.2,
+                },
+            });
+
+            const fullText = response.text || "";
+
+            // 解析批量结果
+            const resultMap = new Map<string, string>();
+            const sections = fullText.split(/===\s*\[(\d+)\]\s*===/);
+
+            // sections 的格式为: [前缀, "1", 内容1, "2", 内容2, ...]
+            for (let i = 1; i < sections.length; i += 2) {
+                const index = parseInt(sections[i], 10) - 1;
+                const content = (sections[i + 1] || '').trim();
+                if (index >= 0 && index < items.length && content) {
+                    resultMap.set(items[index].id, content);
+                }
+            }
+
+            // 如果解析结果数量严重不足（< 50%），说明格式不对，抛错让重试
+            if (resultMap.size < items.length * 0.5) {
+                console.warn(`[classifyImagesBatch] 只解析到 ${resultMap.size}/${items.length} 个结果，尝试重试`);
+                throw new Error(`Batch parse incomplete: ${resultMap.size}/${items.length}`);
+            }
+
+            return resultMap;
+        }, 2, 3000, () => {
+            if (onRotateApiKey) {
+                onRotateApiKey();
             }
         });
     };
@@ -2639,107 +2727,237 @@ ${transitionInstruction}
             return;
         }
 
-        // Process with rate limit protection (concurrency=2, delay=1000ms between requests)
-        // 保持适度的并发数和间隔，平衡处理速度和 API 限流风险
-        await processWithConcurrency(queue, 2, async (item: ImageItem) => {
-            // Check if stopped
-            if (stoppedRef.current) {
-                return;
+        // === 批次模式（imageBatchSize > 1）：多张图片合并成一次 API 调用 ===
+        if (imageBatchSize > 1) {
+            console.log(`[图片批次模式] 开始批次处理，每批 ${imageBatchSize} 张图片，并发 3`);
+
+            // 过滤出有自定义 prompt 的图片，这些不能批量处理
+            const customPromptItems = queue.filter(item => item.useCustomPrompt && item.customPrompt?.trim());
+            const standardItems = queue.filter(item => !(item.useCustomPrompt && item.customPrompt?.trim()));
+
+            // 标准图片分批处理
+            const batches: ImageItem[][] = [];
+            for (let i = 0; i < standardItems.length; i += imageBatchSize) {
+                batches.push(standardItems.slice(i, i + imageBatchSize));
             }
 
-            // Wait while paused
-            while (pausedRef.current && !stoppedRef.current) {
-                await new Promise(resolve => setTimeout(resolve, 200));
+            // 构建有效 prompt
+            let effectivePrompt = prompt;
+            if (pureReplyMode) {
+                effectivePrompt = effectivePrompt + PURE_REPLY_SUFFIX;
             }
 
-            // Check again after pause
-            if (stoppedRef.current) {
-                return;
-            }
+            // 使用并发处理批次
+            await processWithConcurrency(batches, 3, async (batch: ImageItem[]) => {
+                if (stoppedRef.current) return;
+                while (pausedRef.current && !stoppedRef.current) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+                if (stoppedRef.current) return;
 
-            setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
+                // 标记这一批为 loading
+                const batchIds = new Set(batch.map(item => item.id));
+                setImages(prev => prev.map(img => batchIds.has(img.id) ? { ...img, status: 'loading' } : img));
 
-            try {
-                if (!item.base64Data || !item.mimeType) throw new Error("No image data");
+                // 过滤出有 base64 的图片
+                const validItems = batch.filter(item => item.base64Data && item.mimeType);
+                if (validItems.length === 0) return;
 
-                // 使用图片单独的提示词（如果启用），否则使用全局提示词
-                // 支持合并模式：全局指令 + 单独指令
-                let effectivePrompt: string;
-                if (item.useCustomPrompt && item.customPrompt?.trim()) {
-                    if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
-                        // 合并模式：全局指令 + 单独指令
-                        effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
-                    } else {
-                        // 独立模式：仅使用单独指令
-                        effectivePrompt = item.customPrompt;
+                try {
+                    const resultMap = await classifyImagesBatch(
+                        validItems.map(item => ({
+                            base64Data: item.base64Data!,
+                            mimeType: item.mimeType!,
+                            id: item.id,
+                        })),
+                        effectivePrompt
+                    );
+
+                    // 更新成功的结果
+                    setImages(prev => prev.map(img => {
+                        if (!batchIds.has(img.id)) return img;
+                        const result = resultMap.get(img.id);
+                        if (result) {
+                            const initialMessage = {
+                                id: uuidv4(),
+                                role: 'model' as const,
+                                text: result,
+                                timestamp: Date.now()
+                            };
+                            return { ...img, status: 'success' as const, result, chatHistory: [initialMessage] };
+                        } else {
+                            // 该图片未在批次结果中找到，标记为 idle 等待单独重试
+                            return { ...img, status: 'idle' as const };
+                        }
+                    }));
+
+                    // 批次中未匹配到结果的图片，回退到逐张处理
+                    const unmatchedItems = validItems.filter(item => !resultMap.has(item.id));
+                    if (unmatchedItems.length > 0) {
+                        console.log(`[图片批次模式] ${unmatchedItems.length} 张图片批次解析失败，回退到逐张处理`);
+                        for (const item of unmatchedItems) {
+                            if (stoppedRef.current) break;
+                            try {
+                                setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
+                                const singleResult = await classifyImage(item.base64Data!, item.mimeType!, effectivePrompt);
+                                const msg = { id: uuidv4(), role: 'model' as const, text: singleResult, timestamp: Date.now() };
+                                setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result: singleResult, chatHistory: [msg] } : img));
+                            } catch (err: any) {
+                                setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
+                            }
+                        }
                     }
-                } else {
-                    // 没有单独指令，使用全局指令
-                    effectivePrompt = prompt;
+                } catch (error: any) {
+                    console.error('[图片批次模式] 批次处理失败，回退到逐张处理:', error);
+                    // 整个批次失败，逐张重试
+                    for (const item of validItems) {
+                        if (stoppedRef.current) break;
+                        while (pausedRef.current && !stoppedRef.current) {
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                        }
+                        try {
+                            setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
+                            const singleResult = await classifyImage(item.base64Data!, item.mimeType!, effectivePrompt);
+                            const msg = { id: uuidv4(), role: 'model' as const, text: singleResult, timestamp: Date.now() };
+                            setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result: singleResult, chatHistory: [msg] } : img));
+                        } catch (err: any) {
+                            setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
+                        }
+                    }
+                }
+            }, 300); // 批次之间 300ms 间隔
+
+            // 处理有自定义 prompt 的图片（逐张处理）
+            if (customPromptItems.length > 0 && !stoppedRef.current) {
+                console.log(`[图片批次模式] ${customPromptItems.length} 张图片有自定义指令，逐张处理`);
+                await processWithConcurrency(customPromptItems, 3, async (item: ImageItem) => {
+                    if (stoppedRef.current) return;
+                    while (pausedRef.current && !stoppedRef.current) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                    if (stoppedRef.current) return;
+
+                    setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
+                    try {
+                        if (!item.base64Data || !item.mimeType) throw new Error("No image data");
+                        let ep = item.customPrompt!;
+                        if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
+                            ep = prompt.trim() + '\n\n' + ep.trim();
+                        }
+                        if (pureReplyMode) ep += PURE_REPLY_SUFFIX;
+
+                        const result = await classifyImage(item.base64Data, item.mimeType, ep);
+                        const msg = { id: uuidv4(), role: 'model' as const, text: result, timestamp: Date.now() };
+                        setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result, chatHistory: [msg] } : img));
+                    } catch (err: any) {
+                        setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
+                    }
+                }, 500);
+            }
+
+        } else {
+            // === 单张模式（原始逻辑）===
+            // Process with rate limit protection (concurrency=2, delay=1000ms between requests)
+            await processWithConcurrency(queue, 2, async (item: ImageItem) => {
+                // Check if stopped
+                if (stoppedRef.current) {
+                    return;
                 }
 
-                // 如果开启了纯净回复模式，在提示词末尾添加后缀
-                if (pureReplyMode) {
-                    effectivePrompt = effectivePrompt + PURE_REPLY_SUFFIX;
-                } else {
+                // Wait while paused
+                while (pausedRef.current && !stoppedRef.current) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 }
 
-                const result = await classifyImage(item.base64Data, item.mimeType, effectivePrompt);
+                // Check again after pause
+                if (stoppedRef.current) {
+                    return;
+                }
 
-                // 识别成功后，将结果也添加到聊天历史的第一条
-                const initialMessage = {
-                    id: uuidv4(),
-                    role: 'model' as const,
-                    text: result,
-                    timestamp: Date.now()
-                };
+                setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
 
-                setImages(prev => prev.map(img => img.id === item.id ? {
-                    ...img,
-                    status: 'success',
-                    result: result,
-                    chatHistory: [initialMessage]
-                } : img));
+                try {
+                    if (!item.base64Data || !item.mimeType) throw new Error("No image data");
 
-                // 每张图片识别完成后保存到历史
-                // 等待 Gyazo 上传完成后再保存（如果有上传任务的话）
-                if (user?.uid) {
-                    const itemId = item.id;
-                    const userId = user.uid;
-                    const promptUsed = effectivePrompt;
+                    // 使用图片单独的提示词（如果启用），否则使用全局提示词
+                    // 支持合并模式：全局指令 + 单独指令
+                    let effectivePrompt: string;
+                    if (item.useCustomPrompt && item.customPrompt?.trim()) {
+                        if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
+                            // 合并模式：全局指令 + 单独指令
+                            effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
+                        } else {
+                            // 独立模式：仅使用单独指令
+                            effectivePrompt = item.customPrompt;
+                        }
+                    } else {
+                        // 没有单独指令，使用全局指令
+                        effectivePrompt = prompt;
+                    }
 
-                    // 获取该图片的上传 Promise（如果存在）
-                    const uploadPromise = gyazoUploadPromisesRef.current.get(itemId);
+                    // 如果开启了纯净回复模式，在提示词末尾添加后缀
+                    if (pureReplyMode) {
+                        effectivePrompt = effectivePrompt + PURE_REPLY_SUFFIX;
+                    } else {
+                    }
 
-                    // 项目状态会自动保存，不再需要单独保存历史记录
-                    const saveToHistory = () => {
-                        // 项目系统会自动保存整个状态，包括识别结果
+                    const result = await classifyImage(item.base64Data, item.mimeType, effectivePrompt);
+
+                    // 识别成功后，将结果也添加到聊天历史的第一条
+                    const initialMessage = {
+                        id: uuidv4(),
+                        role: 'model' as const,
+                        text: result,
+                        timestamp: Date.now()
                     };
 
-                    if (uploadPromise) {
-                        // 等待上传完成后再保存，最多等待 10 秒
-                        Promise.race([
-                            uploadPromise,
-                            new Promise(resolve => setTimeout(resolve, 10000))
-                        ]).then(() => {
-                            // 清理已完成的 Promise
-                            gyazoUploadPromisesRef.current.delete(itemId);
-                            saveToHistory();
-                        });
-                    } else {
-                        // 没有上传任务，直接保存
-                        saveToHistory();
-                    }
-                }
+                    setImages(prev => prev.map(img => img.id === item.id ? {
+                        ...img,
+                        status: 'success',
+                        result: result,
+                        chatHistory: [initialMessage]
+                    } : img));
 
-            } catch (error: any) {
-                setImages(prev => prev.map(img => img.id === item.id ? {
-                    ...img,
-                    status: 'error',
-                    errorMsg: error.message
-                } : img));
-            }
-        });
+                    // 每张图片识别完成后保存到历史
+                    // 等待 Gyazo 上传完成后再保存（如果有上传任务的话）
+                    if (user?.uid) {
+                        const itemId = item.id;
+                        const userId = user.uid;
+                        const promptUsed = effectivePrompt;
+
+                        // 获取该图片的上传 Promise（如果存在）
+                        const uploadPromise = gyazoUploadPromisesRef.current.get(itemId);
+
+                        // 项目状态会自动保存，不再需要单独保存历史记录
+                        const saveToHistory = () => {
+                            // 项目系统会自动保存整个状态，包括识别结果
+                        };
+
+                        if (uploadPromise) {
+                            // 等待上传完成后再保存，最多等待 10 秒
+                            Promise.race([
+                                uploadPromise,
+                                new Promise(resolve => setTimeout(resolve, 10000))
+                            ]).then(() => {
+                                // 清理已完成的 Promise
+                                gyazoUploadPromisesRef.current.delete(itemId);
+                                saveToHistory();
+                            });
+                        } else {
+                            // 没有上传任务，直接保存
+                            saveToHistory();
+                        }
+                    }
+
+                } catch (error: any) {
+                    setImages(prev => prev.map(img => img.id === item.id ? {
+                        ...img,
+                        status: 'error',
+                        errorMsg: error.message
+                    } : img));
+                }
+            });
+        }
 
         setIsProcessing(false);
         setIsPaused(false);
@@ -4679,7 +4897,8 @@ ${itemEffectiveInstruction}
                     if ((workMode === 'creative' || workMode === 'quick') && selectedCardId && !target.closest('[data-image-card]')) {
                         setSelectedCardId(null);
                     }
-                    if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && !target.isContentEditable) {
+                    const isEditingControl = !!target.closest('input, textarea, select, option, [contenteditable="true"]');
+                    if (!isEditingControl) {
                         globalPasteTextareaRef.current?.focus();
                     }
                 }}
@@ -4710,12 +4929,14 @@ ${itemEffectiveInstruction}
                             unuploadedCount={unuploadedCount}
                             isUploading={isUploading}
                             workMode={workMode}
+                            imageBatchSize={imageBatchSize}
                             setImageModel={setImageModel}
                             setPrompt={setPrompt}
                             setPresets={setPresets}
                             setViewMode={setViewMode}
                             setAutoUploadGyazo={setAutoUploadGyazo}
                             setWorkMode={setWorkMode}
+                            setImageBatchSize={setImageBatchSize}
                             handleFiles={handleFiles}
                             handleTextPaste={handleTextPaste}
                             handleHtmlPaste={handleHtmlPaste}
@@ -5064,6 +5285,28 @@ ${itemEffectiveInstruction}
                                                 <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-default tooltip-bottom" data-tip="失败">
                                                     <span className="text-[0.6875rem] font-medium">失败</span>
                                                     <span className="text-xs font-bold text-red-300 font-mono">{images.filter(i => i.status === 'error').length}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* 图片批次设置 */}
+                                            <div className="flex items-center justify-between gap-2 py-1.5 px-1">
+                                                <span className="text-[0.6875rem] text-zinc-400">批次模式</span>
+                                                <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-800">
+                                                    {[1, 3, 5, 8].map(size => (
+                                                        <button
+                                                            key={size}
+                                                            onClick={() => setImageBatchSize(size)}
+                                                            className={`px-2 py-0.5 rounded text-[0.625rem] font-medium transition-colors ${imageBatchSize === size
+                                                                ? size === 1
+                                                                    ? 'bg-zinc-700 text-zinc-200'
+                                                                    : 'bg-cyan-600/30 text-cyan-300'
+                                                                : 'text-zinc-500 hover:text-zinc-300'
+                                                                }`}
+                                                            data-tip={size === 1 ? '逐张处理' : `每 ${size} 张图合并为一次 API 调用`}
+                                                        >
+                                                            {size === 1 ? '单张' : `${size}张`}
+                                                        </button>
+                                                    ))}
                                                 </div>
                                             </div>
 
@@ -6633,7 +6876,7 @@ ${itemEffectiveInstruction}
                                 </div>
                                 <div>
                                     <h2 className="text-xl font-bold text-emerald-400">功能更新说明</h2>
-                                    <p className="text-sm text-zinc-400 mt-1">v2.90 · AI 图片识别 · 创新模式</p>
+                                    <p className="text-sm text-zinc-400 mt-1">v2.95 · AI 图片识别 · 三模式全面升级</p>
                                 </div>
                             </div>
                             <button
@@ -6646,108 +6889,111 @@ ${itemEffectiveInstruction}
 
                         {/* 更新内容 */}
                         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-                            {/* 一、创新模式 */}
+                            {/* 一、三种工作模式 */}
                             <div className="space-y-3">
                                 <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
                                     <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-xs">一</span>
-                                    AI 图片识别新增【创新模式】
+                                    三种工作模式
                                 </h3>
                                 <p className="text-sm text-zinc-300 leading-relaxed">
-                                    本次更新新增 AI 图片识别·创新模式，专注于 Prompt（AI 描述词）创作与批量创新，为后续大规模生图提供高质量描述词。
+                                    工具栏顶部可切换三种模式，覆盖从图片识别到批量描述词创新的完整工作流：
                                 </p>
                                 <div className="grid gap-3 pl-4">
                                     <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
-                                        <h4 className="text-sm font-semibold text-emerald-300 mb-2">1️⃣ 多图参考创新</h4>
+                                        <h4 className="text-sm font-semibold text-emerald-300 mb-2">⚡ 标准模式</h4>
                                         <ul className="text-xs text-zinc-400 space-y-1">
-                                            <li>• 支持上传或粘贴多张图片</li>
-                                            <li>• 基于多图进行综合分析与创新生成 Prompt</li>
-                                            <li>• 适用于风格融合、元素拆解、批量翻版等场景</li>
+                                            <li>• 逐张识别分析图片，生成描述词或分析结果</li>
+                                            <li>• 支持自定义提示词预设、纯回复模式</li>
+                                            <li>• 每张图片支持独立的多轮对话追问</li>
+                                            <li>• 批量重试、并发控制、自动上传 Gyazo 图床</li>
                                         </ul>
                                     </div>
-                                    <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
-                                        <h4 className="text-sm font-semibold text-emerald-300 mb-2">2️⃣ 无图创新（纯指令模式）</h4>
+                                    <div className="bg-zinc-800/50 rounded-lg p-3 border border-purple-700/30">
+                                        <h4 className="text-sm font-semibold text-purple-300 mb-2">✨ 创新模式</h4>
                                         <ul className="text-xs text-zinc-400 space-y-1">
-                                            <li>• 无需上传图片，完全依赖指令进行创新</li>
-                                            <li>• 可直接输入成品 Prompt / AI 描述词</li>
-                                            <li>• 支持批量创新、批量扩展描述词</li>
-                                            <li>• 通过完善指令生成高质量、多样化的 Prompt</li>
+                                            <li>• 基于图片 + 指令，每张图生成多条创新描述词</li>
+                                            <li>• 支持融合图片：为卡片额外添加参考图，融合多种风格</li>
+                                            <li>• 无图模式：纯文本输入，批量创新描述词</li>
+                                            <li>• 翻译功能：单条/批量英→中翻译，结果缓存</li>
+                                            <li>• 可发送结果到「反推提示词」工具</li>
+                                        </ul>
+                                    </div>
+                                    <div className="bg-zinc-800/50 rounded-lg p-3 border border-orange-700/30">
+                                        <h4 className="text-sm font-semibold text-orange-300 mb-2">⚡ 快捷模式 <span className="text-[10px] text-orange-400 bg-orange-900/30 px-1.5 py-0.5 rounded ml-1">新</span></h4>
+                                        <ul className="text-xs text-zinc-400 space-y-1">
+                                            <li>• 无需图片，纯文本批量创新的高效模式</li>
+                                            <li>• 自动集成随机库系统，实现组合式创新</li>
+                                            <li>• 支持配套指令：每个随机库数据源可绑定专用指令</li>
+                                            <li>• 紧凑的快捷面板，一站式管理随机库和创新</li>
                                         </ul>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* 二、流程说明 */}
+                            {/* 二、随机库系统 */}
                             <div className="space-y-3">
                                 <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
                                     <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-xs">二</span>
-                                    流程与多平台批量创新说明
+                                    随机库系统全面升级
                                 </h3>
-                                <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
-                                    <ul className="text-xs text-zinc-400 space-y-1.5">
-                                        <li>• 整体流程类似 Opal 的创新流程</li>
-                                        <li>• 本工具仅负责 <span className="text-emerald-400">Prompt 创作与批量创新</span></li>
-                                        <li>• 不包含生图环节</li>
-                                    </ul>
-                                    <div className="mt-3 p-2 bg-zinc-900/50 rounded border border-zinc-600/30">
-                                        <p className="text-xs text-zinc-500">
-                                            生图需配合 <span className="text-purple-400">第三方批量生图插件/软件</span> 完成，包括：批量垫图生图、单图/多图垫图、一次生成更多图片、不受 Gemini 生图风格限制等。
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="flex items-start gap-2 p-2 bg-emerald-900/20 rounded-lg border border-emerald-700/30">
-                                    <span className="text-emerald-400">📌</span>
-                                    <p className="text-xs text-emerald-300">本工具专注于写词（Prompt 创作），生图由外部工具完成，组合方式更灵活、可扩展性更强。</p>
-                                </div>
-                            </div>
-
-                            {/* 三、多平台支持 */}
-                            <div className="space-y-3">
-                                <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
-                                    <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-xs">三</span>
-                                    多平台 & 多风格 Prompt 批量创新
-                                </h3>
-                                <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
-                                    <ul className="text-xs text-zinc-400 space-y-1.5">
-                                        <li>• 支持面向不同软件、不同模型、不同风格类型进行 Prompt 批量创新</li>
-                                        <li>• 创新指令可直接使用 Opal 的特定创新/翻版指令</li>
-                                        <li>• 支持一键批量生成更多 Prompt</li>
-                                        <li>• 生成的 Prompt 可直接对接批量生图插件，在多个软件中完成批量生图与下载</li>
-                                    </ul>
-                                </div>
-                            </div>
-
-                            {/* 四、高级创新模式 */}
-                            <div className="space-y-3">
-                                <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
-                                    <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-xs">四</span>
-                                    【高级创新模式】随机库
-                                </h3>
-                                <p className="text-sm text-zinc-300 leading-relaxed">
-                                    高级创新模式，用于解决随机性过大与结果重复的问题：
-                                </p>
                                 <div className="bg-gradient-to-r from-purple-900/30 to-zinc-800/50 rounded-lg p-4 border border-purple-700/30">
                                     <ul className="text-xs text-zinc-300 space-y-2">
                                         <li className="flex items-start gap-2">
                                             <span className="text-purple-400">✨</span>
-                                            <span>支持设置<span className="text-purple-400 font-medium">随机库选项</span>，在设定库范围内进行组合式创新</span>
+                                            <span>支持<span className="text-purple-400 font-medium">多维度随机库</span>（风格、场景、角色等），在设定范围内组合式创新</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-400">✓</span>
-                                            <span>避免随机性过大导致结果不可控</span>
+                                            <span><span className="text-emerald-400 font-medium">Google Sheets 同步</span>：支持从 Google Sheets 导入/导出随机库数据，多数据源切换</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-400">✓</span>
-                                            <span>有效减少 AI 每次生成内容雷同的问题</span>
+                                            <span><span className="text-amber-400 font-medium">配套指令</span>：每个数据源可绑定专用创新指令，切换数据源时自动切换指令</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-400">✓</span>
-                                            <span>显著降低生成图片相似度</span>
+                                            <span>AI 智能填充：使用 AI 自动生成随机库内容或分析图片提取元素</span>
                                         </li>
                                         <li className="flex items-start gap-2">
                                             <span className="text-emerald-400">✓</span>
-                                            <span>更适合<span className="text-amber-400 font-medium">大规模批量创新、翻版与刷图场景</span></span>
+                                            <span>支持笛卡尔积生成所有组合，或智能随机抽取不重复组合</span>
                                         </li>
                                     </ul>
+                                </div>
+                            </div>
+
+                            {/* 三、项目管理与云同步 */}
+                            <div className="space-y-3">
+                                <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
+                                    <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-xs">三</span>
+                                    项目管理与云同步
+                                </h3>
+                                <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                                    <ul className="text-xs text-zinc-400 space-y-1.5">
+                                        <li>• <span className="text-emerald-400">多项目管理</span>：创建多个项目，每个项目独立保存图片、结果、预设等数据</li>
+                                        <li>• <span className="text-emerald-400">自动保存</span>：操作过程中自动保存到当前项目</li>
+                                        <li>• <span className="text-emerald-400">云端同步</span>：项目数据可同步到 Firestore 云端</li>
+                                        <li>• <span className="text-emerald-400">预设同步</span>：自定义预设支持上传/下载到 Google Sheets</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            {/* 四、流程说明 */}
+                            <div className="space-y-3">
+                                <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
+                                    <span className="bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded text-xs">四</span>
+                                    工作流程说明
+                                </h3>
+                                <div className="bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
+                                    <ul className="text-xs text-zinc-400 space-y-1.5">
+                                        <li>• 本工具专注于 <span className="text-emerald-400">Prompt 创作与批量创新</span></li>
+                                        <li>• 创新指令可直接使用 Opal 的特定创新/翻版指令</li>
+                                        <li>• 生成的 Prompt 可直接复制粘贴到 Google Sheets 或对接批量生图插件</li>
+                                    </ul>
+                                </div>
+                                <div className="flex items-start gap-2 p-2 bg-emerald-900/20 rounded-lg border border-emerald-700/30">
+                                    <span className="text-emerald-400">📌</span>
+                                    <p className="text-xs text-emerald-300">本工具专注于写词（Prompt 创作），生图由外部工具完成，组合方式更灵活、可扩展性更强。</p>
                                 </div>
                             </div>
                         </div>
