@@ -32,6 +32,8 @@ interface SheetMindAppProps {
 const STORAGE_KEY = 'sheetmind_workbook_cache';
 const GALLERY_TABS_KEY = 'sheetmind_gallery_config_tabs';
 const GALLERY_ACTIVE_TAB_KEY = 'sheetmind_gallery_active_tab';
+const DS_TABS_KEY = 'sheetmind_datasource_tabs';
+const DS_ACTIVE_TAB_KEY = 'sheetmind_datasource_active_tab';
 
 interface GalleryConfigTab {
     id: string;
@@ -39,6 +41,18 @@ interface GalleryConfigTab {
     config: SharedConfig;
     createdAt: number;
     updatedAt: number;
+}
+
+interface DataSourceTab {
+    id: string;
+    name: string;
+    sourceUrl?: string;
+    sourceId?: string;    // DataSource id from DataSourceManager
+    fileName?: string;
+    currentSheetName?: string;
+    galleryTabs: GalleryConfigTab[];
+    activeGalleryTabId: string | null;
+    createdAt: number;
 }
 
 const normalizeSharedConfig = (config?: SharedConfig | null): SharedConfig => {
@@ -249,6 +263,23 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     );
     const deferredSharedConfig = useDeferredValue(activeConfig);
 
+    // ==================== Data Source Tabs State ====================
+    const [dataSourceTabs, setDataSourceTabs] = useState<DataSourceTab[]>(() => {
+        try {
+            const saved = localStorage.getItem(DS_TABS_KEY);
+            if (saved) return JSON.parse(saved) as DataSourceTab[];
+        } catch { /* ignore */ }
+        return [];
+    });
+    const [activeDataSourceTabId, setActiveDataSourceTabId] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem(DS_ACTIVE_TAB_KEY);
+        } catch { /* ignore */ }
+        return null;
+    });
+    const [editingDsTabId, setEditingDsTabId] = useState<string | null>(null);
+    const switchingDsRef = useRef(false); // prevent re-entrant switches
+
     const updateActiveConfig = useCallback((nextConfig: SharedConfig) => {
         if (!activeGalleryTabId) {
             console.warn('[SheetMindApp] updateActiveConfig called but activeGalleryTabId is null - config update ignored!');
@@ -348,6 +379,213 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             setActiveGalleryTabId(nextTabs[0]?.id || null);
         }
     }, [galleryTabs, activeGalleryTabId]);
+
+    // ==================== Data Source Tabs Logic ====================
+    // Persist data source tabs
+    // Ref to bridge forward reference to applyCachedWorkbook (defined later in the component)
+    const applyCachedWorkbookRef = useRef<((cached: any, fallbackName?: string) => void) | null>(null);
+    useEffect(() => {
+        try {
+            localStorage.setItem(DS_TABS_KEY, JSON.stringify(dataSourceTabs));
+            if (activeDataSourceTabId) {
+                localStorage.setItem(DS_ACTIVE_TAB_KEY, activeDataSourceTabId);
+            }
+        } catch { /* ignore */ }
+    }, [dataSourceTabs, activeDataSourceTabId]);
+
+    // Save current state into the current data source tab
+    const saveCurrentDsState = useCallback(() => {
+        if (!activeDataSourceTabId) return;
+        setDataSourceTabs(prev => prev.map(tab => {
+            if (tab.id !== activeDataSourceTabId) return tab;
+            return {
+                ...tab,
+                sourceUrl,
+                fileName,
+                currentSheetName,
+                galleryTabs,
+                activeGalleryTabId,
+            };
+        }));
+    }, [activeDataSourceTabId, sourceUrl, fileName, currentSheetName, galleryTabs, activeGalleryTabId]);
+
+    // Create a new data source tab for the current data
+    const handleAddDataSourceTab = useCallback(() => {
+        // Save current state first
+        saveCurrentDsState();
+
+        const now = Date.now();
+        const initialGalleryTab: GalleryConfigTab = {
+            id: `gc_${now}`,
+            name: '默认配置',
+            config: normalizeSharedConfig(getDefaultSharedConfig()),
+            createdAt: now,
+            updatedAt: now,
+        };
+        const newTab: DataSourceTab = {
+            id: `ds_${now}`,
+            name: `数据源 ${dataSourceTabs.length + 1}`,
+            galleryTabs: [initialGalleryTab],
+            activeGalleryTabId: initialGalleryTab.id,
+            createdAt: now,
+        };
+        setDataSourceTabs(prev => [...prev, newTab]);
+        setActiveDataSourceTabId(newTab.id);
+
+        // Clear current data so user can load a new source
+        setWorkbook(null);
+        setData(null);
+        setSourceUrl(undefined);
+        setFileName('');
+        setCurrentSheetName('');
+        setGalleryTabs([initialGalleryTab]);
+        setActiveGalleryTabId(initialGalleryTab.id);
+    }, [dataSourceTabs.length, saveCurrentDsState]);
+
+    // Create a data source tab from current loaded data (for initial migration)
+    const ensureCurrentDataSourceTab = useCallback(() => {
+        if (dataSourceTabs.length > 0) return; // Already have tabs
+        if (!sourceUrl && !workbook) return; // No data loaded
+
+        const now = Date.now();
+        const currentTab: DataSourceTab = {
+            id: `ds_${now}`,
+            name: fileName || sourceUrl || '当前数据',
+            sourceUrl,
+            fileName,
+            currentSheetName,
+            galleryTabs,
+            activeGalleryTabId,
+            createdAt: now,
+        };
+        setDataSourceTabs([currentTab]);
+        setActiveDataSourceTabId(currentTab.id);
+    }, [dataSourceTabs.length, sourceUrl, workbook, fileName, currentSheetName, galleryTabs, activeGalleryTabId]);
+
+    // Auto-create first data source tab when data is loaded
+    useEffect(() => {
+        ensureCurrentDataSourceTab();
+    }, [ensureCurrentDataSourceTab]);
+
+    // Switch data source tab
+    const switchDataSourceTab = useCallback(async (tabId: string) => {
+        if (tabId === activeDataSourceTabId) return;
+        if (switchingDsRef.current) return;
+        switchingDsRef.current = true;
+
+        // Save current state
+        saveCurrentDsState();
+
+        const targetTab = dataSourceTabs.find(t => t.id === tabId);
+        if (!targetTab) {
+            switchingDsRef.current = false;
+            return;
+        }
+
+        setActiveDataSourceTabId(tabId);
+
+        // Restore gallery config tabs
+        if (targetTab.galleryTabs && targetTab.galleryTabs.length > 0) {
+            setGalleryTabs(targetTab.galleryTabs.map(t => ({ ...t, config: normalizeSharedConfig(t.config) })));
+            setActiveGalleryTabId(targetTab.activeGalleryTabId || targetTab.galleryTabs[0].id);
+        } else {
+            const now = Date.now();
+            const defaultTab: GalleryConfigTab = {
+                id: `gc_${now}`,
+                name: '默认配置',
+                config: normalizeSharedConfig(getDefaultSharedConfig()),
+                createdAt: now,
+                updatedAt: now,
+            };
+            setGalleryTabs([defaultTab]);
+            setActiveGalleryTabId(defaultTab.id);
+        }
+
+        // Restore data source metadata
+        setFileName(targetTab.fileName || '');
+        setCurrentSheetName(targetTab.currentSheetName || '');
+
+        if (targetTab.sourceUrl) {
+            // Load from cache
+            setIsRefreshing(true);
+            setLoadProgress('📂 切换数据源...');
+            try {
+                const cached = await loadWorkbookCache(targetTab.sourceUrl, targetTab.sourceId);
+                if (cached.success && cached.data) {
+                    if (applyCachedWorkbookRef.current) {
+                        applyCachedWorkbookRef.current({ ...cached.data, sourceUrl: targetTab.sourceUrl }, targetTab.fileName);
+                    }
+                } else {
+                    // No cache, just set the URL and let user refresh
+                    setSourceUrl(targetTab.sourceUrl);
+                    setWorkbook(null);
+                    setData(null);
+                }
+            } catch (e) {
+                console.warn('[DS Tab] Failed to load cached data:', e);
+                setSourceUrl(targetTab.sourceUrl);
+                setWorkbook(null);
+                setData(null);
+            } finally {
+                setLoadProgress(null);
+                setIsRefreshing(false);
+            }
+        } else {
+            // No source URL - empty tab
+            setSourceUrl(undefined);
+            setWorkbook(null);
+            setData(null);
+        }
+
+        switchingDsRef.current = false;
+    }, [activeDataSourceTabId, dataSourceTabs, saveCurrentDsState]);
+
+    // Delete data source tab
+    const handleDeleteDataSourceTab = useCallback((tabId: string) => {
+        if (dataSourceTabs.length <= 1) return;
+        const tab = dataSourceTabs.find(t => t.id === tabId);
+        if (!tab) return;
+        if (!confirm(`关闭数据源 "${tab.name}"？`)) return;
+
+        const nextTabs = dataSourceTabs.filter(t => t.id !== tabId);
+        setDataSourceTabs(nextTabs);
+
+        if (activeDataSourceTabId === tabId) {
+            // Switch to another tab
+            const nextTab = nextTabs[0];
+            if (nextTab) {
+                switchDataSourceTab(nextTab.id);
+            }
+        }
+    }, [dataSourceTabs, activeDataSourceTabId, switchDataSourceTab]);
+
+    // Rename data source tab
+    const handleSaveDsTabName = useCallback((tabId: string, newName: string) => {
+        const trimmed = newName.trim();
+        if (trimmed) {
+            setDataSourceTabs(prev => prev.map(t => (
+                t.id === tabId ? { ...t, name: trimmed } : t
+            )));
+        }
+        setEditingDsTabId(null);
+    }, []);
+
+    // Update current DS tab name when data source changes
+    useEffect(() => {
+        if (!activeDataSourceTabId || !fileName || switchingDsRef.current) return;
+        setDataSourceTabs(prev => prev.map(tab => {
+            if (tab.id !== activeDataSourceTabId) return tab;
+            // Only auto-update name if it was a generic name
+            const isGenericName = /^数据源 \d+$/.test(tab.name) || tab.name === '当前数据';
+            return {
+                ...tab,
+                sourceUrl,
+                fileName,
+                currentSheetName,
+                ...(isGenericName && fileName ? { name: fileName } : {}),
+            };
+        }));
+    }, [activeDataSourceTabId, sourceUrl, fileName, currentSheetName]);
 
     // Sidebar & Gallery State
     const [isSidebarOpen, setIsSidebarOpen] = useState(state.isSidebarOpen || false);
@@ -1136,6 +1374,11 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         setSelectedSheets(nextSelectedSheets);
     }, [sourceUrl]);
 
+    // Update the ref so switchDataSourceTab can use it
+    useEffect(() => {
+        applyCachedWorkbookRef.current = applyCachedWorkbook;
+    }, [applyCachedWorkbook]);
+
     useEffect(() => {
         if (isElectron()) return;
         if (!sourceUrl || workbook) return;
@@ -1558,6 +1801,79 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     </div>
                 )}
             </header>
+
+            {/* Data Source Tabs Bar */}
+            {dataSourceTabs.length > 0 && (
+                <div className="bg-slate-50 border-b border-slate-200 px-4 flex items-center gap-1 shrink-0 overflow-x-auto" style={{ minHeight: '36px' }}>
+                    <Database size={14} className="text-slate-400 shrink-0 mr-1" />
+                    {dataSourceTabs.map(dsTab => (
+                        <div
+                            key={dsTab.id}
+                            className={`group flex items-center gap-1 px-2.5 py-1 rounded-t-lg border border-b-0 text-xs font-medium cursor-pointer transition-all shrink-0 ${activeDataSourceTabId === dsTab.id
+                                    ? 'bg-white text-green-700 border-slate-200 shadow-sm -mb-px z-10'
+                                    : 'bg-slate-100 text-slate-500 border-transparent hover:bg-slate-200 hover:text-slate-700'
+                                }`}
+                        >
+                            {editingDsTabId === dsTab.id ? (
+                                <input
+                                    type="text"
+                                    defaultValue={dsTab.name}
+                                    autoFocus
+                                    className="text-xs font-medium w-24 px-1 py-0.5 rounded border border-green-300 bg-white text-slate-800 outline-none"
+                                    onBlur={(e) => {
+                                        if (editingDsTabId === dsTab.id) {
+                                            handleSaveDsTabName(dsTab.id, e.target.value);
+                                        }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.currentTarget.blur();
+                                        } else if (e.key === 'Escape') {
+                                            setEditingDsTabId(null);
+                                        }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            ) : (
+                                <button
+                                    onClick={() => switchDataSourceTab(dsTab.id)}
+                                    onDoubleClick={() => setEditingDsTabId(dsTab.id)}
+                                    className="max-w-[150px] truncate tooltip-bottom"
+                                    data-tip={dsTab.sourceUrl ? `${dsTab.name}\n${dsTab.sourceUrl}` : dsTab.name}
+                                >
+                                    {dsTab.name}
+                                </button>
+                            )}
+                            {dataSourceTabs.length > 1 && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteDataSourceTab(dsTab.id);
+                                    }}
+                                    className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-green-100' : 'hover:bg-slate-300'
+                                        }`}
+                                >
+                                    <X size={10} />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                    <button
+                        onClick={handleAddDataSourceTab}
+                        className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0 tooltip-bottom"
+                        data-tip="打开新数据源"
+                    >
+                        <Plus size={14} />
+                    </button>
+                    <button
+                        onClick={() => setShowDataSourceManager(true)}
+                        className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0 ml-1 tooltip-bottom"
+                        data-tip="数据源管理器"
+                    >
+                        <FolderOpen size={14} />
+                    </button>
+                </div>
+            )}
 
             {/* Main Content Area */}
             <div className="flex-1 flex overflow-hidden relative">
