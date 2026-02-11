@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, memo, useRef, useDeferredValue, useTransition } from 'react';
 import {
     X, ChevronDown, ChevronRight, Image, Calendar, User, Check,
     ZoomIn, ExternalLink, Settings2, ArrowUp, ArrowDown, Plus, Trash2,
@@ -4528,7 +4528,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     }, [effectiveSortRules, effectiveDateColumn]);
 
     // Processed rows with filtering and sorting
-    const processedRows = useMemo(() => {
+    const _processedRowsRaw = useMemo(() => {
         // Use effectiveData which handles transpose if needed
         let rows = [...effectiveData.rows].map((row, originalIndex) => ({
             ...row,
@@ -4664,6 +4664,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
         return sortRowsByRules(rows);
     }, [effectiveData.rows, config.searchKeyword, effectiveImageColumn, sortRowsByRules, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveCustomFilters, effectiveNumFilters]);
+
+    // ── Performance: useDeferredValue prevents UI freeze on large datasets ──
+    // React yields to user interactions (scrolling, clicking) during heavy re-computation
+    const processedRows = useDeferredValue(_processedRowsRaw);
+    const isProcessingRows = processedRows !== _processedRowsRaw;
+
+    // Large data safety: track when data is massive for UI hints
+    const LARGE_DATA_THRESHOLD = 5000;
+    const isLargeDataset = processedRows.length > LARGE_DATA_THRESHOLD;
 
     const rowById = useMemo(() => {
         return new Map(processedRows.map(row => [String(row._rowId || ''), row]));
@@ -7650,6 +7659,26 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
                     {/* Content */}
                     <div className="flex-1 overflow-auto p-4 flex-overflow-container" ref={contentScrollRef}>
+                        {/* Processing indicator */}
+                        {isProcessingRows && (
+                            <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 animate-pulse">
+                                <Loader2 size={14} className="animate-spin" />
+                                数据处理中...
+                            </div>
+                        )}
+                        {/* Large dataset warning */}
+                        {isLargeDataset && !isProcessingRows && config.galleryPageSize === 0 && (
+                            <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                                <AlertCircle size={14} />
+                                <span>⚠️ 数据量较大 ({processedRows.length.toLocaleString()} 行)，建议开启分页以避免卡顿</span>
+                                <button
+                                    onClick={() => updateConfig({ galleryPageSize: 100 })}
+                                    className="ml-auto px-2 py-0.5 bg-amber-100 hover:bg-amber-200 rounded text-amber-800 font-medium transition-colors"
+                                >
+                                    开启分页 (100/页)
+                                </button>
+                            </div>
+                        )}
                         {/* Favorites View */}
                         {showFavorites && (
                             <div className="space-y-4">
