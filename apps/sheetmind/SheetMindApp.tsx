@@ -1526,6 +1526,79 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
     return (
         <div className="h-full w-full flex flex-col bg-slate-100 overflow-hidden sheetmind-app">
+            {/* Data Source Tabs Bar */}
+            {dataSourceTabs.length > 0 && (
+                <div className="bg-slate-700 px-4 flex items-center gap-1 shrink-0 overflow-x-auto" style={{ minHeight: '34px', scrollbarWidth: 'none' }}>
+                    <Database size={14} className="text-slate-400 shrink-0 mr-1" />
+                    {dataSourceTabs.map(dsTab => (
+                        <div
+                            key={dsTab.id}
+                            className={`group flex items-center gap-1 px-3 py-1 rounded-t-md text-xs font-medium cursor-pointer transition-all shrink-0 ${activeDataSourceTabId === dsTab.id
+                                ? 'bg-white text-slate-800 shadow-sm'
+                                : 'bg-slate-600 text-slate-300 hover:bg-slate-500 hover:text-white'
+                                }`}
+                        >
+                            {editingDsTabId === dsTab.id ? (
+                                <input
+                                    type="text"
+                                    defaultValue={dsTab.name}
+                                    autoFocus
+                                    className="text-xs font-medium w-24 px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-800 outline-none"
+                                    onBlur={(e) => {
+                                        if (editingDsTabId === dsTab.id) {
+                                            handleSaveDsTabName(dsTab.id, e.target.value);
+                                        }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.currentTarget.blur();
+                                        } else if (e.key === 'Escape') {
+                                            setEditingDsTabId(null);
+                                        }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            ) : (
+                                <button
+                                    onClick={() => switchDataSourceTab(dsTab.id)}
+                                    onDoubleClick={() => setEditingDsTabId(dsTab.id)}
+                                    className="max-w-[150px] truncate tooltip-bottom"
+                                    data-tip={dsTab.sourceUrl ? `${dsTab.name}\n${dsTab.sourceUrl}` : dsTab.name}
+                                >
+                                    {dsTab.name}
+                                </button>
+                            )}
+                            {dataSourceTabs.length > 1 && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteDataSourceTab(dsTab.id);
+                                    }}
+                                    className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-300'
+                                        }`}
+                                >
+                                    <X size={10} />
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                    <button
+                        onClick={handleAddDataSourceTab}
+                        className="p-1 rounded hover:bg-slate-500 text-slate-400 hover:text-white transition-colors shrink-0 tooltip-bottom"
+                        data-tip="打开新数据源"
+                    >
+                        <Plus size={14} />
+                    </button>
+                    <button
+                        onClick={() => setShowDataSourceManager(true)}
+                        className="p-1 rounded hover:bg-slate-500 text-slate-400 hover:text-white transition-colors shrink-0 ml-1 tooltip-bottom"
+                        data-tip="数据源管理器"
+                    >
+                        <FolderOpen size={14} />
+                    </button>
+                </div>
+            )}
+
             {/* Header */}
             <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 shadow-sm z-50 relative">
                 <div className="flex items-center gap-3">
@@ -1801,79 +1874,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     </div>
                 )}
             </header>
-
-            {/* Data Source Tabs Bar */}
-            {dataSourceTabs.length > 0 && (
-                <div className="bg-slate-50 border-b border-slate-200 px-4 flex items-center gap-1 shrink-0 overflow-x-auto" style={{ minHeight: '36px' }}>
-                    <Database size={14} className="text-slate-400 shrink-0 mr-1" />
-                    {dataSourceTabs.map(dsTab => (
-                        <div
-                            key={dsTab.id}
-                            className={`group flex items-center gap-1 px-2.5 py-1 rounded-t-lg border border-b-0 text-xs font-medium cursor-pointer transition-all shrink-0 ${activeDataSourceTabId === dsTab.id
-                                    ? 'bg-white text-green-700 border-slate-200 shadow-sm -mb-px z-10'
-                                    : 'bg-slate-100 text-slate-500 border-transparent hover:bg-slate-200 hover:text-slate-700'
-                                }`}
-                        >
-                            {editingDsTabId === dsTab.id ? (
-                                <input
-                                    type="text"
-                                    defaultValue={dsTab.name}
-                                    autoFocus
-                                    className="text-xs font-medium w-24 px-1 py-0.5 rounded border border-green-300 bg-white text-slate-800 outline-none"
-                                    onBlur={(e) => {
-                                        if (editingDsTabId === dsTab.id) {
-                                            handleSaveDsTabName(dsTab.id, e.target.value);
-                                        }
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.currentTarget.blur();
-                                        } else if (e.key === 'Escape') {
-                                            setEditingDsTabId(null);
-                                        }
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                            ) : (
-                                <button
-                                    onClick={() => switchDataSourceTab(dsTab.id)}
-                                    onDoubleClick={() => setEditingDsTabId(dsTab.id)}
-                                    className="max-w-[150px] truncate tooltip-bottom"
-                                    data-tip={dsTab.sourceUrl ? `${dsTab.name}\n${dsTab.sourceUrl}` : dsTab.name}
-                                >
-                                    {dsTab.name}
-                                </button>
-                            )}
-                            {dataSourceTabs.length > 1 && (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteDataSourceTab(dsTab.id);
-                                    }}
-                                    className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-green-100' : 'hover:bg-slate-300'
-                                        }`}
-                                >
-                                    <X size={10} />
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                    <button
-                        onClick={handleAddDataSourceTab}
-                        className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0 tooltip-bottom"
-                        data-tip="打开新数据源"
-                    >
-                        <Plus size={14} />
-                    </button>
-                    <button
-                        onClick={() => setShowDataSourceManager(true)}
-                        className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0 ml-1 tooltip-bottom"
-                        data-tip="数据源管理器"
-                    >
-                        <FolderOpen size={14} />
-                    </button>
-                </div>
-            )}
 
             {/* Main Content Area */}
             <div className="flex-1 flex overflow-hidden relative">
