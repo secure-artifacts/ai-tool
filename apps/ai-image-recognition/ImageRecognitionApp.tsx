@@ -259,7 +259,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const { images, prompt, presets, isProcessing, copyMode, viewMode, autoUploadGyazo, innovationInstruction, globalInnovationTemplateId, globalInnovationCount, globalInnovationRounds, pureReplyMode, workMode = 'standard' as const, creativeCount = 4, creativeResults = [], creativeInstruction = '', needOriginalDesc = false, originalDescPresetId = '1', tabs = [], activeTabId = '' } = state;
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
-    const [copySuccess, setCopySuccess] = useState<'links' | 'formulas' | 'results' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null>(null);  // 复制成功提示
+    const [copySuccess, setCopySuccess] = useState<'links' | 'formulas' | 'results' | 'results-zh' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null>(null);  // 复制成功提示
     const [showAllComplete, setShowAllComplete] = useState(false);  // 全部完成提示
     const [showHistoryPanel, setShowHistoryPanel] = useState(false); // 历史面板 - 已被项目面板替代
     const [showProjectPanel, setShowProjectPanel] = useState(false); // 新的项目管理面板
@@ -270,6 +270,43 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const [showPresetEditor, setShowPresetEditor] = useState<'standard' | 'withRandomLib' | null>(null); // 预设编辑弹窗
     const [showGlobalPromptEditor, setShowGlobalPromptEditor] = useState(false); // 全局用户要求放大编辑弹窗
     const [showCreativeSettings, setShowCreativeSettings] = useState(false); // 创新模式设置弹框
+    // === 拆分元素模式 ===
+    const DEFAULT_SPLIT_ELEMENTS = ['背景', '主体/人物', '手持物品', '服装（须含性别）', '光影/氛围', '风格/构图'];
+    const OLD_SPLIT_ELEMENTS_V1 = ['背景', '主体/人物', '服装/配饰', '光影/氛围', '风格/构图']; // 旧版默认，用于迁移检测
+    const DEFAULT_SPLIT_INSTRUCTION = `详细描述图片，不要图片中的文字。请根据我指定的拆分元素库进行分别详细描述对应元素的完整的AI描述词。方便我直接给其他软件生成图片或者视频使用。你只需要给我各个元素的最终AI描述词就行，不需要其他任何多余的内容。并且英文回复我。`;
+    const [splitElements, setSplitElements] = useState<string[]>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem('split_elements');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    // 如果保存的是旧版默认值，自动迁移到新版
+                    if (Array.isArray(parsed) && JSON.stringify(parsed) === JSON.stringify(OLD_SPLIT_ELEMENTS_V1)) {
+                        localStorage.setItem('split_elements', JSON.stringify(DEFAULT_SPLIT_ELEMENTS));
+                        return DEFAULT_SPLIT_ELEMENTS;
+                    }
+                    return parsed;
+                } catch { }
+            }
+        }
+        return DEFAULT_SPLIT_ELEMENTS;
+    });
+    const [splitInstruction, setSplitInstruction] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('split_instruction') || DEFAULT_SPLIT_INSTRUCTION;
+        }
+        return DEFAULT_SPLIT_INSTRUCTION;
+    });
+    const [splitElementInput, setSplitElementInput] = useState('');
+    const [showSplitSettings, setShowSplitSettings] = useState(false);
+    const [showSplitPreview, setShowSplitPreview] = useState(false);
+    // 保存拆分元素设置
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('split_elements', JSON.stringify(splitElements));
+            localStorage.setItem('split_instruction', splitInstruction);
+        }
+    }, [splitElements, splitInstruction]);
     const [imageModel, setImageModel] = useState(() => {
         if (typeof window !== 'undefined') {
             return localStorage.getItem('image_model') || 'gemini-3-flash-preview';
@@ -554,14 +591,14 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [translationCache]);
     // 更新说明弹窗状态
     const [showUpdateNotes, setShowUpdateNotes] = useState(() => {
-        // 检查是否已经看过v2.95更新说明
-        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v2.95-seen');
+        // 检查是否已经看过v2.96更新说明
+        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v2.96-seen');
         return !hasSeenUpdate;
     });
 
     // 关闭更新说明时标记已读
     const closeUpdateNotes = useCallback(() => {
-        localStorage.setItem('ai-image-recognition-update-v2.95-seen', 'true');
+        localStorage.setItem('ai-image-recognition-update-v2.96-seen', 'true');
         setShowUpdateNotes(false);
     }, []);
 
@@ -1753,6 +1790,17 @@ ${card.topic}
         const card = textCards.find(c => c.id === cardId);
         if (!card || !card.topic.trim()) return;
 
+        // 清除该卡片所有结果的翻译缓存（内容即将重新生成）
+        setTranslationCache(prev => {
+            const next = { ...prev };
+            for (const key of Object.keys(next)) {
+                if (key.startsWith(`${cardId}-`)) {
+                    delete next[key];
+                }
+            }
+            return next;
+        });
+
         setTextCards(prev => prev.map(c =>
             c.id === cardId ? { ...c, status: 'processing', results: [] } : c
         ));
@@ -1838,6 +1886,14 @@ ${transitionInstruction}
     const retryTextCardResult = async (cardId: string, resultIndex: number) => {
         const card = textCards.find(c => c.id === cardId);
         if (!card || !card.topic.trim()) return;
+
+        // 清除该条结果的翻译缓存（内容即将重新生成）
+        const retryCacheKey = `${cardId}-${resultIndex}`;
+        setTranslationCache(prev => {
+            const next = { ...prev };
+            delete next[retryCacheKey];
+            return next;
+        });
 
         // 标记该卡片正在处理
         setTextCards(prev => prev.map(c =>
@@ -2690,7 +2746,7 @@ ${transitionInstruction}
         setImages(nextImages);
         // 立即使用计算出的新状态启动分析
         const queue = nextImages.filter(img => img.status === 'idle' && img.base64Data);
-        runAnalysis(queue);
+        runAnalysis(queue, workMode === 'split' ? buildSplitPrompt() : undefined);
     };
 
     // 重试失败并立即开始
@@ -2702,11 +2758,12 @@ ${transitionInstruction}
         );
         setImages(nextImages);
         const queue = nextImages.filter(img => img.status === 'idle' && img.base64Data);
-        runAnalysis(queue);
+        runAnalysis(queue, workMode === 'split' ? buildSplitPrompt() : undefined);
     };
 
-    const runAnalysis = async (targetImages?: ImageItem[]) => {
-        if (!prompt.trim()) {
+    const runAnalysis = async (targetImages?: ImageItem[], overridePrompt?: string) => {
+        const effectiveBasePrompt = overridePrompt || prompt;
+        if (!effectiveBasePrompt.trim()) {
             showToast("请先输入指令或选择一个预设。");
             return;
         }
@@ -2742,7 +2799,7 @@ ${transitionInstruction}
             }
 
             // 构建有效 prompt
-            let effectivePrompt = prompt;
+            let effectivePrompt = effectiveBasePrompt;
             if (pureReplyMode) {
                 effectivePrompt = effectivePrompt + PURE_REPLY_SUFFIX;
             }
@@ -2841,8 +2898,8 @@ ${transitionInstruction}
                     try {
                         if (!item.base64Data || !item.mimeType) throw new Error("No image data");
                         let ep = item.customPrompt!;
-                        if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
-                            ep = prompt.trim() + '\n\n' + ep.trim();
+                        if ((item.mergeWithGlobalPrompt ?? true) && effectiveBasePrompt.trim()) {
+                            ep = effectiveBasePrompt.trim() + '\n\n' + ep.trim();
                         }
                         if (pureReplyMode) ep += PURE_REPLY_SUFFIX;
 
@@ -2883,16 +2940,16 @@ ${transitionInstruction}
                     // 支持合并模式：全局指令 + 单独指令
                     let effectivePrompt: string;
                     if (item.useCustomPrompt && item.customPrompt?.trim()) {
-                        if ((item.mergeWithGlobalPrompt ?? true) && prompt.trim()) {
+                        if ((item.mergeWithGlobalPrompt ?? true) && effectiveBasePrompt.trim()) {
                             // 合并模式：全局指令 + 单独指令
-                            effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
+                            effectivePrompt = effectiveBasePrompt.trim() + '\n\n' + item.customPrompt.trim();
                         } else {
                             // 独立模式：仅使用单独指令
                             effectivePrompt = item.customPrompt;
                         }
                     } else {
                         // 没有单独指令，使用全局指令
-                        effectivePrompt = prompt;
+                        effectivePrompt = effectiveBasePrompt;
                     }
 
                     // 如果开启了纯净回复模式，在提示词末尾添加后缀
@@ -4100,9 +4157,70 @@ ${text}`;
     const DEFAULT_CREATIVE_INSTRUCTION = `请基于原始描述生成创新变体，保持核心主题但引入创意变化`;
 
     // 切换工作模式
-    const setWorkMode = useCallback((mode: 'standard' | 'creative' | 'quick') => {
+    const setWorkMode = useCallback((mode: 'standard' | 'creative' | 'quick' | 'split') => {
         setState(prev => ({ ...prev, workMode: mode }));
     }, [setState]);
+
+    // 构建拆分元素模式的 prompt
+    const buildSplitPrompt = useCallback(() => {
+        const elementsText = splitElements.map((e, i) => `${i + 1}. ${e}`).join('\n');
+        return `${splitInstruction}\n\n【拆分元素库】\n${elementsText}\n\n【核心规则 - 极其重要】\n每个元素的描述必须"只描述该元素本身"，严禁混入其他元素的信息！\n- 描述"手持物品"时：只描述物品本身的外观、材质、颜色等，不要提及谁在拿着它、动作是什么\n- 描述"背景/场景"时：只描述场景环境本身，不要提及人物在场景中做什么\n- 描述"人物/主体"时：只描述人物的外貌特征，不要提及场景或物品\n- 描述"服装"时：只描述衣服本身的款式、颜色、材质，不要提及穿着者\n- 以此类推：每个元素都是"独立、纯粹"的描述，可以直接作为AI生图的局部提示词使用\n\n【输出格式要求】\n请严格按以下格式输出，每个元素占一行，用 ||| 分隔元素名称、中文描述和英文描述：\n${splitElements.map(e => `${e}|||（纯粹描述该元素本身的中文AI描述词）|||（纯粹描述该元素本身的英文AI描述词）`).join('\n')}\n\n注意：一行一个元素，使用 ||| 作为分隔符，每行格式为"元素名|||中文描述|||英文描述"。描述必须只包含该元素自身的特征，绝对不能掺杂其他元素的描述。`;
+    }, [splitElements, splitInstruction]);
+
+    // 解析拆分结果（支持双语格式：元素名|||zh|||en 或旧格式：元素名|||desc）
+    const parseSplitResult = useCallback((result: string): Record<string, { zh: string; en: string }> => {
+        const parsed: Record<string, { zh: string; en: string }> = {};
+        const lines = result.split('\n').filter(l => l.includes('|||'));
+        for (const line of lines) {
+            const parts = line.split('|||');
+            const name = parts[0]?.trim().replace(/^\d+\.\s*/, '');
+            if (!name) continue;
+            const matchedElement = splitElements.find(e =>
+                name.includes(e) || e.includes(name)
+            ) || name;
+            if (parts.length >= 3) {
+                // 新格式：元素名|||zh|||en
+                parsed[matchedElement] = { zh: parts[1].trim(), en: parts[2].trim() };
+            } else if (parts.length === 2) {
+                // 旧格式兼容：元素名|||desc
+                const desc = parts[1].trim();
+                // 智能判断是中文还是英文
+                const isChinese = /[\u4e00-\u9fff]/.test(desc);
+                parsed[matchedElement] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
+            }
+        }
+        return parsed;
+    }, [splitElements]);
+
+    // 复制拆分结果为 TSV（每个元素一列）
+    const copySplitResults = useCallback((lang: 'zh' | 'en' = 'en') => {
+        const successImages = images.filter(img => img.status === 'success' && img.result);
+        if (successImages.length === 0) {
+            showToast('没有可复制的结果');
+            return;
+        }
+        // 表头
+        const headerRow = splitElements.join('\t');
+        // 数据行
+        const dataRows = images.map(img => {
+            if (img.status !== 'success' || !img.result) {
+                return splitElements.map(() => '').join('\t');
+            }
+            const parsed = parseSplitResult(img.result);
+            return splitElements.map(e => {
+                const val = parsed[e]?.[lang] || parsed[e]?.en || parsed[e]?.zh || '';
+                // TSV 格式规范
+                if (val.includes('\n') || val.includes('\t') || val.includes('"')) {
+                    return `"${val.replace(/"/g, '""')}"`;
+                }
+                return val;
+            }).join('\t');
+        });
+        const tsv = [headerRow, ...dataRows].join('\n');
+        navigator.clipboard.writeText(tsv);
+        setCopySuccess(lang === 'zh' ? 'results-zh' : 'results');
+        setTimeout(() => setCopySuccess(null), 2000);
+    }, [images, splitElements, parseSplitResult]);
 
     // 设置创新个数
     const setCreativeCount = useCallback((count: number) => {
@@ -4952,6 +5070,7 @@ ${itemEffectiveInstruction}
                             uploadAllUnuploadedToGyazo={uploadAllUnuploadedToGyazo}
                             handleResetAndRun={handleResetAndRun}
                             handleRetryFailedAndRun={handleRetryFailedAndRun}
+                            copySplitResults={copySplitResults}
                             setShowGlobalInnovationSettings={setShowGlobalInnovationSettings}
                             toggleToolbarCompact={toggleToolbarCompact}
                             setShowClearConfirm={setShowClearConfirm}
@@ -5050,6 +5169,15 @@ ${itemEffectiveInstruction}
                                             <Zap size={12} fill={workMode === 'quick' ? 'currentColor' : 'none'} />
                                             快捷
                                         </button>
+                                        <button
+                                            onClick={() => setWorkMode('split')}
+                                            className={`h-full flex items-center gap-1 px-2.5 rounded-md transition-all text-xs font-medium ${workMode === 'split'
+                                                ? 'bg-cyan-600/20 text-cyan-400 shadow-sm'
+                                                : 'text-zinc-500 hover:text-zinc-300'}`}
+                                        >
+                                            <LayoutGrid size={12} />
+                                            拆分
+                                        </button>
                                     </div>
                                 </div>
 
@@ -5109,8 +5237,8 @@ ${itemEffectiveInstruction}
 
                             {/* 第二行：指令和操作区 */}
                             <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 items-start">
-                                {/* 指令输入区 - 快捷模式下隐藏（使用表格配置的指令） */}
-                                {workMode !== 'quick' && (
+                                {/* 指令输入区 - 快捷模式和拆分模式下隐藏（使用自动生成的指令） */}
+                                {workMode !== 'quick' && workMode !== 'split' && (
                                     <div className="lg:col-span-3 min-w-0">
                                         <PromptManager
                                             prompt={prompt}
@@ -5369,6 +5497,217 @@ ${itemEffectiveInstruction}
                                                     >
                                                         <Square size={16} fill="currentColor" /> 停止
                                                     </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 拆分元素模式工具栏 */}
+                                {workMode === 'split' && (
+                                    <div className="lg:col-span-5 flex flex-col gap-2">
+                                        {/* 元素库标签 + 操作 */}
+                                        <div className="flex items-start gap-2">
+                                            {/* 元素标签区 */}
+                                            <div className="flex-1 flex flex-wrap items-center gap-1.5 min-h-[32px] p-1.5 rounded-lg border border-cyan-800/30 bg-cyan-950/20">
+                                                {splitElements.map((el, idx) => (
+                                                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-cyan-900/40 text-cyan-300 border border-cyan-700/40">
+                                                        {el}
+                                                        <button
+                                                            onClick={() => setSplitElements(prev => prev.filter((_, i) => i !== idx))}
+                                                            className="hover:text-red-400 transition-colors ml-0.5"
+                                                        >
+                                                            <X size={10} />
+                                                        </button>
+                                                    </span>
+                                                ))}
+                                                {/* 添加新元素 */}
+                                                <form
+                                                    onSubmit={e => {
+                                                        e.preventDefault();
+                                                        const vals = splitElementInput.split(/[,，]/).map(v => v.trim()).filter(v => v && !splitElements.includes(v));
+                                                        if (vals.length > 0) {
+                                                            setSplitElements(prev => [...prev, ...vals]);
+                                                            setSplitElementInput('');
+                                                        }
+                                                    }}
+                                                    className="inline-flex items-center"
+                                                >
+                                                    <input
+                                                        value={splitElementInput}
+                                                        onChange={e => setSplitElementInput(e.target.value)}
+                                                        placeholder="+ 添加元素"
+                                                        className="w-20 px-1.5 py-0.5 text-xs bg-transparent border-none outline-none text-zinc-400 placeholder:text-zinc-600"
+                                                    />
+                                                </form>
+                                            </div>
+                                            {/* 操作按钮 */}
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <button
+                                                    onClick={() => setShowSplitSettings(true)}
+                                                    className="p-1.5 rounded-md text-zinc-400 hover:text-cyan-400 hover:bg-cyan-950/30 transition-all tooltip-bottom"
+                                                    data-tip="编辑指令"
+                                                >
+                                                    <Settings size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => { setSplitElements(DEFAULT_SPLIT_ELEMENTS); setSplitInstruction(DEFAULT_SPLIT_INSTRUCTION); }}
+                                                    className="p-1.5 rounded-md text-zinc-400 hover:text-orange-400 hover:bg-orange-950/30 transition-all tooltip-bottom"
+                                                    data-tip="恢复默认"
+                                                >
+                                                    <RotateCw size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* 操作行 */}
+                                        <div className="flex flex-col gap-2">
+                                            {/* 1. 复制按钮网格 - 和标准模式样式一致 */}
+                                            <div className="grid grid-cols-4 gap-1.5">
+                                                {(() => {
+                                                    const hasImages = images.length > 0;
+                                                    const successCount = images.filter(i => i.status === 'success').length;
+                                                    const hasResults = successCount > 0;
+                                                    const btnBaseClass = "flex items-center justify-center gap-1.5 px-1 py-1.5 rounded-md text-[0.6875rem] font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95";
+
+                                                    return (
+                                                        <>
+                                                            <button
+                                                                onClick={copyAllLinks}
+                                                                disabled={!hasImages}
+                                                                className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'links'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                    : 'text-blue-400 hover:text-white bg-blue-900/20 hover:bg-blue-800/30 border-blue-800/30'
+                                                                    }`}
+                                                                data-tip="复制全部图片链接"
+                                                            >
+                                                                {copySuccess === 'links' ? <Check size={12} /> : <Link size={12} />}
+                                                                原始链接
+                                                            </button>
+
+                                                            <button
+                                                                onClick={copyAllFormulas}
+                                                                disabled={!hasImages}
+                                                                className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'formulas'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                    : 'text-orange-400 hover:text-white bg-orange-900/20 hover:bg-orange-800/30 border-orange-800/30'
+                                                                    }`}
+                                                                data-tip="复制全部 IMAGE 公式"
+                                                            >
+                                                                {copySuccess === 'formulas' ? <Check size={12} /> : <FileCode size={12} />}
+                                                                原始公式
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => copySplitResults('zh')}
+                                                                disabled={!hasResults}
+                                                                className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'results-zh'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                    : 'text-orange-400 hover:text-white bg-orange-900/20 hover:bg-orange-800/30 border-orange-800/30'
+                                                                    }`}
+                                                                data-tip="复制全部中文拆分结果 (TSV格式)"
+                                                            >
+                                                                {copySuccess === 'results-zh' ? <Check size={12} /> : <Copy size={12} />}
+                                                                复制中文
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => copySplitResults('en')}
+                                                                disabled={!hasResults}
+                                                                className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'results'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                    : 'text-emerald-400 hover:text-white bg-emerald-900/20 hover:bg-emerald-800/30 border-emerald-800/30'
+                                                                    }`}
+                                                                data-tip="复制全部英文拆分结果 (TSV格式)"
+                                                            >
+                                                                {copySuccess === 'results' ? <Check size={12} /> : <ClipboardCopy size={12} />}
+                                                                复制英文
+                                                            </button>
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+
+                                            {/* 2. 控制按钮 */}
+                                            {!isProcessing ? (
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            runAnalysis(undefined, buildSplitPrompt());
+                                                        }}
+                                                        disabled={images.filter(i => i.status === 'idle' && i.base64Data).length === 0}
+                                                        className={`
+                                                            flex-1 py-2 rounded-lg font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all shadow-lg min-w-[100px]
+                                                            ${images.filter(i => i.status === 'idle' && i.base64Data).length === 0
+                                                                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+                                                                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-500 hover:to-blue-500 hover:-translate-y-0.5 shadow-cyan-900/20'
+                                                            }
+                                                        `}
+                                                        data-tip="开始对待处理的图片进行拆分识别"
+                                                    >
+                                                        <Zap size={16} fill="currentColor" /> 开始拆分识别
+                                                    </button>
+
+                                                    {/* 全部重跑 */}
+                                                    {images.filter(i => i.status === 'idle' && i.base64Data).length === 0 &&
+                                                        images.filter(i => (i.status === 'success' || i.status === 'error') && i.base64Data).length > 0 && (
+                                                            <button
+                                                                onClick={handleResetAndRun}
+                                                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-sm hover:shadow-blue-500/20 shrink-0 tooltip-bottom"
+                                                                data-tip="重新将所有图片设为待处理并立即开始"
+                                                            >
+                                                                <RotateCw size={14} /> 全部重跑
+                                                            </button>
+                                                        )}
+
+                                                    {/* 重试失败 */}
+                                                    {images.filter(i => i.status === 'error').length > 0 && (
+                                                        <button
+                                                            onClick={handleRetryFailedAndRun}
+                                                            className="px-4 py-2 bg-red-900/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shrink-0 tooltip-bottom"
+                                                            data-tip="仅重试失败的任务"
+                                                        >
+                                                            <RotateCw size={14} /> 重试失败 ({images.filter(i => i.status === 'error').length})
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col gap-1.5">
+                                                    {/* 进度条 */}
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                                            <div
+                                                                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300"
+                                                                style={{ width: `${images.length > 0 ? (images.filter(i => i.status === 'success' || i.status === 'error').length / images.length * 100) : 0}%` }}
+                                                            />
+                                                        </div>
+                                                        <span className="text-xs text-cyan-400 font-medium shrink-0">
+                                                            {images.filter(i => i.status === 'success').length}/{images.length}
+                                                            {images.filter(i => i.status === 'error').length > 0 && (
+                                                                <span className="text-red-400 ml-1">({images.filter(i => i.status === 'error').length}失败)</span>
+                                                            )}
+                                                        </span>
+                                                    </div>
+                                                    {/* 控制按钮 */}
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <button
+                                                            onClick={handlePauseResume}
+                                                            className={`py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${isPaused
+                                                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                                                : 'bg-amber-600 hover:bg-amber-500 text-white'
+                                                                }`}
+                                                            data-tip={isPaused ? '继续处理队列' : '暂停处理队列'}
+                                                        >
+                                                            {isPaused ? <><Play size={16} fill="currentColor" /> 继续</> : <><Pause size={16} fill="currentColor" /> 暂停</>}
+                                                        </button>
+                                                        <button
+                                                            onClick={handleStop}
+                                                            className="py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 bg-zinc-800 hover:bg-red-600/90 text-zinc-300 hover:text-white transition-all tooltip-bottom"
+                                                            data-tip="停止处理并清除队列"
+                                                        >
+                                                            <Square size={16} fill="currentColor" /> 停止
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -5725,7 +6064,7 @@ ${itemEffectiveInstruction}
 
                                 {/* 提示信息 - 全宽显示 */}
                                 {/* 快捷模式下有默认预设，所以不需要显示此提示 */}
-                                {!prompt.trim() && images.length > 0 && workMode !== 'quick' && (
+                                {!prompt.trim() && images.length > 0 && workMode !== 'quick' && workMode !== 'split' && (
                                     <div className="lg:col-span-5 flex items-center justify-center gap-2 text-xs text-amber-400/80 bg-amber-900/10 border border-amber-900/20 rounded-lg px-3 py-2 mt-2 animate-pulse">
                                         <AlertCircle size={14} />
                                         <span>请先输入指令或选择预设</span>
@@ -6230,6 +6569,7 @@ ${itemEffectiveInstruction}
                                     onSaveSelection={saveSelection}
                                     workMode={workMode}
                                     creativeResults={creativeResults}
+                                    splitElements={splitElements}
                                     onAddFusionImage={handleAddFusionImage}
                                     onRemoveFusionImage={handleRemoveFusionImage}
                                     selectedCardId={selectedCardId}
@@ -6699,164 +7039,168 @@ ${itemEffectiveInstruction}
             )}
 
             {/* 结果详情弹窗 */}
-            {resultDetailModal.show && resultDetailModal.card && (
-                <div
-                    className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
-                    onClick={() => setResultDetailModal({ show: false, card: null })}
-                >
+            {resultDetailModal.show && resultDetailModal.card && (() => {
+                // 从 textCards 获取最新数据，避免使用过时的快照
+                const liveCard = textCards.find(c => c.id === resultDetailModal.card!.id) || resultDetailModal.card;
+                return (
                     <div
-                        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
-                        onClick={(e) => e.stopPropagation()}
+                        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
+                        onClick={() => setResultDetailModal({ show: false, card: null })}
                     >
-                        {/* 弹窗头部 */}
-                        <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between bg-zinc-800/50">
-                            <div>
-                                <h3 className="text-lg font-semibold text-white">结果详情</h3>
-                                <p className="text-sm text-zinc-400 mt-1">主题: {resultDetailModal.card.topic}</p>
+                        <div
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* 弹窗头部 */}
+                            <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between bg-zinc-800/50">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">结果详情</h3>
+                                    <p className="text-sm text-zinc-400 mt-1">主题: {liveCard.topic}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => translateAllResults(liveCard.id, liveCard.results)}
+                                        disabled={translatingItems.size > 0}
+                                        className="px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
+                                    >
+                                        {translatingItems.size > 0 ? (
+                                            <><Loader2 size={12} className="animate-spin" />翻译中...</>
+                                        ) : (
+                                            <><Languages size={12} />全部翻译</>
+                                        )}
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            // 把结果内的换行替换成空格，确保每个结果是单行
+                                            const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                            const cleanResults = liveCard.results.map(r => cleanText(r));
+                                            navigator.clipboard.writeText(cleanResults.join('\n'));
+                                            showToast(`已复制 ${liveCard.results.length} 条结果！`);
+                                        }}
+                                        className="px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-1"
+                                    >
+                                        <Copy size={12} />
+                                        复制全部
+                                    </button>
+                                    <button
+                                        onClick={() => setResultDetailModal({ show: false, card: null })}
+                                        className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => translateAllResults(resultDetailModal.card!.id, resultDetailModal.card!.results)}
-                                    disabled={translatingItems.size > 0}
-                                    className="px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
-                                >
-                                    {translatingItems.size > 0 ? (
-                                        <><Loader2 size={12} className="animate-spin" />翻译中...</>
-                                    ) : (
-                                        <><Languages size={12} />全部翻译</>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        // 把结果内的换行替换成空格，确保每个结果是单行
-                                        const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
-                                        const cleanResults = resultDetailModal.card!.results.map(r => cleanText(r));
-                                        navigator.clipboard.writeText(cleanResults.join('\n'));
-                                        showToast(`已复制 ${resultDetailModal.card!.results.length} 条结果！`);
-                                    }}
-                                    className="px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-1"
-                                >
-                                    <Copy size={12} />
-                                    复制全部
-                                </button>
-                                <button
-                                    onClick={() => setResultDetailModal({ show: false, card: null })}
-                                    className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-                        </div>
-                        {/* 结果列表 */}
-                        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                            {resultDetailModal.card.results.map((result, idx) => {
-                                const cacheKey = `${resultDetailModal.card!.id}-${idx}`;
-                                const translation = translationCache[cacheKey];
-                                const isTranslating = translatingItems.has(cacheKey);
+                            {/* 结果列表 */}
+                            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                                {liveCard.results.map((result, idx) => {
+                                    const cacheKey = `${liveCard.id}-${idx}`;
+                                    const translation = translationCache[cacheKey];
+                                    const isTranslating = translatingItems.has(cacheKey);
 
-                                return (
-                                    <div key={idx} className="group bg-zinc-800/50 rounded-xl p-4 border border-zinc-700 hover:border-purple-500/50 transition-colors">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <span className="text-sm font-medium text-purple-400">#{idx + 1}</span>
-                                            <div className="flex items-center gap-2">
-                                                {/* 翻译按钮 */}
-                                                {!translation && (
+                                    return (
+                                        <div key={idx} className="group bg-zinc-800/50 rounded-xl p-4 border border-zinc-700 hover:border-purple-500/50 transition-colors">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="text-sm font-medium text-purple-400">#{idx + 1}</span>
+                                                <div className="flex items-center gap-2">
+                                                    {/* 翻译按钮 */}
+                                                    {!translation && (
+                                                        <button
+                                                            onClick={() => translateResult(liveCard.id, idx, result)}
+                                                            disabled={isTranslating}
+                                                            className="px-2 py-1 text-xs text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
+                                                        >
+                                                            {isTranslating ? (
+                                                                <><Loader2 size={10} className="animate-spin" />翻译中...</>
+                                                            ) : (
+                                                                <><Languages size={10} />翻译</>
+                                                            )}
+                                                        </button>
+                                                    )}
                                                     <button
-                                                        onClick={() => translateResult(resultDetailModal.card!.id, idx, result)}
-                                                        disabled={isTranslating}
-                                                        className="px-2 py-1 text-xs text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
+                                                        onClick={() => retryTextCardResult(liveCard.id, idx)}
+                                                        className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1 transition-opacity"
                                                     >
-                                                        {isTranslating ? (
-                                                            <><Loader2 size={10} className="animate-spin" />翻译中...</>
-                                                        ) : (
-                                                            <><Languages size={10} />翻译</>
-                                                        )}
+                                                        <RotateCcw size={10} />
+                                                        重新生成
                                                     </button>
-                                                )}
-                                                <button
-                                                    onClick={() => retryTextCardResult(resultDetailModal.card!.id, idx)}
-                                                    className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1 transition-opacity"
-                                                >
-                                                    <RotateCcw size={10} />
-                                                    重新生成
-                                                </button>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        {/* 英文原文 */}
-                                        <div className="mb-2">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <span className="text-[10px] text-zinc-500 font-medium">🇬🇧 English</span>
-                                                <button
-                                                    onClick={() => {
-                                                        const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
-                                                        navigator.clipboard.writeText(cleanText);
-                                                        showToast('已复制英文！');
-                                                    }}
-                                                    className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-0.5"
-                                                >
-                                                    <Copy size={8} />
-                                                    复制
-                                                </button>
-                                            </div>
-                                            <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed bg-zinc-900/50 rounded p-2">
-                                                {result}
-                                            </div>
-                                        </div>
-
-                                        {/* 中文翻译 */}
-                                        {translation && (
-                                            <div>
+                                            {/* 英文原文 */}
+                                            <div className="mb-2">
                                                 <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-[10px] text-zinc-500 font-medium">🇨🇳 中文</span>
+                                                    <span className="text-[10px] text-zinc-500 font-medium">🇬🇧 English</span>
                                                     <button
                                                         onClick={() => {
-                                                            const cleanText = translation.replace(/[\r\n]+/g, ' ').trim();
+                                                            const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
                                                             navigator.clipboard.writeText(cleanText);
-                                                            showToast('已复制中文！');
+                                                            showToast('已复制英文！');
                                                         }}
-                                                        className="px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-0.5"
+                                                        className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-0.5"
                                                     >
                                                         <Copy size={8} />
                                                         复制
                                                     </button>
                                                 </div>
-                                                <div className="text-sm text-emerald-200 whitespace-pre-wrap break-words leading-relaxed bg-emerald-900/20 rounded p-2 border border-emerald-800/30">
-                                                    {translation}
+                                                <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed bg-zinc-900/50 rounded p-2">
+                                                    {result}
                                                 </div>
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        {/* 弹窗底部 */}
-                        <div className="px-5 py-3 border-t border-zinc-700 flex items-center justify-between bg-zinc-800/30">
-                            <span className="text-xs text-zinc-500">共 {resultDetailModal.card.results.length} 条结果</span>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => {
-                                        appendTextCardResults(resultDetailModal.card!.id, 1);
-                                    }}
-                                    className="px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-1"
-                                >
-                                    <Plus size={12} />
-                                    追加1条
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        regenerateTextCard(resultDetailModal.card!.id);
-                                    }}
-                                    className="px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1"
-                                >
-                                    <RefreshCcw size={12} />
-                                    全部重新生成
-                                </button>
+
+                                            {/* 中文翻译 */}
+                                            {translation && (
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-[10px] text-zinc-500 font-medium">🇨🇳 中文</span>
+                                                        <button
+                                                            onClick={() => {
+                                                                const cleanText = translation.replace(/[\r\n]+/g, ' ').trim();
+                                                                navigator.clipboard.writeText(cleanText);
+                                                                showToast('已复制中文！');
+                                                            }}
+                                                            className="px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-0.5"
+                                                        >
+                                                            <Copy size={8} />
+                                                            复制
+                                                        </button>
+                                                    </div>
+                                                    <div className="text-sm text-emerald-200 whitespace-pre-wrap break-words leading-relaxed bg-emerald-900/20 rounded p-2 border border-emerald-800/30">
+                                                        {translation}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {/* 弹窗底部 */}
+                            <div className="px-5 py-3 border-t border-zinc-700 flex items-center justify-between bg-zinc-800/30">
+                                <span className="text-xs text-zinc-500">共 {liveCard.results.length} 条结果{liveCard.status === 'processing' ? ' · 生成中...' : ''}</span>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            appendTextCardResults(liveCard.id, 1);
+                                        }}
+                                        className="px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-1"
+                                    >
+                                        <Plus size={12} />
+                                        追加1条
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            regenerateTextCard(liveCard.id);
+                                        }}
+                                        className="px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1"
+                                    >
+                                        <RefreshCcw size={12} />
+                                        全部重新生成
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* 更新说明弹窗 */}
             {showUpdateNotes && (
@@ -6876,7 +7220,7 @@ ${itemEffectiveInstruction}
                                 </div>
                                 <div>
                                     <h2 className="text-xl font-bold text-emerald-400">功能更新说明</h2>
-                                    <p className="text-sm text-zinc-400 mt-1">v2.95 · AI 图片识别 · 三模式全面升级</p>
+                                    <p className="text-sm text-zinc-400 mt-1">v2.96 · 2026.02.14</p>
                                 </div>
                             </div>
                             <button
@@ -6889,6 +7233,28 @@ ${itemEffectiveInstruction}
 
                         {/* 更新内容 */}
                         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+                            {/* v2.96 新功能 */}
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">2026.02.14</span>
+                                    <span className="text-xs text-zinc-500">v2.96.0</span>
+                                </div>
+                                <div className="bg-zinc-800/50 rounded-lg p-3 border border-cyan-700/30">
+                                    <h4 className="text-sm font-semibold text-cyan-300 mb-2">🖼️ 新增拆分模式（split）</h4>
+                                    <ul className="text-xs text-zinc-400 space-y-1">
+                                        <li>• 将画面元素拆开描述，支持中英文分别输出</li>
+                                        <li>• 所有视图（列表、网格、紧凑）统一支持「中」「EN」分语言复制</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div className="border-t border-zinc-700/50 pt-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <span className="text-xs font-bold text-zinc-500 bg-zinc-700/50 px-2 py-0.5 rounded">2026.02.09</span>
+                                    <span className="text-xs text-zinc-500">v2.95.0</span>
+                                </div>
+                            </div>
+
                             {/* 一、三种工作模式 */}
                             <div className="space-y-3">
                                 <h3 className="text-base font-bold text-emerald-400 flex items-center gap-2">
@@ -7006,6 +7372,130 @@ ${itemEffectiveInstruction}
                                 className="px-5 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg transition-colors"
                             >
                                 知道了
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 拆分元素模式 - 指令编辑弹窗 */}
+            {showSplitSettings && (
+                <div
+                    className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
+                    onClick={() => setShowSplitSettings(false)}
+                >
+                    <div
+                        className="bg-zinc-900 border border-cyan-700/40 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="px-5 py-4 border-b border-cyan-800/30 flex items-center justify-between bg-gradient-to-r from-cyan-900/20 to-transparent">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-cyan-500/20 rounded-lg p-2">
+                                    <LayoutGrid className="text-cyan-400 w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-cyan-400">拆分元素设置</h3>
+                                    <p className="text-xs text-zinc-500 mt-0.5">自定义拆分指令和元素库</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowSplitSettings(false)} className="text-zinc-400 hover:text-white transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                            {/* 元素库管理 */}
+                            <div>
+                                <label className="text-sm font-medium text-zinc-300 mb-2 block">元素库（当前 {splitElements.length} 个）</label>
+                                <div className="flex flex-wrap gap-1.5 mb-2 p-3 rounded-lg bg-zinc-800/60 border border-zinc-700/50 min-h-[40px]">
+                                    {splitElements.map((el, idx) => (
+                                        <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-cyan-900/50 text-cyan-300 border border-cyan-700/40">
+                                            {el}
+                                            <button onClick={() => setSplitElements(prev => prev.filter((_, i) => i !== idx))} className="hover:text-red-400 transition-colors ml-1">
+                                                <X size={11} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2">
+                                    <input
+                                        value={splitElementInput}
+                                        onChange={e => setSplitElementInput(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const vals = splitElementInput.split(/[,，]/).map(v => v.trim()).filter(v => v && !splitElements.includes(v));
+                                                if (vals.length > 0) {
+                                                    setSplitElements(prev => [...prev, ...vals]);
+                                                    setSplitElementInput('');
+                                                }
+                                            }
+                                        }}
+                                        placeholder="输入元素名称，按 Enter 添加（支持逗号分隔）"
+                                        className="flex-1 px-3 py-2 text-sm rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 outline-none focus:border-cyan-600 placeholder:text-zinc-600"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            const vals = splitElementInput.split(/[,，]/).map(v => v.trim()).filter(v => v && !splitElements.includes(v));
+                                            if (vals.length > 0) {
+                                                setSplitElements(prev => [...prev, ...vals]);
+                                                setSplitElementInput('');
+                                            }
+                                        }}
+                                        className="px-4 py-2 text-sm font-medium rounded-lg bg-cyan-600 text-white hover:bg-cyan-500 transition-colors"
+                                    >
+                                        添加
+                                    </button>
+                                </div>
+                                <div className="flex items-center justify-between mt-1.5">
+                                    <p className="text-xs text-zinc-600">支持批量添加：用逗号分隔多个元素，例如 "人物,背景,光影"</p>
+                                    <button
+                                        onClick={() => setSplitElements(DEFAULT_SPLIT_ELEMENTS)}
+                                        className="text-xs text-orange-500 hover:text-orange-400 transition-colors shrink-0"
+                                    >
+                                        恢复默认元素
+                                    </button>
+                                </div>
+                            </div>
+                            {/* 指令编辑 */}
+                            <div>
+                                <label className="text-sm font-medium text-zinc-300 mb-2 block">自定义拆分指令</label>
+                                <textarea
+                                    value={splitInstruction}
+                                    onChange={e => setSplitInstruction(e.target.value)}
+                                    rows={6}
+                                    className="w-full px-3 py-2.5 text-sm rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-200 outline-none focus:border-cyan-600 resize-y font-mono leading-relaxed placeholder:text-zinc-600"
+                                    placeholder="输入拆分指令..."
+                                />
+                                <div className="flex items-center justify-between mt-1.5">
+                                    <p className="text-xs text-zinc-600">系统会自动追加元素库列表和输出格式要求</p>
+                                    <button
+                                        onClick={() => setSplitInstruction(DEFAULT_SPLIT_INSTRUCTION)}
+                                        className="text-xs text-orange-500 hover:text-orange-400 transition-colors"
+                                    >
+                                        恢复默认指令
+                                    </button>
+                                </div>
+                            </div>
+                            {/* 最终指令预览 */}
+                            <div>
+                                <button
+                                    onClick={() => setShowSplitPreview(!showSplitPreview)}
+                                    className="flex items-center gap-2 text-sm font-medium text-zinc-300 hover:text-cyan-400 transition-colors w-full"
+                                >
+                                    <Eye size={14} />
+                                    <span>预览最终指令</span>
+                                    {showSplitPreview ? <ChevronUp size={14} className="ml-auto" /> : <ChevronDown size={14} className="ml-auto" />}
+                                </button>
+                                {showSplitPreview && (
+                                    <div className="mt-2 p-3 rounded-lg bg-zinc-950 border border-zinc-700/50 max-h-[300px] overflow-y-auto">
+                                        <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono leading-relaxed">{buildSplitPrompt()}</pre>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="px-5 py-3 border-t border-zinc-800 flex items-center justify-end gap-2">
+                            <button onClick={() => setShowSplitSettings(false)} className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-500 rounded-lg transition-colors">
+                                完成
                             </button>
                         </div>
                     </div>

@@ -1,5 +1,5 @@
-// 工作模式：standard=标准识别模式, creative=创新模式, quick=快捷创新模式
-export type WorkMode = 'standard' | 'creative' | 'quick';
+// 工作模式：standard=标准识别模式, creative=创新模式, quick=快捷创新模式, split=拆分元素模式
+export type WorkMode = 'standard' | 'creative' | 'quick' | 'split';
 
 // 创新模式结果 - 每张图片的创新结果
 export interface CreativeResult {

@@ -2243,6 +2243,166 @@
     font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
+/* === 库条目块（含文字列表展开区） === */
+.skill-gen-codegen-entry-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* === 类型切换按钮 === */
+.skill-gen-codegen-type-toggle {
+    display: flex;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+}
+
+.skill-gen-codegen-type-toggle button {
+    padding: 4px 8px;
+    font-size: 0.72rem;
+    background: rgba(0, 0, 0, 0.2);
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    transition: all 0.2s;
+    line-height: 1;
+}
+
+.skill-gen-codegen-type-toggle button:first-child {
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.skill-gen-codegen-type-toggle button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.skill-gen-codegen-type-toggle button.active {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+/* === 文字列表值计数 === */
+.skill-gen-codegen-text-count {
+    font-size: 0.75rem;
+    color: #a78bfa;
+    padding: 4px 10px;
+    background: rgba(139, 92, 246, 0.08);
+    border: 1px solid rgba(139, 92, 246, 0.15);
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* === 文字列表输入区 === */
+.skill-gen-codegen-text-input-area {
+    padding: 0 0 0 0;
+    margin-top: 2px;
+}
+
+.skill-gen-codegen-text-textarea {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.5;
+    background: rgba(139, 92, 246, 0.04);
+    border: 1px solid rgba(139, 92, 246, 0.12);
+    border-radius: 0 0 8px 8px;
+    color: var(--text-color, #e0e0e0);
+    resize: vertical;
+    transition: border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.skill-gen-codegen-text-textarea:focus {
+    outline: none;
+    border-color: rgba(139, 92, 246, 0.4);
+}
+
+.skill-gen-codegen-text-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+    font-size: 0.72rem;
+}
+
+/* === 运行组数选择 === */
+.skill-gen-codegen-run-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+
+.skill-gen-codegen-run-label {
+    font-size: 0.78rem;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
+}
+
+.skill-gen-codegen-group-preset {
+    padding: 3px 10px;
+    font-size: 0.72rem;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-codegen-group-preset:hover {
+    background: rgba(16, 185, 129, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.skill-gen-codegen-group-preset.active {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: #6ee7b7;
+}
+
+/* === 多组结果展示 === */
+.skill-gen-codegen-results-multi {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.5rem 1rem 0.8rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(16, 185, 129, 0.04);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.skill-gen-codegen-result-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.skill-gen-codegen-result-group:last-child {
+    border-bottom: none;
+}
+
+.skill-gen-codegen-group-label {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.3);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    padding-top: 4px;
+    min-width: 24px;
+    flex-shrink: 0;
+}
+
+.skill-gen-codegen-result-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+}
+
 .skill-gen-opal-panel {
     background: rgba(59, 130, 246, 0.04);
     border: 1px solid rgba(59, 130, 246, 0.12);
@@ -2390,6 +2550,55 @@
 .skill-gen-localize-fill-btn:hover {
     background: rgba(234, 88, 12, 0.35);
     color: #fed7aa;
+}
+
+/* === Opal 指令粘贴区 === */
+.skill-gen-localize-opal-paste {
+    background: rgba(99, 102, 241, 0.04);
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.skill-gen-localize-opal-paste-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(99, 102, 241, 0.06);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #a5b4fc;
+}
+
+.skill-gen-localize-opal-paste-hint {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.skill-gen-localize-opal-textarea {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 0.78rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    line-height: 1.5;
+    background: transparent;
+    border: none;
+    color: var(--text-color, #e0e0e0);
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.skill-gen-localize-opal-textarea:focus {
+    outline: none;
+}
+
+.skill-gen-localize-opal-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.2);
+    font-size: 0.72rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .skill-gen-localize-inputs {
@@ -4034,4 +4243,352 @@
     .skill-gen-chat-input-area {
         padding: 0.6rem;
     }
+}
+
+/* ========== 基础指令放大查看 ========== */
+.skill-gen-zoom-textarea {
+    width: 100%;
+    height: 100%;
+    min-height: 55vh;
+    padding: 1.2rem 1.4rem;
+    background: rgba(0, 0, 0, 0.25);
+    border: none;
+    color: var(--text-color, #f3f4f6);
+    font-size: 0.88rem;
+    line-height: 1.75;
+    resize: none;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+.skill-gen-zoom-textarea:focus {
+    outline: none;
+}
+
+.skill-gen-zoom-textarea::placeholder {
+    color: var(--text-muted-color, #666);
+}
+
+/* ========== 判断节点生成器 ========== */
+
+.skill-gen-judge-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.skill-gen-judge-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #67e8f9;
+    background: rgba(8, 145, 178, 0.08);
+    border-left: 3px solid rgba(8, 145, 178, 0.5);
+    margin-bottom: 0.3rem;
+}
+
+.skill-gen-judge-hint {
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--text-muted-color, #888);
+}
+
+/* -- 输入变量区 -- */
+.skill-gen-judge-inputs {
+    padding: 0.7rem;
+    background: rgba(8, 145, 178, 0.04);
+    border: 1px solid rgba(8, 145, 178, 0.12);
+    border-radius: 10px;
+}
+
+.skill-gen-judge-inputs-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #67e8f9;
+}
+
+.skill-gen-judge-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(8, 145, 178, 0.3);
+    background: rgba(8, 145, 178, 0.12);
+    color: #67e8f9;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-judge-add-btn:hover {
+    background: rgba(8, 145, 178, 0.22);
+    border-color: rgba(8, 145, 178, 0.5);
+}
+
+.skill-gen-judge-input-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.skill-gen-judge-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.skill-gen-judge-input-label {
+    min-width: 55px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #22d3ee;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.skill-gen-judge-input-field {
+    flex: 1;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(8, 145, 178, 0.2);
+    border-radius: 6px;
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.78rem;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-judge-input-field:focus {
+    outline: none;
+    border-color: rgba(8, 145, 178, 0.5);
+}
+
+.skill-gen-judge-input-field::placeholder {
+    color: var(--text-muted-color, #555);
+}
+
+.skill-gen-judge-input-field.conn {
+    max-width: 100px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    color: #a5b4fc;
+}
+
+.skill-gen-judge-del-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-judge-del-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+/* -- 判断规则区 -- */
+.skill-gen-judge-rules,
+.skill-gen-judge-constraint {
+    padding: 0.7rem;
+    background: rgba(8, 145, 178, 0.04);
+    border: 1px solid rgba(8, 145, 178, 0.12);
+    border-radius: 10px;
+}
+
+.skill-gen-judge-rules-title,
+.skill-gen-judge-constraint-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #67e8f9;
+}
+
+.skill-gen-judge-presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.skill-gen-judge-preset-btn {
+    padding: 3px 10px;
+    font-size: 0.72rem;
+    background: rgba(8, 145, 178, 0.1);
+    border: 1px solid rgba(8, 145, 178, 0.2);
+    border-radius: 14px;
+    color: rgba(103, 232, 249, 0.8);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.skill-gen-judge-preset-btn:hover {
+    background: rgba(8, 145, 178, 0.2);
+    border-color: rgba(8, 145, 178, 0.4);
+    color: #67e8f9;
+}
+
+.skill-gen-judge-type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    margin-bottom: 0.4rem;
+}
+
+.skill-gen-judge-type-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(8, 145, 178, 0.15);
+    background: rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+}
+
+.skill-gen-judge-type-btn:hover {
+    border-color: rgba(8, 145, 178, 0.35);
+    background: rgba(8, 145, 178, 0.08);
+}
+
+.skill-gen-judge-type-btn.active {
+    border-color: rgba(8, 145, 178, 0.5);
+    background: rgba(8, 145, 178, 0.12);
+    box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.2);
+}
+
+.skill-gen-judge-type-btn .icon {
+    font-size: 1.1rem;
+}
+
+.skill-gen-judge-type-btn .label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-color, #e0e0e0);
+}
+
+.skill-gen-judge-type-btn.active .label {
+    color: #67e8f9;
+}
+
+.skill-gen-judge-type-btn .desc {
+    font-size: 0.68rem;
+    color: var(--text-muted-color, #888);
+    line-height: 1.3;
+}
+
+.skill-gen-judge-param {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 0.4rem;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+}
+
+.skill-gen-judge-param label {
+    font-size: 0.78rem;
+    color: #67e8f9;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.skill-gen-judge-param .skill-gen-judge-input-field {
+    flex: 1;
+}
+
+.skill-gen-judge-textarea {
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(8, 145, 178, 0.15);
+    border-radius: 8px;
+    color: var(--text-color, #e0e0e0);
+    font-size: 0.78rem;
+    line-height: 1.65;
+    resize: vertical;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    transition: border-color 0.2s;
+}
+
+.skill-gen-judge-textarea:focus {
+    outline: none;
+    border-color: rgba(8, 145, 178, 0.45);
+    box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.1);
+}
+
+.skill-gen-judge-textarea::placeholder {
+    color: var(--text-muted-color, #555);
+}
+
+.skill-gen-judge-textarea.small {
+    min-height: 60px;
+}
+
+/* -- 生成按钮 -- */
+.skill-gen-judge-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.skill-gen-judge-gen-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    background: linear-gradient(135deg, rgba(8, 145, 178, 0.7), rgba(6, 182, 212, 0.6));
+    color: white;
+    border: 1px solid rgba(8, 145, 178, 0.5);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skill-gen-judge-gen-btn:hover {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(8, 145, 178, 0.3);
+}
+
+/* -- 输出预览 -- */
+.skill-gen-judge-output {
+    border: 1px solid rgba(8, 145, 178, 0.15);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.skill-gen-judge-output-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(8, 145, 178, 0.08);
+    border-bottom: 1px solid rgba(8, 145, 178, 0.12);
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #67e8f9;
 }

@@ -383,6 +383,115 @@ export const parseTableData = (text: string): string[] => {
     return values;
 };
 
+// 解析粘贴的TSV表格数据为多个库（表头=库名，列=值，支持分类列）
+export const parseTableDataToLibraries = (
+    text: string,
+    options?: { sourceLabel?: string }
+): RandomLibrary[] => {
+    const lines = text.split(/\r?\n/).filter(line => line.trim());
+    if (lines.length < 2) return []; // 至少需要表头+一行数据
+
+    // 解析表头
+    const headers = lines[0].split('\t').map(h => h.trim());
+    if (headers.length === 0 || !headers.some(h => h)) return [];
+
+    // 识别值列和分类列
+    const libraryColumns: { name: string; valueIndex: number; categoryIndex?: number; defaultCategory?: string }[] = [];
+
+    for (let i = 0; i < headers.length; i++) {
+        const header = headers[i];
+        if (!header) continue;
+
+        // 跳过分类列（以"分类"结尾的列）
+        if (header.endsWith('分类')) continue;
+
+        // 检查是否是"分类-库名"格式
+        let category: string | undefined;
+        let libraryName = header;
+        const dashMatch = header.match(/^(.+)-(.+)$/);
+        if (dashMatch) {
+            category = dashMatch[1];
+            libraryName = dashMatch[2];
+        }
+
+        // 检查下一列是否是对应的分类列
+        const categoryHeader = header + '分类';
+        const categoryIndex = headers.indexOf(categoryHeader);
+
+        libraryColumns.push({
+            name: libraryName,
+            valueIndex: i,
+            categoryIndex: categoryIndex !== -1 ? categoryIndex : undefined,
+            defaultCategory: category,
+        });
+    }
+
+    if (libraryColumns.length === 0) return [];
+
+    // 解析数据行
+    const libraryData: Map<string, { values: string[]; valuesWithCategory: LibraryValue[] }> = new Map();
+    libraryColumns.forEach(col => {
+        libraryData.set(col.name, { values: [], valuesWithCategory: [] });
+    });
+
+    for (let i = 1; i < lines.length; i++) {
+        const cells = lines[i].split('\t');
+        libraryColumns.forEach(col => {
+            const value = cells[col.valueIndex]?.trim();
+            if (!value) return;
+
+            const data = libraryData.get(col.name);
+            if (!data) return;
+
+            data.values.push(value);
+
+            // 解析分类
+            let categories: string[] | undefined;
+            if (col.categoryIndex !== undefined) {
+                const categoryStr = cells[col.categoryIndex]?.trim();
+                if (categoryStr) {
+                    categories = categoryStr.split(/[,，]/).map(c => c.trim()).filter(c => c);
+                    if (categories.length === 1 && categories[0] === '通用') {
+                        categories = undefined;
+                    }
+                }
+            }
+            if (!categories && col.defaultCategory) {
+                categories = [col.defaultCategory];
+            }
+
+            data.valuesWithCategory.push({ value, categories });
+        });
+    }
+
+    // 转换为 RandomLibrary 数组
+    const libraries: RandomLibrary[] = [];
+    let colorIndex = 0;
+    const sourceLabel = options?.sourceLabel || '手动粘贴';
+
+    libraryData.forEach((data, name) => {
+        if (data.values.length > 0) {
+            const hasCategories = data.valuesWithCategory.some(v => v.categories && v.categories.length > 0);
+            libraries.push({
+                id: `lib_paste_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                name,
+                values: data.values,
+                valuesWithCategory: hasCategories ? data.valuesWithCategory : undefined,
+                enabled: true,
+                pickMode: 'random-one',
+                pickCount: 1,
+                color: LIBRARY_COLORS[colorIndex % LIBRARY_COLORS.length],
+                sourceSheet: sourceLabel,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+            });
+            colorIndex++;
+        }
+    });
+
+    return libraries;
+};
+
 // ===== Google Sheets 公开表格读取功能 =====
 
 // 从Google Sheets URL提取Spreadsheet ID

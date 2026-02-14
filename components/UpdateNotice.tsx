@@ -30,11 +30,17 @@ interface UpdateNoticeProps {
 // 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v2.96.0',
+        date: '2026-02-14',
+        description: '随机代码生成器增强 + 新增判断节点生成器 + AI 图像识别拆分模式',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v2.95.0',
         date: '2026-02-09',
         description: '全面升级：快捷模式 + 随机库同步 + Skill 生成器自动识图 + Image Review 增强',
-        url: '#',
-        isCurrent: true
+        url: '#'
     },
     {
         version: 'v2.90.0',
@@ -137,20 +143,37 @@ const versionHistory: VersionInfo[] = [
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v2.95.0',
-    date: '2026-02-09',
+    version: 'v2.96.0',
+    date: '2026-02-14',
     features: {
         en: [
-            'AI Image Recognition: New Quick Mode for text-only batch innovation',
-            'Random Library: Google Sheets sync, linked instructions, multi-source',
-            'Skill Generator: Auto-describe images + AI Dimension Extension (chat-based + library-linked)',
-            'Image Review: Batch operations and performance optimization',
-            'Project management and preset cloud sync'
+            'Random Code Generator: Text list mode + custom group count',
+            'New Judge Node Generator: Generate Python code for workflow conditional logic',
+            'AI Image Recognition: New split mode for element-separated descriptions'
         ],
         zh: [
             '✨如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
+            '2026.02.14 v2.96.0',
+            '-',
+            '🎰 随机代码生成器优化',
+            '• 新增「文字列表」模式：每个库条目可切换为文字列表，支持每行一个值或批量粘贴自动拆分去重',
+            '• 新增「自定义生成组数」：支持设置 1~50 组，快捷按钮 1/4/5/10，多组时自动生成 for 循环代码',
+            '-',
+            '🔀 新增「判断节点生成器」',
+            '• 全新代码生成子标签，用于生成工作流 Code 节点的 Python 判断代码',
+            '• 支持定义输入变量（内容A、内容B...）和连接类型，新增输入自动命名',
+            '• 5 种判断类型：中文检测、关键词匹配、长度判断、非空判断、自定义条件',
+            '• 一键生成完整可运行的 Python 代码，包含变量声明 + 判断逻辑',
+            '-',
+            '🖼️ AI 图像识别增强',
+            '• 新增拆分模式（split）：将画面元素拆开描述，支持中英文分别输出',
+            '• 所有视图统一支持「中」「EN」分语言复制',
+            '-',
+            '-',
+            '-',
+            '',
             '2026.02.09 v2.95.0',
             '-',
             '⚡ AI 图片识别新增「快捷模式」',

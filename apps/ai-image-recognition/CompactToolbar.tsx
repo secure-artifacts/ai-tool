@@ -2,7 +2,7 @@ import React from 'react';
 import {
     Zap, Play, Pause, Square, Trash2, Loader2, Link, FileCode,
     ClipboardCopy, LayoutGrid, Check, ChevronDown, Sparkles,
-    Share2, Settings2, RotateCw, Rows3, List, CloudDownload, CloudUpload, Save, X, Pencil, Download
+    Share2, Settings2, RotateCw, Rows3, List, CloudDownload, CloudUpload, Save, X, Pencil, Download, Copy
 } from 'lucide-react';
 import DropZone from './components/DropZone';
 import { ImageItem, DEFAULT_PRESETS, WorkMode } from './types';
@@ -19,7 +19,7 @@ interface CompactToolbarProps {
     viewMode: 'grid' | 'list' | 'compact';
     autoUploadGyazo: boolean;
     isBulkInnovating: boolean;
-    copySuccess: 'links' | 'formulas' | 'results' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null;
+    copySuccess: 'links' | 'formulas' | 'results' | 'results-zh' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null;
     presets: any[];
     templateState: any;
     unifiedPresets: any[];
@@ -49,6 +49,7 @@ interface CompactToolbarProps {
     uploadAllUnuploadedToGyazo: () => void;
     handleResetAndRun: () => void;
     handleRetryFailedAndRun: () => void;
+    copySplitResults?: (lang: 'zh' | 'en') => void;
     setShowGlobalInnovationSettings: (val: boolean) => void;
     toggleToolbarCompact: () => void;
     setShowClearConfirm: (val: boolean) => void;
@@ -65,7 +66,7 @@ export default function CompactToolbar({
     handleFiles, handleTextPaste, handleHtmlPaste, runAnalysis, handlePauseResume,
     handleStop, copyAllLinks, copyAllFormulas, copyAllResults, copyAllOriginalAndResults,
     handleBulkInnovation, handleSendAllToDesc, uploadAllUnuploadedToGyazo,
-    handleResetAndRun, handleRetryFailedAndRun, setShowGlobalInnovationSettings,
+    handleResetAndRun, handleRetryFailedAndRun, copySplitResults, setShowGlobalInnovationSettings,
     toggleToolbarCompact, setShowClearConfirm, setImages, showClearConfirm
 }: CompactToolbarProps) {
     const pendingCount = images.filter(i => i.status === 'idle' && i.base64Data).length;
@@ -442,10 +443,10 @@ export default function CompactToolbar({
                             key={size}
                             onClick={() => setImageBatchSize(size)}
                             className={`px-1.5 py-0.5 rounded text-[0.5625rem] font-medium transition-colors ${imageBatchSize === size
-                                    ? size === 1
-                                        ? 'bg-zinc-700 text-zinc-200'
-                                        : 'bg-cyan-600/30 text-cyan-300'
-                                    : 'text-zinc-500 hover:text-zinc-300'
+                                ? size === 1
+                                    ? 'bg-zinc-700 text-zinc-200'
+                                    : 'bg-cyan-600/30 text-cyan-300'
+                                : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                             data-tip={size === 1 ? '逐张处理' : `每 ${size} 张图合并为一次 API 调用`}
                         >
@@ -472,6 +473,44 @@ export default function CompactToolbar({
                         <button onClick={handleStop} className="p-1.5 bg-zinc-700 text-white rounded tooltip-bottom" data-tip="停止">
                             <Square size={16} />
                         </button>
+                    </div>
+                )}
+
+                {/* 重试失败 / 全部重跑 - split 模式下也展示 */}
+                {!isProcessing && errorCount > 0 && (
+                    <button
+                        onClick={handleRetryFailedAndRun}
+                        className="px-2 py-1 bg-red-900/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 rounded text-[0.625rem] font-medium transition-colors flex items-center gap-1 shrink-0 tooltip-bottom"
+                        data-tip="仅重试失败的任务"
+                    >
+                        <RotateCw size={12} /> 重试({errorCount})
+                    </button>
+                )}
+                {!isProcessing && pendingCount === 0 && successCount > 0 && errorCount === 0 && (
+                    <button
+                        onClick={handleResetAndRun}
+                        className="px-2 py-1 bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 border border-blue-500/30 rounded text-[0.625rem] font-medium transition-colors flex items-center gap-1 shrink-0 tooltip-bottom"
+                        data-tip="重新将所有图片设为待处理并立即开始"
+                    >
+                        <RotateCw size={12} /> 重跑
+                    </button>
+                )}
+
+                {/* 处理进度条 */}
+                {isProcessing && (
+                    <div className="flex items-center gap-1.5 shrink-0 min-w-[120px]">
+                        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 rounded-full transition-all duration-300"
+                                style={{ width: `${totalCount > 0 ? ((successCount + errorCount) / totalCount * 100) : 0}%` }}
+                            />
+                        </div>
+                        <span className="text-[0.625rem] text-cyan-400 font-medium shrink-0">
+                            {successCount}/{totalCount}
+                            {errorCount > 0 && (
+                                <span className="text-red-400 ml-0.5">({errorCount}✗)</span>
+                            )}
+                        </span>
                     </div>
                 )}
 
@@ -507,36 +546,51 @@ export default function CompactToolbar({
                     <button onClick={copyAllFormulas} disabled={images.length === 0} className={`${iconBtn} tooltip-bottom ${copySuccess === 'formulas' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-orange-400 bg-orange-900/30 border-orange-800/50'}`} data-tip="公式">
                         {copySuccess === 'formulas' ? <Check size={16} /> : <FileCode size={16} />}
                     </button>
-                    <button onClick={copyAllResults} disabled={!hasResults} className={`${iconBtn} tooltip-bottom ${copySuccess === 'results' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-emerald-400 bg-emerald-900/30 border-emerald-800/50'}`} data-tip="结果">
-                        {copySuccess === 'results' ? <Check size={16} /> : <ClipboardCopy size={16} />}
-                    </button>
-                    <button onClick={copyAllOriginalAndResults} disabled={!hasResults} className={`${iconBtn} tooltip-bottom ${copySuccess === 'original' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-purple-400 bg-purple-900/30 border-purple-800/50'}`} data-tip="原+结果">
-                        {copySuccess === 'original' ? <Check size={16} /> : <LayoutGrid size={16} />}
-                    </button>
+                    {workMode === 'split' ? (
+                        <>
+                            <button onClick={() => copySplitResults?.('zh')} disabled={!hasResults} className={`${iconBtn} tooltip-bottom ${copySuccess === 'results-zh' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-orange-400 bg-orange-900/30 border-orange-800/50'}`} data-tip="复制中文">
+                                {copySuccess === 'results-zh' ? <Check size={16} /> : <Copy size={16} />}
+                            </button>
+                            <button onClick={() => copySplitResults?.('en')} disabled={!hasResults} className={`${iconBtn} tooltip-bottom ${copySuccess === 'results' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-emerald-400 bg-emerald-900/30 border-emerald-800/50'}`} data-tip="复制英文">
+                                {copySuccess === 'results' ? <Check size={16} /> : <ClipboardCopy size={16} />}
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            <button onClick={copyAllResults} disabled={!hasResults} className={`${iconBtn} tooltip-bottom ${copySuccess === 'results' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-emerald-400 bg-emerald-900/30 border-emerald-800/50'}`} data-tip="结果">
+                                {copySuccess === 'results' ? <Check size={16} /> : <ClipboardCopy size={16} />}
+                            </button>
+                            <button onClick={copyAllOriginalAndResults} disabled={!hasResults} className={`${iconBtn} tooltip-bottom ${copySuccess === 'original' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-purple-400 bg-purple-900/30 border-purple-800/50'}`} data-tip="原+结果">
+                                {copySuccess === 'original' ? <Check size={16} /> : <LayoutGrid size={16} />}
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 {/* 分隔线 */}
                 <div className="w-px h-5 bg-zinc-700 shrink-0"></div>
 
-                {/* 创新按钮 */}
-                <div className="flex items-center gap-0.5 shrink-0">
-                    <button onClick={handleBulkInnovation} disabled={!canBulk || isBulkInnovating} className={`${iconBtn} tooltip-bottom ${isBulkInnovating ? 'bg-pink-600 text-white border-pink-500 animate-pulse' : 'text-pink-300 bg-pink-900/30 border-pink-800/50'}`} data-tip="批量创新">
-                        {isBulkInnovating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                    </button>
-                    <button onClick={() => setShowGlobalInnovationSettings(true)} className={`${iconBtn} tooltip-bottom text-zinc-400 bg-zinc-800 border-zinc-700`} data-tip="设置">
-                        <Settings2 size={16} />
-                    </button>
-                    <button onClick={handleSendAllToDesc} disabled={successCount === 0} className={`${iconBtn} tooltip-bottom text-blue-300 bg-blue-900/30 border-blue-800/50`} data-tip="送去创新">
-                        <Share2 size={16} />
-                    </button>
-                    <button onClick={handleExport} disabled={!hasResults} className={`${iconBtn} tooltip-bottom text-zinc-400 bg-zinc-800 border-zinc-700`} data-tip="导出结果">
-                        <Download size={16} />
-                    </button>
-                    {/* 清空创新内容按钮 */}
-                    <button onClick={() => setImages(prev => prev.map(img => ({ ...img, innovationItems: [], innovationOutputs: [] })))} disabled={!images.some(i => (i.innovationItems && i.innovationItems.length > 0) || (i.innovationOutputs && i.innovationOutputs.length > 0))} className={`${iconBtn} tooltip-bottom text-red-400 bg-red-900/10 border-red-900/30`} data-tip="清空创新">
-                        <Trash2 size={16} />
-                    </button>
-                </div>
+                {/* 创新按钮 - 拆分模式下隐藏 */}
+                {workMode !== 'split' && (
+                    <div className="flex items-center gap-0.5 shrink-0">
+                        <button onClick={handleBulkInnovation} disabled={!canBulk || isBulkInnovating} className={`${iconBtn} tooltip-bottom ${isBulkInnovating ? 'bg-pink-600 text-white border-pink-500 animate-pulse' : 'text-pink-300 bg-pink-900/30 border-pink-800/50'}`} data-tip="批量创新">
+                            {isBulkInnovating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                        </button>
+                        <button onClick={() => setShowGlobalInnovationSettings(true)} className={`${iconBtn} tooltip-bottom text-zinc-400 bg-zinc-800 border-zinc-700`} data-tip="设置">
+                            <Settings2 size={16} />
+                        </button>
+                        <button onClick={handleSendAllToDesc} disabled={successCount === 0} className={`${iconBtn} tooltip-bottom text-blue-300 bg-blue-900/30 border-blue-800/50`} data-tip="送去创新">
+                            <Share2 size={16} />
+                        </button>
+                        <button onClick={handleExport} disabled={!hasResults} className={`${iconBtn} tooltip-bottom text-zinc-400 bg-zinc-800 border-zinc-700`} data-tip="导出结果">
+                            <Download size={16} />
+                        </button>
+                        {/* 清空创新内容按钮 */}
+                        <button onClick={() => setImages(prev => prev.map(img => ({ ...img, innovationItems: [], innovationOutputs: [] })))} disabled={!images.some(i => (i.innovationItems && i.innovationItems.length > 0) || (i.innovationOutputs && i.innovationOutputs.length > 0))} className={`${iconBtn} tooltip-bottom text-red-400 bg-red-900/10 border-red-900/30`} data-tip="清空创新">
+                            <Trash2 size={16} />
+                        </button>
+                    </div>
+                )}
 
                 {/* 分隔线 */}
                 <div className="w-px h-5 bg-zinc-700 shrink-0"></div>

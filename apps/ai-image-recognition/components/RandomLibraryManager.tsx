@@ -34,6 +34,7 @@ import {
     LIBRARY_COLORS,
     createLibrary,
     parseTableData,
+    parseTableDataToLibraries,
     generateRandomCombination,
     pickRandomValues,
     saveRandomLibraryConfig,
@@ -163,6 +164,13 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
     const [localizedBaseInstruction, setLocalizedBaseInstruction] = useState<string>(''); // 本地化后的基础指令
     const [directTableInput, setDirectTableInput] = useState(''); // 直接粘贴的表格数据
     const [directBaseInstructionInput, setDirectBaseInstructionInput] = useState(''); // 直接粘贴的基础指令
+
+    // 手动粘贴库+指令弹窗
+    const [showManualPasteModal, setShowManualPasteModal] = useState(false);
+    const [manualPasteTableInput, setManualPasteTableInput] = useState(''); // 粘贴的库表格数据
+    const [manualPasteBaseInstruction, setManualPasteBaseInstruction] = useState(''); // 粘贴的基础指令
+    const [manualPasteImportMode, setManualPasteImportMode] = useState<'merge-add' | 'replace'>('replace');
+    const [manualPasteSourceLabel, setManualPasteSourceLabel] = useState('手动粘贴'); // 来源标签
 
     // 图片转库功能状态
     const [showImageToLibModal, setShowImageToLibModal] = useState(false);
@@ -1063,6 +1071,68 @@ ${targetCountry}
         }
     };
 
+    // 手动粘贴库+基础指令
+    const handleManualPasteImport = () => {
+        const tableText = manualPasteTableInput.trim();
+        const baseInstr = manualPasteBaseInstruction.trim();
+
+        if (!tableText && !baseInstr) {
+            toast.warning('请至少粘贴库表格数据或基础指令');
+            return;
+        }
+
+        let newLibraries: RandomLibrary[] = [];
+        const sourceLabel = manualPasteSourceLabel.trim() || '手动粘贴';
+
+        // 解析表格数据为库
+        if (tableText) {
+            newLibraries = parseTableDataToLibraries(tableText, { sourceLabel });
+            if (newLibraries.length === 0) {
+                toast.warning('未能识别表格数据，请确保第一行是库名表头，用Tab分隔');
+                return;
+            }
+        }
+
+        // 根据导入模式处理
+        let finalLibraries: RandomLibrary[];
+        if (manualPasteImportMode === 'replace') {
+            finalLibraries = newLibraries;
+        } else {
+            // merge-add 模式：保留现有库，添加新库（同名的跳过）
+            const existingNames = new Set(config.libraries.map(l => l.name));
+            const addedLibs = newLibraries.filter(l => !existingNames.has(l.name));
+            finalLibraries = [...config.libraries, ...addedLibs];
+        }
+
+        // 构建 linkedInstructions
+        const linkedInstructions: Record<string, string> = { ...config.linkedInstructions };
+        if (baseInstr) {
+            linkedInstructions[sourceLabel] = baseInstr;
+        }
+
+        onChange({
+            ...config,
+            libraries: finalLibraries,
+            linkedInstructions,
+            activeSourceSheet: sourceLabel,
+            transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION,
+        });
+
+        // 设置第一个库为激活状态
+        if (finalLibraries.length > 0) {
+            setActiveLibraryId(finalLibraries[0].id);
+        }
+
+        const libCount = newLibraries.length;
+        const instrMsg = baseInstr ? '，已保存基础指令' : '';
+        toast.success(`成功导入 ${libCount} 个库${instrMsg}！`);
+
+        // 重置弹窗
+        setShowManualPasteModal(false);
+        setManualPasteTableInput('');
+        setManualPasteBaseInstruction('');
+    };
+
     // 从Google Sheets导入 - 步骤1：扫描总库
     const handleSheetsScan = async () => {
         if (!sheetsUrl.trim()) {
@@ -1114,6 +1184,7 @@ ${targetCountry}
             onChange({
                 ...config,
                 libraries: newLibraries,
+                sourceSpreadsheetUrl: sheetsUrl, // 保存源 URL 用于同步刷新
             });
 
             const importedCount = newLibraries.length - config.libraries.length;
@@ -1402,7 +1473,21 @@ ${targetCountry}
                         导入
                     </button>
                     <button
-                        onClick={() => setShowSheetsImportModal(true)}
+                        onClick={() => setShowManualPasteModal(true)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-cyan-400 hover:text-cyan-300 bg-cyan-900/20 hover:bg-cyan-800/30 rounded border border-cyan-800/30"
+                        title="手动粘贴库表格数据和基础指令（无需Google Sheets）"
+                    >
+                        <ClipboardPaste size={12} />
+                        手动粘贴
+                    </button>
+                    <button
+                        onClick={() => {
+                            // 打开弹窗时回填已保存的链接
+                            if (config.sourceSpreadsheetUrl) {
+                                setSheetsUrl(config.sourceSpreadsheetUrl);
+                            }
+                            setShowSheetsImportModal(true);
+                        }}
                         className="flex items-center gap-1 px-2 py-1 text-xs text-green-400 hover:text-green-300 bg-green-900/20 hover:bg-green-800/30 rounded border border-green-800/30"
                         title="从公开的Google Sheets导入，分页名=库名，A列=值"
                     >
@@ -2536,6 +2621,201 @@ ${targetCountry}
                                 </div>
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* 手动粘贴库+指令弹窗 */}
+            {showManualPasteModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center">
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-5 max-w-3xl w-full mx-4 max-h-[85vh] overflow-y-auto">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <ClipboardPaste size={18} className="text-cyan-400" />
+                                <h3 className="text-white font-medium">手动粘贴库 + 基础指令</h3>
+                            </div>
+                            <button
+                                onClick={() => setShowManualPasteModal(false)}
+                                className="text-zinc-400 hover:text-white"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            {/* 来源标签 */}
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-1">来源标签（用于标识和切换）</label>
+                                <input
+                                    type="text"
+                                    value={manualPasteSourceLabel}
+                                    onChange={(e) => setManualPasteSourceLabel(e.target.value)}
+                                    placeholder="手动粘贴"
+                                    className="w-full px-3 py-2 text-sm bg-zinc-700 border border-zinc-600 rounded text-white placeholder-zinc-500 focus:ring-1 focus:ring-cyan-500"
+                                />
+                            </div>
+
+                            {/* 库表格数据 - 表格样式 */}
+                            <div>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-xs text-zinc-400">
+                                        库表格数据
+                                    </label>
+                                    {manualPasteTableInput.trim() && (
+                                        <button
+                                            onClick={() => setManualPasteTableInput('')}
+                                            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300"
+                                        >
+                                            <Trash2 size={10} />
+                                            清除重贴
+                                        </button>
+                                    )}
+                                </div>
+
+                                {!manualPasteTableInput.trim() ? (
+                                    /* 空状态：粘贴区域 */
+                                    <div
+                                        className="relative w-full h-36 bg-zinc-800/50 border-2 border-dashed border-cyan-700/40 hover:border-cyan-500/60 rounded-lg flex flex-col items-center justify-center cursor-pointer transition-colors group"
+                                        onClick={(e) => {
+                                            const textarea = (e.currentTarget as HTMLElement).querySelector('textarea');
+                                            textarea?.focus();
+                                        }}
+                                    >
+                                        <textarea
+                                            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer resize-none"
+                                            onPaste={(e) => {
+                                                e.preventDefault();
+                                                const text = e.clipboardData.getData('text/plain');
+                                                if (text.trim()) {
+                                                    setManualPasteTableInput(text);
+                                                }
+                                            }}
+                                            onChange={(e) => {
+                                                if (e.target.value.trim()) {
+                                                    setManualPasteTableInput(e.target.value);
+                                                }
+                                            }}
+                                        />
+                                        <ClipboardPaste size={24} className="text-cyan-600 group-hover:text-cyan-400 mb-2 transition-colors" />
+                                        <p className="text-sm text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                                            点击此处，然后 <kbd className="px-1.5 py-0.5 bg-zinc-700 rounded text-zinc-300 text-xs">Ctrl+V</kbd> 粘贴表格
+                                        </p>
+                                        <p className="text-xs text-zinc-600 mt-1">从 Excel / Google Sheets 复制表格数据</p>
+                                    </div>
+                                ) : (
+                                    /* 已粘贴：表格预览 */
+                                    (() => {
+                                        const lines = manualPasteTableInput.trim().split(/\r?\n/).filter(l => l.trim());
+                                        const headers = (lines[0] || '').split('\t').map(h => h.trim());
+                                        const dataRows = lines.slice(1).map(line => {
+                                            const cells = line.split('\t').map(c => c.trim());
+                                            // 补齐列数
+                                            while (cells.length < headers.length) cells.push('');
+                                            return cells.slice(0, headers.length);
+                                        });
+                                        const headerColors = [
+                                            'bg-pink-500/20 text-pink-300 border-pink-500/30',
+                                            'bg-orange-500/20 text-orange-300 border-orange-500/30',
+                                            'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+                                            'bg-green-500/20 text-green-300 border-green-500/30',
+                                            'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+                                            'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+                                            'bg-purple-500/20 text-purple-300 border-purple-500/30',
+                                            'bg-red-500/20 text-red-300 border-red-500/30',
+                                        ];
+
+                                        return (
+                                            <div>
+                                                <div className="border border-zinc-700 rounded-lg overflow-hidden">
+                                                    <div className="max-h-56 overflow-y-auto">
+                                                        <table className="w-full text-xs">
+                                                            <thead className="sticky top-0 z-10">
+                                                                <tr>
+                                                                    <th className="px-2 py-1.5 bg-zinc-800 border-b border-r border-zinc-700 text-zinc-500 font-normal text-center w-8">#</th>
+                                                                    {headers.map((h, i) => (
+                                                                        <th
+                                                                            key={i}
+                                                                            className={`px-3 py-1.5 border-b border-r border-zinc-700 font-medium text-left ${headerColors[i % headerColors.length]}`}
+                                                                        >
+                                                                            {h || `列${i + 1}`}
+                                                                        </th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {dataRows.map((row, ri) => (
+                                                                    <tr key={ri} className="hover:bg-zinc-800/50">
+                                                                        <td className="px-2 py-1 bg-zinc-800/30 border-b border-r border-zinc-800 text-zinc-600 text-center">{ri + 1}</td>
+                                                                        {row.map((cell, ci) => (
+                                                                            <td key={ci} className="px-3 py-1 border-b border-r border-zinc-800 text-zinc-300 truncate max-w-[200px]" title={cell}>
+                                                                                {cell || <span className="text-zinc-600">—</span>}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-1.5 text-xs text-cyan-400">
+                                                    ✓ 识别到 {headers.filter(h => h).length} 个库：{headers.filter(h => h).join('、')}
+                                                    <span className="text-zinc-500 ml-1">（{dataRows.length} 行数据）</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()
+                                )}
+                            </div>
+
+                            {/* 基础指令 */}
+                            <div>
+                                <label className="block text-xs text-zinc-400 mb-1">
+                                    基础指令（可选，用于创新时的 AI 指令）
+                                </label>
+                                <textarea
+                                    value={manualPasteBaseInstruction}
+                                    onChange={(e) => setManualPasteBaseInstruction(e.target.value)}
+                                    placeholder={"粘贴创新指令（可选）\n例如：请根据图片内容，结合以下随机元素进行创意描述..."}
+                                    className="w-full h-28 bg-zinc-800 border border-zinc-700 rounded-lg p-3 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500 resize-none"
+                                />
+                                {manualPasteBaseInstruction.trim() && (
+                                    <div className="mt-1.5 text-xs text-cyan-400">
+                                        ✓ 已填写基础指令（{manualPasteBaseInstruction.trim().length} 字）
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 导入模式 */}
+                            <div>
+                                <label className="block text-xs text-zinc-500 mb-1">导入模式</label>
+                                <select
+                                    value={manualPasteImportMode}
+                                    onChange={(e) => setManualPasteImportMode(e.target.value as 'merge-add' | 'replace')}
+                                    className="w-full px-3 py-2 text-sm bg-zinc-700 border border-zinc-600 rounded text-white"
+                                >
+                                    <option value="replace">完全替换（删除现有库）</option>
+                                    <option value="merge-add">添加新库（保留现有，同名跳过）</option>
+                                </select>
+                            </div>
+
+                            {/* 底部按钮 */}
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button
+                                    onClick={() => setShowManualPasteModal(false)}
+                                    className="px-4 py-2 text-sm text-zinc-400 hover:text-white"
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    onClick={handleManualPasteImport}
+                                    disabled={!manualPasteTableInput.trim() && !manualPasteBaseInstruction.trim()}
+                                    className="flex items-center gap-2 px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-500 text-white rounded disabled:opacity-40"
+                                >
+                                    <Download size={14} />
+                                    导入
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

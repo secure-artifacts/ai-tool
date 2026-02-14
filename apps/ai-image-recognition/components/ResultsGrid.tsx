@@ -55,6 +55,8 @@ interface ResultsGridProps {
     // 指令预览功能
     globalUserPrompt?: string; // 全局用户特殊要求
     baseInstruction?: string; // 基础指令
+    // 拆分元素模式
+    splitElements?: string[];
 }
 
 
@@ -167,6 +169,106 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
 
 // 使用 React.memo 优化：只有 props 变化时才重新渲染
 const MemoizedStatusDisplay = memo(StatusDisplay);
+
+// === 拆分元素结果显示组件 ===
+const SplitResultDisplay = ({ item, splitElements = [] }: { item: ImageItem; splitElements: string[] }) => {
+    if (item.status === 'idle') return <div className="text-xs text-zinc-600 italic">等待分析...</div>;
+    if (item.status === 'loading') return (
+        <div className="flex items-center gap-2 text-emerald-400 text-xs">
+            <Loader2 size={14} className="animate-spin" />
+            正在分析...
+        </div>
+    );
+    if (item.status === 'error') return (
+        <div className="text-red-400 text-xs">
+            <div className="flex items-center gap-1 font-bold mb-1"><AlertCircle size={12} /> 错误</div>
+            {item.errorMsg || "分析失败。"}
+        </div>
+    );
+    if (!item.result) return <div className="text-xs text-zinc-600 italic">暂无结果</div>;
+
+    // 解析结果：支持 "元素名|||中文|||英文" 或 "元素名|||描述"
+    const lines = item.result.split('\n').filter(l => l.trim());
+    const parsed: Record<string, { zh: string; en: string }> = {};
+    let hasBilingual = false;
+    for (const line of lines) {
+        const parts = line.split('|||');
+        if (parts.length >= 2) {
+            const rawKey = parts[0].trim().replace(/^\d+\.\s*/, '');
+            // 匹配最接近的元素名
+            const key = splitElements.find(e => rawKey.includes(e) || e.includes(rawKey)) || rawKey;
+            if (parts.length >= 3) {
+                parsed[key] = { zh: parts[1].trim(), en: parts[2].trim() };
+                hasBilingual = true;
+            } else {
+                const desc = parts[1].trim();
+                const isChinese = /[\u4e00-\u9fff]/.test(desc);
+                parsed[key] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
+            }
+        }
+    }
+
+    // 按 splitElements 顺序显示
+    const orderedKeys = [...splitElements];
+    for (const key of Object.keys(parsed)) {
+        if (!orderedKeys.includes(key)) orderedKeys.push(key);
+    }
+    const activeKeys = orderedKeys.filter(k => parsed[k]);
+
+    if (activeKeys.length === 0) {
+        return <div className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">{item.result}</div>;
+    }
+
+    return (
+        <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+                <thead>
+                    <tr>
+                        {hasBilingual && (
+                            <th className="px-2 py-1.5 text-left text-zinc-500 font-medium border-b border-zinc-700/50 bg-zinc-800/40 whitespace-nowrap w-8"></th>
+                        )}
+                        {activeKeys.map(key => (
+                            <th key={key} className="px-2 py-1.5 text-left text-cyan-400 font-medium border-b border-zinc-700/50 bg-zinc-800/40 whitespace-nowrap">
+                                {key}
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {hasBilingual ? (
+                        <>
+                            <tr>
+                                <td className="px-2 py-1.5 text-orange-400 font-medium border-b border-zinc-800/30 whitespace-nowrap align-top">中</td>
+                                {activeKeys.map(key => (
+                                    <td key={key} className="px-2 py-2 text-zinc-300 border-b border-zinc-800/30 align-top leading-relaxed" style={{ minWidth: '120px' }}>
+                                        {parsed[key]?.zh || ''}
+                                    </td>
+                                ))}
+                            </tr>
+                            <tr>
+                                <td className="px-2 py-1.5 text-blue-400 font-medium border-b border-zinc-800/30 whitespace-nowrap align-top">EN</td>
+                                {activeKeys.map(key => (
+                                    <td key={key} className="px-2 py-2 text-zinc-400 border-b border-zinc-800/30 align-top leading-relaxed" style={{ minWidth: '120px' }}>
+                                        {parsed[key]?.en || ''}
+                                    </td>
+                                ))}
+                            </tr>
+                        </>
+                    ) : (
+                        <tr>
+                            {activeKeys.map(key => (
+                                <td key={key} className="px-2 py-2 text-zinc-300 border-b border-zinc-800/30 align-top leading-relaxed" style={{ minWidth: '120px' }}>
+                                    {parsed[key]?.zh || parsed[key]?.en || ''}
+                                </td>
+                            ))}
+                        </tr>
+                    )}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+const MemoizedSplitResultDisplay = memo(SplitResultDisplay);
 
 // 创新结果显示组件 - 用于创新模式下替换右侧的识别结果
 interface CreativeResultDisplayProps {
@@ -2027,10 +2129,11 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     selectedCardId,
     onSelectCard,
     globalUserPrompt,
-    baseInstruction
+    baseInstruction,
+    splitElements
 }) => {
     const [copiedId, setCopiedId] = useState<string | null>(null);
-    const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | null>(null);
+    const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en' | null>(null);
     // 侧边栏宽度状态 - 分别存储不同视图的宽度
     const [sidebarWidths, setSidebarWidths] = useState<{ grid: number; list: number }>({
         grid: 80,
@@ -2186,7 +2289,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     };
 
     // 显示复制成功状态
-    const showCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result') => {
+    const showCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en') => {
         setCopiedId(id);
         setCopiedAction(action);
         setTimeout(() => { setCopiedId(null); setCopiedAction(null); }, 2000);
@@ -2336,8 +2439,26 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     };
 
     // 判断当前复制的是什么
-    const isCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result') => {
+    const isCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en') => {
         return copiedId === id && copiedAction === action;
+    };
+
+    // 复制拆分结果（单张，按语言）
+    const copySplitResultLang = (item: ImageItem, lang: 'zh' | 'en') => {
+        if (!item.result) return;
+        const lines = item.result.split('\n').filter(l => l.includes('|||'));
+        const parts: string[] = [];
+        for (const line of lines) {
+            const segs = line.split('|||');
+            const name = segs[0]?.trim().replace(/^\d+\.\s*/, '');
+            if (segs.length >= 3) {
+                parts.push(`${name}: ${lang === 'zh' ? segs[1].trim() : segs[2].trim()}`);
+            } else if (segs.length === 2) {
+                parts.push(`${name}: ${segs[1].trim()}`);
+            }
+        }
+        navigator.clipboard.writeText(parts.join('\n'));
+        showCopied(item.id, lang === 'zh' ? 'result-zh' : 'result-en');
     };
 
     if (images.length === 0) return null;
@@ -2597,17 +2718,42 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         </button>
                                         {item.status === 'success' && (
                                             <>
-                                                <button
-                                                    onClick={() => copyResult(item)}
-                                                    className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
-                                                        ? 'text-emerald-400 bg-emerald-900/20'
-                                                        : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
-                                                        }`}
-                                                    data-tip="复制结果"
-                                                >
-                                                    {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
-                                                </button>
-                                                {onSendToDesc && (
+                                                {workMode === 'split' ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => copySplitResultLang(item, 'zh')}
+                                                            className={`p-1 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-zh')
+                                                                ? 'text-emerald-400 bg-emerald-900/20'
+                                                                : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
+                                                                }`}
+                                                            data-tip="复制中文描述"
+                                                        >
+                                                            {isCopied(item.id, 'result-zh') ? <Check size={12} /> : <span>中</span>}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => copySplitResultLang(item, 'en')}
+                                                            className={`p-1 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-en')
+                                                                ? 'text-emerald-400 bg-emerald-900/20'
+                                                                : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
+                                                                }`}
+                                                            data-tip="复制英文描述"
+                                                        >
+                                                            {isCopied(item.id, 'result-en') ? <Check size={12} /> : <span>EN</span>}
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => copyResult(item)}
+                                                        className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
+                                                            ? 'text-emerald-400 bg-emerald-900/20'
+                                                            : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
+                                                            }`}
+                                                        data-tip="复制结果"
+                                                    >
+                                                        {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
+                                                    </button>
+                                                )}
+                                                {workMode !== 'split' && onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
                                                         className={`p-1 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -2786,17 +2932,42 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         </button>
                                         {item.status === 'success' && (
                                             <>
-                                                <button
-                                                    onClick={() => copyResult(item)}
-                                                    className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
-                                                        ? 'text-emerald-400 bg-emerald-900/20'
-                                                        : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
-                                                        }`}
-                                                    data-tip="复制结果"
-                                                >
-                                                    {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
-                                                </button>
-                                                {onSendToDesc && (
+                                                {workMode === 'split' ? (
+                                                    <>
+                                                        <button
+                                                            onClick={() => copySplitResultLang(item, 'zh')}
+                                                            className={`p-1 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-zh')
+                                                                ? 'text-emerald-400 bg-emerald-900/20'
+                                                                : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
+                                                                }`}
+                                                            data-tip="复制中文描述"
+                                                        >
+                                                            {isCopied(item.id, 'result-zh') ? <Check size={12} /> : <span>中</span>}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => copySplitResultLang(item, 'en')}
+                                                            className={`p-1 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-en')
+                                                                ? 'text-emerald-400 bg-emerald-900/20'
+                                                                : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
+                                                                }`}
+                                                            data-tip="复制英文描述"
+                                                        >
+                                                            {isCopied(item.id, 'result-en') ? <Check size={12} /> : <span>EN</span>}
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => copyResult(item)}
+                                                        className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
+                                                            ? 'text-emerald-400 bg-emerald-900/20'
+                                                            : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
+                                                            }`}
+                                                        data-tip="复制结果"
+                                                    >
+                                                        {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
+                                                    </button>
+                                                )}
+                                                {workMode !== 'split' && onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
                                                         className={`p-1 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -2963,6 +3134,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     >
                                                                         <CreativeResultDisplay result={creativeResults.find(r => r.imageId === item.id)} />
                                                                     </div>
+                                                                ) : workMode === 'split' ? (
+                                                                    <MemoizedSplitResultDisplay item={item} splitElements={splitElements || []} />
                                                                 ) : (
                                                                     <MemoizedStatusDisplay item={item} onRetry={onRetry} onExpand={setExpandedResultItem} />
                                                                 )}
@@ -3020,21 +3193,48 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 >
                                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                                 </button>
-                                                                <button
-                                                                    onClick={() => (workMode === 'creative' || workMode === 'quick') ? copyCreativeResult(item) : copyResult(item)}
-                                                                    disabled={(workMode === 'creative' || workMode === 'quick')
-                                                                        ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
-                                                                        : item.status !== 'success'}
-                                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'result')
-                                                                        ? 'text-emerald-400 bg-emerald-900/20'
-                                                                        : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
-                                                                        }`}
-                                                                    data-tip={(workMode === 'creative' || workMode === 'quick') ? '复制所有创新结果' : (item.status === 'success' ? '复制识别结果' : '暂无结果')}
-                                                                >
-                                                                    {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
-                                                                </button>
+                                                                {workMode === 'split' ? (
+                                                                    <>
+                                                                        <button
+                                                                            onClick={() => copySplitResultLang(item, 'zh')}
+                                                                            disabled={item.status !== 'success'}
+                                                                            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-zh')
+                                                                                ? 'text-emerald-400 bg-emerald-900/20'
+                                                                                : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
+                                                                                }`}
+                                                                            data-tip="复制中文描述"
+                                                                        >
+                                                                            {isCopied(item.id, 'result-zh') ? <Check size={12} /> : <span>中</span>}
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => copySplitResultLang(item, 'en')}
+                                                                            disabled={item.status !== 'success'}
+                                                                            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-en')
+                                                                                ? 'text-emerald-400 bg-emerald-900/20'
+                                                                                : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
+                                                                                }`}
+                                                                            data-tip="复制英文描述"
+                                                                        >
+                                                                            {isCopied(item.id, 'result-en') ? <Check size={12} /> : <span>EN</span>}
+                                                                        </button>
+                                                                    </>
+                                                                ) : (
+                                                                    <button
+                                                                        onClick={() => (workMode === 'creative' || workMode === 'quick') ? copyCreativeResult(item) : copyResult(item)}
+                                                                        disabled={(workMode === 'creative' || workMode === 'quick')
+                                                                            ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
+                                                                            : item.status !== 'success'}
+                                                                        className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${isCopied(item.id, 'result')
+                                                                            ? 'text-emerald-400 bg-emerald-900/20'
+                                                                            : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
+                                                                            }`}
+                                                                        data-tip={(workMode === 'creative' || workMode === 'quick') ? '复制所有创新结果' : (item.status === 'success' ? '复制识别结果' : '暂无结果')}
+                                                                    >
+                                                                        {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
+                                                                    </button>
+                                                                )}
                                                                 {/* 发送到提示词创新 - 创新模式下隐藏 */}
-                                                                {workMode !== 'creative' && item.status === 'success' && onSendToDesc && (
+                                                                {workMode !== 'creative' && workMode !== 'split' && item.status === 'success' && onSendToDesc && (
                                                                     <button
                                                                         onClick={() => onSendToDesc(item.id)}
                                                                         className={`p-1.5 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -3061,8 +3261,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         <MessageCircle size={12} fill={!item.isChatOpen && item.chatHistory.length > 1 ? "currentColor" : "none"} fillOpacity={!item.isChatOpen && item.chatHistory.length > 1 ? 0.2 : 0} />
                                                                     </button>
                                                                 )}
-                                                                {/* 创新按钮 - 标准模式显示，创新模式改为放大查看 */}
-                                                                {(workMode === 'creative' || workMode === 'quick') ? (
+                                                                {workMode !== 'split' && ((workMode === 'creative' || workMode === 'quick') ? (
                                                                     // 创新模式：放大查看按钮
                                                                     <button
                                                                         onClick={() => setExpandedResultItem(item)}
@@ -3088,7 +3287,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                             <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
                                                                         </button>
                                                                     )
-                                                                )}
+                                                                ))}
                                                                 {/* 重试按钮 - 创新模式下改为重新创新（暂时仍使用onRetry） */}
                                                                 {item.status === 'success' && (
                                                                     <button
@@ -3333,18 +3532,45 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                     </button>
                                     {item.status === 'success' && (
-                                        <button
-                                            onClick={() => copyResult(item)}
-                                            className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
-                                                ? 'text-emerald-400 bg-emerald-900/20'
-                                                : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
-                                                }`}
-                                            data-tip="复制结果"
-                                        >
-                                            {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
-                                        </button>
+                                        <>
+                                            {workMode === 'split' ? (
+                                                <>
+                                                    <button
+                                                        onClick={() => copySplitResultLang(item, 'zh')}
+                                                        className={`p-1 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-zh')
+                                                            ? 'text-emerald-400 bg-emerald-900/20'
+                                                            : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
+                                                            }`}
+                                                        data-tip="复制中文描述"
+                                                    >
+                                                        {isCopied(item.id, 'result-zh') ? <Check size={12} /> : <span>中</span>}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => copySplitResultLang(item, 'en')}
+                                                        className={`p-1 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-en')
+                                                            ? 'text-emerald-400 bg-emerald-900/20'
+                                                            : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
+                                                            }`}
+                                                        data-tip="复制英文描述"
+                                                    >
+                                                        {isCopied(item.id, 'result-en') ? <Check size={12} /> : <span>EN</span>}
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <button
+                                                    onClick={() => copyResult(item)}
+                                                    className={`p-1 rounded transition-colors tooltip-bottom ${isCopied(item.id, 'result')
+                                                        ? 'text-emerald-400 bg-emerald-900/20'
+                                                        : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
+                                                        }`}
+                                                    data-tip="复制结果"
+                                                >
+                                                    {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
+                                                </button>
+                                            )}
+                                        </>
                                     )}
-                                    {item.status === 'success' && onSendToDesc && (
+                                    {workMode !== 'split' && item.status === 'success' && onSendToDesc && (
                                         <button
                                             onClick={() => onSendToDesc(item.id)}
                                             className={`p-1 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -3501,6 +3727,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     >
                                                         <CreativeResultDisplay result={creativeResults.find(r => r.imageId === item.id)} />
                                                     </div>
+                                                ) : workMode === 'split' ? (
+                                                    <MemoizedSplitResultDisplay item={item} splitElements={splitElements || []} />
                                                 ) : (
                                                     item.status === 'success' ? (
                                                         <div
@@ -3578,21 +3806,48 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 >
                                                     {isCopied(item.id, 'formula') ? <Check size={12} /> : <FileCode size={12} />}
                                                 </button>
-                                                <button
-                                                    onClick={() => (workMode === 'creative' || workMode === 'quick') ? copyCreativeResult(item) : copyResult(item)}
-                                                    disabled={(workMode === 'creative' || workMode === 'quick')
-                                                        ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
-                                                        : item.status !== 'success'}
-                                                    className={`p-1.5 rounded transition-colors disabled:opacity-30 tooltip-bottom ${isCopied(item.id, 'result')
-                                                        ? 'text-emerald-400 bg-emerald-900/20'
-                                                        : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
-                                                        }`}
-                                                    data-tip={(workMode === 'creative' || workMode === 'quick') ? '复制所有创新结果' : '复制结果'}
-                                                >
-                                                    {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
-                                                </button>
+                                                {workMode === 'split' ? (
+                                                    item.status === 'success' && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => copySplitResultLang(item, 'zh')}
+                                                                className={`p-1.5 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-zh')
+                                                                    ? 'text-emerald-400 bg-emerald-900/20'
+                                                                    : 'text-zinc-400 hover:text-orange-400 hover:bg-zinc-800'
+                                                                    }`}
+                                                                data-tip="复制中文描述"
+                                                            >
+                                                                {isCopied(item.id, 'result-zh') ? <Check size={12} /> : <span>中</span>}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => copySplitResultLang(item, 'en')}
+                                                                className={`p-1.5 rounded transition-colors tooltip-bottom text-[9px] font-bold ${isCopied(item.id, 'result-en')
+                                                                    ? 'text-emerald-400 bg-emerald-900/20'
+                                                                    : 'text-zinc-400 hover:text-blue-400 hover:bg-zinc-800'
+                                                                    }`}
+                                                                data-tip="复制英文描述"
+                                                            >
+                                                                {isCopied(item.id, 'result-en') ? <Check size={12} /> : <span>EN</span>}
+                                                            </button>
+                                                        </>
+                                                    )
+                                                ) : (
+                                                    <button
+                                                        onClick={() => (workMode === 'creative' || workMode === 'quick') ? copyCreativeResult(item) : copyResult(item)}
+                                                        disabled={(workMode === 'creative' || workMode === 'quick')
+                                                            ? !(creativeResults.find(r => r.imageId === item.id)?.status === 'success')
+                                                            : item.status !== 'success'}
+                                                        className={`p-1.5 rounded transition-colors disabled:opacity-30 tooltip-bottom ${isCopied(item.id, 'result')
+                                                            ? 'text-emerald-400 bg-emerald-900/20'
+                                                            : 'text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800'
+                                                            }`}
+                                                        data-tip={(workMode === 'creative' || workMode === 'quick') ? '复制所有创新结果' : '复制结果'}
+                                                    >
+                                                        {isCopied(item.id, 'result') ? <Check size={12} /> : <Copy size={12} />}
+                                                    </button>
+                                                )}
                                                 {/* 发送到提示词创新 - 创新模式下隐藏 */}
-                                                {workMode !== 'creative' && item.status === 'success' && onSendToDesc && (
+                                                {workMode !== 'creative' && workMode !== 'split' && item.status === 'success' && onSendToDesc && (
                                                     <button
                                                         onClick={() => onSendToDesc(item.id)}
                                                         className={`p-1.5 rounded transition-colors tooltip-bottom ${sentToDescIds?.includes(item.id)
@@ -3617,8 +3872,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         <MessageCircle size={12} />
                                                     </button>
                                                 )}
-                                                {/* 创新按钮 - 标准模式显示，创新模式改为放大查看 */}
-                                                {(workMode === 'creative' || workMode === 'quick') ? (
+                                                {workMode !== 'split' && ((workMode === 'creative' || workMode === 'quick') ? (
                                                     // 创新模式：放大查看按钮
                                                     <button
                                                         onClick={() => setExpandedResultItem(item)}
@@ -3644,7 +3898,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                             <Sparkles size={12} fill={!item.isInnovationOpen && hasInnovationOutputs ? "currentColor" : "none"} fillOpacity={!item.isInnovationOpen && hasInnovationOutputs ? 0.2 : 0} />
                                                         </button>
                                                     )
-                                                )}
+                                                ))}
                                                 {/* 重试按钮 */}
                                                 {item.status === 'success' && (
                                                     <button
