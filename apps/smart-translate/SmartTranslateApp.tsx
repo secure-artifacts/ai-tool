@@ -1319,6 +1319,18 @@ const TranslateTool = ({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dropZoneRef = useRef<HTMLDivElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    // 批次大小（用户可自定义，localStorage 持久化）
+    const BATCH_SIZE_KEY = 'smart_translate_batch_size';
+    const [batchSize, setBatchSize] = useState(() => {
+        try { const v = localStorage.getItem(BATCH_SIZE_KEY); return v ? Math.max(1, Math.min(20, parseInt(v))) : 10; } catch { return 10; }
+    });
+    const handleBatchSizeChange = (val: number) => {
+        const clamped = Math.max(1, Math.min(20, val));
+        setBatchSize(clamped);
+        try { localStorage.setItem(BATCH_SIZE_KEY, String(clamped)); } catch { }
+    };
+    const processingIdsRef = useRef<Set<string>>(new Set());
+    const activeWorkersRef = useRef(0);
 
     // 自动保存状态到项目（仅批量模式）
     // 即时模式在 InstantTranslateTool 组件中单独处理
@@ -1608,87 +1620,55 @@ const TranslateTool = ({
 
     useEffect(() => {
         if (!isProcessing) return;
+        // 防止重复调度
+        if (activeWorkersRef.current > 0) return;
 
-        const processNext = async () => {
-            // Find next idle item. Items that are 'processing_upload' are ignored until they become 'idle' (upload finished/failed).
-            const idleItemIndex = items.findIndex(i => i.status === 'idle');
-            if (idleItemIndex === -1) {
-                // Check if any are still uploading
-                const uploadingCount = items.filter(i => i.status === 'processing_upload').length;
-                if (uploadingCount === 0) {
-                    setIsProcessing(false);
-                    // 单条已保存，批量完成时不再重复保存
-                }
-                return;
+        const ai = getAiInstance();
+        const isChineseOnly = effectiveBatchLanguages.length === 0;
+        const targetLangSpecs = effectiveBatchLanguages
+            .map(code => `${getLanguageName(code)} (${code})`)
+            .join(', ');
+
+        const updateItemById = (id: string, updates: Partial<TranslateItem>) => {
+            setItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i));
+        };
+
+        // OCR 单张图片
+        const ocrImage = async (item: TranslateItem): Promise<string> => {
+            let base64Data = item.content;
+            let mimeType = item.mimeType;
+
+            if (item.type === 'image-url') {
+                updateItemById(item.id, { status: 'processing_fetch' });
+                const fetched = await fetchImageAsBase64(item.sourceUrl!);
+                base64Data = fetched.data;
+                mimeType = fetched.mimeType;
+                updateItemById(item.id, { content: base64Data, mimeType });
             }
 
-            const item = items[idleItemIndex];
-            const ai = getAiInstance();
-            const isChineseOnly = effectiveBatchLanguages.length === 0;
-            const targetLangSpecs = effectiveBatchLanguages
-                .map(code => `${getLanguageName(code)} (${code})`)
-                .join(', ');
-            const targetLangJson = effectiveBatchLanguages
-                .map(code => `"${code}": "translation in ${getLanguageName(code)}"`)
-                .join(', ');
-
-            const updateItem = (updates: Partial<TranslateItem>) => {
-                setItems(prev => {
-                    const newItems = [...prev];
-                    const idx = newItems.findIndex(i => i.id === item.id);
-                    if (idx !== -1) {
-                        newItems[idx] = { ...newItems[idx], ...updates };
-                    }
-                    return newItems;
-                });
-            };
-
-            try {
-                let textToTranslate = "";
-                let base64Data = item.content;
-                let mimeType = item.mimeType;
-
-                // 1. Fetch Image if URL (and no content yet)
-                if (item.type === 'image-url') {
-                    updateItem({ status: 'processing_fetch' });
-                    try {
-                        const fetched = await fetchImageAsBase64(item.sourceUrl!);
-                        base64Data = fetched.data;
-                        mimeType = fetched.mimeType;
-                        updateItem({ content: base64Data, mimeType: mimeType });
-                    } catch (err) {
-                        throw new Error(t('error_cors'));
-                    }
+            updateItemById(item.id, { status: 'processing_ocr' });
+            const response = await ai.models.generateContent({
+                model: textModel,
+                contents: {
+                    parts: [
+                        { inlineData: { mimeType: mimeType!, data: base64Data } },
+                        { text: "Identify all text in this image. Return only the text exactly as it appears, without any introductory or concluding remarks." }
+                    ]
                 }
+            });
+            const text = response.text || '';
+            updateItemById(item.id, { originalText: text });
+            return text;
+        };
 
-                // 2. OCR if Image
-                if (item.type === 'image' || item.type === 'image-url') {
-                    updateItem({ status: 'processing_ocr' });
+        // 批量翻译一组文本
+        const translateBatch = async (batch: { id: string; text: string }[]) => {
+            if (batch.length === 0) return;
 
-                    const response = await ai.models.generateContent({
-                        model: textModel,
-                        contents: {
-                            parts: [
-                                { inlineData: { mimeType: mimeType!, data: base64Data } },
-                                { text: "Identify all text in this image. Return only the text exactly as it appears, without any introductory or concluding remarks." }
-                            ]
-                        }
-                    });
-                    textToTranslate = response.text;
-                    updateItem({ originalText: textToTranslate });
-                } else {
-                    textToTranslate = item.content;
-                }
+            // 标记所有为翻译中
+            batch.forEach(b => updateItemById(b.id, { status: 'processing_translate' }));
 
-                if (!textToTranslate.trim()) {
-                    throw new Error("No text found.");
-                }
-
-                // 3. Translate
-                updateItem({ status: 'processing_translate' });
-
-                // 垃圾信息清理指令（AI署名、水印等）
-                const cleanupInstruction = `
+            const cleanupInstruction = `
 IMPORTANT: Before translating, remove any of the following from the text:
 - AI tool signatures/watermarks (e.g., "Made with ChatGPT", "Generated by Midjourney", "Created using DALL-E", "Sora", "Kling", etc.)
 - Social media handles (@username, @logo)
@@ -1699,152 +1679,197 @@ IMPORTANT: Before translating, remove any of the following from the text:
 
 Only translate the meaningful content.`;
 
-                const prompt = isChineseOnly
-                    ? `Translate the following text into Chinese (Simplified).
-Also provide the detected source language name in Chinese.
+            const numberedTexts = batch.map((b, i) => `--- ITEM ${i + 1} ---\n${b.text}`).join('\n\n');
+
+            const translatePrompt = isChineseOnly
+                ? `You are a professional translation engine. Translate ${batch.length} text items into Chinese (Simplified).
+Also detect the source language for each item.
+
+${cleanupInstruction}
 
 CRITICAL RULES:
-1. Translate the COMPLETE text - do NOT skip or omit any sentences, including the first line and last line.
+1. Translate the COMPLETE text for each item - do NOT skip or omit any sentences.
+2. If the source text is already in Chinese, copy it exactly.
+3. Preserve all line breaks and formatting from the original.
+4. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
+
+Return in this exact JSON format (no markdown, no extra text):
+[
+  {"chinese": "Chinese translation", "detectedLanguage": "语言名称"},
+  ...
+]
+
+Here are the ${batch.length} items:
+
+${numberedTexts}`
+                : `You are a professional translation engine. Translate ${batch.length} text items into these target languages: ${targetLangSpecs}.
+Also detect the source language for each item.
+
+${cleanupInstruction}
+
+CRITICAL RULES:
+1. Translate the COMPLETE text for each item - do NOT skip or omit any sentences.
 2. If the source text is already in Chinese, copy it exactly to the "chinese" field.
 3. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
 4. Preserve all line breaks and formatting from the original.
-${cleanupInstruction}
+5. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
 
-Return in this exact JSON format (no markdown):
-{"chinese": "Chinese translation or original if source is Chinese", "detectedLanguage": "语言名称"}
+Return in this exact JSON format (no markdown, no extra text):
+[
+  {"translations": {${effectiveBatchLanguages.map(c => `"${c}": "..."`).join(', ')}}, "chinese": "...", "detectedLanguage": "..."},
+  ...
+]
 
-Text to translate:
-"""
-${textToTranslate}
-"""`
-                    : `Translate the following text into these target languages: ${targetLangSpecs}.
-Also provide the detected source language name in Chinese.
-Use the language codes as keys in the JSON output.
+Here are the ${batch.length} items:
 
-CRITICAL RULES:
-1. Translate the COMPLETE text - do NOT skip or omit any sentences, including the first line and last line.
-2. If the source text is already in Chinese, copy it exactly to the "chinese" field.
-3. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
-4. Preserve all line breaks and formatting from the original.
-${cleanupInstruction}
+${numberedTexts}`;
 
-Return in this exact JSON format (no markdown):
-{"translations": {${targetLangJson}}, "chinese": "Chinese translation or original if source is Chinese", "detectedLanguage": "语言名称"}
-
-Text to translate:
-"""
-${textToTranslate}
-"""`;
-
-                // 使用 retryOnEmpty 包装翻译调用，空结果时自动重试
+            try {
                 const translateResponse = await retryOnEmpty(
                     () => ai.models.generateContent({
                         model: textModel,
-                        contents: prompt
+                        contents: translatePrompt
                     }),
                     (response) => !response.text?.trim(),
-                    3,  // 最多重试 3 次
-                    1500  // 初始延迟 1.5 秒
+                    3, 1500
                 );
 
-                // 解析结果
-                let translatedText = translateResponse.text || '';
-                let chineseText = '';
-                let detectedLanguage = '';
-                let translations: Record<string, string> | undefined;
+                let rawText = (translateResponse.text || '').trim();
+                if (rawText.startsWith('```')) {
+                    rawText = rawText.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+                }
 
-                // 尝试解析 JSON 格式
+                let results: any[] = [];
                 try {
-                    // 移除可能的 markdown 代码块标记
-                    let cleanResponse = translatedText.trim();
-                    if (cleanResponse.startsWith('```')) {
-                        cleanResponse = cleanResponse.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
+                    results = JSON.parse(rawText);
+                } catch {
+                    // 如果解析失败且只有1条，尝试解析为单个对象
+                    if (batch.length === 1) {
+                        try {
+                            results = [JSON.parse(rawText)];
+                        } catch {
+                            results = [isChineseOnly ? { chinese: rawText } : { translations: { [primaryBatchLanguage]: rawText } }];
+                        }
+                    } else {
+                        batch.forEach(b => updateItemById(b.id, { status: 'error', error: '批量翻译结果解析失败' }));
+                        return;
+                    }
+                }
+
+                // 映射结果到各项
+                batch.forEach((b, i) => {
+                    const parsed = results[i];
+                    if (!parsed) {
+                        updateItemById(b.id, { status: 'error', error: '翻译结果缺失' });
+                        return;
                     }
 
-                    const parsed = JSON.parse(cleanResponse);
+                    let translatedText = '';
+                    let chineseText = parsed.chinese || '';
+                    let detectedLanguage = parsed.detectedLanguage || '';
+                    let translations: Record<string, string> | undefined;
+
                     if (!isChineseOnly) {
                         if (parsed.translations && typeof parsed.translations === 'object') {
                             translations = {};
                             effectiveBatchLanguages.forEach(code => {
-                                const value = parsed.translations[code];
-                                if (typeof value === 'string') {
-                                    translations![code] = value;
+                                if (typeof parsed.translations[code] === 'string') {
+                                    translations![code] = parsed.translations[code];
                                 }
                             });
-                        } else if (parsed.translated) {
-                            translations = { [primaryBatchLanguage]: parsed.translated };
+                        }
+                        if (translations && translations[primaryBatchLanguage]) {
+                            translatedText = translations[primaryBatchLanguage];
                         }
                     }
-                    if (parsed.chinese) {
-                        chineseText = parsed.chinese;
-                    }
-                    if (parsed.detectedLanguage) {
-                        detectedLanguage = parsed.detectedLanguage;
-                    }
-                } catch {
-                    // 非 JSON 格式
+
                     if (isChineseOnly) {
-                        chineseText = translatedText;
-                    } else {
-                        translations = { [primaryBatchLanguage]: translatedText };
+                        translatedText = '';
+                        translations = undefined;
                     }
-                }
 
-                if (!isChineseOnly && translations && translations[primaryBatchLanguage]) {
-                    translatedText = translations[primaryBatchLanguage];
-                }
+                    const hasTranslation = translatedText.trim() ||
+                        (translations && Object.values(translations).some(v => v?.trim())) ||
+                        chineseText.trim();
 
-                if (!detectedLanguage) {
-                    try {
-                        const detectPrompt = `What language is this text written in? Reply with only the language name in Chinese (e.g., 英语, 日语, 西班牙语, 法语, 德语, 韩语, 俄语, 阿拉伯语, etc.). Just one or two words, nothing else.\n\nText: "${textToTranslate.slice(0, 200)}"`;
-
-                        const detectResponse = await ai.models.generateContent({
-                            model: textModel,
-                            contents: detectPrompt
-                        });
-
-                        detectedLanguage = (detectResponse.text ?? '').trim().replace(/[。.，,\s]/g, '');
-                    } catch (detectError) {
-                    }
-                }
-
-                if (isChineseOnly) {
-                    translatedText = '';
-                    translations = undefined;
-                }
-
-                // 检查是否有实际的翻译结果
-                const hasTranslation = translatedText.trim() ||
-                    (translations && Object.values(translations).some(v => v && v.trim())) ||
-                    (chineseText && chineseText.trim());
-
-                // 更新状态
-                const updates: Partial<TranslateItem> = {
-                    status: hasTranslation ? 'success' : 'error',
-                    translatedText: translatedText,
-                    chineseText: chineseText,
-                    translations: translations
-                };
-                if (!hasTranslation) {
-                    updates.error = '翻译结果为空';
-                }
-                if (detectedLanguage) {
-                    updates.detectedLanguage = detectedLanguage;
-                }
-                updateItem(updates);
-
-                // 项目状态会自动保存
-                if (user?.uid) {
-                }
+                    updateItemById(b.id, {
+                        status: hasTranslation ? 'success' : 'error',
+                        translatedText,
+                        chineseText,
+                        translations,
+                        detectedLanguage,
+                        ...(hasTranslation ? {} : { error: '翻译结果为空' })
+                    });
+                });
 
             } catch (e: any) {
-                console.error(e);
-                const errMsg = e.message || t('error_generic');
-                updateItem({ status: 'error', error: errMsg });
+                console.error('Batch translate error:', e);
+                batch.forEach(b => updateItemById(b.id, { status: 'error', error: e.message || '翻译失败' }));
             }
         };
 
-        processNext();
+        // 主调度逻辑
+        const runBatchProcess = async () => {
+            activeWorkersRef.current = 1;
+
+            const idleItems = items.filter(i => i.status === 'idle' && !processingIdsRef.current.has(i.id));
+            if (idleItems.length === 0) {
+                const uploadingCount = items.filter(i => i.status === 'processing_upload').length;
+                if (uploadingCount === 0) {
+                    activeWorkersRef.current = 0;
+                    setIsProcessing(false);
+                }
+                return;
+            }
+
+            // 标记正在处理
+            idleItems.forEach(i => processingIdsRef.current.add(i.id));
+
+            // 分离图片和文本
+            const imageItems = idleItems.filter(i => i.type === 'image' || i.type === 'image-url');
+            const textItems = idleItems.filter(i => i.type === 'text');
+
+            // 1. 并发 OCR 图片（最多 batchSize 个同时）
+            const ocrResults: { id: string; text: string }[] = [];
+            for (let i = 0; i < imageItems.length; i += batchSize) {
+                const chunk = imageItems.slice(i, i + batchSize);
+                const results = await Promise.allSettled(
+                    chunk.map(async item => {
+                        try {
+                            const text = await ocrImage(item);
+                            if (!text.trim()) throw new Error('No text found.');
+                            return { id: item.id, text };
+                        } catch (e: any) {
+                            updateItemById(item.id, { status: 'error', error: e.message || 'OCR 失败' });
+                            return null;
+                        }
+                    })
+                );
+                results.forEach(r => {
+                    if (r.status === 'fulfilled' && r.value) {
+                        ocrResults.push(r.value);
+                    }
+                });
+            }
+
+            // 2. 合并所有待翻译文本
+            const allToTranslate = [
+                ...textItems.map(i => ({ id: i.id, text: i.content })),
+                ...ocrResults
+            ];
+
+            // 3. 分批翻译（每批 batchSize 条）
+            for (let i = 0; i < allToTranslate.length; i += batchSize) {
+                const batch = allToTranslate.slice(i, i + batchSize);
+                await translateBatch(batch);
+            }
+
+            // 清理
+            idleItems.forEach(i => processingIdsRef.current.delete(i.id));
+            activeWorkersRef.current = 0;
+        };
+
+        runBatchProcess();
     }, [items, isProcessing, effectiveBatchLanguages, primaryBatchLanguage, getAiInstance, t, textModel, user]);
 
 
@@ -2516,6 +2541,15 @@ ${textToTranslate}
                                 ↻ 重试失败
                             </button>
                         )}
+                        <select
+                            className="batch-size-select"
+                            value={batchSize}
+                            onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
+                            title="每批翻译数量"
+                            disabled={isProcessing}
+                        >
+                            {[1, 2, 3, 5, 8, 10, 15, 20].map(n => <option key={n} value={n}>{n}条/批</option>)}
+                        </select>
                         <button
                             className="btn btn-primary"
                             onClick={processQueue}
@@ -2827,6 +2861,15 @@ ${textToTranslate}
                                                 🔄 {t('retranslateAll') || '重新翻译'}
                                             </button>
                                         )}
+                                        <select
+                                            className="batch-size-select"
+                                            value={batchSize}
+                                            onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
+                                            title="每批翻译数量"
+                                            disabled={isProcessing}
+                                        >
+                                            {[1, 2, 3, 5, 8, 10, 15, 20].map(n => <option key={n} value={n}>{n}条/批</option>)}
+                                        </select>
                                         <button
                                             className="btn btn-primary"
                                             onClick={processQueue}

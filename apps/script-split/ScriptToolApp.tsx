@@ -11,7 +11,9 @@ import {
   MousePointer2,
   Languages,
   CheckSquare,
-  Hash
+  Hash,
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import {
   processGrid,
@@ -22,12 +24,17 @@ import { buildGoogleSheetsHtml, copyToClipboard } from './utils/clipboard';
 import { GridData, ToolType, GridSelection, ProcessOptions, GridStyles, cellKey } from './types';
 import { Button } from './components/UIComponents';
 import { SpreadsheetGrid } from './components/SpreadsheetGrid';
+import type { GoogleGenAI } from '@google/genai';
+
+interface ScriptToolAppProps {
+  getAiInstance?: () => GoogleGenAI | null;
+}
 
 // Default grid size
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLS = 20;
 
-function ScriptToolApp() {
+function ScriptToolApp({ getAiInstance }: ScriptToolAppProps) {
   const [gridData, setGridData] = useState<GridData>([]);
   const [selection, setSelection] = useState<GridSelection | null>(null);
   const [forceSelection, setForceSelection] = useState<GridSelection | null>(null); // 用于外部触发选区
@@ -38,6 +45,167 @@ function ScriptToolApp() {
   const [showPrefixModal, setShowPrefixModal] = useState(false); // 自定义前缀弹窗
   const [customPrefix, setCustomPrefix] = useState('prompt'); // 自定义前缀内容
   const [copiedSelection, setCopiedSelection] = useState(false);
+  const [aiSplitting, setAiSplitting] = useState(false);
+
+  // AI 智能拆分：用 Gemini 识别标题，substring 截取原文保证零修改
+  const handleAiSplit = async () => {
+    if (!selection) {
+      setStatusMsg('请先用鼠标框选要处理的单元格区域');
+      return;
+    }
+    if (!getAiInstance) {
+      setStatusMsg('AI 功能需要配置 API Key');
+      return;
+    }
+    const ai = getAiInstance();
+    if (!ai) {
+      setStatusMsg('请先在设置中配置 API Key');
+      return;
+    }
+
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+
+    // Collect non-empty cells
+    const cells: { row: number; col: number; text: string }[] = [];
+    for (let c = minC; c <= maxC; c++) {
+      for (let r = minR; r <= maxR; r++) {
+        const val = gridData[r]?.[c] || '';
+        if (val.trim()) cells.push({ row: r, col: c, text: val });
+      }
+    }
+    if (cells.length === 0) {
+      setStatusMsg('选区内没有内容');
+      return;
+    }
+
+    setAiSplitting(true);
+
+    try {
+      const BATCH_SIZE = 20;
+      const newGrid = gridData.map(row => [...row]);
+      const updatedCols: number[] = [];
+      let processedCount = 0;
+
+      for (let batchStart = 0; batchStart < cells.length; batchStart += BATCH_SIZE) {
+        const batch = cells.slice(batchStart, batchStart + BATCH_SIZE);
+        setStatusMsg(`AI 正在分析... (${processedCount}/${cells.length})`);
+
+        const textsJson = batch.map((c, i) => `[${i}] ${c.text.substring(0, 500)}`).join('\n---\n');
+        const prompt = `You are a title extractor for prayer/inspirational social media posts. For each numbered text, extract ONLY the short hook/title at the very beginning.
+
+CRITICAL RULES:
+- The title is the SHORTEST possible hook, headline, greeting, or attention-grabber at the start
+- Prayer greetings like "Heavenly Father", "Dear God", "Dear Lord", "Father" are titles BY THEMSELVES — do NOT include the rest of the sentence
+- ALL CAPS imperative phrases like "DON'T SKIP", "READ THIS", "STOP SCROLLING" are titles BY THEMSELVES
+- Numbered list headers like "6 HEART-WARMING PRAYERS" end BEFORE the colon/number
+- For regular sentences, use the first sentence (up to the first period)
+- Return ONLY the EXACT characters from the original text, do NOT modify anything
+- Titles should be SHORT — usually 2-10 words maximum
+
+EXAMPLES (input → expected title):
+- "DON'T SKIP PSALM 46:5: "God is within her..."" → "DON'T SKIP"
+- "6 HEART-WARMING PRAYERS: 1. Dear Lord, please help me grow..." → "6 HEART-WARMING PRAYERS"
+- "Heavenly Father, I come to you today trusting in your love..." → "Heavenly Father"
+- "PRAYER AGAINST EVIL. Dear Heavenly Father, today I come before You..." → "PRAYER AGAINST EVIL."
+- "God led you to read this. Sometimes God has to break you..." → "God led you to read this."
+- "Father, thank you for waking me up this morning. Before I do anything..." → "Father, thank you for waking me up this morning."
+- "BEFORE YOU GO ANY FURTHER, PRAY THIS PRAYER TO GOD. See Romans 8:28..." → "BEFORE YOU GO ANY FURTHER, PRAY THIS PRAYER TO GOD."
+- "Before you start your day, you must say these 3 things to God: 1. Thank You..." → "Before you start your day, you must say these 3 things to God"
+
+Texts:
+${textsJson}
+
+Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: prompt,
+        });
+
+        const resultText = (response as any).text || '';
+        const jsonMatch = resultText.match(/\[[\s\S]*\]/);
+        if (!jsonMatch) throw new Error(`AI 返回格式异常 (批次 ${Math.floor(batchStart / BATCH_SIZE) + 1})`);
+
+        const titles: string[] = JSON.parse(jsonMatch[0]);
+
+        for (let i = 0; i < batch.length && i < titles.length; i++) {
+          const cell = batch[i];
+          const aiTitle = titles[i];
+          const originalText = cell.text;
+
+          const titleIdx = originalText.indexOf(aiTitle);
+          let title: string;
+          let content: string;
+
+          if (titleIdx === 0 && aiTitle.length < originalText.length) {
+            let splitPos = aiTitle.length;
+            // If a colon follows the title, include it in the title
+            const afterTitle = originalText.substring(splitPos);
+            const colonMatch = afterTitle.match(/^[\s]*([:：])/);
+            if (colonMatch) {
+              splitPos += colonMatch[0].length;
+            }
+            title = originalText.substring(0, splitPos).trim();
+            content = originalText.substring(splitPos).trim();
+          } else {
+            const lowerIdx = originalText.toLowerCase().indexOf(aiTitle.toLowerCase());
+            if (lowerIdx === 0 && aiTitle.length < originalText.length) {
+              let splitPos = aiTitle.length;
+              // If a colon follows the title, include it in the title
+              const afterTitle = originalText.substring(splitPos);
+              const colonMatch = afterTitle.match(/^[\s]*([:：])/);
+              if (colonMatch) {
+                splitPos += colonMatch[0].length;
+              }
+              title = originalText.substring(0, splitPos).trim();
+              content = originalText.substring(splitPos).trim();
+            } else {
+              const periodMatch = originalText.match(/^(.+?[.!?])\s+(.+)$/s);
+              if (periodMatch) {
+                title = periodMatch[1].trim();
+                content = periodMatch[2].trim();
+              } else {
+                title = originalText;
+                content = '';
+              }
+            }
+          }
+
+          const srcCol = cell.col;
+          while (newGrid[cell.row].length <= srcCol + 2) newGrid[cell.row].push('');
+          newGrid[cell.row][srcCol + 1] = title;
+          newGrid[cell.row][srcCol + 2] = content;
+          if (!updatedCols.includes(srcCol + 1)) updatedCols.push(srcCol + 1);
+          if (!updatedCols.includes(srcCol + 2)) updatedCols.push(srcCol + 2);
+        }
+
+        processedCount += batch.length;
+        // Update grid progressively so user can see results appearing
+        setGridData(newGrid.map(row => [...row]));
+      }
+
+      setGridData(newGrid);
+
+      // Mark source columns orange
+      if (!clearSource) {
+        const newStyles = new Map(gridStyles);
+        for (const cell of cells) {
+          newStyles.set(cellKey(cell.row, cell.col), { bgColor: '#FFA500' });
+        }
+        setGridStyles(newStyles);
+      }
+
+      const colsStr = updatedCols.map(c => colToLetter(c)).join(', ');
+      setStatusMsg(`AI 拆分完成！已处理 ${cells.length} 个单元格，结果在列: ${colsStr}`);
+    } catch (err: any) {
+      setStatusMsg(`AI 拆分失败: ${err.message || '未知错误'}`);
+    } finally {
+      setAiSplitting(false);
+    }
+  };
 
   // Initialize empty grid
   useEffect(() => {
@@ -58,7 +226,7 @@ function ScriptToolApp() {
 
     // 标记原列为橙色（拆分操作时，且保留原文）
     // 只有保留原文时才标记，因为删除原文后颜色没有意义
-    if ((tool === ToolType.SplitThree || tool === ToolType.SplitTwo) && !clearSource) {
+    if ((tool === ToolType.SplitThree || tool === ToolType.SplitTwo || tool === ToolType.SmartSplit) && !clearSource) {
       const minR = Math.min(selection.start.row, selection.end.row);
       const maxR = Math.max(selection.start.row, selection.end.row);
       const minC = Math.min(selection.start.col, selection.end.col);
@@ -344,6 +512,20 @@ function ScriptToolApp() {
                 tooltip="把选区按 标题/正文 两列拆分到新列"
                 onClick={() => handleProcess(ToolType.SplitTwo)}
                 disabled={!selection}
+              />
+              <ToolButton
+                icon={<Zap className="w-4 h-4" />}
+                label="半智能拆分"
+                tooltip="半智能拆分标题：优先换行 → 冒号 → 祈祷关键词(Dear God等) → 英文句号"
+                onClick={() => handleProcess(ToolType.SmartSplit)}
+                disabled={!selection}
+              />
+              <ToolButton
+                icon={<Sparkles className="w-4 h-4" />}
+                label={aiSplitting ? 'AI 分析中...' : '🤖 AI 拆分'}
+                tooltip="AI 智能识别标题，100%保留原文不修改（需要 API Key）"
+                onClick={handleAiSplit}
+                disabled={!selection || aiSplitting || !getAiInstance}
               />
               <ToolButton
                 icon={<WrapText className="w-4 h-4" />}

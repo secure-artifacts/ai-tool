@@ -244,6 +244,18 @@ function createWindow() {
         }
     });
 
+    // 处理文件下载（确保 blob URL 下载有正确文件名 + 弹出保存对话框）
+    mainWindow.webContents.session.on('will-download', (event, item) => {
+        const suggestedName = item.getFilename();
+        // 如果文件名看起来像 UUID（blob URL 默认），尝试使用 Content-Disposition 的文件名
+        if (suggestedName && !suggestedName.match(/^[0-9a-f]{8}-/)) {
+            // 文件名正常，让用户选保存位置
+            item.setSaveDialogOptions({
+                defaultPath: suggestedName,
+            });
+        }
+    });
+
     mainWindow.on('closed', () => {
         mainWindow = null;
     });

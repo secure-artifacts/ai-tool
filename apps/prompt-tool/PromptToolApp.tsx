@@ -43,7 +43,8 @@ import {
     Image as ImageIcon,
     Download,
     FileText,
-    MessageSquare
+    MessageSquare,
+    Edit2
 } from 'lucide-react';
 import { DirectChatView } from './DirectChatView';
 import { CopywritingView } from './CopywritingView';
@@ -98,6 +99,36 @@ interface DescEntry {
     originChatLoading?: boolean;
 }
 
+// === 标签页（多任务并行） ===
+interface PromptTab {
+    id: string;
+    name: string;
+    entries: DescEntry[];
+    requirement: string;
+    countPerRound: number;
+    rounds: number;
+    selectedTemplateId: string;
+    bulkInput: string;
+    enableTranslation: boolean;
+    viewLanguage: 'en' | 'zh';
+    viewOverrides: Record<string, 'en' | 'zh'>;
+}
+
+let _promptTabCounter = 1;
+const createDefaultPromptTab = (name?: string): PromptTab => ({
+    id: `ptab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    name: name || `标签页 ${_promptTabCounter++}`,
+    entries: [],
+    requirement: '',
+    countPerRound: 3,
+    rounds: 1,
+    selectedTemplateId: 'custom',
+    bulkInput: '',
+    enableTranslation: true,
+    viewLanguage: 'en',
+    viewOverrides: {},
+});
+
 export interface DescState {
     entries: DescEntry[];
     requirement: string;
@@ -108,10 +139,13 @@ export interface DescState {
     isProcessing: boolean;
     isPaused: boolean;
     enableTranslation: boolean;
-    viewLanguage: 'en' | 'zh'; // Global default
-    viewOverrides: Record<string, 'en' | 'zh'>; // Overrides for specific IDs (task or card)
-    pendingAutoGenerate?: boolean; // Signal to trigger processing after state update
-    activeTab?: 'innovator' | 'chat' | 'copywriting'; // New state for tab switching
+    viewLanguage: 'en' | 'zh';
+    viewOverrides: Record<string, 'en' | 'zh'>;
+    pendingAutoGenerate?: boolean;
+    activeTab?: 'innovator' | 'chat' | 'copywriting';
+    // 标签页系统
+    promptTabs: PromptTab[];
+    activePromptTabId: string;
 }
 
 // --- Constants ---
@@ -212,21 +246,34 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
             }
         }
 
+        // 恢复标签页（如果有）
+        const savedTabs: PromptTab[] = savedSettings?.promptTabs;
+        const defaultTab = createDefaultPromptTab('标签页 1');
+        const tabs: PromptTab[] = (Array.isArray(savedTabs) && savedTabs.length > 0)
+            ? savedTabs.map(t => ({ ...t, entries: [] })) // 不恢复 entries
+            : [defaultTab];
+        const activeTabId = (savedSettings?.activePromptTabId && tabs.some((t: PromptTab) => t.id === savedSettings.activePromptTabId))
+            ? savedSettings.activePromptTabId
+            : tabs[0].id;
+        const activeTabData = tabs.find((t: PromptTab) => t.id === activeTabId) || tabs[0];
+
         // 返回空白状态，但恢复一些配置
         return {
             entries: [],  // 不恢复之前的任务
-            requirement: savedSettings?.requirement || '',
-            countPerRound: savedSettings?.countPerRound || 3,
-            rounds: savedSettings?.rounds || 1,
-            selectedTemplateId: savedSettings?.selectedTemplateId || 'custom',
+            requirement: activeTabData.requirement || savedSettings?.requirement || '',
+            countPerRound: activeTabData.countPerRound || savedSettings?.countPerRound || 3,
+            rounds: activeTabData.rounds || savedSettings?.rounds || 1,
+            selectedTemplateId: activeTabData.selectedTemplateId || savedSettings?.selectedTemplateId || 'custom',
             bulkInput: '',  // 不恢复输入
             isProcessing: false,
             isPaused: false,
-            enableTranslation: savedSettings?.enableTranslation ?? true,
-            viewLanguage: savedSettings?.viewLanguage || 'en',
+            enableTranslation: activeTabData.enableTranslation ?? savedSettings?.enableTranslation ?? true,
+            viewLanguage: activeTabData.viewLanguage || savedSettings?.viewLanguage || 'en',
             viewOverrides: {},
             pendingAutoGenerate: false,
-            activeTab: savedSettings?.activeTab || 'innovator'
+            activeTab: savedSettings?.activeTab || 'innovator',
+            promptTabs: tabs,
+            activePromptTabId: activeTabId,
         };
     });
 
@@ -253,6 +300,94 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
     const [newInnovatorPresetName, setNewInnovatorPresetName] = useState('');
     const innovatorPresetRef = useRef<HTMLDivElement>(null);
     const [expandedRequirement, setExpandedRequirement] = useState(false);
+
+    // --- 标签页管理 ---
+    const [editingPromptTabId, setEditingPromptTabId] = useState<string | null>(null);
+    const [editingPromptTabName, setEditingPromptTabName] = useState('');
+    const promptTabEditRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (editingPromptTabId && promptTabEditRef.current) {
+            promptTabEditRef.current.focus();
+            promptTabEditRef.current.select();
+        }
+    }, [editingPromptTabId]);
+
+    /** 把当前 state 中的数据保存到当前激活的 tab 快照 */
+    const snapshotCurrentTab = (currentState: DescState): PromptTab[] => {
+        return currentState.promptTabs.map(tab =>
+            tab.id === currentState.activePromptTabId
+                ? {
+                    ...tab,
+                    entries: currentState.entries,
+                    requirement: currentState.requirement,
+                    countPerRound: currentState.countPerRound,
+                    rounds: currentState.rounds,
+                    selectedTemplateId: currentState.selectedTemplateId,
+                    bulkInput: currentState.bulkInput,
+                    enableTranslation: currentState.enableTranslation,
+                    viewLanguage: currentState.viewLanguage,
+                    viewOverrides: currentState.viewOverrides,
+                }
+                : tab
+        );
+    };
+
+    /** 从 tab 快照恢复数据到 state */
+    const restoreTabData = (tab: PromptTab, prev: DescState): DescState => ({
+        ...prev,
+        entries: tab.entries,
+        requirement: tab.requirement,
+        countPerRound: tab.countPerRound,
+        rounds: tab.rounds,
+        selectedTemplateId: tab.selectedTemplateId,
+        bulkInput: tab.bulkInput,
+        enableTranslation: tab.enableTranslation,
+        viewLanguage: tab.viewLanguage,
+        viewOverrides: tab.viewOverrides,
+        activePromptTabId: tab.id,
+    });
+
+    const handlePromptTabSwitch = (tabId: string) => {
+        if (tabId === state.activePromptTabId || state.isProcessing) return;
+        setState(prev => {
+            const updatedTabs = snapshotCurrentTab(prev);
+            const target = updatedTabs.find(t => t.id === tabId);
+            if (!target) return prev;
+            return restoreTabData(target, { ...prev, promptTabs: updatedTabs });
+        });
+        setExpandedEntryIds([]);
+    };
+
+    const handlePromptTabAdd = () => {
+        const newTab = createDefaultPromptTab();
+        setState(prev => {
+            const updatedTabs = snapshotCurrentTab(prev);
+            const allTabs = [...updatedTabs, newTab];
+            return restoreTabData(newTab, { ...prev, promptTabs: allTabs });
+        });
+        setExpandedEntryIds([]);
+    };
+
+    const handlePromptTabRemove = (tabId: string) => {
+        if (state.promptTabs.length <= 1) return;
+        setState(prev => {
+            const updatedTabs = snapshotCurrentTab(prev).filter(t => t.id !== tabId);
+            if (tabId === prev.activePromptTabId) {
+                const newActive = updatedTabs[0];
+                return restoreTabData(newActive, { ...prev, promptTabs: updatedTabs });
+            }
+            return { ...prev, promptTabs: updatedTabs };
+        });
+    };
+
+    const handlePromptTabRename = (tabId: string, newName: string) => {
+        if (!newName.trim()) return;
+        setState(prev => ({
+            ...prev,
+            promptTabs: prev.promptTabs.map(t => t.id === tabId ? { ...t, name: newName.trim() } : t),
+        }));
+    };
 
     const stopRef = useRef(false);
     const pauseRef = useRef(false);
@@ -332,9 +467,16 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
         if (typeof window !== 'undefined') {
             try {
                 const { isProcessing, isPaused, pendingAutoGenerate, ...rest } = state;
+                // Snapshot current tab data into promptTabs before saving
+                const snappedTabs = snapshotCurrentTab(state).map(tab => ({
+                    ...tab,
+                    entries: [], // don't bloat localStorage with entries
+                    bulkInput: '', // don't save input text
+                }));
                 // Clean large data (images) before saving to localStorage
                 const stateToSave = {
                     ...rest,
+                    promptTabs: snappedTabs,
                     entries: rest.entries.map(entry => ({
                         ...entry,
                         originChatAttachments: [],
@@ -1595,6 +1737,113 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
     // 函数调用的返回值不会被 TypeScript 缩窄
     const getActiveTab = () => state.activeTab;
 
+    // === 标签页栏 JSX ===
+    const promptTabBar = state.promptTabs.length > 0 && (
+        <div style={{
+            display: 'flex', alignItems: 'center', gap: '4px',
+            padding: '4px 8px', background: 'rgba(24,24,27,0.6)',
+            borderBottom: '1px solid rgba(63,63,70,0.5)',
+            overflowX: 'auto',
+        }}>
+            {state.promptTabs.map(tab => {
+                const isActive = tab.id === state.activePromptTabId;
+                const isEditing = editingPromptTabId === tab.id;
+                const entryCount = isActive ? state.entries.length : tab.entries.length;
+                return (
+                    <div
+                        key={tab.id}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '6px',
+                            padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
+                            minWidth: '90px', maxWidth: '200px',
+                            transition: 'all 0.15s',
+                            userSelect: 'none',
+                            fontSize: '12px',
+                            background: isActive ? 'rgba(139,92,246,0.2)' : 'rgba(63,63,70,0.3)',
+                            color: isActive ? '#c4b5fd' : '#a1a1aa',
+                            border: isActive ? '1px solid rgba(139,92,246,0.4)' : '1px solid transparent',
+                        }}
+                        onClick={() => !isEditing && handlePromptTabSwitch(tab.id)}
+                    >
+                        {isEditing ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
+                                <input
+                                    ref={promptTabEditRef}
+                                    type="text"
+                                    value={editingPromptTabName}
+                                    onChange={e => setEditingPromptTabName(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') { handlePromptTabRename(tab.id, editingPromptTabName); setEditingPromptTabId(null); }
+                                        if (e.key === 'Escape') setEditingPromptTabId(null);
+                                    }}
+                                    onBlur={() => { handlePromptTabRename(tab.id, editingPromptTabName); setEditingPromptTabId(null); }}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{
+                                        flex: 1, background: 'rgba(24,24,27,0.8)', border: '1px solid #8b5cf6',
+                                        borderRadius: '3px', padding: '1px 4px', color: '#e4e4e7',
+                                        fontSize: '12px', outline: 'none', minWidth: '50px',
+                                    }}
+                                />
+                                <button onClick={e => { e.stopPropagation(); handlePromptTabRename(tab.id, editingPromptTabName); setEditingPromptTabId(null); }}
+                                    style={{ padding: '1px', color: '#c4b5fd', background: 'none', border: 'none', cursor: 'pointer' }}
+                                >
+                                    <Check size={12} />
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tab.name}>
+                                    {tab.name}
+                                </span>
+                                {entryCount > 0 && (
+                                    <span style={{
+                                        fontSize: '10px', padding: '1px 5px', borderRadius: '9px',
+                                        background: isActive ? 'rgba(139,92,246,0.3)' : 'rgba(63,63,70,0.5)',
+                                        color: isActive ? '#c4b5fd' : '#71717a',
+                                    }}>
+                                        {entryCount}
+                                    </span>
+                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px', opacity: 0, transition: 'opacity 0.15s' }}
+                                    className="prompt-tab-actions"
+                                >
+                                    <button
+                                        onClick={e => { e.stopPropagation(); setEditingPromptTabId(tab.id); setEditingPromptTabName(tab.name); }}
+                                        style={{ padding: '1px', color: '#71717a', background: 'none', border: 'none', cursor: 'pointer' }}
+                                        title="重命名"
+                                    >
+                                        <Edit2 size={11} />
+                                    </button>
+                                    {state.promptTabs.length > 1 && (
+                                        <button
+                                            onClick={e => { e.stopPropagation(); handlePromptTabRemove(tab.id); }}
+                                            style={{ padding: '1px', color: '#71717a', background: 'none', border: 'none', cursor: 'pointer' }}
+                                            title="关闭标签页"
+                                        >
+                                            <X size={11} />
+                                        </button>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                );
+            })}
+            <button
+                onClick={handlePromptTabAdd}
+                style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: '28px', height: '28px', borderRadius: '6px',
+                    color: '#71717a', background: 'none', border: 'none', cursor: 'pointer',
+                    transition: 'all 0.15s',
+                }}
+                title="新建标签页"
+            >
+                <Plus size={16} />
+            </button>
+        </div>
+    );
+
     // If Direct Chat Tab is Active, render new component
     if (getActiveTab() === 'chat') {
         return (
@@ -1641,6 +1890,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                         </div>
                     </div>
                 </div>
+
+                {promptTabBar}
 
                 <DirectChatView getAiInstance={getAiInstance} textModel={currentModel} />
             </div>
@@ -1693,6 +1944,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                         </div>
                     </div>
                 </div>
+
+                {promptTabBar}
 
                 <CopywritingView getAiInstance={getAiInstance} textModel={currentModel} />
             </div>
@@ -1760,6 +2013,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                         </div>
                     </div>
                 </div>
+
+                {promptTabBar}
 
                 {/* --- Main Content --- */}
                 <div className="flex-1 overflow-y-auto overflow-x-hidden">

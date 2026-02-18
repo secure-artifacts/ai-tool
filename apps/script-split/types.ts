@@ -9,6 +9,7 @@ export enum ToolType {
   VideoPrompts = 'VIDEO_PROMPTS',
   ClearChinese = 'CLEAR_CHINESE',  // 删除选中区域内的中文内容
   AddPromptPrefix = 'ADD_PROMPT_PREFIX',  // 给每个单元格添加 prompt-序号 前缀
+  SmartSplit = 'SMART_SPLIT',  // 半智能拆分：优先换行 → 冒号 → 英文句号 → 关键词
 }
 
 export interface Coordinate {

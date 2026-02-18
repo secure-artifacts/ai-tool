@@ -4164,31 +4164,65 @@ ${text}`;
     // 构建拆分元素模式的 prompt
     const buildSplitPrompt = useCallback(() => {
         const elementsText = splitElements.map((e, i) => `${i + 1}. ${e}`).join('\n');
-        return `${splitInstruction}\n\n【拆分元素库】\n${elementsText}\n\n【核心规则 - 极其重要】\n每个元素的描述必须"只描述该元素本身"，严禁混入其他元素的信息！\n- 描述"手持物品"时：只描述物品本身的外观、材质、颜色等，不要提及谁在拿着它、动作是什么\n- 描述"背景/场景"时：只描述场景环境本身，不要提及人物在场景中做什么\n- 描述"人物/主体"时：只描述人物的外貌特征，不要提及场景或物品\n- 描述"服装"时：只描述衣服本身的款式、颜色、材质，不要提及穿着者\n- 以此类推：每个元素都是"独立、纯粹"的描述，可以直接作为AI生图的局部提示词使用\n\n【输出格式要求】\n请严格按以下格式输出，每个元素占一行，用 ||| 分隔元素名称、中文描述和英文描述：\n${splitElements.map(e => `${e}|||（纯粹描述该元素本身的中文AI描述词）|||（纯粹描述该元素本身的英文AI描述词）`).join('\n')}\n\n注意：一行一个元素，使用 ||| 作为分隔符，每行格式为"元素名|||中文描述|||英文描述"。描述必须只包含该元素自身的特征，绝对不能掺杂其他元素的描述。`;
+        return `${splitInstruction}\n\n【拆分元素库】\n${elementsText}\n\n【核心规则 - 极其重要】\n每个元素的描述必须"只描述该元素本身"，严禁混入其他元素的信息！\n- 描述"手持物品"时：只描述物品本身的外观、材质、颜色等，不要提及谁在拿着它、动作是什么\n- 描述"背景/场景"时：只描述场景环境本身，不要提及人物在场景中做什么\n- 描述"人物/主体"时：只描述人物的外貌特征，不要提及场景或物品\n- 描述"服装"时：只描述衣服本身的款式、颜色、材质，不要提及穿着者\n- 以此类推：每个元素都是"独立、纯粹"的描述，可以直接作为AI生图的局部提示词使用\n\n【输出格式要求】\n请严格按以下格式输出，每个元素占一行，用 ||| 分隔元素名称、中文描述和英文描述：\n${splitElements.map(e => `${e}|||（纯粹描述该元素本身的中文AI描述词）|||（纯粹描述该元素本身的英文AI描述词）`).join('\n')}\n\n⚠️⚠️⚠️【严禁翻译或改写元素名称】⚠️⚠️⚠️\n- 每行开头的元素名称必须与上方【拆分元素库】中的名称**完全一致**，一字不差\n- 禁止将中文元素名翻译成英文（例如「图片风格」不能写成「Image Style」）\n- 禁止改写、缩写或同义替换元素名（例如「背景风景」不能写成「Background」或「风景背景」）\n- 元素名就是用户给的原文，只有 ||| 后面的描述内容才分中英文\n\n注意：一行一个元素，使用 ||| 作为分隔符，每行格式为"元素名|||中文描述|||英文描述"。描述必须只包含该元素自身的特征，绝对不能掺杂其他元素的描述。`;
     }, [splitElements, splitInstruction]);
 
     // 解析拆分结果（支持双语格式：元素名|||zh|||en 或旧格式：元素名|||desc）
     const parseSplitResult = useCallback((result: string): Record<string, { zh: string; en: string }> => {
         const parsed: Record<string, { zh: string; en: string }> = {};
         const lines = result.split('\n').filter(l => l.includes('|||'));
-        for (const line of lines) {
+
+        // 第一遍：尝试按名称精确匹配
+        const unmatchedLineIndices: number[] = [];
+        const matchedElements = new Set<string>();
+
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            const line = lines[lineIdx];
             const parts = line.split('|||');
-            const name = parts[0]?.trim().replace(/^\d+\.\s*/, '');
+            const name = parts[0]?.trim().replace(/^\d+\.\s*/, '').replace(/^\*+/, '').replace(/\*+$/, '').trim();
             if (!name) continue;
-            const matchedElement = splitElements.find(e =>
-                name.includes(e) || e.includes(name)
-            ) || name;
-            if (parts.length >= 3) {
-                // 新格式：元素名|||zh|||en
-                parsed[matchedElement] = { zh: parts[1].trim(), en: parts[2].trim() };
-            } else if (parts.length === 2) {
-                // 旧格式兼容：元素名|||desc
-                const desc = parts[1].trim();
-                // 智能判断是中文还是英文
-                const isChinese = /[\u4e00-\u9fff]/.test(desc);
-                parsed[matchedElement] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
+
+            // 精确匹配：完全相同
+            let matchedElement = splitElements.find(e => e === name);
+            // 模糊匹配：包含关系
+            if (!matchedElement) {
+                matchedElement = splitElements.find(e =>
+                    !matchedElements.has(e) && (name.includes(e) || e.includes(name))
+                );
+            }
+
+            if (matchedElement) {
+                matchedElements.add(matchedElement);
+                if (parts.length >= 3) {
+                    parsed[matchedElement] = { zh: parts[1].trim(), en: parts[2].trim() };
+                } else if (parts.length === 2) {
+                    const desc = parts[1].trim();
+                    const isChinese = /[\u4e00-\u9fff]/.test(desc);
+                    parsed[matchedElement] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
+                }
+            } else {
+                unmatchedLineIndices.push(lineIdx);
             }
         }
+
+        // 第二遍：位置回退 — 未匹配的行按顺序对应未匹配的 splitElements
+        if (unmatchedLineIndices.length > 0) {
+            const unmatchedElements = splitElements.filter(e => !matchedElements.has(e));
+            for (let i = 0; i < Math.min(unmatchedLineIndices.length, unmatchedElements.length); i++) {
+                const lineIdx = unmatchedLineIndices[i];
+                const line = lines[lineIdx];
+                const parts = line.split('|||');
+                const element = unmatchedElements[i];
+                if (parts.length >= 3) {
+                    parsed[element] = { zh: parts[1].trim(), en: parts[2].trim() };
+                } else if (parts.length === 2) {
+                    const desc = parts[1].trim();
+                    const isChinese = /[\u4e00-\u9fff]/.test(desc);
+                    parsed[element] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
+                }
+            }
+        }
+
         return parsed;
     }, [splitElements]);
 
@@ -4219,6 +4253,43 @@ ${text}`;
         const tsv = [headerRow, ...dataRows].join('\n');
         navigator.clipboard.writeText(tsv);
         setCopySuccess(lang === 'zh' ? 'results-zh' : 'results');
+        setTimeout(() => setCopySuccess(null), 2000);
+    }, [images, splitElements, parseSplitResult]);
+
+    // 复制拆分结果（含公式列）为 TSV
+    const copySplitWithFormula = useCallback((lang: 'zh' | 'en' = 'en') => {
+        const successImages = images.filter(img => img.status === 'success' && img.result);
+        if (successImages.length === 0) {
+            showToast('没有可复制的结果');
+            return;
+        }
+        // 表头：公式 + 各元素
+        const headerRow = ['公式', ...splitElements].join('\t');
+        // 数据行
+        const dataRows = images.map(img => {
+            // 公式列
+            const cleanInput = img.originalInput.replace(/^'+/, '');
+            let formula = '';
+            if (cleanInput.toUpperCase().startsWith('=IMAGE')) formula = cleanInput;
+            else if (img.gyazoUrl) formula = `=IMAGE("${img.gyazoUrl}")`;
+            else if (img.fetchUrl) formula = `=IMAGE("${img.fetchUrl}")`;
+
+            if (img.status !== 'success' || !img.result) {
+                return [formula, ...splitElements.map(() => '')].join('\t');
+            }
+            const parsed = parseSplitResult(img.result);
+            const vals = splitElements.map(e => {
+                const val = parsed[e]?.[lang] || parsed[e]?.en || parsed[e]?.zh || '';
+                if (val.includes('\n') || val.includes('\t') || val.includes('"')) {
+                    return `"${val.replace(/"/g, '""')}"`;
+                }
+                return val;
+            });
+            return [formula, ...vals].join('\t');
+        });
+        const tsv = [headerRow, ...dataRows].join('\n');
+        navigator.clipboard.writeText(tsv);
+        setCopySuccess(lang === 'zh' ? 'formula-zh' : 'formula-en');
         setTimeout(() => setCopySuccess(null), 2000);
     }, [images, splitElements, parseSplitResult]);
 
@@ -5563,7 +5634,7 @@ ${itemEffectiveInstruction}
                                         {/* 操作行 */}
                                         <div className="flex flex-col gap-2">
                                             {/* 1. 复制按钮网格 - 和标准模式样式一致 */}
-                                            <div className="grid grid-cols-4 gap-1.5">
+                                            <div className="grid grid-cols-3 gap-1.5">
                                                 {(() => {
                                                     const hasImages = images.length > 0;
                                                     const successCount = images.filter(i => i.status === 'success').length;
@@ -5622,6 +5693,32 @@ ${itemEffectiveInstruction}
                                                             >
                                                                 {copySuccess === 'results' ? <Check size={12} /> : <ClipboardCopy size={12} />}
                                                                 复制英文
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => copySplitWithFormula('zh')}
+                                                                disabled={!hasResults}
+                                                                className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'formula-zh'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                    : 'text-cyan-400 hover:text-white bg-cyan-900/20 hover:bg-cyan-800/30 border-cyan-800/30'
+                                                                    }`}
+                                                                data-tip="复制 IMAGE公式 + 中文拆分结果 (TSV格式)"
+                                                            >
+                                                                {copySuccess === 'formula-zh' ? <Check size={12} /> : <><FileCode size={10} /><Copy size={10} /></>}
+                                                                公式+中文
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => copySplitWithFormula('en')}
+                                                                disabled={!hasResults}
+                                                                className={`${btnBaseClass} tooltip-bottom ${copySuccess === 'formula-en'
+                                                                    ? 'bg-emerald-600 text-white border-emerald-500'
+                                                                    : 'text-purple-400 hover:text-white bg-purple-900/20 hover:bg-purple-800/30 border-purple-800/30'
+                                                                    }`}
+                                                                data-tip="复制 IMAGE公式 + 英文拆分结果 (TSV格式)"
+                                                            >
+                                                                {copySuccess === 'formula-en' ? <Check size={12} /> : <><FileCode size={10} /><ClipboardCopy size={10} /></>}
+                                                                公式+英文
                                                             </button>
                                                         </>
                                                     );

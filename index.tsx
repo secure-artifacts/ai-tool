@@ -16,9 +16,12 @@ import PromptToolApp from '@/apps/prompt-tool/PromptToolApp';
 import SheetMindApp from '@/apps/sheetmind/SheetMindApp';
 import AICopyDeduplicatorApp from '@/apps/ai-copy-deduplicator/AICopyDeduplicatorApp';
 import ProDedupApp from '@/apps/ai-copy-deduplicator/ProDedupApp';
+import CopySearchApp from '@/apps/copy-search/CopySearchApp';
 import { MindMapApp } from '@/apps/ai-mind-map';
 import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
 import SkillGeneratorApp from '@/apps/skill-generator/SkillGeneratorApp';
+import ImageTextExtractorApp from '@/apps/image-text-extractor/ImageTextExtractorApp';
+import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
 import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
@@ -76,6 +79,7 @@ import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
 import { TutorialModal } from '@/components/TutorialModal';
+import TutorialSurveyModal from '@/components/TutorialSurveyModal';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ModelProvider, MODEL_ROUTES, MODEL_LABELS, ModelMode } from '@/contexts/ModelContext';
 import LoginModal from '@/components/LoginModal';
@@ -92,6 +96,7 @@ import {
 } from './services/presetSheetConfig';
 import { getShouldSkipPresetSaveConfirm, setShouldSkipPresetSaveConfirm } from './services/presetPreferences';
 import { fetchImageBlob, processImageUrl, decodeHtmlEntities } from '@/apps/ai-image-recognition/utils';
+import { isTutorialSurveyCompleted, TUTORIAL_SURVEY_KEY } from '@/services/tutorialSurveyService';
 
 declare var ExcelJS: any;
 
@@ -174,6 +179,8 @@ const translations = {
     navAIToolsDirectory: "AI Tools",
     navApiImageGen: "API Image Gen",
     navSkillGenerator: "Template & Library Generator",
+    navImageTextExtractor: "Image Text Extractor",
+    navTutorialHub: "Tutorial Hub",
     navOpalBatch: "Opal Batch Image",
     // Prompt Tool
     promptTitle: "Image to Prompt",
@@ -427,6 +434,8 @@ const translations = {
     navAIToolsDirectory: "AI 工具集",
     navApiImageGen: "API 生图",
     navSkillGenerator: "模版指令+随机库生成器",
+    navImageTextExtractor: "图片前景文字提取",
+    navTutorialHub: "教程检索台",
     navOpalBatch: "Opal 批量生图",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
@@ -1149,7 +1158,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7022,6 +7031,8 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   aiToolsDirectory: 'apps',
   apiImageGen: 'auto_awesome',
   skillGenerator: 'psychology',
+  imageTextExtractor: 'text_fields',
+  tutorialHub: 'school',
 };
 
 const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
@@ -7042,6 +7053,8 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
   { tool: 'copyDedup', labelKey: 'navCopyDedup' },
   { tool: 'imageReview', labelKey: 'navImageReview' },
+  { tool: 'imageTextExtractor', labelKey: 'navImageTextExtractor' },
+  { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
 ];
 
 // 2025年12月 Gemini API 规范模型选项
@@ -7231,8 +7244,11 @@ const App = () => {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [isPresetControlsExpanded, setIsPresetControlsExpanded] = useState(false);
   const [showTutorialModal, setShowTutorialModal] = useState(false);
+  const [showTutorialSurveyModal, setShowTutorialSurveyModal] = useState(false);
+  const [isTutorialSurveyDone, setIsTutorialSurveyDone] = useState(() => isTutorialSurveyCompleted(TUTORIAL_SURVEY_KEY));
   const [showUpdateNotice, setShowUpdateNotice] = useState(false);
   const [showHelpCenter, setShowHelpCenter] = useState(false);
+  const [proDedupSubTab, setProDedupSubTab] = useState<'dedup' | 'copySearch'>('dedup');
   const [hideToolbar, setHideToolbar] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('hide_global_toolbar') === 'true';
@@ -8282,7 +8298,7 @@ const App = () => {
           />
         );
       case 'script':
-        return <ScriptToolApp />;
+        return <ScriptToolApp getAiInstance={getAiInstance} />;
       case 'aiToolsDirectory':
         return <AIToolsDirectoryApp getAiInstance={getAiInstance} textModel={textModel} currentUser={user} />;
       case 'magicCanvas':
@@ -8399,6 +8415,15 @@ const App = () => {
           userEmail={presetUser}
         />
       )}
+      <TutorialSurveyModal
+        isOpen={showTutorialSurveyModal}
+        onClose={() => setShowTutorialSurveyModal(false)}
+        onSubmitted={() => setIsTutorialSurveyDone(true)}
+        language={language}
+        userId={user?.uid || null}
+        userEmail={user?.email || null}
+        appVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''}
+      />
 
       {/* 📖 帮助中心 */}
       <HelpCenter
@@ -8615,6 +8640,18 @@ const App = () => {
           {/* 折叠时显示的快捷工具栏 */}
           {!isPresetControlsExpanded && (
             <div className="collapsed-toolbar">
+              <button
+                onClick={() => setShowTutorialSurveyModal(true)}
+                className={`collapsed-settings-btn tooltip-bottom ${!isTutorialSurveyDone ? 'survey-attention-btn' : ''}`}
+                data-tip={language === 'zh' ? '用于统计模块教程需求人数和教程优先级。限时收集：2026-02-17 至 2026-02-20。' : 'Track tutorial demand by module and tutorial priority. Limited collection: 2026-02-17 to 2026-02-20.'}
+                style={{ fontSize: '16px' }}
+              >
+                <ClipboardList size={16} className={!isTutorialSurveyDone ? 'survey-attention-icon' : undefined} />
+              </button>
+
+              {/* 分隔线 */}
+              <div className="collapsed-divider" />
+
               {/* 导航图标 */}
               <nav className="collapsed-nav">
                 {NAV_ITEMS.map(item => (
@@ -9099,15 +9136,22 @@ const App = () => {
 
       {/* 整个 Header - 可折叠 */}
       <header className={isPresetControlsExpanded ? 'expanded' : 'collapsed'}>
-        <div className="header-content">
-          <div className="title-bar">
-            <h1>🪄 {t('appTitle')}</h1>
-            <div className="header-controls">
-              <button
-                onClick={() => setShowApiKeyModal(true)}
-                className="secondary-btn api-key-btn tooltip-bottom"
-                style={{
-                  background: isKeySet
+          <div className="header-content">
+            <div className="title-bar">
+              <h1>🪄 {t('appTitle')}</h1>
+              <div className="header-controls">
+                <button
+                  onClick={() => setShowTutorialSurveyModal(true)}
+                  className={`secondary-btn tutorial-btn tooltip-bottom ${!isTutorialSurveyDone ? 'survey-attention-btn' : ''}`}
+                  data-tip={language === 'zh' ? '用于统计模块教程需求人数和教程优先级。限时收集：2026-02-17 至 2026-02-20。' : 'Track tutorial demand by module and tutorial priority. Limited collection: 2026-02-17 to 2026-02-20.'}
+                >
+                  <ClipboardList size={14} className={`inline mr-1 ${!isTutorialSurveyDone ? 'survey-attention-icon' : ''}`} /> {language === 'zh' ? '教程投票' : 'Survey'}
+                </button>
+                <button
+                  onClick={() => setShowApiKeyModal(true)}
+                  className="secondary-btn api-key-btn tooltip-bottom"
+                  style={{
+                    background: isKeySet
                     ? (usePool && apiPoolStatus ? '#4caf5020' : '#4dabff20')
                     : '#ff000020',
                   borderColor: isKeySet
@@ -9140,23 +9184,23 @@ const App = () => {
                   <><Key size={14} className="inline mr-1" /> {t('apiKeyButtonLabel')}</>
                 )}
               </button>
-              <button
-                onClick={() => setShowFeedbackModal(true)}
-                className="secondary-btn feedback-btn tooltip-bottom"
-                data-tip="帮助我们改进产品，您的意见将收集到我们的公开建议表中"
-              >
+                <button
+                  onClick={() => setShowFeedbackModal(true)}
+                  className="secondary-btn feedback-btn tooltip-bottom"
+                  data-tip="帮助我们改进产品，您的意见将收集到我们的公开建议表中"
+                >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path>
                   <path d="M12 8v6"></path>
                   <path d="M9 11h6"></path>
                 </svg>
                 <span className="feedback-text">建议反馈</span>
-              </button>
-              <button
-                onClick={() => setShowHelpCenter(true)}
-                className="secondary-btn tutorial-btn tooltip-bottom"
-                data-tip={language === 'zh' ? '查看帮助文档' : 'View help documentation'}
-              >
+                </button>
+                <button
+                  onClick={() => setShowHelpCenter(true)}
+                  className="secondary-btn tutorial-btn tooltip-bottom"
+                  data-tip={language === 'zh' ? '查看帮助文档' : 'View help documentation'}
+                >
                 <HelpCircle size={14} className="inline mr-1" /> {language === 'zh' ? '帮助' : 'Help'}
               </button>
               <div className="language-selector model-selector">
@@ -9437,9 +9481,40 @@ const App = () => {
           <div className={`copydedup-page-wrapper ${activeTool === 'copyDedup' ? 'visible' : 'hidden'}`} style={{ padding: '1rem', overflow: 'auto', height: activeTool === 'copyDedup' ? '100%' : '0' }}>
             <AICopyDeduplicatorApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
-          {/* Pro Dedup - MinHash + LSH 文案相似度检查 */}
-          <div className={`copydedup-page-wrapper ${activeTool === 'proDedup' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'proDedup' ? '100%' : '0' }}>
-            <ProDedupApp />
+          {/* Pro Dedup - MinHash + LSH 文案相似度检查 + 文案查重搜索 */}
+          <div className={`copydedup-page-wrapper ${activeTool === 'proDedup' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'proDedup' ? '100%' : '0', display: 'flex', flexDirection: 'column' }}>
+            {/* 子标签切换 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '6px 12px', background: '#0a0a0c', borderBottom: '1px solid #27272a', flexShrink: 0 }}>
+              <button
+                onClick={() => setProDedupSubTab('dedup')}
+                style={{
+                  padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                  background: proDedupSubTab === 'dedup' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                  color: proDedupSubTab === 'dedup' ? '#c4b5fd' : '#71717a',
+                }}
+              >
+                🔍 文案查重
+              </button>
+              <button
+                onClick={() => setProDedupSubTab('copySearch')}
+                style={{
+                  padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                  border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                  background: proDedupSubTab === 'copySearch' ? 'rgba(251,191,36,0.2)' : 'transparent',
+                  color: proDedupSubTab === 'copySearch' ? '#fbbf24' : '#71717a',
+                }}
+              >
+                📊 表格查重搜索
+              </button>
+            </div>
+            {/* 子页面 */}
+            <div style={{ flex: 1, overflow: 'auto', display: proDedupSubTab === 'dedup' ? 'block' : 'none' }}>
+              <ProDedupApp />
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden', display: proDedupSubTab === 'copySearch' ? 'flex' : 'none' }}>
+              <CopySearchApp getAiInstance={getAiInstance} />
+            </div>
           </div>
           {/* AI Mind Map - Full-screen React Flow canvas */}
           <div className={`mindmap-page-wrapper ${activeTool === 'mindMap' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'mindMap' ? '100%' : '0' }}>
@@ -9452,6 +9527,14 @@ const App = () => {
           {/* 模版指令+随机库生成器 */}
           <div className={`skill-gen-wrapper ${activeTool === 'skillGenerator' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'skillGenerator' ? '100%' : '0' }}>
             <SkillGeneratorApp getAiInstance={getAiInstance} />
+          </div>
+          {/* 图片前景文字提取器 */}
+          <div className={`ite-page-wrapper ${activeTool === 'imageTextExtractor' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'imageTextExtractor' ? '100%' : '0' }}>
+            <ImageTextExtractorApp getAiInstance={getAiInstance} />
+          </div>
+          {/* 教程检索台 */}
+          <div className={`tutorial-hub-wrapper ${activeTool === 'tutorialHub' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'tutorialHub' ? '100%' : '0', display: activeTool === 'tutorialHub' ? 'flex' : 'none' }}>
+            <TutorialHubApp getAiInstance={getAiInstance} isKeySet={isKeySet} />
           </div>
 
         </main>

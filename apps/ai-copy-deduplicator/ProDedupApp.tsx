@@ -744,17 +744,13 @@ export function ProDedupApp() {
                 }
             }
 
-            // 如果有配置，自动连接
+            // 如果有配置，恢复设置但不自动连接（避免加载大量数据导致卡顿）
             if (config?.sheetUrl || config?.gasWebAppUrl) {
                 updateState({
                     sheetUrl: config.sheetUrl || '',
                     authMode: config.authMode || 'apiKey',
                     gasWebAppUrl: config.gasWebAppUrl || ''
                 });
-                // 自动连接（延迟执行，等待状态更新）
-                setTimeout(() => {
-                    connectToSheet(config?.sheetUrl || '');
-                }, 100);
             }
         };
 

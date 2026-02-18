@@ -189,14 +189,29 @@ const SplitResultDisplay = ({ item, splitElements = [] }: { item: ImageItem; spl
 
     // 解析结果：支持 "元素名|||中文|||英文" 或 "元素名|||描述"
     const lines = item.result.split('\n').filter(l => l.trim());
+    const pipeLines = lines.filter(l => l.includes('|||'));
     const parsed: Record<string, { zh: string; en: string }> = {};
     let hasBilingual = false;
-    for (const line of lines) {
-        const parts = line.split('|||');
-        if (parts.length >= 2) {
-            const rawKey = parts[0].trim().replace(/^\d+\.\s*/, '');
-            // 匹配最接近的元素名
-            const key = splitElements.find(e => rawKey.includes(e) || e.includes(rawKey)) || rawKey;
+
+    // 第一遍：按名称精确/模糊匹配
+    const unmatchedLineIndices: number[] = [];
+    const matchedElements = new Set<string>();
+
+    for (let lineIdx = 0; lineIdx < pipeLines.length; lineIdx++) {
+        const parts = pipeLines[lineIdx].split('|||');
+        if (parts.length < 2) continue;
+        const rawKey = parts[0].trim().replace(/^\d+\.\s*/, '').replace(/^\*+/, '').replace(/\*+$/, '').trim();
+        if (!rawKey) continue;
+
+        // 精确匹配
+        let key = splitElements.find(e => e === rawKey);
+        // 模糊匹配
+        if (!key) {
+            key = splitElements.find(e => !matchedElements.has(e) && (rawKey.includes(e) || e.includes(rawKey)));
+        }
+
+        if (key) {
+            matchedElements.add(key);
             if (parts.length >= 3) {
                 parsed[key] = { zh: parts[1].trim(), en: parts[2].trim() };
                 hasBilingual = true;
@@ -204,6 +219,25 @@ const SplitResultDisplay = ({ item, splitElements = [] }: { item: ImageItem; spl
                 const desc = parts[1].trim();
                 const isChinese = /[\u4e00-\u9fff]/.test(desc);
                 parsed[key] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
+            }
+        } else {
+            unmatchedLineIndices.push(lineIdx);
+        }
+    }
+
+    // 第二遍：位置回退 — 未匹配的行按顺序对应未匹配的 splitElements
+    if (unmatchedLineIndices.length > 0) {
+        const unmatchedElements = splitElements.filter(e => !matchedElements.has(e));
+        for (let i = 0; i < Math.min(unmatchedLineIndices.length, unmatchedElements.length); i++) {
+            const parts = pipeLines[unmatchedLineIndices[i]].split('|||');
+            const element = unmatchedElements[i];
+            if (parts.length >= 3) {
+                parsed[element] = { zh: parts[1].trim(), en: parts[2].trim() };
+                hasBilingual = true;
+            } else if (parts.length === 2) {
+                const desc = parts[1].trim();
+                const isChinese = /[\u4e00-\u9fff]/.test(desc);
+                parsed[element] = { zh: isChinese ? desc : '', en: isChinese ? '' : desc };
             }
         }
     }

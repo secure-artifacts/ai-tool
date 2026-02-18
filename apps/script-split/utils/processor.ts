@@ -94,6 +94,156 @@ function splitTwoParts(text: string) {
   }
 }
 
+// Smart split: priority-based title extraction
+// 1. Line break (first line = title)
+// 2. Colon (before colon = title)
+// 3. English period (first sentence = title)
+// 4. Prayer keywords (before Dear God / Lord / Heavenly Father = title)
+function smartSplitTwoParts(text: string) {
+  text = (text || '').toString().trim();
+  if (!text) return { title: '', content: '' };
+
+  // Priority 1: Line break — if multi-line, first line = title
+  let lines = text.split(/\r?\n/);
+  // Remove leading empty lines
+  while (lines.length > 0 && lines[0].trim() === '') {
+    lines.shift();
+  }
+  if (lines.length > 1) {
+    const contentLines = lines.slice(1);
+    while (contentLines.length > 0 && contentLines[0].trim() === '') {
+      contentLines.shift();
+    }
+    return {
+      title: lines[0].trim(),
+      content: contentLines.join('\n').trim()
+    };
+  }
+
+  // Single line from here — try other strategies
+  const singleLine = lines[0].trim();
+
+  // Priority 2: Colon — split at first colon (: or ：)
+  // Skip colons between digits (Bible references like 8:28, time like 3:00)
+  let colonIdx = -1;
+  for (let i = 0; i < singleLine.length; i++) {
+    if (singleLine[i] === ':' || singleLine[i] === '\uff1a') {
+      const prevChar = i > 0 ? singleLine[i - 1] : '';
+      const nextChar = i < singleLine.length - 1 ? singleLine[i + 1] : '';
+      if (/\d/.test(prevChar) && /\d/.test(nextChar)) {
+        continue; // Skip digit:digit (Bible refs, time)
+      }
+      colonIdx = i;
+      break;
+    }
+  }
+  if (colonIdx > 0 && colonIdx < singleLine.length - 1) {
+    const beforeColon = singleLine.substring(0, colonIdx).trim();
+    // Only split at colon if text before looks like a title (≤1 sentence ending)
+    // Prevents splitting at colons deep in body text like "the blessing: He prepares"
+    const sentenceEndings = (beforeColon.match(/(?<!\d)[.!?]/g) || []).length;
+    if (sentenceEndings <= 1) {
+      return {
+        title: singleLine.substring(0, colonIdx + 1).trim(),
+        content: singleLine.substring(colonIdx + 1).trim()
+      };
+    }
+  }
+
+  // Priority 3: Prayer keywords — split before these phrases (case-insensitive)
+  // "Starter" keywords (specific greetings, safe to match broadly)
+  const starterKeywords = [
+    'Dear Heavenly Father',
+    'Dear God',
+    'Dear Lord',
+    'Heavenly Father',
+  ];
+  // "Context-sensitive" keywords — only match at sentence boundaries (after . ! ?)
+  const contextKeywords = [
+    'Lord,',
+    'Lord ',
+  ];
+
+  // Check starter keywords first
+  for (const keyword of starterKeywords) {
+    const kwIdx = singleLine.toLowerCase().indexOf(keyword.toLowerCase());
+    if (kwIdx === 0) {
+      // Keyword at start → keyword itself is title
+      let afterIdx = keyword.length;
+      while (afterIdx < singleLine.length && /[,\s]/.test(singleLine[afterIdx])) {
+        afterIdx++;
+      }
+      const content = singleLine.substring(afterIdx).trim();
+      if (content) {
+        return {
+          title: singleLine.substring(0, keyword.length).trim().replace(/,$/, ''),
+          content
+        };
+      }
+    } else if (kwIdx > 0) {
+      const beforeKw = singleLine.substring(0, kwIdx).trim();
+      const sentenceEndings = (beforeKw.match(/(?<!\d)[.!?]/g) || []).length;
+      if (sentenceEndings <= 1) {
+        return {
+          title: beforeKw,
+          content: singleLine.substring(kwIdx).trim()
+        };
+      }
+    }
+  }
+
+  // Check context-sensitive keywords (Lord) — must be preceded by sentence-ending punctuation
+  for (const keyword of contextKeywords) {
+    const kwIdx = singleLine.toLowerCase().indexOf(keyword.toLowerCase());
+    if (kwIdx === 0) {
+      let afterIdx = keyword.length;
+      while (afterIdx < singleLine.length && /[,\s]/.test(singleLine[afterIdx])) {
+        afterIdx++;
+      }
+      const content = singleLine.substring(afterIdx).trim();
+      if (content) {
+        return {
+          title: singleLine.substring(0, keyword.length).trim().replace(/,$/, ''),
+          content
+        };
+      }
+    } else if (kwIdx > 0) {
+      // Only match if Lord is preceded by sentence-ending punctuation (. ! ?) + space
+      const charsBefore = singleLine.substring(0, kwIdx);
+      if (/[.!?]\s*$/.test(charsBefore)) {
+        const beforeKw = charsBefore.trim();
+        const sentenceEndings = (beforeKw.match(/(?<!\d)[.!?]/g) || []).length;
+        if (sentenceEndings <= 1) {
+          return {
+            title: beforeKw,
+            content: singleLine.substring(kwIdx).trim()
+          };
+        }
+      }
+    }
+  }
+
+  // Priority 4: English period — split at first period followed by a space
+  const periodMatch = singleLine.match(/^(.+?\.\s)(.+)$/);
+  if (periodMatch) {
+    return {
+      title: periodMatch[1].trim(),
+      content: periodMatch[2].trim()
+    };
+  }
+  // Also try period at end of a segment (no space required if followed by uppercase)
+  const periodMatch2 = singleLine.match(/^(.+?\.)([A-Z].+)$/);
+  if (periodMatch2) {
+    return {
+      title: periodMatch2[1].trim(),
+      content: periodMatch2[2].trim()
+    };
+  }
+
+  // Fallback: no split point found, entire text = title
+  return { title: singleLine, content: '' };
+}
+
 // --- Main Grid Processor ---
 
 export const processGrid = (
@@ -284,6 +434,14 @@ export const processGrid = (
           }
           else if (tool === ToolType.SplitTwo) {
             const res = splitTwoParts(cellContent);
+            while (newGrid[r].length <= srcCol + 2) newGrid[r].push('');
+            newGrid[r][srcCol + 1] = res.title;
+            newGrid[r][srcCol + 2] = res.content;
+            if (!updatedCols.includes(srcCol + 1)) updatedCols.push(srcCol + 1);
+            if (!updatedCols.includes(srcCol + 2)) updatedCols.push(srcCol + 2);
+          }
+          else if (tool === ToolType.SmartSplit) {
+            const res = smartSplitTwoParts(cellContent);
             while (newGrid[r].length <= srcCol + 2) newGrid[r].push('');
             newGrid[r][srcCol + 1] = res.title;
             newGrid[r][srcCol + 2] = res.content;

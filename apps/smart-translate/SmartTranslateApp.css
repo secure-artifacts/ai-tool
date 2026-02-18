@@ -565,6 +565,28 @@
     transform: none;
 }
 
+/* 批次大小选择器 */
+.smart-translate-root .batch-size-select {
+    padding: 0.3rem 0.4rem;
+    font-size: 0.8rem;
+    background: var(--control-bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.smart-translate-root .batch-size-select:hover {
+    border-color: var(--primary-color);
+}
+
+.smart-translate-root .batch-size-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* 批量复制菜单 */
 .smart-translate-root .batch-copy-menu-container {
     position: relative;

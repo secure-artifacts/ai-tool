@@ -34,7 +34,18 @@ import {
 import { getGoogleAccessToken } from '@/services/authService';
 import { openExternalUrl } from '../utils/openExternal';
 import JSZip from 'jszip';
-import { saveAs } from 'file-saver';
+
+// Native saveAs implementation (replaces file-saver dependency for AI Studio compatibility)
+const saveAs = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
 
 interface MediaGalleryPanelProps {
     data: SheetData;
