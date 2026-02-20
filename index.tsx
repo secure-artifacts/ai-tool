@@ -9505,16 +9505,20 @@ const App = () => {
             <AICopyDeduplicatorApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
           {/* Pro Dedup - MinHash + LSH 文案相似度检查 + 文案查重搜索 */}
-          <div className={`copydedup-page-wrapper ${activeTool === 'proDedup' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'proDedup' ? '100%' : '0', display: 'flex', flexDirection: 'column' }}>
+          <div className={`copydedup-page-wrapper pro-dedup-theme-${theme === 'eye-care' ? 'eye-care' : theme === 'light' ? 'light' : 'dark'} ${activeTool === 'proDedup' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'proDedup' ? '100%' : '0', display: 'flex', flexDirection: 'column' }}>
             {/* 子标签切换 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '6px 12px', background: '#0a0a0c', borderBottom: '1px solid #27272a', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', padding: '6px 12px', background: 'var(--surface-color)', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
               <button
                 onClick={() => setProDedupSubTab('dedup')}
                 style={{
                   padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
                   border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                  background: proDedupSubTab === 'dedup' ? 'rgba(139,92,246,0.2)' : 'transparent',
-                  color: proDedupSubTab === 'dedup' ? '#c4b5fd' : '#71717a',
+                  background: proDedupSubTab === 'dedup'
+                    ? (theme === 'light' ? 'rgba(124,58,237,0.12)' : theme === 'eye-care' ? 'rgba(120,53,15,0.14)' : 'rgba(139,92,246,0.2)')
+                    : 'transparent',
+                  color: proDedupSubTab === 'dedup'
+                    ? (theme === 'light' ? '#6D28D9' : theme === 'eye-care' ? '#78350F' : '#C4B5FD')
+                    : 'var(--text-muted-color)',
                 }}
               >
                 🔍 文案查重
@@ -9524,8 +9528,12 @@ const App = () => {
                 style={{
                   padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
                   border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                  background: proDedupSubTab === 'copySearch' ? 'rgba(251,191,36,0.2)' : 'transparent',
-                  color: proDedupSubTab === 'copySearch' ? '#fbbf24' : '#71717a',
+                  background: proDedupSubTab === 'copySearch'
+                    ? (theme === 'light' ? 'rgba(234,179,8,0.15)' : theme === 'eye-care' ? 'rgba(180,83,9,0.14)' : 'rgba(251,191,36,0.2)')
+                    : 'transparent',
+                  color: proDedupSubTab === 'copySearch'
+                    ? (theme === 'light' ? '#A16207' : theme === 'eye-care' ? '#92400E' : '#FBBF24')
+                    : 'var(--text-muted-color)',
                 }}
               >
                 📊 表格查重搜索

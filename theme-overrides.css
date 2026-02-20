@@ -2022,9 +2022,11 @@ body.light .ai-recognition-tab.is-inactive:hover {
 
 body.light .ai-recognition-tab.is-active {
     background-color: rgba(139, 92, 246, 0.15) !important;
-    color: #6D28D9 !important; /* purple-700 */
+    color: #6D28D9 !important;
+    /* purple-700 */
     border-color: rgba(139, 92, 246, 0.3) !important;
 }
+
 \nbody.light .ai-recognition-tab-add:hover {
     background-color: rgba(226, 232, 240, 0.62) !important;
 }
@@ -2047,18 +2049,31 @@ body.eye-care .ai-recognition-tab.is-inactive:hover {
 
 body.eye-care .ai-recognition-tab.is-active {
     background-color: rgba(139, 92, 246, 0.12) !important;
-    color: #5B21B6 !important; /* purple-800 */
+    color: #5B21B6 !important;
+    /* purple-800 */
     border-color: rgba(139, 92, 246, 0.25) !important;
 }
+
 \nbody.eye-care .ai-recognition-tab-add:hover {
     background-color: rgba(224, 216, 202, 0.62) !important;
 }
 
 /* --- Specific Tool Dark BG Overrides (AI Tools App) --- */
-body.light .bg-\\[\\#0a0f1a\\] { background-color: #F8FAFC !important; }
-body.light .bg-\\[\\#111827\\] { background-color: #F1F5F9 !important; }
-body.eye-care .bg-\\[\\#0a0f1a\\] { background-color: #F5F0E8 !important; }
-body.eye-care .bg-\\[\\#111827\\] { background-color: #EDE7DC !important; }
+body.light .bg-\\[\\#0a0f1a\\] {
+    background-color: #F8FAFC !important;
+}
+
+body.light .bg-\\[\\#111827\\] {
+    background-color: #F1F5F9 !important;
+}
+
+body.eye-care .bg-\\[\\#0a0f1a\\] {
+    background-color: #F5F0E8 !important;
+}
+
+body.eye-care .bg-\\[\\#111827\\] {
+    background-color: #EDE7DC !important;
+}
 
 
 /* ============================================
@@ -2066,52 +2081,66 @@ body.eye-care .bg-\\[\\#111827\\] { background-color: #EDE7DC !important; }
    ============================================ */
 /* Light Mode */
 body.light .skill-gen-app {
-    color: #1E293B !important;
+    background-color: #F8FAFC !important;
 }
-body.light .skill-gen-app h1, body.light .skill-gen-app h2, body.light .skill-gen-app h3 {
+
+body.light .skill-gen-app h1,
+body.light .skill-gen-app h2,
+body.light .skill-gen-app h3 {
     background: none !important;
     -webkit-text-fill-color: initial !important;
     color: #0F172A !important;
 }
+
 body.light .skill-gen-subtitle {
     color: #64748B !important;
 }
+
 body.light .skill-gen-workspace-bar {
     background-color: #F8FAFC !important;
     border-bottom-color: #E2E8F0 !important;
 }
+
 body.light .skill-gen-ws-tab {
     background-color: rgba(226, 232, 240, 0.62) !important;
     color: #475569 !important;
 }
+
 body.light .skill-gen-ws-tab:hover {
     background-color: rgba(203, 213, 225, 0.72) !important;
     color: #334155 !important;
 }
+
 body.light .skill-gen-ws-tab.active {
     background-color: rgba(139, 92, 246, 0.15) !important;
     color: #6D28D9 !important;
     border-color: rgba(139, 92, 246, 0.3) !important;
 }
+
 body.light .skill-gen-ws-add {
     color: #94A3B8 !important;
     border-color: #CBD5E1 !important;
 }
+
 body.light .skill-gen-ws-add:hover {
     color: #6D28D9 !important;
     border-color: rgba(139, 92, 246, 0.4) !important;
     background-color: rgba(139, 92, 246, 0.1) !important;
 }
+
 body.light .skill-gen-tab-bar {
     background-color: #F1F5F9 !important;
     border-color: #E2E8F0 !important;
 }
+
 body.light .skill-gen-tab-item {
     color: #475569 !important;
 }
+
 body.light .skill-gen-tab-item:hover {
     color: #1E293B !important;
 }
+
 body.light .skill-gen-tab-item.active {
     background-color: rgba(139, 92, 246, 0.15) !important;
     color: #6D28D9 !important;
@@ -2119,52 +2148,67 @@ body.light .skill-gen-tab-item.active {
 
 /* Eye-Care Mode */
 body.eye-care .skill-gen-app {
+    background-color: #F5F0E8 !important;
     color: #3D3426 !important;
 }
-body.eye-care .skill-gen-app h1, body.eye-care .skill-gen-app h2, body.eye-care .skill-gen-app h3 {
+
+body.eye-care .skill-gen-app h1,
+body.eye-care .skill-gen-app h2,
+body.eye-care .skill-gen-app h3 {
     background: none !important;
     -webkit-text-fill-color: initial !important;
     color: #2D261B !important;
 }
+
 body.eye-care .skill-gen-subtitle {
     color: #7A6D5A !important;
 }
+
 body.eye-care .skill-gen-workspace-bar {
     background-color: #F5F0E8 !important;
     border-bottom-color: #E0D8CA !important;
 }
+
 body.eye-care .skill-gen-ws-tab {
     background-color: rgba(224, 216, 202, 0.62) !important;
     color: #5C5040 !important;
 }
+
 body.eye-care .skill-gen-ws-tab:hover {
     background-color: rgba(209, 199, 181, 0.72) !important;
     color: #4A4031 !important;
 }
+
 body.eye-care .skill-gen-ws-tab.active {
     background-color: rgba(139, 92, 246, 0.12) !important;
     color: #5B21B6 !important;
     border-color: rgba(139, 92, 246, 0.25) !important;
 }
+
 body.eye-care .skill-gen-ws-add {
     color: #B8AD98 !important;
     border-color: #D1C7B5 !important;
 }
+
 body.eye-care .skill-gen-ws-add:hover {
     color: #5B21B6 !important;
     border-color: rgba(139, 92, 246, 0.3) !important;
     background-color: rgba(139, 92, 246, 0.08) !important;
 }
+
 body.eye-care .skill-gen-tab-bar {
     background-color: #EDE7DC !important;
     border-color: #E0D8CA !important;
 }
+
 body.eye-care .skill-gen-tab-item {
     color: #5C5040 !important;
 }
+
 body.eye-care .skill-gen-tab-item:hover {
     color: #3D3426 !important;
 }
+
 body.eye-care .skill-gen-tab-item.active {
     background-color: rgba(139, 92, 246, 0.12) !important;
     color: #5B21B6 !important;
@@ -2178,10 +2222,12 @@ body.light .disabled\:opacity-50:disabled,
 body.light .disabled\:opacity-30:disabled {
     opacity: 0.7 !important;
 }
+
 body.light :is(.disabled\:bg-zinc-800, .disabled\:bg-slate-800, .disabled\:bg-gray-800, .disabled\:bg-neutral-800, .disabled\:bg-stone-800):disabled {
     background-color: #E2E8F0 !important;
     color: #64748B !important;
 }
+
 body.light .disabled\:text-zinc-400:disabled {
     color: #94A3B8 !important;
 }
@@ -2190,9 +2236,11 @@ body.light .disabled\:text-zinc-400:disabled {
 body.light [class*="bg-blue-600/10"]:disabled {
     color: #3B82F6 !important;
 }
+
 body.light [class*="bg-amber-600/10"]:disabled {
     color: #D97706 !important;
 }
+
 body.light [class*="text-red-400/80"]:disabled {
     color: #DC2626 !important;
 }
@@ -2202,10 +2250,12 @@ body.eye-care .disabled\:opacity-50:disabled,
 body.eye-care .disabled\:opacity-30:disabled {
     opacity: 0.7 !important;
 }
+
 body.eye-care :is(.disabled\:bg-zinc-800, .disabled\:bg-slate-800, .disabled\:bg-gray-800, .disabled\:bg-neutral-800, .disabled\:bg-stone-800):disabled {
     background-color: #E0D8CA !important;
     color: #7A6D5A !important;
 }
+
 body.eye-care .disabled\:text-zinc-400:disabled {
     color: #9A8E7A !important;
 }
@@ -2214,9 +2264,11 @@ body.eye-care .disabled\:text-zinc-400:disabled {
 body.eye-care [class*="bg-blue-600/10"]:disabled {
     color: #2563EB !important;
 }
+
 body.eye-care [class*="bg-amber-600/10"]:disabled {
     color: #B45309 !important;
 }
+
 body.eye-care [class*="text-red-400/80"]:disabled {
     color: #B91C1C !important;
 }
@@ -2225,6 +2277,7 @@ body.eye-care [class*="text-red-400/80"]:disabled {
 body.light :is(.bg-zinc-800\/50, .bg-slate-800\/50, .bg-gray-800\/50, .bg-neutral-800\/50, .bg-stone-800\/50) {
     background-color: rgba(226, 232, 240, 0.5) !important;
 }
+
 body.light :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutral-900\/90, .bg-stone-900\/90) {
     background-color: rgba(241, 245, 249, 0.9) !important;
 }
@@ -2232,6 +2285,415 @@ body.light :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutra
 body.eye-care :is(.bg-zinc-800\/50, .bg-slate-800\/50, .bg-gray-800\/50, .bg-neutral-800\/50, .bg-stone-800\/50) {
     background-color: rgba(224, 216, 202, 0.5) !important;
 }
+
 body.eye-care :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutral-900\/90, .bg-stone-900\/90) {
     background-color: rgba(245, 240, 232, 0.9) !important;
+}
+
+/* ============================================
+   �� SkillGenerator Component Internals (Sections, Textareas)
+   ============================================ */
+/* Light Mode */
+body.light .skill-gen-section {
+    background-color: #FFFFFF !important;
+    border-color: #E2E8F0 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+
+body.light .skill-gen-section:hover {
+    border-color: rgba(139, 92, 246, 0.4) !important;
+}
+
+body.light .skill-gen-textarea {
+    background-color: #F8FAFC !important;
+    border-color: #CBD5E1 !important;
+    color: #0F172A !important;
+}
+
+body.light .skill-gen-textarea::placeholder {
+    color: #94A3B8 !important;
+}
+
+body.light .skill-gen-dropzone {
+    background-color: rgba(139, 92, 246, 0.03) !important;
+    border-color: rgba(139, 92, 246, 0.3) !important;
+    color: #64748B !important;
+}
+
+body.light .skill-gen-hint {
+    color: #64748B !important;
+}
+
+body.light .skill-gen-badge.optional {
+    background-color: #E2E8F0 !important;
+    color: #64748B !important;
+}
+
+/* Eye-Care Mode */
+body.eye-care .skill-gen-section {
+    background-color: rgba(245, 240, 232, 0.8) !important;
+    border-color: #E0D8CA !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+body.eye-care .skill-gen-section:hover {
+    border-color: #D1C7B5 !important;
+}
+
+body.eye-care .skill-gen-textarea {
+    background-color: rgba(224, 216, 202, 0.3) !important;
+    border-color: #D1C7B5 !important;
+    color: #3D3426 !important;
+}
+
+body.eye-care .skill-gen-textarea::placeholder {
+    color: #9A8E7A !important;
+}
+
+body.eye-care .skill-gen-dropzone {
+    background-color: rgba(139, 92, 246, 0.02) !important;
+    border-color: rgba(139, 92, 246, 0.2) !important;
+    color: #7A6D5A !important;
+}
+
+body.eye-care .skill-gen-hint {
+    color: #7A6D5A !important;
+}
+
+body.eye-care .skill-gen-badge.optional {
+    background-color: #E0D8CA !important;
+    color: #7A6D5A !important;
+}
+
+/* ============================================
+   🎯 ProDedup precise fallback
+   解决专业查重模块内硬编码深色样式
+   ============================================ */
+
+/* LIGHT */
+body.light .copydedup-page-wrapper .pro-dedup-layout,
+body.light .copydedup-page-wrapper .pro-dedup-main,
+body.light .copydedup-page-wrapper .pro-dedup-results,
+body.light .copydedup-page-wrapper .search-groups,
+body.light .copydedup-page-wrapper .search-results-list,
+body.light .copydedup-page-wrapper .search-groups-list,
+body.light .copydedup-page-wrapper .search-table-container {
+    background-color: #F8FAFC !important;
+    color: #1E293B !important;
+}
+
+body.light .copydedup-page-wrapper .pro-dedup-sidebar,
+body.light .copydedup-page-wrapper .pro-dedup-topbar,
+body.light .copydedup-page-wrapper .results-toolbar,
+body.light .copydedup-page-wrapper .pro-dedup-footer,
+body.light .copydedup-page-wrapper .pro-results-table th,
+body.light .copydedup-page-wrapper .topbar-btn,
+body.light .copydedup-page-wrapper .toolbar-btn,
+body.light .copydedup-page-wrapper .context-menu,
+body.light .copydedup-page-wrapper .mode-tabs,
+body.light .copydedup-page-wrapper .search-result-item,
+body.light .copydedup-page-wrapper .search-group,
+body.light .copydedup-page-wrapper .group-query,
+body.light .copydedup-page-wrapper .similar-query,
+body.light .copydedup-page-wrapper .similar-grid-item,
+body.light .copydedup-page-wrapper .similar-toolbar,
+body.light .copydedup-page-wrapper .search-group-toolbar,
+body.light .copydedup-page-wrapper .search-table th,
+body.light .copydedup-page-wrapper .search-group-row>.similar-item.keep,
+body.light .copydedup-page-wrapper .pro-modal {
+    background-color: #F1F5F9 !important;
+    border-color: #E2E8F0 !important;
+}
+
+body.light .copydedup-page-wrapper .mode-tab.active {
+    background-color: #E2E8F0 !important;
+    color: #0F172A !important;
+}
+
+body.light .copydedup-page-wrapper .mode-tab,
+body.light .copydedup-page-wrapper .search-group-toolbar button,
+body.light .copydedup-page-wrapper .query-text,
+body.light .copydedup-page-wrapper .result-text,
+body.light .copydedup-page-wrapper .sim-text,
+body.light .copydedup-page-wrapper .grid-english,
+body.light .copydedup-page-wrapper .match-text,
+body.light .copydedup-page-wrapper .pro-modal-header h3 {
+    color: #334155 !important;
+}
+
+body.light .copydedup-page-wrapper .result-chinese,
+body.light .copydedup-page-wrapper .match-chinese,
+body.light .copydedup-page-wrapper .grid-chinese,
+body.light .copydedup-page-wrapper .sim-chinese,
+body.light .copydedup-page-wrapper .query-label,
+body.light .copydedup-page-wrapper .group-count,
+body.light .copydedup-page-wrapper .empty-state,
+body.light .copydedup-page-wrapper .empty-state .hint {
+    color: #64748B !important;
+}
+
+body.light .copydedup-page-wrapper .pro-modal-body input[type="text"],
+body.light .copydedup-page-wrapper .search-group-toolbar button,
+body.light .copydedup-page-wrapper .similar-toolbar button,
+body.light .copydedup-page-wrapper .context-menu button {
+    background-color: #F8FAFC !important;
+    border-color: #E2E8F0 !important;
+    color: #334155 !important;
+}
+
+body.light .copydedup-page-wrapper .pro-modal-footer button {
+    background-color: #E2E8F0 !important;
+    color: #334155 !important;
+}
+
+body.light .copydedup-page-wrapper .pro-modal-footer button:hover {
+    background-color: #CBD5E1 !important;
+}
+
+body.light .copydedup-page-wrapper .search-result-item:hover,
+body.light .copydedup-page-wrapper .similar-item:hover,
+body.light .copydedup-page-wrapper .match-item:hover,
+body.light .copydedup-page-wrapper .search-table tr:hover td,
+body.light .copydedup-page-wrapper .pro-results-table tr:hover {
+    background-color: rgba(203, 213, 225, 0.35) !important;
+}
+
+/* EYE-CARE */
+body.eye-care .copydedup-page-wrapper .pro-dedup-layout,
+body.eye-care .copydedup-page-wrapper .pro-dedup-main,
+body.eye-care .copydedup-page-wrapper .pro-dedup-results,
+body.eye-care .copydedup-page-wrapper .search-groups,
+body.eye-care .copydedup-page-wrapper .search-results-list,
+body.eye-care .copydedup-page-wrapper .search-groups-list,
+body.eye-care .copydedup-page-wrapper .search-table-container {
+    background-color: #F5F0E8 !important;
+    color: #3D3426 !important;
+}
+
+body.eye-care .copydedup-page-wrapper .pro-dedup-sidebar,
+body.eye-care .copydedup-page-wrapper .pro-dedup-topbar,
+body.eye-care .copydedup-page-wrapper .results-toolbar,
+body.eye-care .copydedup-page-wrapper .pro-dedup-footer,
+body.eye-care .copydedup-page-wrapper .pro-results-table th,
+body.eye-care .copydedup-page-wrapper .topbar-btn,
+body.eye-care .copydedup-page-wrapper .toolbar-btn,
+body.eye-care .copydedup-page-wrapper .context-menu,
+body.eye-care .copydedup-page-wrapper .mode-tabs,
+body.eye-care .copydedup-page-wrapper .search-result-item,
+body.eye-care .copydedup-page-wrapper .search-group,
+body.eye-care .copydedup-page-wrapper .group-query,
+body.eye-care .copydedup-page-wrapper .similar-query,
+body.eye-care .copydedup-page-wrapper .similar-grid-item,
+body.eye-care .copydedup-page-wrapper .similar-toolbar,
+body.eye-care .copydedup-page-wrapper .search-group-toolbar,
+body.eye-care .copydedup-page-wrapper .search-table th,
+body.eye-care .copydedup-page-wrapper .search-group-row>.similar-item.keep,
+body.eye-care .copydedup-page-wrapper .pro-modal {
+    background-color: #EDE7DC !important;
+    border-color: #E0D8CA !important;
+}
+
+body.eye-care .copydedup-page-wrapper .mode-tab.active {
+    background-color: #E0D8CA !important;
+    color: #3D3426 !important;
+}
+
+body.eye-care .copydedup-page-wrapper .mode-tab,
+body.eye-care .copydedup-page-wrapper .search-group-toolbar button,
+body.eye-care .copydedup-page-wrapper .query-text,
+body.eye-care .copydedup-page-wrapper .result-text,
+body.eye-care .copydedup-page-wrapper .sim-text,
+body.eye-care .copydedup-page-wrapper .grid-english,
+body.eye-care .copydedup-page-wrapper .match-text,
+body.eye-care .copydedup-page-wrapper .pro-modal-header h3 {
+    color: #4A3F30 !important;
+}
+
+body.eye-care .copydedup-page-wrapper .result-chinese,
+body.eye-care .copydedup-page-wrapper .match-chinese,
+body.eye-care .copydedup-page-wrapper .grid-chinese,
+body.eye-care .copydedup-page-wrapper .sim-chinese,
+body.eye-care .copydedup-page-wrapper .query-label,
+body.eye-care .copydedup-page-wrapper .group-count,
+body.eye-care .copydedup-page-wrapper .empty-state,
+body.eye-care .copydedup-page-wrapper .empty-state .hint {
+    color: #7A6D5A !important;
+}
+
+body.eye-care .copydedup-page-wrapper .pro-modal-body input[type="text"],
+body.eye-care .copydedup-page-wrapper .search-group-toolbar button,
+body.eye-care .copydedup-page-wrapper .similar-toolbar button,
+body.eye-care .copydedup-page-wrapper .context-menu button {
+    background-color: #F5F0E8 !important;
+    border-color: #E0D8CA !important;
+    color: #4A3F30 !important;
+}
+
+body.eye-care .copydedup-page-wrapper .pro-modal-footer button {
+    background-color: #E0D8CA !important;
+    color: #4A3F30 !important;
+}
+
+body.eye-care .copydedup-page-wrapper .pro-modal-footer button:hover {
+    background-color: #D1C7B5 !important;
+}
+
+body.eye-care .copydedup-page-wrapper .search-result-item:hover,
+body.eye-care .copydedup-page-wrapper .similar-item:hover,
+body.eye-care .copydedup-page-wrapper .match-item:hover,
+body.eye-care .copydedup-page-wrapper .search-table tr:hover td,
+body.eye-care .copydedup-page-wrapper .pro-results-table tr:hover {
+    background-color: rgba(209, 199, 181, 0.35) !important;
+}
+
+/* ============================================
+   🛟 ProDedup theme class fallback
+   直接绑定 index.tsx 注入的 pro-dedup-theme-* 类
+   ============================================ */
+.copydedup-page-wrapper.pro-dedup-theme-light {
+    --bg-color: #F8FAFC;
+    --card-bg-color: #F1F5F9;
+    --input-bg-color: #F8FAFC;
+    --text-color: #1E293B;
+    --text-muted-color: #64748B;
+    --border-color: #E2E8F0;
+    --control-bg-color: #E2E8F0;
+    --control-hover-bg-color: #CBD5E1;
+    --primary-color: #2563EB;
+    --primary-hover-color: #1D4ED8;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-eye-care {
+    --bg-color: #F5F0E8;
+    --card-bg-color: #EDE7DC;
+    --input-bg-color: #F5F0E8;
+    --text-color: #3D3426;
+    --text-muted-color: #7A6D5A;
+    --border-color: #E0D8CA;
+    --control-bg-color: #E0D8CA;
+    --control-hover-bg-color: #D1C7B5;
+    --primary-color: #0F766E;
+    --primary-hover-color: #0D9488;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-light .mode-tabs,
+.copydedup-page-wrapper.pro-dedup-theme-light .mode-tab,
+.copydedup-page-wrapper.pro-dedup-theme-light .search-group,
+.copydedup-page-wrapper.pro-dedup-theme-light .group-query,
+.copydedup-page-wrapper.pro-dedup-theme-light .search-result-item,
+.copydedup-page-wrapper.pro-dedup-theme-light .search-group-toolbar,
+.copydedup-page-wrapper.pro-dedup-theme-light .similar-toolbar,
+.copydedup-page-wrapper.pro-dedup-theme-light .context-menu,
+.copydedup-page-wrapper.pro-dedup-theme-light .pro-modal {
+    background-color: #F1F5F9 !important;
+    border-color: #E2E8F0 !important;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-light .mode-tab,
+.copydedup-page-wrapper.pro-dedup-theme-light .result-text,
+.copydedup-page-wrapper.pro-dedup-theme-light .query-text,
+.copydedup-page-wrapper.pro-dedup-theme-light .match-text,
+.copydedup-page-wrapper.pro-dedup-theme-light .grid-english {
+    color: #334155 !important;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-light .mode-tab.active {
+    background-color: #E2E8F0 !important;
+    color: #0F172A !important;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .mode-tabs,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .mode-tab,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .search-group,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .group-query,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .search-result-item,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .search-group-toolbar,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .similar-toolbar,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .context-menu,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .pro-modal {
+    background-color: #EDE7DC !important;
+    border-color: #E0D8CA !important;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .mode-tab,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .result-text,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .query-text,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .match-text,
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .grid-english {
+    color: #4A3F30 !important;
+}
+
+.copydedup-page-wrapper.pro-dedup-theme-eye-care .mode-tab.active {
+    background-color: #E0D8CA !important;
+    color: #3D3426 !important;
+}
+
+/* Light Mode additions */
+body.light .skill-gen-header {
+    background: #F1F5F9 !important;
+    border-color: #E2E8F0 !important;
+}
+body.light .skill-gen-manual-compare {
+    background: rgba(139, 92, 246, 0.03) !important;
+    border-color: rgba(139, 92, 246, 0.15) !important;
+}
+body.light .skill-gen-manual-compare-header {
+    background: rgba(139, 92, 246, 0.08) !important;
+    border-color: rgba(139, 92, 246, 0.15) !important;
+    color: #6D28D9 !important;
+}
+body.light .skill-gen-manual-compare-text {
+    background: #FFFFFF !important;
+    border-color: #CBD5E1 !important;
+    color: #1E293B !important;
+}
+body.light .skill-gen-preview-btn {
+    background: rgba(59, 130, 246, 0.1) !important;
+    border-color: rgba(59, 130, 246, 0.2) !important;
+    color: #2563EB !important;
+}
+body.light .skill-gen-grid-preview {
+    background: #F8FAFC !important;
+    border-color: #E2E8F0 !important;
+}
+body.light .skill-gen-grid-preview-label {
+    color: #3B82F6 !important;
+}
+body.light .skill-gen-grid-preview-img {
+    border-color: #E2E8F0 !important;
+}
+
+/* Eye-Care Mode additions */
+body.eye-care .skill-gen-header {
+    background: rgba(224, 216, 202, 0.5) !important;
+    border-color: #D1C7B5 !important;
+}
+body.eye-care .skill-gen-manual-compare {
+    background: rgba(139, 92, 246, 0.02) !important;
+    border-color: rgba(139, 92, 246, 0.12) !important;
+}
+body.eye-care .skill-gen-manual-compare-header {
+    background: rgba(139, 92, 246, 0.06) !important;
+    border-color: rgba(139, 92, 246, 0.12) !important;
+    color: #5B21B6 !important;
+}
+body.eye-care .skill-gen-manual-compare-text {
+    background: #F5F0E8 !important;
+    border-color: #D1C7B5 !important;
+    color: #3D3426 !important;
+}
+body.eye-care .skill-gen-preview-btn {
+    background: rgba(59, 130, 246, 0.08) !important;
+    border-color: rgba(59, 130, 246, 0.15) !important;
+    color: #1D4ED8 !important;
+}
+body.eye-care .skill-gen-grid-preview {
+    background: rgba(224, 216, 202, 0.4) !important;
+    border-color: #D1C7B5 !important;
+}
+body.eye-care .skill-gen-grid-preview-label {
+    color: #1D4ED8 !important;
+}
+body.eye-care .skill-gen-grid-preview-img {
+    border-color: #D1C7B5 !important;
 }
