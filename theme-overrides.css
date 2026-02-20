@@ -2821,13 +2821,150 @@ body.eye-care #root {
     background-color: var(--background-color) !important;
 }
 
-/* 🔧 Smart Translate fixes */
+/* 🔧 Smart Translate comprehensive fixes */
 body.light .smart-translate-root,
 body.light .smart-translate-app {
     background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
 }
 
+body.light .smart-translate-app.theme-dark {
+    --background-color: #f0fdfa !important;
+    --surface-color: #ffffff !important;
+    --border-color: #d1e7dd !important;
+    --text-color: #1a2e35 !important;
+    --text-muted-color: #6b7c85 !important;
+    --primary-color: #0d9488 !important;
+    --control-bg-color: #e8f5f3 !important;
+    --on-background-color: #134e4a !important;
+    --on-surface-color: #0f172a !important;
+}
+
+body.light .smart-translate-root .mode-tabs {
+    background-color: var(--surface-color) !important;
+    border-bottom-color: var(--border-color) !important;
+}
+
+body.light .smart-translate-root .mode-tab {
+    color: var(--text-muted-color) !important;
+    background: transparent !important;
+}
+
+body.light .smart-translate-root .mode-tab:hover {
+    color: var(--text-color) !important;
+    background-color: var(--control-bg-color) !important;
+}
+
+body.light .smart-translate-root .mode-tab.active {
+    color: var(--primary-color) !important;
+}
+
+body.light .smart-translate-root .tool-container,
+body.light .smart-translate-root header,
+body.light .smart-translate-root nav,
+body.light .smart-translate-root .tool-header {
+    background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+body.light .smart-translate-root nav button {
+    color: var(--text-muted-color) !important;
+    background-color: transparent !important;
+}
+
+body.light .smart-translate-root nav button:hover {
+    background-color: var(--control-bg-color) !important;
+}
+
+body.light .smart-translate-root nav button.active {
+    color: var(--primary-color) !important;
+    background-color: var(--surface-color) !important;
+}
+
+body.light .smart-translate-root .batch-header-collapsed {
+    background-color: var(--surface-color) !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-color) !important;
+}
+
+body.light .smart-translate-root select,
+body.light .smart-translate-root input[type="text"],
+body.light .smart-translate-root textarea {
+    background-color: var(--surface-color) !important;
+    color: var(--text-color) !important;
+    border-color: var(--border-color) !important;
+}
+
+/* Eye-care equivalents */
 body.eye-care .smart-translate-root,
 body.eye-care .smart-translate-app {
     background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+body.eye-care .smart-translate-app.theme-dark {
+    --background-color: #f5f0e8 !important;
+    --surface-color: #faf7f2 !important;
+    --border-color: #e0d8ca !important;
+    --text-color: #3d3528 !important;
+    --text-muted-color: #8a7e6b !important;
+    --primary-color: #b8860b !important;
+    --control-bg-color: #ede6d6 !important;
+    --on-background-color: #3d3528 !important;
+    --on-surface-color: #2c2517 !important;
+}
+
+body.eye-care .smart-translate-root .mode-tabs {
+    background-color: var(--surface-color) !important;
+    border-bottom-color: var(--border-color) !important;
+}
+
+body.eye-care .smart-translate-root .mode-tab {
+    color: var(--text-muted-color) !important;
+    background: transparent !important;
+}
+
+body.eye-care .smart-translate-root .mode-tab:hover {
+    color: var(--text-color) !important;
+    background-color: var(--control-bg-color) !important;
+}
+
+body.eye-care .smart-translate-root .mode-tab.active {
+    color: var(--primary-color) !important;
+}
+
+body.eye-care .smart-translate-root .tool-container,
+body.eye-care .smart-translate-root header,
+body.eye-care .smart-translate-root nav,
+body.eye-care .smart-translate-root .tool-header {
+    background-color: var(--background-color) !important;
+    color: var(--text-color) !important;
+}
+
+body.eye-care .smart-translate-root nav button {
+    color: var(--text-muted-color) !important;
+    background-color: transparent !important;
+}
+
+body.eye-care .smart-translate-root nav button:hover {
+    background-color: var(--control-bg-color) !important;
+}
+
+body.eye-care .smart-translate-root nav button.active {
+    color: var(--primary-color) !important;
+    background-color: var(--surface-color) !important;
+}
+
+body.eye-care .smart-translate-root .batch-header-collapsed {
+    background-color: var(--surface-color) !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-color) !important;
+}
+
+body.eye-care .smart-translate-root select,
+body.eye-care .smart-translate-root input[type="text"],
+body.eye-care .smart-translate-root textarea {
+    background-color: var(--surface-color) !important;
+    color: var(--text-color) !important;
+    border-color: var(--border-color) !important;
 }
