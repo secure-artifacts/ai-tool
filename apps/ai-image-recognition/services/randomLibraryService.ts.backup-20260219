@@ -644,12 +644,14 @@ export const fetchCatalogWithInstructions = async (
 
         const results: CatalogRow[] = [];
 
-        // 验证是否是有效的分页名（尽量宽松，避免误过滤用户自定义分页）
+        // 验证是否是有效的分页名（简化版：只排除明显的空值和超长文本）
         const isValidSheetName = (name: string): boolean => {
             if (!name || !name.trim()) return false;
             const trimmed = name.trim();
-            // 仅过滤明显异常的超长文本（例如整段指令被粘进分页名列）
-            if (trimmed.length > 200) return false;
+            // 分页名不应该太长（超过50个字符很可能是指令文本）
+            if (trimmed.length > 50) return false;
+            // 分页名不应该包含多个句号（指令通常有句号）
+            if ((trimmed.match(/。/g) || []).length >= 2) return false;
             return true;
         };
 
@@ -1124,6 +1126,7 @@ export const scanMasterSheets = async (
 
     const results: MasterSheetInfo[] = [];
     const foundSheets = new Set<string>();
+    const contentHashes = new Set<string>();
 
     for (const sheetName of trySheetNames) {
         if (foundSheets.has(sheetName)) continue;
@@ -1180,15 +1183,24 @@ export const scanMasterSheets = async (
         }
 
         if (info && info.libraries.length > 0) {
-            // 快捷创新：附加配套指令（从分页目录B列读取）
-            const linkedInstruction = instructionMap.get(sheetName);
-            console.log(`[scanMasterSheets] 查找配套指令: sheetName="${sheetName}", found=${!!linkedInstruction}, instructionMapSize=${instructionMap.size}`);
-            if (linkedInstruction) {
-                info.linkedInstruction = linkedInstruction;
-                console.log(`[scanMasterSheets] ✓ 附加指令到 "${sheetName}": ${linkedInstruction.substring(0, 50)}...`);
+            // 内容hash去重
+            const contentHash = info.libraries
+                .map(lib => `${lib.name}:${lib.values.slice(0, 5).join(',')}`)
+                .sort()
+                .join('|');
+
+            if (!contentHashes.has(contentHash)) {
+                contentHashes.add(contentHash);
+                // 快捷创新：附加配套指令（从分页目录B列读取）
+                const linkedInstruction = instructionMap.get(sheetName);
+                console.log(`[scanMasterSheets] 查找配套指令: sheetName="${sheetName}", found=${!!linkedInstruction}, instructionMapSize=${instructionMap.size}`);
+                if (linkedInstruction) {
+                    info.linkedInstruction = linkedInstruction;
+                    console.log(`[scanMasterSheets] ✓ 附加指令到 "${sheetName}": ${linkedInstruction.substring(0, 50)}...`);
+                }
+                results.push(info);
+                foundSheets.add(sheetName);
             }
-            results.push(info);
-            foundSheets.add(sheetName);
         }
     }
 
@@ -1607,67 +1619,11 @@ export const applyAICategoryResult = (
     };
 };
 
-// 参考图库中的单张图片
-export interface RefImage {
-    id: string;                 // 唯一标识
-    data: string;               // base64 数据
-    mimeType: string;           // MIME 类型
-    label?: string;             // 用户标签（如"山景"、"海边"）
-    extractedValue?: string;    // AI 提取缓存
-}
-
 // 覆盖值类型
 export interface OverrideEntry {
-    value: string;              // 覆盖的文本值（手动输入 或 AI提取结果）
-    count: number;              // 覆盖几个（0=全部覆盖）
-    mode?: 'text' | 'image' | 'queue-image';  // text=手动(默认), image=独立参考图提取, queue-image=队列图逐图提取
-    // 图片提取模式专用
-    extractPrompt?: string;     // 提取要求（如"描述图中的场景环境"）
-    imageData?: string;         // 独立参考图 base64（mode=image 时，单张兼容）
-    imageMimeType?: string;     // 独立参考图 MIME 类型
-    imageLibrary?: RefImage[];  // 参考图库（mode=image 时，多张参考图供卡片选择）
-    extractedValue?: string;    // AI 提取的原始结果（可编辑后存入 value）
-    isExtracting?: boolean;     // 是否正在提取中
-    autoExtract?: boolean;      // 开始时自动提取（mode=image 时，有图但未提取，开始处理时自动提取）
+    value: string;  // 覆盖的文本值
+    count: number;  // 覆盖几个（0=全部覆盖）
 }
-
-// 默认提取要求模板（根据库名自动生成）
-export const getDefaultExtractPrompt = (libName: string): string => {
-    return `详细描述图片，请根据我指定的要覆盖的元素"${libName}"进行分别详细描述对应元素的完整的AI描述词。方便我直接给其他软件生成图片或者视频使用。你只需要给我指定元素的最终AI描述词就行，不需要其他任何多余的内容。并且英文回复我`;
-};
-
-// 构建多维度合并提取的 prompt（将多个维度的提取合并为一次 AI 调用）
-export const buildMultiDimensionExtractPrompt = (
-    dimensions: Array<{ libName: string; extractPrompt: string }>
-): string => {
-    if (dimensions.length === 1) {
-        return dimensions[0].extractPrompt;
-    }
-    const dimList = dimensions.map((d, i) => `${i + 1}. ${d.libName}：${d.extractPrompt}`).join('\n');
-    return `请分别描述以下维度的内容，每个维度用一行回答，格式为"维度名：描述内容"。\n\n${dimList}\n\n只输出结果，不要多余解释。格式示例：\n${dimensions.map(d => `${d.libName}：xxx`).join('\n')}`;
-};
-
-// 正则转义辅助函数（在 parseMultiDimensionExtractResult 中使用）
-const escapeRegExp = (str: string): string => {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
-// 解析多维度提取结果
-export const parseMultiDimensionExtractResult = (
-    result: string,
-    dimensionNames: string[]
-): Record<string, string> => {
-    const parsed: Record<string, string> = {};
-    for (const name of dimensionNames) {
-        // 匹配 "维度名：内容" 或 "维度名: 内容"
-        const regex = new RegExp(`${escapeRegExp(name)}[：:]\\s*(.+?)(?:\\n|$)`, 'i');
-        const match = result.match(regex);
-        if (match) {
-            parsed[name] = match[1].trim();
-        }
-    }
-    return parsed;
-};
 
 // 将用户覆盖值应用到单个随机组合文本中
 // 组合格式为 "场景：花园，风格：水彩"，覆盖指定库名的值
@@ -1696,7 +1652,7 @@ export const applyPartialOverrides = (
     if (combinations.length === 0 || Object.keys(overrides).length === 0) return combinations;
 
     // 收集所有有效覆盖
-    const activeOverrides = Object.entries(overrides).filter(([, v]) => v.value?.trim());
+    const activeOverrides = Object.entries(overrides).filter(([, v]) => v.value.trim());
     if (activeOverrides.length === 0) return combinations;
 
     // 对每个组合逐个判断是否需要覆盖
@@ -1721,6 +1677,11 @@ export const applyPartialOverrides = (
     }
 
     return result;
+};
+
+// 正则转义辅助函数
+const escapeRegExp = (str: string): string => {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
 // 根据模板生成随机组合文本（支持分类联动）

@@ -182,59 +182,6 @@ body.light {
   --glass-blur: blur(20px);
 }
 
-body.eye-care {
-  /* 背景层次 - 暖黄/米色调，减少蓝光 */
-  --background-color: #f5f0e8;
-  --surface-color: #faf6ee;
-  --surface-hover-color: #efe9dd;
-
-  /* 主色调 - 森林绿，柔和不刺眼 */
-  --primary-color: #5a8a6a;
-  --primary-hover-color: #4a7a5a;
-  --primary-variant-color: #d4e8d9;
-  --secondary-color: #6b9e7a;
-
-  /* CTA - 柔和的暖橙色 */
-  --cta-color: #c87941;
-  --cta-hover-color: #b56a35;
-
-  /* 文本层次 - 深棕色系，避免纯黑 */
-  --on-background-color: #3d3528;
-  --on-surface-color: #2d2820;
-  --text-color: #4a4238;
-  --text-muted-color: #8a7e72;
-
-  /* 边框和控件 */
-  --border-color: rgba(74, 66, 56, 0.15);
-  --border-hover-color: rgba(74, 66, 56, 0.25);
-  --control-bg-color: #f0ebe2;
-  --control-hover-bg-color: #e8e2d6;
-  --button-text-color: #ffffff;
-  --loader-fg-color: #5a8a6a;
-
-  /* 警告提示 */
-  --warning-bg-color: rgba(200, 121, 65, 0.12);
-  --warning-text-color: #a06030;
-
-  /* 渐变效果 */
-  --gradient-primary: linear-gradient(135deg, #5a8a6a 0%, #6b9e7a 100%);
-  --gradient-cta: linear-gradient(135deg, #c87941 0%, #d4915d 100%);
-  --gradient-premium: linear-gradient(135deg, #7a6f8a 0%, #9a8aaa 50%, #b0a0c0 100%);
-  --gradient-surface: linear-gradient(180deg, rgba(250, 246, 238, 0.9) 0%, rgba(245, 240, 232, 0.95) 100%);
-
-  /* 阴影效果 - 暖色调阴影 */
-  --shadow-sm: 0 2px 4px rgba(74, 66, 56, 0.08);
-  --shadow-md: 0 4px 12px rgba(74, 66, 56, 0.12);
-  --shadow-lg: 0 8px 24px rgba(74, 66, 56, 0.16);
-  --shadow-glow: 0 0 20px rgba(90, 138, 106, 0.2);
-  --shadow-cta-glow: 0 0 20px rgba(200, 121, 65, 0.2);
-
-  /* 玻璃拟态 */
-  --glass-bg: rgba(250, 246, 238, 0.85);
-  --glass-border: rgba(74, 66, 56, 0.1);
-  --glass-blur: blur(20px);
-}
-
 
 html,
 body {
@@ -2380,18 +2327,14 @@ button.primary:active,
 .image-to-prompt-layout {
   display: grid;
   grid-template-columns: 240px 1fr;
-  grid-template-rows: 1fr;
   gap: 1.5rem;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1rem;
   background-color: var(--surface-color);
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 
-.image-to-prompt-layout .history-panel {
+.history-panel {
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -2399,8 +2342,8 @@ button.primary:active,
   padding: 1rem;
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  min-height: 0;
-  overflow: hidden;
+  height: fit-content;
+  max-height: 70vh;
 }
 
 .new-session-btn {
@@ -2509,8 +2452,6 @@ button.primary:active,
   flex-direction: column;
   gap: 1.5rem;
   min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
   /* Prevents overflow issues with grid */
 }
 
@@ -2826,10 +2767,6 @@ body.light .prompt-tab-btn:hover {
 
 body.dark .prompt-tab-btn:hover {
   background-color: rgba(255, 255, 255, 0.05);
-}
-
-body.eye-care .prompt-tab-btn:hover {
-  background-color: rgba(74, 66, 56, 0.08);
 }
 
 

@@ -1,0 +1,1662 @@
+/* ============================================
+   🎨 Tailwind 暗色 → 亮色/护眼 全局覆盖
+   覆盖 AI图片识别 等使用 Tailwind 硬编码暗色的子模块
+   
+   配色来源: UI UX Pro Max Skill 数据库
+   - Light Mode: SaaS palette (#F8FAFC / #1E293B / #E2E8F0)
+   - Eye-Care: Warm paper palette (手工调和)
+   ============================================ */
+
+/* ═══════════════════════════════════════════
+   ☀️  LIGHT MODE
+   SaaS Professional: #F8FAFC + #1E293B
+   ═══════════════════════════════════════════ */
+
+/* --- Backgrounds ---
+   zinc-950 → 主背景 #F8FAFC (SaaS standard)
+   zinc-900 → 次要面板 #F1F5F9 (Slate-100)
+   zinc-800 → 卡片/输入框 #E2E8F0 (Slate-200)
+   zinc-700 → 分隔/高亮 #CBD5E1 (Slate-300)
+   zinc-600 → 强调面板 #94A3B8 (Slate-400)
+   zinc-500 → 禁用/辅助 #64748B (Slate-500)
+*/
+body.light .bg-zinc-950 {
+    background-color: #F8FAFC !important;
+}
+
+body.light .bg-zinc-950\/95 {
+    background-color: rgba(248, 250, 252, 0.97) !important;
+}
+
+body.light .bg-zinc-950\/80 {
+    background-color: rgba(248, 250, 252, 0.85) !important;
+}
+
+body.light .bg-zinc-950\/50 {
+    background-color: rgba(248, 250, 252, 0.6) !important;
+}
+
+body.light .bg-zinc-950\/40 {
+    background-color: rgba(248, 250, 252, 0.5) !important;
+}
+
+body.light .bg-zinc-950\/30 {
+    background-color: rgba(248, 250, 252, 0.4) !important;
+}
+
+body.light .bg-zinc-900 {
+    background-color: #F1F5F9 !important;
+}
+
+body.light .bg-zinc-900\/95 {
+    background-color: rgba(241, 245, 249, 0.96) !important;
+}
+
+body.light .bg-zinc-900\/90 {
+    background-color: rgba(241, 245, 249, 0.92) !important;
+}
+
+body.light .bg-zinc-900\/80 {
+    background-color: rgba(241, 245, 249, 0.85) !important;
+}
+
+body.light .bg-zinc-900\/60 {
+    background-color: rgba(241, 245, 249, 0.65) !important;
+}
+
+body.light .bg-zinc-900\/50 {
+    background-color: rgba(241, 245, 249, 0.55) !important;
+}
+
+body.light .bg-zinc-900\/30 {
+    background-color: rgba(241, 245, 249, 0.35) !important;
+}
+
+body.light .bg-zinc-800 {
+    background-color: #E2E8F0 !important;
+}
+
+body.light .bg-zinc-800\/80 {
+    background-color: rgba(226, 232, 240, 0.85) !important;
+}
+
+body.light .bg-zinc-800\/60 {
+    background-color: rgba(226, 232, 240, 0.65) !important;
+}
+
+body.light .bg-zinc-800\/50 {
+    background-color: rgba(226, 232, 240, 0.55) !important;
+}
+
+body.light .bg-zinc-800\/40 {
+    background-color: rgba(226, 232, 240, 0.45) !important;
+}
+
+body.light .bg-zinc-800\/30 {
+    background-color: rgba(226, 232, 240, 0.35) !important;
+}
+
+body.light .bg-zinc-700 {
+    background-color: #CBD5E1 !important;
+}
+
+body.light .bg-zinc-700\/80 {
+    background-color: rgba(203, 213, 225, 0.85) !important;
+}
+
+body.light .bg-zinc-700\/60 {
+    background-color: rgba(203, 213, 225, 0.65) !important;
+}
+
+body.light .bg-zinc-700\/50 {
+    background-color: rgba(203, 213, 225, 0.55) !important;
+}
+
+body.light .bg-zinc-600 {
+    background-color: #94A3B8 !important;
+}
+
+body.light .bg-zinc-500 {
+    background-color: #64748B !important;
+}
+
+body.light .bg-black {
+    background-color: #F8FAFC !important;
+}
+
+body.light .bg-black\/50 {
+    background-color: rgba(248, 250, 252, 0.6) !important;
+}
+
+/* --- Text ---
+   zinc-100 → 主文字 #1E293B (Slate-800)
+   zinc-200 → 副标题 #334155 (Slate-700)
+   zinc-300 → 正文 #475569 (Slate-600)
+   zinc-400 → 次要 #64748B (Slate-500)
+   zinc-500 → 辅助 #94A3B8 (Slate-400)
+   zinc-600 → 禁用 #CBD5E1 (Slate-300)
+   white → 标题 #0F172A (Slate-900)
+*/
+body.light .text-white {
+    color: #0F172A !important;
+}
+
+body.light .text-zinc-100 {
+    color: #1E293B !important;
+}
+
+body.light .text-zinc-100\/80 {
+    color: rgba(30, 41, 59, 0.82) !important;
+}
+
+body.light .text-zinc-200 {
+    color: #334155 !important;
+}
+
+body.light .text-zinc-300 {
+    color: #475569 !important;
+}
+
+body.light .text-zinc-400 {
+    color: #64748B !important;
+}
+
+body.light .text-zinc-400\/80 {
+    color: rgba(100, 116, 139, 0.82) !important;
+}
+
+body.light .text-zinc-500 {
+    color: #94A3B8 !important;
+}
+
+body.light .text-zinc-600 {
+    color: #CBD5E1 !important;
+}
+
+/* --- Borders --- */
+body.light .border-zinc-800 {
+    border-color: #E2E8F0 !important;
+}
+
+body.light .border-zinc-800\/70 {
+    border-color: rgba(226, 232, 240, 0.75) !important;
+}
+
+body.light .border-zinc-800\/50 {
+    border-color: rgba(226, 232, 240, 0.55) !important;
+}
+
+body.light .border-zinc-800\/30 {
+    border-color: rgba(226, 232, 240, 0.35) !important;
+}
+
+body.light .border-zinc-700 {
+    border-color: #CBD5E1 !important;
+}
+
+body.light .border-zinc-700\/60 {
+    border-color: rgba(203, 213, 225, 0.65) !important;
+}
+
+body.light .border-zinc-700\/50 {
+    border-color: rgba(203, 213, 225, 0.55) !important;
+}
+
+body.light .border-zinc-700\/40 {
+    border-color: rgba(203, 213, 225, 0.45) !important;
+}
+
+body.light .border-zinc-700\/30 {
+    border-color: rgba(203, 213, 225, 0.35) !important;
+}
+
+body.light .border-zinc-700\/20 {
+    border-color: rgba(203, 213, 225, 0.25) !important;
+}
+
+body.light .border-zinc-600 {
+    border-color: #94A3B8 !important;
+}
+
+body.light .border-zinc-600\/50 {
+    border-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+body.light .border-zinc-500 {
+    border-color: #64748B !important;
+}
+
+/* --- Hover Backgrounds --- */
+body.light .hover\:bg-zinc-800:hover {
+    background-color: #E2E8F0 !important;
+}
+
+body.light .hover\:bg-zinc-800\/70:hover {
+    background-color: rgba(226, 232, 240, 0.75) !important;
+}
+
+body.light .hover\:bg-zinc-800\/60:hover {
+    background-color: rgba(226, 232, 240, 0.65) !important;
+}
+
+body.light .hover\:bg-zinc-800\/50:hover {
+    background-color: rgba(226, 232, 240, 0.55) !important;
+}
+
+body.light .hover\:bg-zinc-800\/30:hover {
+    background-color: rgba(226, 232, 240, 0.35) !important;
+}
+
+body.light .hover\:bg-zinc-700:hover {
+    background-color: #CBD5E1 !important;
+}
+
+body.light .hover\:bg-zinc-700\/60:hover {
+    background-color: rgba(203, 213, 225, 0.65) !important;
+}
+
+body.light .hover\:bg-zinc-700\/50:hover {
+    background-color: rgba(203, 213, 225, 0.55) !important;
+}
+
+body.light .hover\:bg-zinc-700\/40:hover {
+    background-color: rgba(203, 213, 225, 0.45) !important;
+}
+
+body.light .hover\:bg-zinc-700\/30:hover {
+    background-color: rgba(203, 213, 225, 0.35) !important;
+}
+
+body.light .hover\:bg-zinc-600:hover {
+    background-color: #94A3B8 !important;
+}
+
+body.light .hover\:bg-zinc-600\/50:hover {
+    background-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+body.light .hover\:bg-zinc-500:hover {
+    background-color: #64748B !important;
+}
+
+/* --- Hover Text --- */
+body.light .hover\:text-zinc-100:hover {
+    color: #1E293B !important;
+}
+
+body.light .hover\:text-zinc-200:hover {
+    color: #334155 !important;
+}
+
+body.light .hover\:text-zinc-300:hover {
+    color: #475569 !important;
+}
+
+body.light .hover\:text-zinc-400:hover {
+    color: #64748B !important;
+}
+
+body.light .hover\:text-white:hover {
+    color: #0F172A !important;
+}
+
+/* --- Placeholder --- */
+body.light .placeholder\:text-zinc-600::placeholder {
+    color: #94A3B8 !important;
+}
+
+body.light .placeholder\:text-zinc-500\/80::placeholder {
+    color: rgba(100, 116, 139, 0.7) !important;
+}
+
+/* --- Divide / Ring --- */
+body.light .divide-zinc-800> :not([hidden])~ :not([hidden]) {
+    border-color: #E2E8F0 !important;
+}
+
+body.light .divide-zinc-700> :not([hidden])~ :not([hidden]) {
+    border-color: #CBD5E1 !important;
+}
+
+body.light .ring-zinc-700 {
+    --tw-ring-color: #CBD5E1 !important;
+}
+
+body.light .ring-zinc-800 {
+    --tw-ring-color: #E2E8F0 !important;
+}
+
+/* --- Accent Backgrounds (subtle tints on #F8FAFC) --- */
+body.light .bg-emerald-500\/20,
+body.light .bg-emerald-500\/10,
+body.light .bg-emerald-900\/20,
+body.light .bg-emerald-900\/30,
+body.light .bg-emerald-900\/40,
+body.light .bg-emerald-800\/30,
+body.light .bg-emerald-700\/20,
+body.light .bg-emerald-400\/10,
+body.light .bg-emerald-600\/20 {
+    background-color: #ECFDF5 !important;
+}
+
+body.light .bg-blue-500\/20,
+body.light .bg-blue-500\/30,
+body.light .bg-blue-900\/20,
+body.light .bg-blue-900\/30,
+body.light .bg-blue-900\/40,
+body.light .bg-blue-600\/20 {
+    background-color: #EFF6FF !important;
+}
+
+body.light .bg-purple-500\/10,
+body.light .bg-purple-500\/20,
+body.light .bg-purple-600\/20,
+body.light .bg-purple-600\/30,
+body.light .bg-purple-600\/40,
+body.light .bg-purple-900\/20,
+body.light .bg-purple-900\/30,
+body.light .bg-purple-950\/20 {
+    background-color: #F5F3FF !important;
+}
+
+body.light .bg-orange-500\/20,
+body.light .bg-orange-600\/20,
+body.light .bg-orange-900\/20,
+body.light .bg-orange-900\/30,
+body.light .bg-orange-900\/50 {
+    background-color: #FFF7ED !important;
+}
+
+body.light .bg-cyan-500\/5,
+body.light .bg-cyan-500\/20,
+body.light .bg-cyan-500\/30,
+body.light .bg-cyan-500\/40,
+body.light .bg-cyan-600\/20,
+body.light .bg-cyan-600\/30,
+body.light .bg-cyan-700\/30,
+body.light .bg-cyan-900\/20,
+body.light .bg-cyan-900\/30,
+body.light .bg-cyan-900\/40,
+body.light .bg-cyan-900\/50,
+body.light .bg-cyan-950\/20,
+body.light .bg-cyan-950\/30 {
+    background-color: #ECFEFF !important;
+}
+
+body.light .bg-pink-500\/20,
+body.light .bg-pink-600\/20,
+body.light .bg-pink-600\/30,
+body.light .bg-pink-900\/20,
+body.light .bg-pink-900\/30 {
+    background-color: #FDF2F8 !important;
+}
+
+body.light .bg-red-400\/10,
+body.light .bg-red-500\/10,
+body.light .bg-red-500\/20,
+body.light .bg-red-600\/30,
+body.light .bg-red-900\/10,
+body.light .bg-red-900\/20,
+body.light .bg-red-900\/30,
+body.light .bg-red-900\/40,
+body.light .bg-red-950\/20 {
+    background-color: #FEF2F2 !important;
+}
+
+body.light .bg-amber-500\/10,
+body.light .bg-amber-500\/20,
+body.light .bg-amber-600\/20,
+body.light .bg-amber-700\/40,
+body.light .bg-amber-800\/50,
+body.light .bg-amber-900\/10,
+body.light .bg-amber-900\/20,
+body.light .bg-amber-900\/30,
+body.light .bg-amber-900\/40 {
+    background-color: #FFFBEB !important;
+}
+
+body.light .bg-yellow-500\/20,
+body.light .bg-yellow-900\/10,
+body.light .bg-yellow-900\/20,
+body.light .bg-yellow-900\/30 {
+    background-color: #FEFCE8 !important;
+}
+
+body.light .bg-green-500\/20,
+body.light .bg-green-600\/20,
+body.light .bg-green-800\/40,
+body.light .bg-green-900\/20,
+body.light .bg-green-900\/30 {
+    background-color: #F0FDF4 !important;
+}
+
+body.light .bg-indigo-500\/20 {
+    background-color: #EEF2FF !important;
+}
+
+body.light .bg-teal-500\/10,
+body.light .bg-teal-500\/20,
+body.light .bg-teal-600\/30,
+body.light .bg-teal-600\/40 {
+    background-color: #F0FDFA !important;
+}
+
+/* --- Accent Text (Tailwind 700 shade for contrast ≥ 4.5:1 on light bg) --- */
+body.light .text-emerald-200,
+body.light .text-emerald-300 {
+    color: #047857 !important;
+}
+
+body.light .text-emerald-400 {
+    color: #047857 !important;
+}
+
+body.light .text-emerald-400\/60 {
+    color: rgba(4, 120, 87, 0.65) !important;
+}
+
+body.light .text-emerald-500 {
+    color: #059669 !important;
+}
+
+body.light .text-blue-100,
+body.light .text-blue-200,
+body.light .text-blue-300 {
+    color: #1D4ED8 !important;
+}
+
+body.light .text-blue-400 {
+    color: #2563EB !important;
+}
+
+body.light .text-blue-400\/60 {
+    color: rgba(37, 99, 235, 0.65) !important;
+}
+
+body.light .text-blue-400\/80 {
+    color: rgba(37, 99, 235, 0.82) !important;
+}
+
+body.light .text-blue-500 {
+    color: #2563EB !important;
+}
+
+body.light .text-purple-100,
+body.light .text-purple-300 {
+    color: #7C3AED !important;
+}
+
+body.light .text-purple-400 {
+    color: #6D28D9 !important;
+}
+
+body.light .text-purple-400\/50 {
+    color: rgba(109, 40, 217, 0.55) !important;
+}
+
+body.light .text-purple-400\/80 {
+    color: rgba(109, 40, 217, 0.82) !important;
+}
+
+body.light .text-purple-500 {
+    color: #7C3AED !important;
+}
+
+body.light .text-orange-200,
+body.light .text-orange-300 {
+    color: #C2410C !important;
+}
+
+body.light .text-orange-400 {
+    color: #EA580C !important;
+}
+
+body.light .text-orange-400\/80 {
+    color: rgba(234, 88, 12, 0.82) !important;
+}
+
+body.light .text-orange-500 {
+    color: #EA580C !important;
+}
+
+body.light .text-cyan-100,
+body.light .text-cyan-200,
+body.light .text-cyan-300 {
+    color: #0891B2 !important;
+}
+
+body.light .text-cyan-400,
+body.light .text-cyan-600 {
+    color: #0E7490 !important;
+}
+
+body.light .text-cyan-400\/80 {
+    color: rgba(14, 116, 144, 0.82) !important;
+}
+
+body.light .text-pink-300,
+body.light .text-pink-400 {
+    color: #BE185D !important;
+}
+
+body.light .text-pink-600\/50 {
+    color: rgba(190, 24, 93, 0.55) !important;
+}
+
+body.light .text-amber-200,
+body.light .text-amber-300 {
+    color: #B45309 !important;
+}
+
+body.light .text-amber-200\/80 {
+    color: rgba(180, 83, 9, 0.82) !important;
+}
+
+body.light .text-amber-400,
+body.light .text-amber-500 {
+    color: #92400E !important;
+}
+
+body.light .text-amber-400\/80 {
+    color: rgba(146, 64, 14, 0.82) !important;
+}
+
+body.light .text-amber-500\/70 {
+    color: rgba(146, 64, 14, 0.72) !important;
+}
+
+body.light .text-red-200,
+body.light .text-red-300 {
+    color: #DC2626 !important;
+}
+
+body.light .text-red-400 {
+    color: #B91C1C !important;
+}
+
+body.light .text-yellow-300,
+body.light .text-yellow-400 {
+    color: #A16207 !important;
+}
+
+body.light .text-yellow-500 {
+    color: #854D0E !important;
+}
+
+body.light .text-green-300,
+body.light .text-green-400 {
+    color: #15803D !important;
+}
+
+body.light .text-green-500 {
+    color: #166534 !important;
+}
+
+body.light .text-indigo-300,
+body.light .text-indigo-400 {
+    color: #4338CA !important;
+}
+
+body.light .text-teal-300,
+body.light .text-teal-400 {
+    color: #0F766E !important;
+}
+
+body.light .text-teal-400\/80 {
+    color: rgba(15, 118, 110, 0.82) !important;
+}
+
+/* --- Accent Borders (use Tailwind *-200 for subtlety) --- */
+body.light [class*="border-emerald-"] {
+    border-color: #A7F3D0 !important;
+}
+
+body.light [class*="border-blue-"] {
+    border-color: #BFDBFE !important;
+}
+
+body.light [class*="border-purple-"] {
+    border-color: #DDD6FE !important;
+}
+
+body.light [class*="border-orange-"] {
+    border-color: #FED7AA !important;
+}
+
+body.light [class*="border-cyan-"] {
+    border-color: #A5F3FC !important;
+}
+
+body.light [class*="border-pink-"] {
+    border-color: #FBCFE8 !important;
+}
+
+body.light [class*="border-red-"] {
+    border-color: #FECACA !important;
+}
+
+body.light [class*="border-amber-"] {
+    border-color: #FDE68A !important;
+}
+
+body.light [class*="border-yellow-"] {
+    border-color: #FEF08A !important;
+}
+
+body.light [class*="border-green-"] {
+    border-color: #BBF7D0 !important;
+}
+
+body.light [class*="border-indigo-"] {
+    border-color: #C7D2FE !important;
+}
+
+body.light [class*="border-teal-"] {
+    border-color: #99F6E4 !important;
+}
+
+/* --- Hover Accent Backgrounds (use Tailwind *-100) --- */
+body.light [class*="hover\:bg-emerald-"]:hover {
+    background-color: #D1FAE5 !important;
+}
+
+body.light [class*="hover\:bg-blue-"]:hover {
+    background-color: #DBEAFE !important;
+}
+
+body.light [class*="hover\:bg-purple-"]:hover {
+    background-color: #EDE9FE !important;
+}
+
+body.light [class*="hover\:bg-orange-"]:hover {
+    background-color: #FFEDD5 !important;
+}
+
+body.light [class*="hover\:bg-cyan-"]:hover {
+    background-color: #CFFAFE !important;
+}
+
+body.light [class*="hover\:bg-pink-"]:hover {
+    background-color: #FCE7F3 !important;
+}
+
+body.light [class*="hover\:bg-red-"]:hover {
+    background-color: #FEE2E2 !important;
+}
+
+body.light [class*="hover\:bg-amber-"]:hover {
+    background-color: #FEF3C7 !important;
+}
+
+body.light [class*="hover\:bg-teal-"]:hover {
+    background-color: #CCFBF1 !important;
+}
+
+body.light [class*="hover\:bg-green-"]:hover {
+    background-color: #DCFCE7 !important;
+}
+
+/* --- Hover Accent Text --- */
+body.light .hover\:text-emerald-300:hover,
+body.light .hover\:text-emerald-400:hover,
+body.light .hover\:text-emerald-500:hover {
+    color: #047857 !important;
+}
+
+body.light .hover\:text-blue-300:hover,
+body.light .hover\:text-blue-400:hover {
+    color: #1D4ED8 !important;
+}
+
+body.light .hover\:text-purple-200:hover,
+body.light .hover\:text-purple-300:hover,
+body.light .hover\:text-purple-400:hover {
+    color: #6D28D9 !important;
+}
+
+body.light .hover\:text-orange-300:hover,
+body.light .hover\:text-orange-400:hover {
+    color: #C2410C !important;
+}
+
+body.light .hover\:text-cyan-300:hover,
+body.light .hover\:text-cyan-400:hover {
+    color: #0E7490 !important;
+}
+
+body.light .hover\:text-red-300:hover,
+body.light .hover\:text-red-400:hover {
+    color: #B91C1C !important;
+}
+
+body.light .hover\:text-amber-400:hover {
+    color: #92400E !important;
+}
+
+body.light .hover\:text-teal-300:hover,
+body.light .hover\:text-teal-400:hover,
+body.light .hover\:text-teal-500:hover {
+    color: #0F766E !important;
+}
+
+body.light .hover\:text-green-300:hover {
+    color: #15803D !important;
+}
+
+/* --- Solid Buttons: keep white text --- */
+body.light .bg-emerald-600,
+body.light .bg-emerald-500,
+body.light .bg-blue-600,
+body.light .bg-blue-500,
+body.light .bg-red-600,
+body.light .bg-red-500,
+body.light .bg-purple-600,
+body.light .bg-purple-500,
+body.light .bg-pink-700,
+body.light .bg-pink-600,
+body.light .bg-orange-600,
+body.light .bg-orange-500,
+body.light .bg-cyan-600,
+body.light .bg-cyan-500,
+body.light .bg-amber-600,
+body.light .bg-amber-500,
+body.light .bg-green-600,
+body.light .bg-green-500,
+body.light .bg-teal-500,
+body.light .bg-yellow-500,
+body.light .bg-cyan-500\/80,
+body.light .bg-red-600\/80 {
+    color: #FFFFFF !important;
+}
+
+/* --- Focus --- */
+body.light [class*="focus\:border-emerald"] {
+    border-color: #059669 !important;
+}
+
+body.light [class*="focus\:border-blue"] {
+    border-color: #2563EB !important;
+}
+
+body.light [class*="focus\:border-purple"] {
+    border-color: #7C3AED !important;
+}
+
+body.light [class*="focus\:border-cyan"] {
+    border-color: #0891B2 !important;
+}
+
+body.light [class*="focus\:border-orange"] {
+    border-color: #EA580C !important;
+}
+
+body.light [class*="focus\:border-pink"] {
+    border-color: #DB2777 !important;
+}
+
+body.light [class*="focus\:border-teal"] {
+    border-color: #0D9488 !important;
+}
+
+body.light [class*="focus\:border-amber"] {
+    border-color: #D97706 !important;
+}
+
+body.light [class*="focus\:ring-emerald"] {
+    --tw-ring-color: rgba(5, 150, 105, 0.35) !important;
+}
+
+body.light [class*="focus\:ring-cyan"] {
+    --tw-ring-color: rgba(8, 145, 178, 0.35) !important;
+}
+
+body.light [class*="focus\:ring-purple"] {
+    --tw-ring-color: rgba(124, 58, 237, 0.35) !important;
+}
+
+body.light [class*="focus\:ring-orange"] {
+    --tw-ring-color: rgba(234, 88, 12, 0.35) !important;
+}
+
+body.light [class*="focus\:ring-green"] {
+    --tw-ring-color: rgba(22, 163, 74, 0.35) !important;
+}
+
+body.light [class*="focus\:ring-teal"] {
+    --tw-ring-color: rgba(13, 148, 136, 0.35) !important;
+}
+
+/* --- Scrollbar --- */
+body.light ::-webkit-scrollbar-track {
+    background: #F1F5F9;
+}
+
+body.light ::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+}
+
+body.light ::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+}
+
+
+/* ═══════════════════════════════════════════
+   🌿  EYE-CARE MODE
+   Warm Parchment: #F5F0E8 + #3D3426
+   参考 Bakery/Cafe (#92400E) + warm neutrals
+   ═══════════════════════════════════════════ */
+
+/* --- Backgrounds ---
+   zinc-950 → 主背景 #F5F0E8 (暖白纸色)
+   zinc-900 → 次要面板 #EDE7DC
+   zinc-800 → 卡片 #E0D8CA
+   zinc-700 → 分隔 #D1C7B5
+   zinc-600 → 强调 #B8AD98
+   zinc-500 → 禁用 #9A8E7A
+*/
+body.eye-care .bg-zinc-950 {
+    background-color: #F5F0E8 !important;
+}
+
+body.eye-care .bg-zinc-950\/95 {
+    background-color: rgba(245, 240, 232, 0.97) !important;
+}
+
+body.eye-care .bg-zinc-950\/80 {
+    background-color: rgba(245, 240, 232, 0.85) !important;
+}
+
+body.eye-care .bg-zinc-950\/50 {
+    background-color: rgba(245, 240, 232, 0.6) !important;
+}
+
+body.eye-care .bg-zinc-950\/40 {
+    background-color: rgba(245, 240, 232, 0.5) !important;
+}
+
+body.eye-care .bg-zinc-950\/30 {
+    background-color: rgba(245, 240, 232, 0.4) !important;
+}
+
+body.eye-care .bg-zinc-900 {
+    background-color: #EDE7DC !important;
+}
+
+body.eye-care .bg-zinc-900\/95 {
+    background-color: rgba(237, 231, 220, 0.96) !important;
+}
+
+body.eye-care .bg-zinc-900\/90 {
+    background-color: rgba(237, 231, 220, 0.92) !important;
+}
+
+body.eye-care .bg-zinc-900\/80 {
+    background-color: rgba(237, 231, 220, 0.85) !important;
+}
+
+body.eye-care .bg-zinc-900\/60 {
+    background-color: rgba(237, 231, 220, 0.65) !important;
+}
+
+body.eye-care .bg-zinc-900\/50 {
+    background-color: rgba(237, 231, 220, 0.55) !important;
+}
+
+body.eye-care .bg-zinc-900\/30 {
+    background-color: rgba(237, 231, 220, 0.35) !important;
+}
+
+body.eye-care .bg-zinc-800 {
+    background-color: #E0D8CA !important;
+}
+
+body.eye-care .bg-zinc-800\/80 {
+    background-color: rgba(224, 216, 202, 0.85) !important;
+}
+
+body.eye-care .bg-zinc-800\/60 {
+    background-color: rgba(224, 216, 202, 0.65) !important;
+}
+
+body.eye-care .bg-zinc-800\/50 {
+    background-color: rgba(224, 216, 202, 0.55) !important;
+}
+
+body.eye-care .bg-zinc-800\/40 {
+    background-color: rgba(224, 216, 202, 0.45) !important;
+}
+
+body.eye-care .bg-zinc-800\/30 {
+    background-color: rgba(224, 216, 202, 0.35) !important;
+}
+
+body.eye-care .bg-zinc-700 {
+    background-color: #D1C7B5 !important;
+}
+
+body.eye-care .bg-zinc-700\/80 {
+    background-color: rgba(209, 199, 181, 0.85) !important;
+}
+
+body.eye-care .bg-zinc-700\/60 {
+    background-color: rgba(209, 199, 181, 0.65) !important;
+}
+
+body.eye-care .bg-zinc-700\/50 {
+    background-color: rgba(209, 199, 181, 0.55) !important;
+}
+
+body.eye-care .bg-zinc-600 {
+    background-color: #B8AD98 !important;
+}
+
+body.eye-care .bg-zinc-500 {
+    background-color: #9A8E7A !important;
+}
+
+body.eye-care .bg-black {
+    background-color: #F5F0E8 !important;
+}
+
+body.eye-care .bg-black\/50 {
+    background-color: rgba(245, 240, 232, 0.6) !important;
+}
+
+/* --- Text ---
+   zinc-100 → 主文字 #3D3426 (深棕)
+   zinc-200 → 副标题 #4A3F30
+   zinc-300 → 正文 #5C5040
+   zinc-400 → 次要 #7A6D5A
+   zinc-500 → 辅助 #9A8E7A
+   zinc-600 → 禁用 #B8AD98
+   white → 标题 #2C2418
+*/
+body.eye-care .text-white {
+    color: #2C2418 !important;
+}
+
+body.eye-care .text-zinc-100 {
+    color: #3D3426 !important;
+}
+
+body.eye-care .text-zinc-100\/80 {
+    color: rgba(61, 52, 38, 0.82) !important;
+}
+
+body.eye-care .text-zinc-200 {
+    color: #4A3F30 !important;
+}
+
+body.eye-care .text-zinc-300 {
+    color: #5C5040 !important;
+}
+
+body.eye-care .text-zinc-400 {
+    color: #7A6D5A !important;
+}
+
+body.eye-care .text-zinc-400\/80 {
+    color: rgba(122, 109, 90, 0.82) !important;
+}
+
+body.eye-care .text-zinc-500 {
+    color: #9A8E7A !important;
+}
+
+body.eye-care .text-zinc-600 {
+    color: #B8AD98 !important;
+}
+
+/* --- Borders --- */
+body.eye-care .border-zinc-800 {
+    border-color: #E0D8CA !important;
+}
+
+body.eye-care .border-zinc-800\/70 {
+    border-color: rgba(224, 216, 202, 0.75) !important;
+}
+
+body.eye-care .border-zinc-800\/50 {
+    border-color: rgba(224, 216, 202, 0.55) !important;
+}
+
+body.eye-care .border-zinc-800\/30 {
+    border-color: rgba(224, 216, 202, 0.35) !important;
+}
+
+body.eye-care .border-zinc-700 {
+    border-color: #D1C7B5 !important;
+}
+
+body.eye-care .border-zinc-700\/60 {
+    border-color: rgba(209, 199, 181, 0.65) !important;
+}
+
+body.eye-care .border-zinc-700\/50 {
+    border-color: rgba(209, 199, 181, 0.55) !important;
+}
+
+body.eye-care .border-zinc-700\/40 {
+    border-color: rgba(209, 199, 181, 0.45) !important;
+}
+
+body.eye-care .border-zinc-700\/30 {
+    border-color: rgba(209, 199, 181, 0.35) !important;
+}
+
+body.eye-care .border-zinc-700\/20 {
+    border-color: rgba(209, 199, 181, 0.25) !important;
+}
+
+body.eye-care .border-zinc-600 {
+    border-color: #B8AD98 !important;
+}
+
+body.eye-care .border-zinc-600\/50 {
+    border-color: rgba(184, 173, 152, 0.55) !important;
+}
+
+body.eye-care .border-zinc-500 {
+    border-color: #9A8E7A !important;
+}
+
+/* --- Hover Backgrounds --- */
+body.eye-care .hover\:bg-zinc-800:hover {
+    background-color: #E0D8CA !important;
+}
+
+body.eye-care .hover\:bg-zinc-800\/70:hover {
+    background-color: rgba(224, 216, 202, 0.75) !important;
+}
+
+body.eye-care .hover\:bg-zinc-800\/60:hover {
+    background-color: rgba(224, 216, 202, 0.65) !important;
+}
+
+body.eye-care .hover\:bg-zinc-800\/50:hover {
+    background-color: rgba(224, 216, 202, 0.55) !important;
+}
+
+body.eye-care .hover\:bg-zinc-800\/30:hover {
+    background-color: rgba(224, 216, 202, 0.35) !important;
+}
+
+body.eye-care .hover\:bg-zinc-700:hover {
+    background-color: #D1C7B5 !important;
+}
+
+body.eye-care .hover\:bg-zinc-700\/60:hover {
+    background-color: rgba(209, 199, 181, 0.65) !important;
+}
+
+body.eye-care .hover\:bg-zinc-700\/50:hover {
+    background-color: rgba(209, 199, 181, 0.55) !important;
+}
+
+body.eye-care .hover\:bg-zinc-700\/40:hover {
+    background-color: rgba(209, 199, 181, 0.45) !important;
+}
+
+body.eye-care .hover\:bg-zinc-700\/30:hover {
+    background-color: rgba(209, 199, 181, 0.35) !important;
+}
+
+body.eye-care .hover\:bg-zinc-600:hover {
+    background-color: #B8AD98 !important;
+}
+
+body.eye-care .hover\:bg-zinc-600\/50:hover {
+    background-color: rgba(184, 173, 152, 0.55) !important;
+}
+
+body.eye-care .hover\:bg-zinc-500:hover {
+    background-color: #9A8E7A !important;
+}
+
+/* --- Hover Text --- */
+body.eye-care .hover\:text-zinc-100:hover {
+    color: #3D3426 !important;
+}
+
+body.eye-care .hover\:text-zinc-200:hover {
+    color: #4A3F30 !important;
+}
+
+body.eye-care .hover\:text-zinc-300:hover {
+    color: #5C5040 !important;
+}
+
+body.eye-care .hover\:text-zinc-400:hover {
+    color: #7A6D5A !important;
+}
+
+body.eye-care .hover\:text-white:hover {
+    color: #2C2418 !important;
+}
+
+/* --- Placeholder --- */
+body.eye-care .placeholder\:text-zinc-600::placeholder {
+    color: #9A8E7A !important;
+}
+
+body.eye-care .placeholder\:text-zinc-500\/80::placeholder {
+    color: rgba(122, 109, 90, 0.7) !important;
+}
+
+/* --- Divide / Ring --- */
+body.eye-care .divide-zinc-800> :not([hidden])~ :not([hidden]) {
+    border-color: #E0D8CA !important;
+}
+
+body.eye-care .divide-zinc-700> :not([hidden])~ :not([hidden]) {
+    border-color: #D1C7B5 !important;
+}
+
+body.eye-care .ring-zinc-700 {
+    --tw-ring-color: #D1C7B5 !important;
+}
+
+body.eye-care .ring-zinc-800 {
+    --tw-ring-color: #E0D8CA !important;
+}
+
+/* --- Accent Backgrounds (warm tinted) --- */
+body.eye-care .bg-emerald-500\/20,
+body.eye-care .bg-emerald-500\/10,
+body.eye-care .bg-emerald-900\/20,
+body.eye-care .bg-emerald-900\/30,
+body.eye-care .bg-emerald-900\/40,
+body.eye-care .bg-emerald-800\/30,
+body.eye-care .bg-emerald-700\/20,
+body.eye-care .bg-emerald-400\/10,
+body.eye-care .bg-emerald-600\/20 {
+    background-color: #E8F0E2 !important;
+}
+
+body.eye-care .bg-blue-500\/20,
+body.eye-care .bg-blue-500\/30,
+body.eye-care .bg-blue-900\/20,
+body.eye-care .bg-blue-900\/30,
+body.eye-care .bg-blue-900\/40,
+body.eye-care .bg-blue-600\/20 {
+    background-color: #E4EBF0 !important;
+}
+
+body.eye-care .bg-purple-500\/10,
+body.eye-care .bg-purple-500\/20,
+body.eye-care .bg-purple-600\/20,
+body.eye-care .bg-purple-600\/30,
+body.eye-care .bg-purple-600\/40,
+body.eye-care .bg-purple-900\/20,
+body.eye-care .bg-purple-900\/30,
+body.eye-care .bg-purple-950\/20 {
+    background-color: #EBE5F0 !important;
+}
+
+body.eye-care .bg-orange-500\/20,
+body.eye-care .bg-orange-600\/20,
+body.eye-care .bg-orange-900\/20,
+body.eye-care .bg-orange-900\/30,
+body.eye-care .bg-orange-900\/50 {
+    background-color: #F0E8DC !important;
+}
+
+body.eye-care .bg-cyan-500\/5,
+body.eye-care .bg-cyan-500\/20,
+body.eye-care .bg-cyan-500\/30,
+body.eye-care .bg-cyan-500\/40,
+body.eye-care .bg-cyan-600\/20,
+body.eye-care .bg-cyan-600\/30,
+body.eye-care .bg-cyan-700\/30,
+body.eye-care .bg-cyan-900\/20,
+body.eye-care .bg-cyan-900\/30,
+body.eye-care .bg-cyan-900\/40,
+body.eye-care .bg-cyan-900\/50,
+body.eye-care .bg-cyan-950\/20,
+body.eye-care .bg-cyan-950\/30 {
+    background-color: #E2EBE8 !important;
+}
+
+body.eye-care .bg-pink-500\/20,
+body.eye-care .bg-pink-600\/20,
+body.eye-care .bg-pink-600\/30,
+body.eye-care .bg-pink-900\/20,
+body.eye-care .bg-pink-900\/30 {
+    background-color: #F0E5E8 !important;
+}
+
+body.eye-care .bg-red-400\/10,
+body.eye-care .bg-red-500\/10,
+body.eye-care .bg-red-500\/20,
+body.eye-care .bg-red-600\/30,
+body.eye-care .bg-red-900\/10,
+body.eye-care .bg-red-900\/20,
+body.eye-care .bg-red-900\/30,
+body.eye-care .bg-red-900\/40,
+body.eye-care .bg-red-950\/20 {
+    background-color: #F0E2E0 !important;
+}
+
+body.eye-care .bg-amber-500\/10,
+body.eye-care .bg-amber-500\/20,
+body.eye-care .bg-amber-600\/20,
+body.eye-care .bg-amber-700\/40,
+body.eye-care .bg-amber-800\/50,
+body.eye-care .bg-amber-900\/10,
+body.eye-care .bg-amber-900\/20,
+body.eye-care .bg-amber-900\/30,
+body.eye-care .bg-amber-900\/40 {
+    background-color: #F0EBDC !important;
+}
+
+body.eye-care .bg-yellow-500\/20,
+body.eye-care .bg-yellow-900\/10,
+body.eye-care .bg-yellow-900\/20,
+body.eye-care .bg-yellow-900\/30 {
+    background-color: #F0ECDC !important;
+}
+
+body.eye-care .bg-green-500\/20,
+body.eye-care .bg-green-600\/20,
+body.eye-care .bg-green-800\/40,
+body.eye-care .bg-green-900\/20,
+body.eye-care .bg-green-900\/30 {
+    background-color: #E5F0E0 !important;
+}
+
+body.eye-care .bg-indigo-500\/20 {
+    background-color: #E5E2F0 !important;
+}
+
+body.eye-care .bg-teal-500\/10,
+body.eye-care .bg-teal-500\/20,
+body.eye-care .bg-teal-600\/30,
+body.eye-care .bg-teal-600\/40 {
+    background-color: #E0EDE8 !important;
+}
+
+/* --- Accent Text (warm-shifted, 700 shade) --- */
+body.eye-care .text-emerald-200,
+body.eye-care .text-emerald-300 {
+    color: #047857 !important;
+}
+
+body.eye-care .text-emerald-400,
+body.eye-care .text-emerald-500 {
+    color: #065F46 !important;
+}
+
+body.eye-care .text-emerald-400\/60 {
+    color: rgba(6, 95, 70, 0.65) !important;
+}
+
+body.eye-care .text-blue-100,
+body.eye-care .text-blue-200,
+body.eye-care .text-blue-300 {
+    color: #1E40AF !important;
+}
+
+body.eye-care .text-blue-400,
+body.eye-care .text-blue-500 {
+    color: #1D4ED8 !important;
+}
+
+body.eye-care .text-blue-400\/60 {
+    color: rgba(29, 78, 216, 0.65) !important;
+}
+
+body.eye-care .text-blue-400\/80 {
+    color: rgba(29, 78, 216, 0.82) !important;
+}
+
+body.eye-care .text-purple-100,
+body.eye-care .text-purple-300 {
+    color: #6D28D9 !important;
+}
+
+body.eye-care .text-purple-400,
+body.eye-care .text-purple-500 {
+    color: #5B21B6 !important;
+}
+
+body.eye-care .text-purple-400\/50 {
+    color: rgba(91, 33, 182, 0.55) !important;
+}
+
+body.eye-care .text-purple-400\/80 {
+    color: rgba(91, 33, 182, 0.82) !important;
+}
+
+body.eye-care .text-orange-200,
+body.eye-care .text-orange-300 {
+    color: #9A3412 !important;
+}
+
+body.eye-care .text-orange-400,
+body.eye-care .text-orange-500 {
+    color: #C2410C !important;
+}
+
+body.eye-care .text-orange-400\/80 {
+    color: rgba(194, 65, 12, 0.82) !important;
+}
+
+body.eye-care .text-cyan-100,
+body.eye-care .text-cyan-200,
+body.eye-care .text-cyan-300 {
+    color: #0E7490 !important;
+}
+
+body.eye-care .text-cyan-400,
+body.eye-care .text-cyan-600 {
+    color: #155E75 !important;
+}
+
+body.eye-care .text-cyan-400\/80 {
+    color: rgba(21, 94, 117, 0.82) !important;
+}
+
+body.eye-care .text-pink-300,
+body.eye-care .text-pink-400 {
+    color: #9D174D !important;
+}
+
+body.eye-care .text-pink-600\/50 {
+    color: rgba(157, 23, 77, 0.55) !important;
+}
+
+body.eye-care .text-amber-200,
+body.eye-care .text-amber-300 {
+    color: #92400E !important;
+}
+
+body.eye-care .text-amber-200\/80 {
+    color: rgba(146, 64, 14, 0.82) !important;
+}
+
+body.eye-care .text-amber-400,
+body.eye-care .text-amber-500 {
+    color: #78350F !important;
+}
+
+body.eye-care .text-amber-400\/80 {
+    color: rgba(120, 53, 15, 0.82) !important;
+}
+
+body.eye-care .text-amber-500\/70 {
+    color: rgba(120, 53, 15, 0.72) !important;
+}
+
+body.eye-care .text-red-200,
+body.eye-care .text-red-300 {
+    color: #B91C1C !important;
+}
+
+body.eye-care .text-red-400 {
+    color: #991B1B !important;
+}
+
+body.eye-care .text-yellow-300,
+body.eye-care .text-yellow-400 {
+    color: #854D0E !important;
+}
+
+body.eye-care .text-yellow-500 {
+    color: #713F12 !important;
+}
+
+body.eye-care .text-green-300,
+body.eye-care .text-green-400 {
+    color: #15803D !important;
+}
+
+body.eye-care .text-green-500 {
+    color: #166534 !important;
+}
+
+body.eye-care .text-indigo-300,
+body.eye-care .text-indigo-400 {
+    color: #4338CA !important;
+}
+
+body.eye-care .text-teal-300,
+body.eye-care .text-teal-400 {
+    color: #0F766E !important;
+}
+
+body.eye-care .text-teal-400\/80 {
+    color: rgba(15, 118, 110, 0.82) !important;
+}
+
+/* --- Accent Borders (warm-tinted *-200) --- */
+body.eye-care [class*="border-emerald-"] {
+    border-color: #A7F3D0 !important;
+}
+
+body.eye-care [class*="border-blue-"] {
+    border-color: #BFDBFE !important;
+}
+
+body.eye-care [class*="border-purple-"] {
+    border-color: #DDD6FE !important;
+}
+
+body.eye-care [class*="border-orange-"] {
+    border-color: #FED7AA !important;
+}
+
+body.eye-care [class*="border-cyan-"] {
+    border-color: #A5F3FC !important;
+}
+
+body.eye-care [class*="border-pink-"] {
+    border-color: #FBCFE8 !important;
+}
+
+body.eye-care [class*="border-red-"] {
+    border-color: #FECACA !important;
+}
+
+body.eye-care [class*="border-amber-"] {
+    border-color: #FDE68A !important;
+}
+
+body.eye-care [class*="border-yellow-"] {
+    border-color: #FEF08A !important;
+}
+
+body.eye-care [class*="border-green-"] {
+    border-color: #BBF7D0 !important;
+}
+
+body.eye-care [class*="border-indigo-"] {
+    border-color: #C7D2FE !important;
+}
+
+body.eye-care [class*="border-teal-"] {
+    border-color: #99F6E4 !important;
+}
+
+/* --- Hover Accent Backgrounds --- */
+body.eye-care [class*="hover\:bg-emerald-"]:hover {
+    background-color: #D1FAE5 !important;
+}
+
+body.eye-care [class*="hover\:bg-blue-"]:hover {
+    background-color: #DBEAFE !important;
+}
+
+body.eye-care [class*="hover\:bg-purple-"]:hover {
+    background-color: #EDE9FE !important;
+}
+
+body.eye-care [class*="hover\:bg-orange-"]:hover {
+    background-color: #FFEDD5 !important;
+}
+
+body.eye-care [class*="hover\:bg-cyan-"]:hover {
+    background-color: #CFFAFE !important;
+}
+
+body.eye-care [class*="hover\:bg-pink-"]:hover {
+    background-color: #FCE7F3 !important;
+}
+
+body.eye-care [class*="hover\:bg-red-"]:hover {
+    background-color: #FEE2E2 !important;
+}
+
+body.eye-care [class*="hover\:bg-amber-"]:hover {
+    background-color: #FEF3C7 !important;
+}
+
+body.eye-care [class*="hover\:bg-teal-"]:hover {
+    background-color: #CCFBF1 !important;
+}
+
+body.eye-care [class*="hover\:bg-green-"]:hover {
+    background-color: #DCFCE7 !important;
+}
+
+/* --- Hover Accent Text --- */
+body.eye-care .hover\:text-emerald-300:hover,
+body.eye-care .hover\:text-emerald-400:hover,
+body.eye-care .hover\:text-emerald-500:hover {
+    color: #065F46 !important;
+}
+
+body.eye-care .hover\:text-blue-300:hover,
+body.eye-care .hover\:text-blue-400:hover {
+    color: #1E40AF !important;
+}
+
+body.eye-care .hover\:text-purple-200:hover,
+body.eye-care .hover\:text-purple-300:hover,
+body.eye-care .hover\:text-purple-400:hover {
+    color: #5B21B6 !important;
+}
+
+body.eye-care .hover\:text-orange-300:hover,
+body.eye-care .hover\:text-orange-400:hover {
+    color: #9A3412 !important;
+}
+
+body.eye-care .hover\:text-cyan-300:hover,
+body.eye-care .hover\:text-cyan-400:hover {
+    color: #155E75 !important;
+}
+
+body.eye-care .hover\:text-red-300:hover,
+body.eye-care .hover\:text-red-400:hover {
+    color: #991B1B !important;
+}
+
+body.eye-care .hover\:text-amber-400:hover {
+    color: #78350F !important;
+}
+
+body.eye-care .hover\:text-teal-300:hover,
+body.eye-care .hover\:text-teal-400:hover,
+body.eye-care .hover\:text-teal-500:hover {
+    color: #0F766E !important;
+}
+
+body.eye-care .hover\:text-green-300:hover {
+    color: #15803D !important;
+}
+
+/* --- Solid Buttons: keep white text --- */
+body.eye-care .bg-emerald-600,
+body.eye-care .bg-emerald-500,
+body.eye-care .bg-blue-600,
+body.eye-care .bg-blue-500,
+body.eye-care .bg-red-600,
+body.eye-care .bg-red-500,
+body.eye-care .bg-purple-600,
+body.eye-care .bg-purple-500,
+body.eye-care .bg-pink-700,
+body.eye-care .bg-pink-600,
+body.eye-care .bg-orange-600,
+body.eye-care .bg-orange-500,
+body.eye-care .bg-cyan-600,
+body.eye-care .bg-cyan-500,
+body.eye-care .bg-amber-600,
+body.eye-care .bg-amber-500,
+body.eye-care .bg-green-600,
+body.eye-care .bg-green-500,
+body.eye-care .bg-teal-500,
+body.eye-care .bg-yellow-500,
+body.eye-care .bg-cyan-500\/80,
+body.eye-care .bg-red-600\/80 {
+    color: #FFFFFF !important;
+}
+
+/* --- Focus --- */
+body.eye-care [class*="focus\:border-emerald"] {
+    border-color: #047857 !important;
+}
+
+body.eye-care [class*="focus\:border-blue"] {
+    border-color: #1D4ED8 !important;
+}
+
+body.eye-care [class*="focus\:border-purple"] {
+    border-color: #6D28D9 !important;
+}
+
+body.eye-care [class*="focus\:border-cyan"] {
+    border-color: #0E7490 !important;
+}
+
+body.eye-care [class*="focus\:border-orange"] {
+    border-color: #C2410C !important;
+}
+
+body.eye-care [class*="focus\:border-pink"] {
+    border-color: #9D174D !important;
+}
+
+body.eye-care [class*="focus\:border-teal"] {
+    border-color: #0D9488 !important;
+}
+
+body.eye-care [class*="focus\:border-amber"] {
+    border-color: #B45309 !important;
+}
+
+body.eye-care [class*="focus\:ring-emerald"] {
+    --tw-ring-color: rgba(4, 120, 87, 0.35) !important;
+}
+
+body.eye-care [class*="focus\:ring-cyan"] {
+    --tw-ring-color: rgba(14, 116, 144, 0.35) !important;
+}
+
+body.eye-care [class*="focus\:ring-purple"] {
+    --tw-ring-color: rgba(109, 40, 217, 0.35) !important;
+}
+
+body.eye-care [class*="focus\:ring-orange"] {
+    --tw-ring-color: rgba(194, 65, 12, 0.35) !important;
+}
+
+body.eye-care [class*="focus\:ring-green"] {
+    --tw-ring-color: rgba(22, 163, 74, 0.35) !important;
+}
+
+body.eye-care [class*="focus\:ring-teal"] {
+    --tw-ring-color: rgba(13, 148, 136, 0.35) !important;
+}
+
+/* --- Scrollbar --- */
+body.eye-care ::-webkit-scrollbar-track {
+    background: #EDE7DC;
+}
+
+body.eye-care ::-webkit-scrollbar-thumb {
+    background: #D1C7B5;
+}
+
+body.eye-care ::-webkit-scrollbar-thumb:hover {
+    background: #B8AD98;
+}

@@ -109,6 +109,30 @@ export interface ImageItem {
     lastTranslatedSelection?: string; // 上次选中翻译的结果
     // 多图融合：卡片内的额外融合图片
     fusionImages?: FusionSubImage[]; // 融合子图列表
+    // 维度覆盖：每个维度选择使用哪张参考图（维度名 → RefImage.id）
+    overrideRefSelections?: Record<string, string>;
+    // 维度覆盖个数：每张卡片自定义覆盖个数（维度名 → 覆盖个数，不设则用全局）
+    overrideCountOverrides?: Record<string, number>;
+    // 维度文字覆盖：每张卡片手动输入覆盖值（维度名 → 覆盖文本）
+    overrideTextOverrides?: Record<string, string>;
+    // 卡片级参考图配置：每张图对应一个维度+提取指令+覆盖个数
+    refImageConfigs?: RefImageConfig[];
+    // AI 对话记录：记录发送给 AI 的完整 prompt 和 AI 的回复
+    aiConversationLog?: Array<{
+        timestamp: number;
+        prompt: string;       // 发送给 AI 的完整 prompt
+        response: string;     // AI 的原始回复
+        label?: string;       // 可选标签（如 "原始描述" "创新第1轮" 等）
+        imageSource?: string;  // 图片来源标记: 'main' | 'ref:维度名' | 'fusion:N'，用于在UI中显示发送的图片
+    }>;
+}
+
+// 卡片内每张参考图的配置
+export interface RefImageConfig {
+    imageIndex: number;       // 0=主图, 1+=融合图序号
+    dimName: string;          // 提取哪个维度
+    extractPrompt?: string;   // 提取指令
+    overrideCount?: number;   // 覆盖个数（0=全部）
 }
 
 export interface Preset {
@@ -134,6 +158,16 @@ export interface RecognitionTab {
     createdAt: number;
     // 快捷创新模式：每个标签页独立的随机库配置
     randomLibraryConfig?: import('./services/randomLibraryService').RandomLibraryConfig;
+    // 标签页独立配置
+    workMode?: WorkMode;
+    viewMode?: 'grid' | 'list' | 'compact';
+    creativeCount?: number;
+    creativeResults?: CreativeResult[];
+    creativeInstruction?: string;
+    needOriginalDesc?: boolean;
+    batchAdvancedMode?: boolean;
+    originalDescPresetId?: string;
+    pureReplyMode?: boolean;
 }
 
 export interface ImageRecognitionState {
@@ -159,6 +193,7 @@ export interface ImageRecognitionState {
     creativeResults?: CreativeResult[]; // 创新模式：所有图片的创新结果
     creativeInstruction?: string; // 创新模式：自定义创新指令
     needOriginalDesc?: boolean; // 创新模式：是否需要先获取原始描述词（开启则两步流程，关闭则直接创新）
+    batchAdvancedMode?: boolean; // 创新模式：高级模式合并调用（true=将所有随机组合合并为一次API调用）
     originalDescPresetId?: string; // 创新模式：用于获取原始描述的预设ID（默认使用 ai提示词-1）
 }
 
@@ -236,6 +271,16 @@ export const createDefaultTab = (name: string = '标签页 1'): RecognitionTab =
     globalInnovationRounds: 1,
     isProcessing: false,
     createdAt: Date.now(),
+    // 标签页独立配置默认值
+    workMode: 'standard',
+    viewMode: 'list',
+    creativeCount: 4,
+    creativeResults: [],
+    creativeInstruction: '',
+    needOriginalDesc: false,
+    batchAdvancedMode: false,
+    originalDescPresetId: '1',
+    pureReplyMode: false,
 });
 
 const defaultTab = createDefaultTab();
@@ -263,4 +308,3 @@ export const initialImageRecognitionState: ImageRecognitionState = {
     creativeResults: [],
     creativeInstruction: '',
 };
-

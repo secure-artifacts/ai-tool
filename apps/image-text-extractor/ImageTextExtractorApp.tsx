@@ -24,6 +24,12 @@ interface ImageItem {
     sourceType: 'file' | 'url' | 'formula';
 }
 
+interface BilingualResult {
+    original: string;
+    chinese: string;
+    error?: string;
+}
+
 const MODEL_OPTIONS = [
     { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash（推荐，速度快）' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（稳定）' },
@@ -407,6 +413,35 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
         return { original: raw.trim(), chinese: '' };
     };
 
+    const hasChinese = (text: string): boolean => /[\u4e00-\u9fff]/.test(text);
+    const firstNonEmptyLine = (text: string): string =>
+        text.split(/\r?\n/).map(line => line.trim()).find(Boolean) || '';
+    const normalizeLine = (text: string): string =>
+        text
+            .trim()
+            .replace(/\s+/g, ' ')
+            .replace(/[“”‘’'"`]/g, '')
+            .replace(/[—–]/g, '-')
+            .toLowerCase();
+
+    const needsChineseRepair = (original: string, chinese: string): boolean => {
+        const orig = (original || '').trim();
+        const cn = (chinese || '').trim();
+        if (!orig) return false;
+        if (!cn) return true;
+
+        const originalHasLatin = /[A-Za-z]/.test(orig);
+        if (!originalHasLatin) return false;
+
+        if (!hasChinese(cn)) return true;
+
+        const origFirst = firstNonEmptyLine(orig);
+        const cnFirst = firstNonEmptyLine(cn);
+        if (!origFirst || !cnFirst) return false;
+
+        return normalizeLine(origFirst) === normalizeLine(cnFirst);
+    };
+
     // 带重试的 API 调用
     const retryWithBackoff = async <T,>(
         fn: () => Promise<T>,
@@ -441,8 +476,8 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
     // 批量处理多张图片（合并成一次 API 请求，带自动重试）
     const processImagesBatch = async (
         items: ImageItem[]
-    ): Promise<Map<string, { original: string; chinese: string; error?: string }>> => {
-        const resultMap = new Map<string, { original: string; chinese: string; error?: string }>();
+    ): Promise<Map<string, BilingualResult>> => {
+        const resultMap = new Map<string, BilingualResult>();
 
         // 过滤掉没有 base64 数据的
         const validItems = items.filter(item => item.base64Data && item.mimeType);
@@ -496,6 +531,7 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
 - 只提取中间前景区域的文字，忽略外围背景
 - 如果前景区域有标题，先输出标题再输出正文
 - 中文翻译要自然流畅，保持与原文对应的段落结构
+- ===CHINESE=== 必须完整翻译 ===ORIGINAL=== 的所有行（包含标题行），不能漏翻标题
 - 如果原文是中文，===CHINESE=== 部分直接原样输出即可`
             });
 
@@ -536,6 +572,73 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
             const successCount = Array.from(resultMap.values()).filter(r => !r.error).length;
             if (successCount < validItems.length * 0.5) {
                 console.warn(`[ITE Batch] 只成功解析 ${successCount}/${validItems.length} 张`);
+            }
+
+            // 二次兜底：如果检测到中文缺失或标题未翻译，单独补翻该条
+            const repairTargets = validItems
+                .map((item, index) => ({ item, index, result: resultMap.get(item.id) }))
+                .filter(({ result }) => result && !result.error && needsChineseRepair(result.original, result.chinese))
+                .map(({ item, index, result }) => ({
+                    item,
+                    index,
+                    original: result!.original,
+                }));
+
+            if (repairTargets.length > 0) {
+                try {
+                    const repairPrompt = `你是专业翻译引擎。请把每段原文完整翻译为简体中文，必须翻译标题和正文，不能遗漏第一行标题。
+
+请严格按以下格式返回，不要输出任何额外说明：
+
+=== [1] ===
+（第1段完整中文翻译）
+=== [2] ===
+（第2段完整中文翻译）
+...`;
+
+                    const numberedOriginals = repairTargets
+                        .map((target, i) => `=== [${i + 1}] ===\n${target.original}`)
+                        .join('\n\n');
+
+                    const repairedText = await retryWithBackoff(
+                        async () => {
+                            const response = await ai.models.generateContent({
+                                model: model,
+                                contents: [{
+                                    role: 'user',
+                                    parts: [{ text: `${repairPrompt}\n\n${numberedOriginals}` }]
+                                }],
+                            });
+                            return response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                        },
+                        2,
+                        1500,
+                        (text) => !!text?.trim()
+                    );
+
+                    const repairSections = repairedText.split(/===\s*\[(\d+)\]\s*===/);
+                    const repairedMap = new Map<number, string>();
+                    for (let i = 1; i < repairSections.length; i += 2) {
+                        const index = parseInt(repairSections[i], 10);
+                        const content = (repairSections[i + 1] || '').trim();
+                        if (index >= 1 && content) repairedMap.set(index, content);
+                    }
+
+                    repairTargets.forEach((target, i) => {
+                        const repairedChinese = repairedMap.get(i + 1);
+                        if (repairedChinese) {
+                            const existing = resultMap.get(target.item.id);
+                            if (existing) {
+                                resultMap.set(target.item.id, {
+                                    ...existing,
+                                    chinese: repairedChinese,
+                                });
+                            }
+                        }
+                    });
+                } catch (repairErr) {
+                    console.warn('[ITE Batch] 标题补翻兜底失败:', repairErr);
+                }
             }
 
             return resultMap;

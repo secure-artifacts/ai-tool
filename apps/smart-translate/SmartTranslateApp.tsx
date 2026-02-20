@@ -280,7 +280,7 @@ const translations = {
 } as const;
 
 type Language = 'en' | 'zh';
-type Theme = 'dark' | 'light';
+type Theme = 'dark' | 'light' | 'eye-care';
 
 const ApiContext = createContext<{
     apiKey: string;
@@ -424,11 +424,16 @@ interface ThemeProviderProps {
     };
 }
 
+const SMART_TRANSLATE_THEME_CYCLE: Theme[] = ['dark', 'light', 'eye-care'];
+
 const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, external }) => {
     const [internalTheme, setInternalTheme] = useState<Theme>('dark');
     const theme = external?.theme ?? internalTheme;
     const toggleTheme = external?.toggleTheme ?? (() => {
-        setInternalTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+        setInternalTheme(prev => {
+            const idx = SMART_TRANSLATE_THEME_CYCLE.indexOf(prev);
+            return SMART_TRANSLATE_THEME_CYCLE[(idx + 1) % SMART_TRANSLATE_THEME_CYCLE.length];
+        });
     });
 
     return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
@@ -3172,7 +3177,7 @@ const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = 
                                     <button onClick={() => setLanguage('en')} className={language === 'en' ? 'active' : ''}>EN</button>
                                 </div>
                                 <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle theme">
-                                    {theme === 'dark' ? '☀️' : '🌙'}
+                                    {theme === 'dark' ? '☀️' : theme === 'light' ? '🌿' : '🌙'}
                                 </button>
                             </div>
                         </div>

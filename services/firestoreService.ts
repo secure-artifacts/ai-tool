@@ -17,7 +17,7 @@ import { db } from '@/firebase/index';
 export interface UserSettings {
     uiScale: number;
     fontScale: number;
-    theme: 'dark' | 'light';
+    theme: 'dark' | 'light' | 'eye-care';
     language: 'zh' | 'en';
     textModel: string;
     imageModel: string;

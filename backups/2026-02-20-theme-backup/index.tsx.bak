@@ -692,7 +692,7 @@ translations.en = translations.zh;
 
 
 type Language = 'en' | 'zh';
-type Theme = 'dark' | 'light' | 'eye-care';
+type Theme = 'dark' | 'light';
 
 const ApiContext = createContext<{
   apiKey: string;
@@ -734,8 +734,7 @@ const LanguageContext = createContext({
 });
 const ThemeContext = createContext({
   theme: 'dark' as Theme,
-  toggleTheme: () => { },
-  setTheme: (_t: Theme) => { }
+  toggleTheme: () => { }
 });
 
 const INTERNAL_ADMIN_SHEET_ID = '1InDrlrypvb_5xwtNCmqYIUuWL5cm7YNbBaCvJuEY9D0';
@@ -1137,25 +1136,18 @@ const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children })
   return <LanguageContext.Provider value={{ language, setLanguage, t }}>{children}</LanguageContext.Provider>;
 };
 
-const THEME_CYCLE: Theme[] = ['dark', 'light', 'eye-care'];
-
 const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>('dark');
   const toggleTheme = () => {
-    const currentIndex = THEME_CYCLE.indexOf(theme);
-    const newTheme = THEME_CYCLE[(currentIndex + 1) % THEME_CYCLE.length];
-    setThemeState(newTheme);
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
     document.body.className = newTheme;
-  };
-  const setTheme = (t: Theme) => {
-    setThemeState(t);
-    document.body.className = t;
   };
   useEffect(() => {
     document.body.className = theme;
   }, [theme]);
 
-  return <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>{children}</ThemeContext.Provider>;
+  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
 };
 
 const useApi = () => useContext(ApiContext);
@@ -7244,7 +7236,7 @@ const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string
 
 const App = () => {
   const { t, setLanguage, language } = useTranslation();
-  const { theme, toggleTheme, setTheme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const { isKeySet, getAiInstance, usePool, apiPoolStatus, apiKey, rotateApiKey } = useApi();
   const { user, signOut, loading: authLoading } = useAuth();
   const [activeTool, setActiveTool] = useState<Tool>('imageRecognition'); // 默认打开 AI 图片识别
@@ -7486,7 +7478,7 @@ const App = () => {
           cloudSyncRef.current = true; // 标记为云端加载，防止触发保存
           if (settings.uiScale) setUiScale(settings.uiScale);
           if (settings.fontScale) setFontScale(settings.fontScale);
-          if (settings.theme && settings.theme !== theme) setTheme(settings.theme);
+          if (settings.theme && settings.theme !== theme) toggleTheme();
           if (settings.language) setLanguage(settings.language);
           if (settings.textModel) setTextModel(settings.textModel);
           if (settings.imageModel) setImageModel(settings.imageModel);
@@ -8780,16 +8772,6 @@ const App = () => {
                 </button>
               </div>
 
-              {/* 主题切换按钮 */}
-              <button
-                onClick={toggleTheme}
-                className="collapsed-settings-btn tooltip-bottom"
-                data-tip={theme === 'dark' ? '切换到亮色模式' : theme === 'light' ? '切换到护眼模式' : '切换到暗色模式'}
-                style={{ fontSize: '16px' }}
-              >
-                {theme === 'dark' ? '☀️' : theme === 'light' ? '🌿' : '🌙'}
-              </button>
-
               {/* 分隔线 */}
               <div className="collapsed-divider" />
 
@@ -9271,8 +9253,8 @@ const App = () => {
               >
                 {appEdition === 'website' ? <><Globe size={14} className="inline mr-1" /> Web</> : <><Bot size={14} className="inline mr-1" /> AI</>}
               </button>
-              <button onClick={toggleTheme} className="theme-toggle tooltip-bottom" aria-label="Toggle theme" data-tip={theme === 'dark' ? '切换到亮色模式' : theme === 'light' ? '切换到护眼模式' : '切换到暗色模式'}>
-                {theme === 'dark' ? '☀️' : theme === 'light' ? '🌿' : '🌙'}
+              <button onClick={toggleTheme} className="theme-toggle" aria-label="Toggle theme">
+                {theme === 'dark' ? '☀️' : '🌙'}
               </button>
               {/* 用户登录按钮 */}
               {user ? (

@@ -108,9 +108,16 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
 
     // Google Sheets导入相关状态
     const [showSheetsImportModal, setShowSheetsImportModal] = useState(false);
-    const [sheetsUrl, setSheetsUrl] = useState('');
+    const [sheetsUrl, setSheetsUrl] = useState(() => {
+        try { return localStorage.getItem('randomLib_sheetsUrl') || ''; } catch { return ''; }
+    });
     const [sheetsImporting, setSheetsImporting] = useState(false);
-    const [sheetsImportMode, setSheetsImportMode] = useState<'merge-add' | 'merge-update' | 'replace'>('replace');
+    const [sheetsImportMode, setSheetsImportMode] = useState<'merge-add' | 'merge-update' | 'replace'>(() => {
+        try {
+            const saved = localStorage.getItem('randomLib_sheetsImportMode');
+            return (saved as 'merge-add' | 'merge-update' | 'replace') || 'replace';
+        } catch { return 'replace'; }
+    });
 
     // 多总库选择相关状态
     const [sheetsImportStep, setSheetsImportStep] = useState<'input' | 'select'>('input'); // 导入步骤
@@ -171,6 +178,21 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
     const [manualPasteBaseInstruction, setManualPasteBaseInstruction] = useState(''); // 粘贴的基础指令
     const [manualPasteImportMode, setManualPasteImportMode] = useState<'merge-add' | 'replace'>('replace');
     const [manualPasteSourceLabel, setManualPasteSourceLabel] = useState('手动粘贴'); // 来源标签
+
+    // 链接输入时即保存，避免关闭弹窗/切换页面后丢失
+    useEffect(() => {
+        try {
+            localStorage.setItem('randomLib_sheetsUrl', sheetsUrl);
+        } catch { }
+    }, [sheetsUrl]);
+
+    // 当配置中已有导入源链接时，自动回填输入框（仅在当前为空时）
+    useEffect(() => {
+        if (sheetsUrl.trim()) return;
+        if (config.sourceSpreadsheetUrl?.trim()) {
+            setSheetsUrl(config.sourceSpreadsheetUrl);
+        }
+    }, [config.sourceSpreadsheetUrl]);
 
     // 图片转库功能状态
     const [showImageToLibModal, setShowImageToLibModal] = useState(false);
@@ -1187,6 +1209,10 @@ ${targetCountry}
                 sourceSpreadsheetUrl: sheetsUrl, // 保存源 URL 用于同步刷新
             });
 
+            // 持久化保存 URL 和导入模式
+            try { localStorage.setItem('randomLib_sheetsUrl', sheetsUrl); } catch { }
+            try { localStorage.setItem('randomLib_sheetsImportMode', sheetsImportMode); } catch { }
+
             const importedCount = newLibraries.length - config.libraries.length;
             resetSheetsImportModal();
             toast.success(`成功导入 ${importedCount > 0 ? importedCount + ' 个新库' : '数据已更新'}！`);
@@ -1308,6 +1334,10 @@ ${targetCountry}
                 transitionInstruction: DEFAULT_TRANSITION_INSTRUCTION, // 重置过渡指令为默认值
             });
 
+            // 持久化保存 URL 和导入模式
+            try { localStorage.setItem('randomLib_sheetsUrl', sheetsUrl); } catch { }
+            try { localStorage.setItem('randomLib_sheetsImportMode', sheetsImportMode); } catch { }
+
             const importedCount = allLibraries.length - config.libraries.length;
             resetSheetsImportModal();
             toast.success(`成功导入！${importedCount > 0 ? `新增 ${importedCount} 个库` : '数据已更新'}`);
@@ -1322,11 +1352,10 @@ ${targetCountry}
     // 重置导入弹窗状态
     const resetSheetsImportModal = () => {
         setShowSheetsImportModal(false);
-        setSheetsUrl('');
+        // 不再清空 sheetsUrl，保留用户上次输入的链接
         setSheetsImportStep('input');
         setFoundMasterSheets([]);
         setSelectedMasterSheets(new Set());
-
     };
 
     // 同步刷新：从源表格重新获取数据
@@ -1482,8 +1511,8 @@ ${targetCountry}
                     </button>
                     <button
                         onClick={() => {
-                            // 打开弹窗时回填已保存的链接
-                            if (config.sourceSpreadsheetUrl) {
+                            // 打开弹窗时仅在当前为空时回填，避免覆盖用户刚输入的链接
+                            if (!sheetsUrl.trim() && config.sourceSpreadsheetUrl) {
                                 setSheetsUrl(config.sourceSpreadsheetUrl);
                             }
                             setShowSheetsImportModal(true);

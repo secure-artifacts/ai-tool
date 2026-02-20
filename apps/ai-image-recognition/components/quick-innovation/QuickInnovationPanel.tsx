@@ -84,7 +84,9 @@ export const QuickInnovationPanel: React.FC<QuickInnovationPanelProps> = ({
     const [batchInput, setBatchInput] = useState('');
 
     // 配方相关
-    const [sheetsUrl, setSheetsUrl] = useState('');
+    const [sheetsUrl, setSheetsUrl] = useState(() => {
+        try { return localStorage.getItem('randomLib_sheetsUrl') || ''; } catch { return ''; }
+    });
     const [isScanning, setIsScanning] = useState(false);
     const [scanError, setScanError] = useState<string | null>(null);
     const [recipes, setRecipes] = useState<RecipeInfo[]>([]);
@@ -106,6 +108,21 @@ export const QuickInnovationPanel: React.FC<QuickInnovationPanelProps> = ({
 
     // 折叠状态
     const [isResultsExpanded, setIsResultsExpanded] = useState(true);
+
+    // 链接输入时即时持久化，避免关闭弹窗/重开后丢失
+    useEffect(() => {
+        try {
+            localStorage.setItem('randomLib_sheetsUrl', sheetsUrl);
+        } catch { }
+    }, [sheetsUrl]);
+
+    // 当配置里已有源链接时，自动回填到输入框（仅在当前为空时）
+    useEffect(() => {
+        if (sheetsUrl.trim()) return;
+        if (config.sourceSpreadsheetUrl?.trim()) {
+            setSheetsUrl(config.sourceSpreadsheetUrl);
+        }
+    }, [config.sourceSpreadsheetUrl]);
 
     // ========== 从config恢复已导入的配方 ==========
     useEffect(() => {
@@ -217,6 +234,7 @@ export const QuickInnovationPanel: React.FC<QuickInnovationPanelProps> = ({
                 libraries: allLibraries,
                 linkedInstructions,
                 enabled: true,
+                sourceSpreadsheetUrl: sheetsUrl,
             });
 
             // 自动选中第一个
@@ -224,7 +242,8 @@ export const QuickInnovationPanel: React.FC<QuickInnovationPanelProps> = ({
                 setSelectedRecipe(newRecipes[0].sheetName);
             }
 
-            setSheetsUrl('');
+            // 持久化保存 URL
+            try { localStorage.setItem('randomLib_sheetsUrl', sheetsUrl); } catch { }
         } catch (error: any) {
             setScanError(error.message || '导入失败');
         } finally {

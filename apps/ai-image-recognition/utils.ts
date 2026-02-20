@@ -28,11 +28,11 @@ export const processImageUrl = (url: string): string => {
 
         // 1. Handle Gyazo Share Page Links
         // Converts https://gyazo.com/ID to https://i.gyazo.com/ID.{ext}
-        // Gyazo images can be png, jpg, or gif - we'll try png first (most common for screenshots)
+        // Gyazo images can be png, jpg, or gif - default to png.
         if (urlObj.hostname === 'gyazo.com' && urlObj.pathname.length > 1) {
             const gyazoId = urlObj.pathname.slice(1).split('/')[0];  // 去除开头的 / 并获取 ID
             if (gyazoId && /^[a-f0-9]+$/i.test(gyazoId)) {
-                // 优先尝试 png 格式（截图最常见），fetchImageBlob 会负责重试其他格式
+                // fetchImageBlob 会负责重试其他格式
                 return `https://i.gyazo.com/${gyazoId}.png`;
             }
         }
@@ -148,6 +148,106 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
     }
 
     return results;
+};
+
+// 按表格行分组：同一 <tr> 内的图片归为一组（一张卡片）
+export const extractUrlsFromHtmlGrouped = (html: string): { originalUrl: string; fetchUrl: string }[][] => {
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const rows = doc.querySelectorAll('tr');
+
+        // 如果有表格行结构，按行分组
+        if (rows.length > 0) {
+            const groups: { originalUrl: string; fetchUrl: string }[][] = [];
+            rows.forEach(row => {
+                const imgs = row.querySelectorAll('img');
+                if (imgs.length === 0) return;
+                const group: { originalUrl: string; fetchUrl: string }[] = [];
+                imgs.forEach(img => {
+                    if (img.src) {
+                        const decodedUrl = decodeHtmlEntities(img.src);
+                        group.push({ originalUrl: decodedUrl, fetchUrl: processImageUrl(decodedUrl) });
+                    }
+                });
+                if (group.length > 0) groups.push(group);
+            });
+            if (groups.length > 0) return groups;
+        }
+
+        // 没有表格结构，所有图片各自一组
+        const images = doc.querySelectorAll('img');
+        const groups: { originalUrl: string; fetchUrl: string }[][] = [];
+        images.forEach(img => {
+            if (img.src) {
+                const decodedUrl = decodeHtmlEntities(img.src);
+                groups.push([{ originalUrl: decodedUrl, fetchUrl: processImageUrl(decodedUrl) }]);
+            }
+        });
+        return groups;
+    } catch (e) {
+        console.error("Error parsing HTML for grouped images:", e);
+        return [];
+    }
+};
+
+// 分组版：同一行（tab分隔）的多个公式/URL 归为一组（一张卡片）
+// 每组第一个 = 主图，其余 = 融合图
+export type PasteItem = { type: 'url' | 'formula'; content: string; url: string };
+export type PasteGroup = PasteItem[]; // 一组 = 一张卡片
+
+export const parsePasteInputGrouped = (text: string): PasteGroup[] => {
+    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+    const groups: PasteGroup[] = [];
+
+    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/gi;
+    const singleFormulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
+    const urlRegex = /https?:\/\/[^\s\t]+/g;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        const group: PasteGroup = [];
+
+        // 检查是否包含 tab（谷歌表格同行多列）
+        if (trimmed.includes('\t')) {
+            const cells = trimmed.split('\t');
+            for (const cell of cells) {
+                const c = cell.trim();
+                if (!c) continue;
+                const fm = c.match(singleFormulaRegex);
+                if (fm) {
+                    const rawUrl = decodeHtmlEntities(fm[1]);
+                    group.push({ type: 'formula', content: c, url: processImageUrl(rawUrl) });
+                } else {
+                    const um = c.match(/https?:\/\/[^\s]+/);
+                    if (um) {
+                        const rawUrl = decodeHtmlEntities(um[0]);
+                        group.push({ type: 'url', content: c, url: processImageUrl(rawUrl) });
+                    }
+                }
+            }
+        } else {
+            // 单列：检查一行是否有多个 =IMAGE()
+            const allFormulas = [...trimmed.matchAll(formulaRegex)];
+            if (allFormulas.length > 0) {
+                for (const fm of allFormulas) {
+                    const rawUrl = decodeHtmlEntities(fm[1]);
+                    group.push({ type: 'formula', content: fm[0], url: processImageUrl(rawUrl) });
+                }
+            } else {
+                // 检查 URL
+                const allUrls = [...trimmed.matchAll(urlRegex)];
+                for (const um of allUrls) {
+                    const rawUrl = decodeHtmlEntities(um[0]);
+                    group.push({ type: 'url', content: um[0], url: processImageUrl(rawUrl) });
+                }
+            }
+        }
+
+        if (group.length > 0) groups.push(group);
+    }
+
+    return groups;
 };
 
 // Helper to fetch external image and convert to Blob (Handles CORS errors gracefully by trying a proxy)

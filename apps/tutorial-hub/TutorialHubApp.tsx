@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { Search, Upload, Sparkles, ExternalLink, Loader2, Tag, X, RotateCcw, Copy, Check, FolderOpen, ChevronRight, Grid3X3, List, BookOpen, Link2, RefreshCw, Zap, Sun, Moon, Download, FileUp } from 'lucide-react';
+import { Search, Upload, Sparkles, ExternalLink, Loader2, Tag, X, RotateCcw, Copy, Check, FolderOpen, ChevronRight, Grid3X3, List, BookOpen, Link2, RefreshCw, Zap, Sun, Moon, Leaf, Download, FileUp } from 'lucide-react';
 import type { GoogleGenAI } from '@google/genai';
 import { DEFAULT_TUTORIAL_CATEGORIES } from './defaultCategories';
 
@@ -10,7 +10,7 @@ const LS_KEY_VIEW = 'tutorial_hub_view_mode';
 const LS_KEY_THEME = 'tutorial_hub_theme';
 
 // ===== 主题系统 =====
-type ThemeMode = 'dark' | 'light';
+type ThemeMode = 'dark' | 'light' | 'eye-care';
 interface ThemeTokens {
     bg: string; bgAlt: string; bgCard: string; bgInput: string; bgHover: string;
     border: string; borderLight: string; borderHover: string;
@@ -44,6 +44,17 @@ const THEMES: Record<ThemeMode, ThemeTokens> = {
         sidebarBg: '#f0f1f3',
         shadow: 'rgba(0,0,0,0.08)',
         searchBorder: '#ced4da',
+    },
+    'eye-care': {
+        bg: '#f5f0e8', bgAlt: '#efe9dd', bgCard: '#faf6ee', bgInput: '#e8e2d6', bgHover: '#e2dbd0',
+        border: '#d6cebe', borderLight: '#cbc3b0', borderHover: '#b5ac9a',
+        text: '#2d2820', textSecondary: '#3d3528', textMuted: '#5a5248', textDim: '#8a7e72', textSubtle: '#a0947e', textFaint: '#b5ac9a',
+        accent: '#5a8a6a', accentBg: 'rgba(90,138,106,0.08)', accentText: '#5a8a6a',
+        dangerBg: '#faf0e8', dangerBorder: '#d4a088',
+        progressBg: 'rgba(90,138,106,0.08)', progressBorder: 'rgba(90,138,106,0.15)',
+        sidebarBg: '#efe9dd',
+        shadow: 'rgba(74,66,56,0.1)',
+        searchBorder: '#cbc3b0',
     },
 };
 
@@ -514,7 +525,7 @@ const TutorialHubApp: React.FC<Props> = ({ getAiInstance, isKeySet = false }) =>
             const savedView = localStorage.getItem(LS_KEY_VIEW);
             if (savedView === 'grid' || savedView === 'list') setViewMode(savedView);
             const savedTheme = localStorage.getItem(LS_KEY_THEME);
-            if (savedTheme === 'dark' || savedTheme === 'light') setTheme(savedTheme);
+            if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'eye-care') setTheme(savedTheme);
         } catch { } // ignore errors
     }, []);
 
@@ -1087,7 +1098,7 @@ ${tutorialList}
                 {/* 顶部工具栏 */}
                 <div style={{
                     padding: '10px 16px', borderBottom: `1px solid ${c.border}`,
-                    background: theme === 'dark' ? 'rgba(9,9,11,0.95)' : 'rgba(248,249,250,0.95)', backdropFilter: 'blur(8px)',
+                    background: `${c.bg}f2`, backdropFilter: 'blur(8px)',
                     display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1211,10 +1222,14 @@ ${tutorialList}
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
                             {/* 视图切换 */}
                             {/* 主题切换 */}
-                            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                                data-tip={theme === 'dark' ? '切换到亮色模式' : '切换到暗色模式'}
+                            <button onClick={() => {
+                                const cycle: ThemeMode[] = ['dark', 'light', 'eye-care'];
+                                const idx = cycle.indexOf(theme);
+                                setTheme(cycle[(idx + 1) % cycle.length]);
+                            }}
+                                data-tip={theme === 'dark' ? '切换到亮色模式' : theme === 'light' ? '切换到护眼模式' : '切换到暗色模式'}
                                 style={{ padding: '5px 8px', borderRadius: '6px', border: `1px solid ${c.borderLight}`, cursor: 'pointer', display: 'flex', background: c.bgInput, color: c.textDim, transition: 'all 0.15s' }}>
-                                {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+                                {theme === 'dark' ? <Sun size={14} /> : theme === 'light' ? <Leaf size={14} /> : <Moon size={14} />}
                             </button>
                             <div style={{ display: 'flex', background: c.bgInput, borderRadius: '6px', border: `1px solid ${c.borderLight}`, overflow: 'hidden' }}>
                                 <button onClick={() => setViewMode('grid')}

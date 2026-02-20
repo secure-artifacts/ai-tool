@@ -510,6 +510,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
         row: DataRow | null;
     } | null>(null);
     const favoriteMenuRef = React.useRef<HTMLDivElement>(null);
+    const panelRootRef = React.useRef<HTMLDivElement>(null);
     const [favoriteMenuPos, setFavoriteMenuPos] = useState<{ x: number; y: number } | null>(null);
     const [categoryModal, setCategoryModal] = useState<{
         isOpen: boolean;
@@ -2195,7 +2196,18 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
     // Keyboard event for Ctrl+C / Cmd+C copy
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectionStart && selectionEnd) {
+            const target = e.target as HTMLElement | null;
+            const key = e.key.toLowerCase();
+            const isCopyShortcut = (e.ctrlKey || e.metaKey) && key === 'c';
+            const inEditable =
+                !!target &&
+                (target.tagName === 'INPUT' ||
+                    target.tagName === 'TEXTAREA' ||
+                    target.isContentEditable);
+            const inPanel = !!(target && panelRootRef.current?.contains(target));
+
+            // 只在 TransposePanel 内、且非输入控件时拦截 Ctrl/Cmd+C
+            if (isCopyShortcut && selectionStart && selectionEnd && inPanel && !inEditable) {
                 e.preventDefault();
                 copySelectedCells();
             }
@@ -2616,7 +2628,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
 
 
     return (
-        <div className="h-full bg-slate-50 overflow-hidden flex flex-col sheetmind-light-form color-scheme-light">
+        <div ref={panelRootRef} className="h-full bg-slate-50 overflow-hidden flex flex-col sheetmind-light-form color-scheme-light">
             <div className="flex-1 flex overflow-hidden">
                 {/* Left Panel - Config - Collapsible */}
                 {showLeftPanel ? (
