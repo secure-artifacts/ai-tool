@@ -846,7 +846,7 @@ body.light [style*="rgba(39"] {
     background: linear-gradient(135deg, rgba(241, 245, 249, 0.97) 0%, rgba(226, 232, 240, 0.92) 50%, rgba(241, 245, 249, 0.97) 100%) !important;
 }
 
-body.light .bg-gradient-to-br:is(.from-zinc-900\/95, .from-slate-900\/95, .from-gray-900\/95, .from-neutral-900\/95, .from-stone-900\/95) {
+body.light :is(.from-zinc-900\/95, .from-slate-900\/95, .from-gray-900\/95, .from-neutral-900\/95, .from-stone-900\/95) {
     background: linear-gradient(to bottom right, rgba(241, 245, 249, 0.97), rgba(226, 232, 240, 0.92), rgba(241, 245, 249, 0.97)) !important;
 }
 
@@ -1722,7 +1722,7 @@ body.eye-care [style*="rgba(39"] {
     background: linear-gradient(135deg, rgba(237, 231, 220, 0.97) 0%, rgba(224, 216, 202, 0.92) 50%, rgba(237, 231, 220, 0.97) 100%) !important;
 }
 
-body.eye-care .bg-gradient-to-br:is(.from-zinc-900\/95, .from-slate-900\/95, .from-gray-900\/95, .from-neutral-900\/95, .from-stone-900\/95) {
+body.eye-care :is(.from-zinc-900\/95, .from-slate-900\/95, .from-gray-900\/95, .from-neutral-900\/95, .from-stone-900\/95) {
     background: linear-gradient(to bottom right, rgba(237, 231, 220, 0.97), rgba(224, 216, 202, 0.92), rgba(237, 231, 220, 0.97)) !important;
 }
 
@@ -2059,3 +2059,179 @@ body.light .bg-\\[\\#0a0f1a\\] { background-color: #F8FAFC !important; }
 body.light .bg-\\[\\#111827\\] { background-color: #F1F5F9 !important; }
 body.eye-care .bg-\\[\\#0a0f1a\\] { background-color: #F5F0E8 !important; }
 body.eye-care .bg-\\[\\#111827\\] { background-color: #EDE7DC !important; }
+
+
+/* ============================================
+   🎯 SkillGenerator App (模版指令 + 随机库生成器)
+   ============================================ */
+/* Light Mode */
+body.light .skill-gen-app {
+    color: #1E293B !important;
+}
+body.light .skill-gen-app h1, body.light .skill-gen-app h2, body.light .skill-gen-app h3 {
+    background: none !important;
+    -webkit-text-fill-color: initial !important;
+    color: #0F172A !important;
+}
+body.light .skill-gen-subtitle {
+    color: #64748B !important;
+}
+body.light .skill-gen-workspace-bar {
+    background-color: #F8FAFC !important;
+    border-bottom-color: #E2E8F0 !important;
+}
+body.light .skill-gen-ws-tab {
+    background-color: rgba(226, 232, 240, 0.62) !important;
+    color: #475569 !important;
+}
+body.light .skill-gen-ws-tab:hover {
+    background-color: rgba(203, 213, 225, 0.72) !important;
+    color: #334155 !important;
+}
+body.light .skill-gen-ws-tab.active {
+    background-color: rgba(139, 92, 246, 0.15) !important;
+    color: #6D28D9 !important;
+    border-color: rgba(139, 92, 246, 0.3) !important;
+}
+body.light .skill-gen-ws-add {
+    color: #94A3B8 !important;
+    border-color: #CBD5E1 !important;
+}
+body.light .skill-gen-ws-add:hover {
+    color: #6D28D9 !important;
+    border-color: rgba(139, 92, 246, 0.4) !important;
+    background-color: rgba(139, 92, 246, 0.1) !important;
+}
+body.light .skill-gen-tab-bar {
+    background-color: #F1F5F9 !important;
+    border-color: #E2E8F0 !important;
+}
+body.light .skill-gen-tab-item {
+    color: #475569 !important;
+}
+body.light .skill-gen-tab-item:hover {
+    color: #1E293B !important;
+}
+body.light .skill-gen-tab-item.active {
+    background-color: rgba(139, 92, 246, 0.15) !important;
+    color: #6D28D9 !important;
+}
+
+/* Eye-Care Mode */
+body.eye-care .skill-gen-app {
+    color: #3D3426 !important;
+}
+body.eye-care .skill-gen-app h1, body.eye-care .skill-gen-app h2, body.eye-care .skill-gen-app h3 {
+    background: none !important;
+    -webkit-text-fill-color: initial !important;
+    color: #2D261B !important;
+}
+body.eye-care .skill-gen-subtitle {
+    color: #7A6D5A !important;
+}
+body.eye-care .skill-gen-workspace-bar {
+    background-color: #F5F0E8 !important;
+    border-bottom-color: #E0D8CA !important;
+}
+body.eye-care .skill-gen-ws-tab {
+    background-color: rgba(224, 216, 202, 0.62) !important;
+    color: #5C5040 !important;
+}
+body.eye-care .skill-gen-ws-tab:hover {
+    background-color: rgba(209, 199, 181, 0.72) !important;
+    color: #4A4031 !important;
+}
+body.eye-care .skill-gen-ws-tab.active {
+    background-color: rgba(139, 92, 246, 0.12) !important;
+    color: #5B21B6 !important;
+    border-color: rgba(139, 92, 246, 0.25) !important;
+}
+body.eye-care .skill-gen-ws-add {
+    color: #B8AD98 !important;
+    border-color: #D1C7B5 !important;
+}
+body.eye-care .skill-gen-ws-add:hover {
+    color: #5B21B6 !important;
+    border-color: rgba(139, 92, 246, 0.3) !important;
+    background-color: rgba(139, 92, 246, 0.08) !important;
+}
+body.eye-care .skill-gen-tab-bar {
+    background-color: #EDE7DC !important;
+    border-color: #E0D8CA !important;
+}
+body.eye-care .skill-gen-tab-item {
+    color: #5C5040 !important;
+}
+body.eye-care .skill-gen-tab-item:hover {
+    color: #3D3426 !important;
+}
+body.eye-care .skill-gen-tab-item.active {
+    background-color: rgba(139, 92, 246, 0.12) !important;
+    color: #5B21B6 !important;
+}
+
+/* ============================================
+   �� Enhanced Disabled States & Buttons (Visibility Fix)
+   ============================================ */
+/* Light Mode */
+body.light .disabled\:opacity-50:disabled,
+body.light .disabled\:opacity-30:disabled {
+    opacity: 0.7 !important;
+}
+body.light :is(.disabled\:bg-zinc-800, .disabled\:bg-slate-800, .disabled\:bg-gray-800, .disabled\:bg-neutral-800, .disabled\:bg-stone-800):disabled {
+    background-color: #E2E8F0 !important;
+    color: #64748B !important;
+}
+body.light .disabled\:text-zinc-400:disabled {
+    color: #94A3B8 !important;
+}
+
+/* Specific pastel action buttons logic in PromptToolApp */
+body.light [class*="bg-blue-600/10"]:disabled {
+    color: #3B82F6 !important;
+}
+body.light [class*="bg-amber-600/10"]:disabled {
+    color: #D97706 !important;
+}
+body.light [class*="text-red-400/80"]:disabled {
+    color: #DC2626 !important;
+}
+
+/* Eye-Care Mode */
+body.eye-care .disabled\:opacity-50:disabled,
+body.eye-care .disabled\:opacity-30:disabled {
+    opacity: 0.7 !important;
+}
+body.eye-care :is(.disabled\:bg-zinc-800, .disabled\:bg-slate-800, .disabled\:bg-gray-800, .disabled\:bg-neutral-800, .disabled\:bg-stone-800):disabled {
+    background-color: #E0D8CA !important;
+    color: #7A6D5A !important;
+}
+body.eye-care .disabled\:text-zinc-400:disabled {
+    color: #9A8E7A !important;
+}
+
+/* Specific pastel action buttons logic in PromptToolApp */
+body.eye-care [class*="bg-blue-600/10"]:disabled {
+    color: #2563EB !important;
+}
+body.eye-care [class*="bg-amber-600/10"]:disabled {
+    color: #B45309 !important;
+}
+body.eye-care [class*="text-red-400/80"]:disabled {
+    color: #B91C1C !important;
+}
+
+/* Missing transparency backgrounds */
+body.light :is(.bg-zinc-800\/50, .bg-slate-800\/50, .bg-gray-800\/50, .bg-neutral-800\/50, .bg-stone-800\/50) {
+    background-color: rgba(226, 232, 240, 0.5) !important;
+}
+body.light :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutral-900\/90, .bg-stone-900\/90) {
+    background-color: rgba(241, 245, 249, 0.9) !important;
+}
+
+body.eye-care :is(.bg-zinc-800\/50, .bg-slate-800\/50, .bg-gray-800\/50, .bg-neutral-800\/50, .bg-stone-800\/50) {
+    background-color: rgba(224, 216, 202, 0.5) !important;
+}
+body.eye-care :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutral-900\/90, .bg-stone-900\/90) {
+    background-color: rgba(245, 240, 232, 0.9) !important;
+}

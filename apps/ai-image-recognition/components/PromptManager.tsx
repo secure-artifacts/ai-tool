@@ -317,7 +317,7 @@ const PromptManager: React.FC<PromptManagerProps> = ({
     return (
         <div className={`
             relative
-            bg-gradient-to-br from-zinc-900/95 via-zinc-900/90 to-zinc-800/80
+            bg-zinc-900/95
             backdrop-blur-xl
             border border-zinc-700/50
             rounded-2xl shadow-2xl
@@ -326,9 +326,6 @@ const PromptManager: React.FC<PromptManagerProps> = ({
             hover:border-teal-500/30
             hover:shadow-teal-500/5
         `}
-            style={{
-                background: 'linear-gradient(135deg, rgba(24, 24, 27, 0.95) 0%, rgba(39, 39, 42, 0.9) 50%, rgba(24, 24, 27, 0.95) 100%)'
-            }}
         >
             {/* 装饰性渐变光效 */}
             <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-teal-500/50 to-transparent" />
@@ -614,7 +611,7 @@ const PromptManager: React.FC<PromptManagerProps> = ({
                         placeholder="✨ 选择预设指令或手动输入，用于反推提示词或其他图片识别需求。建议实测不同预设观察效果（双击展开大窗口）"
                         className={`
                             w-full 
-                            bg-zinc-950/80 
+                            bg-zinc-950
                             backdrop-blur-sm
                             border border-zinc-700/60 
                             text-zinc-100 
