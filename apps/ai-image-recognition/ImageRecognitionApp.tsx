@@ -699,14 +699,14 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [translationCache]);
     // 更新说明弹窗状态
     const [showUpdateNotes, setShowUpdateNotes] = useState(() => {
-        // 检查是否已经看过v2.96更新说明
-        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v2.96-seen');
+        // 检查是否已经看过v3.0更新说明
+        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v3.0-seen');
         return !hasSeenUpdate;
     });
 
     // 关闭更新说明时标记已读
     const closeUpdateNotes = useCallback(() => {
-        localStorage.setItem('ai-image-recognition-update-v2.96-seen', 'true');
+        localStorage.setItem('ai-image-recognition-update-v3.0-seen', 'true');
         setShowUpdateNotes(false);
     }, []);
 
@@ -8784,7 +8784,7 @@ ${itemEffectiveInstruction}
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-emerald-400">功能更新说明</h2>
-                                        <p className="text-sm text-zinc-400 mt-1">v2.96 · 2026.02.14</p>
+                                        <p className="text-sm text-zinc-400 mt-1">v3.0 · 2026.02.20</p>
                                     </div>
                                 </div>
                                 <button
@@ -8797,11 +8797,11 @@ ${itemEffectiveInstruction}
 
                             {/* 更新内容 */}
                             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-                                {/* v2.96 新功能 */}
+                                {/* v3.0 新功能 */}
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">2026.02.14</span>
-                                        <span className="text-xs text-zinc-500">v2.96.0</span>
+                                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">2026.02.20</span>
+                                        <span className="text-xs text-zinc-500">v3.0.0</span>
                                     </div>
                                     <div className="bg-zinc-800/50 rounded-lg p-3 border border-cyan-700/30">
                                         <h4 className="text-sm font-semibold text-cyan-300 mb-2">🖼️ 新增拆分模式（split）</h4>

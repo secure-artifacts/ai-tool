@@ -9526,7 +9526,7 @@ ${historyText}
                                         <p className="skill-gen-notes-section-title">📋 更新说明</p>
                                         <div style={{ marginBottom: 8 }}>
                                             <span style={{ fontSize: 11, fontWeight: 700, color: '#86efac', background: 'rgba(34,197,94,0.15)', padding: '2px 6px', borderRadius: 4 }}>2026.02.14</span>
-                                            <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>v2.96.0</span>
+                                            <span style={{ fontSize: 11, color: '#888', marginLeft: 6 }}>v3.0.0</span>
                                         </div>
                                         <ul className="skill-gen-notes-list">
                                             <li>🎰 随机代码生成器：新增「文字列表」模式，库条目可切换为文字列表输入；新增「自定义生成组数」（1~50 组），多组时自动生成 for 循环代码。</li>

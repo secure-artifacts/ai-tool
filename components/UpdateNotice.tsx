@@ -30,11 +30,17 @@ interface UpdateNoticeProps {
 // 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v3.0.0',
+        date: '2026-02-20',
+        description: '3.0 大版本发布：全面亮色/护眼主题适配 + 文字覆盖折叠优化 + 翻译组件主题修复',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v2.96.0',
         date: '2026-02-14',
         description: '随机代码生成器增强 + 新增判断节点生成器 + AI 图像识别拆分模式',
-        url: '#',
-        isCurrent: true
+        url: '#'
     },
     {
         version: 'v2.95.0',
@@ -143,18 +149,33 @@ const versionHistory: VersionInfo[] = [
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v2.96.0',
-    date: '2026-02-14',
+    version: 'v3.0.0',
+    date: '2026-02-20',
     features: {
         en: [
-            'Random Code Generator: Text list mode + custom group count',
-            'New Judge Node Generator: Generate Python code for workflow conditional logic',
-            'AI Image Recognition: New split mode for element-separated descriptions'
+            'Full light/eye-care theme support across all modules',
+            'Collapsible text override panel for cleaner UI',
+            'Smart Translate tab bar theme fix'
         ],
         zh: [
             '✨如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
+            '2026.02.20 v3.0.0',
+            '-',
+            '🎨 全面亮色/护眼主题适配',
+            '• 修复提示词工具(Prompt Tool)在浅色模式下仍显示暗色背景的问题',
+            '• 修复智能翻译标签栏在浅色/护眼模式下显示黑色的问题',
+            '• 全面深度覆盖所有 Tailwind 暗色类名，确保浅色与护眼模式一致性',
+            '• body 和 #root 背景色强制跟随主题变量',
+            '-',
+            '📦 文字覆盖面板优化',
+            '• 卡片级文字覆盖区域默认折叠，点击展开',
+            '• 界面更清爽，减少视觉干扰',
+            '-',
+            '-',
+            '-',
+            '',
             '2026.02.14 v2.96.0',
             '-',
             '🎰 随机代码生成器优化',
