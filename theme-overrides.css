@@ -2027,7 +2027,7 @@ body.light .ai-recognition-tab.is-active {
     border-color: rgba(139, 92, 246, 0.3) !important;
 }
 
-\nbody.light .ai-recognition-tab-add:hover {
+body.light .ai-recognition-tab-add:hover {
     background-color: rgba(226, 232, 240, 0.62) !important;
 }
 
@@ -2054,7 +2054,7 @@ body.eye-care .ai-recognition-tab.is-active {
     border-color: rgba(139, 92, 246, 0.25) !important;
 }
 
-\nbody.eye-care .ai-recognition-tab-add:hover {
+body.eye-care .ai-recognition-tab-add:hover {
     background-color: rgba(224, 216, 202, 0.62) !important;
 }
 
@@ -2628,37 +2628,60 @@ body.eye-care .copydedup-page-wrapper .pro-results-table tr:hover {
     color: #3D3426 !important;
 }
 
+/* ============================================
+   🧱 App Shell background fallback
+   解决全局容器背景残留深色条
+   ============================================ */
+body.light,
+body.light #root,
+body.light main {
+    background-color: #F8FAFC !important;
+}
+
+body.eye-care,
+body.eye-care #root,
+body.eye-care main {
+    background-color: #F5F0E8 !important;
+}
+
 /* Light Mode additions */
 body.light .skill-gen-header {
     background: #F1F5F9 !important;
     border-color: #E2E8F0 !important;
 }
+
 body.light .skill-gen-manual-compare {
     background: rgba(139, 92, 246, 0.03) !important;
     border-color: rgba(139, 92, 246, 0.15) !important;
 }
+
 body.light .skill-gen-manual-compare-header {
     background: rgba(139, 92, 246, 0.08) !important;
     border-color: rgba(139, 92, 246, 0.15) !important;
     color: #6D28D9 !important;
 }
+
 body.light .skill-gen-manual-compare-text {
     background: #FFFFFF !important;
     border-color: #CBD5E1 !important;
     color: #1E293B !important;
 }
+
 body.light .skill-gen-preview-btn {
     background: rgba(59, 130, 246, 0.1) !important;
     border-color: rgba(59, 130, 246, 0.2) !important;
     color: #2563EB !important;
 }
+
 body.light .skill-gen-grid-preview {
     background: #F8FAFC !important;
     border-color: #E2E8F0 !important;
 }
+
 body.light .skill-gen-grid-preview-label {
     color: #3B82F6 !important;
 }
+
 body.light .skill-gen-grid-preview-img {
     border-color: #E2E8F0 !important;
 }
@@ -2668,32 +2691,143 @@ body.eye-care .skill-gen-header {
     background: rgba(224, 216, 202, 0.5) !important;
     border-color: #D1C7B5 !important;
 }
+
 body.eye-care .skill-gen-manual-compare {
     background: rgba(139, 92, 246, 0.02) !important;
     border-color: rgba(139, 92, 246, 0.12) !important;
 }
+
 body.eye-care .skill-gen-manual-compare-header {
     background: rgba(139, 92, 246, 0.06) !important;
     border-color: rgba(139, 92, 246, 0.12) !important;
     color: #5B21B6 !important;
 }
+
 body.eye-care .skill-gen-manual-compare-text {
     background: #F5F0E8 !important;
     border-color: #D1C7B5 !important;
     color: #3D3426 !important;
 }
+
 body.eye-care .skill-gen-preview-btn {
     background: rgba(59, 130, 246, 0.08) !important;
     border-color: rgba(59, 130, 246, 0.15) !important;
     color: #1D4ED8 !important;
 }
+
 body.eye-care .skill-gen-grid-preview {
     background: rgba(224, 216, 202, 0.4) !important;
     border-color: #D1C7B5 !important;
 }
+
 body.eye-care .skill-gen-grid-preview-label {
     color: #1D4ED8 !important;
 }
+
 body.eye-care .skill-gen-grid-preview-img {
     border-color: #D1C7B5 !important;
+}
+
+/* ============================================
+   🎯 Comprehensive Deep Override for Prompt Tool (ALL ZINC dark variants)
+   ============================================ */
+body.light .desc-page-wrapper [class*="bg-zinc-9"],
+body.light .desc-page-wrapper [class*="bg-zinc-8"],
+body.light .desc-page-wrapper [class*="bg-zinc-7"],
+body.light .desc-page-wrapper [class*="bg-zinc-6"],
+body.light .desc-page-wrapper [class*="bg-black"] {
+    background-color: var(--surface-color) !important;
+}
+
+body.light .desc-page-wrapper [class*="bg-zinc-950"] {
+    background-color: var(--background-color) !important;
+}
+
+body.light .desc-page-wrapper [class*="border-zinc-"] {
+    border-color: var(--border-color) !important;
+}
+
+/* Make text dark, EXCEPT for text-white which is mostly used in primary CTA buttons */
+body.light .desc-page-wrapper [class*="text-zinc-1"],
+body.light .desc-page-wrapper [class*="text-zinc-2"],
+body.light .desc-page-wrapper [class*="text-zinc-3"],
+body.light .desc-page-wrapper [class*="text-zinc-4"],
+body.light .desc-page-wrapper [class*="text-zinc-5"] {
+    color: var(--text-color) !important;
+}
+
+body.light .desc-page-wrapper [class*="text-zinc-4"],
+body.light .desc-page-wrapper [class*="text-zinc-5"] {
+    color: var(--text-muted-color) !important;
+}
+
+/* Force light mode text on headers inside Prompt tool */
+body.light .desc-page-wrapper h1.text-white,
+body.light .desc-page-wrapper h2.text-white,
+body.light .desc-page-wrapper h3.text-white {
+    color: var(--on-surface-color) !important;
+}
+
+/* Eye-Care equivalent */
+body.eye-care .desc-page-wrapper [class*="bg-zinc-9"],
+body.eye-care .desc-page-wrapper [class*="bg-zinc-8"],
+body.eye-care .desc-page-wrapper [class*="bg-zinc-7"],
+body.eye-care .desc-page-wrapper [class*="bg-zinc-6"],
+body.eye-care .desc-page-wrapper [class*="bg-black"] {
+    background-color: var(--surface-color) !important;
+}
+
+body.eye-care .desc-page-wrapper [class*="bg-zinc-950"] {
+    background-color: var(--background-color) !important;
+}
+
+body.eye-care .desc-page-wrapper [class*="border-zinc-"] {
+    border-color: var(--border-color) !important;
+}
+
+body.eye-care .desc-page-wrapper [class*="text-zinc-1"],
+body.eye-care .desc-page-wrapper [class*="text-zinc-2"],
+body.eye-care .desc-page-wrapper [class*="text-zinc-3"],
+body.eye-care .desc-page-wrapper [class*="text-zinc-4"],
+body.eye-care .desc-page-wrapper [class*="text-zinc-5"] {
+    color: var(--text-color) !important;
+}
+
+body.eye-care .desc-page-wrapper [class*="text-zinc-4"],
+body.eye-care .desc-page-wrapper [class*="text-zinc-5"] {
+    color: var(--text-muted-color) !important;
+}
+
+body.eye-care .desc-page-wrapper h1.text-white,
+body.eye-care .desc-page-wrapper h2.text-white,
+body.eye-care .desc-page-wrapper h3.text-white {
+    color: var(--on-surface-color) !important;
+}
+
+/* Root bg overriding */
+body.light {
+    background-color: var(--background-color) !important;
+}
+
+body.light #root {
+    background-color: var(--background-color) !important;
+}
+
+body.eye-care {
+    background-color: var(--background-color) !important;
+}
+
+body.eye-care #root {
+    background-color: var(--background-color) !important;
+}
+
+/* 🔧 Smart Translate fixes */
+body.light .smart-translate-root,
+body.light .smart-translate-app {
+    background-color: var(--background-color) !important;
+}
+
+body.eye-care .smart-translate-root,
+body.eye-care .smart-translate-app {
+    background-color: var(--background-color) !important;
 }

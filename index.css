@@ -6143,6 +6143,17 @@ body.eye-care .prompt-tab-btn:hover {
   display: none;
 }
 
+/* 统一隐藏未激活页面，避免 height:0 + gap/padding 露出外层背景 */
+.image-to-prompt-page-wrapper.hidden,
+.sheetmind-page-wrapper.hidden,
+.api-image-gen-wrapper.hidden,
+.skill-gen-wrapper.hidden,
+.ite-page-wrapper.hidden,
+.tutorial-hub-wrapper.hidden,
+.gemini-chat-wrapper.hidden {
+  display: none !important;
+}
+
 /* ============================================
    Pro Deduplication Module Styles
    ============================================ */

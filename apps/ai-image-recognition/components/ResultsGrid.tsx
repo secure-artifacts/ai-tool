@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, memo } from 'react';
 import { ImageItem, Preset, ChatMessage, InnovationItem, CreativeResult, WorkMode } from '../types';
 import { RefImage, getDefaultExtractPrompt } from '../services/randomLibraryService';
 import { convertBlobToBase64 } from '../utils';
-import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronUp, X, Paperclip, Plus, Minus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play, Eye } from 'lucide-react';
+import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronRight, ChevronUp, X, Paperclip, Plus, Minus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play, Eye } from 'lucide-react';
 
 interface ResultsGridProps {
     images: ImageItem[];
@@ -1672,6 +1672,7 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
     const [textOverrideModal, setTextOverrideModal] = useState<{ kind: 'append' | 'dim'; dimName?: string } | null>(null);
     const [textOverrideDraft, setTextOverrideDraft] = useState('');
     const textOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const [isTextOverrideExpanded, setIsTextOverrideExpanded] = useState(false);
     const enabledDimNames = allEnabledDimNames || [];
     const cfgs = item.refImageConfigs || [];
     const usedDims = new Set(cfgs.map(c => c.dimName).filter(d => !!d && d !== QUICK_IMAGE_APPEND_DIM));
@@ -1729,95 +1730,104 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
         if (!showInlineOverridePane) return null;
         return (
             <div className="w-full min-w-0">
-                <div className="text-[9px] text-cyan-400 mb-1">✍️ 文字覆盖</div>
-                <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1 pr-1">
-                    {canEditAppendPrompt && (
-                        <div className="min-w-[196px] max-w-[196px] rounded border border-purple-700/40 bg-purple-950/20 p-1.5 flex flex-col gap-1">
-                            <span className={`text-[9px] ${(item.customPrompt || '').trim() ? 'text-purple-300' : 'text-zinc-500'}`}>追加内容</span>
-                            <input
-                                type="text"
-                                value={item.customPrompt || ''}
-                                onChange={e => {
-                                    e.stopPropagation();
-                                    onUpdateCustomPrompt?.(item.id, e.target.value);
-                                }}
-                                onMouseDown={e => e.stopPropagation()}
-                                onDoubleClick={e => {
-                                    e.stopPropagation();
-                                    setPromptModalImageIndex(null);
-                                    setTextOverrideModal({ kind: 'append' });
-                                }}
-                                placeholder="这张图单独追加"
-                                className="h-6 px-1.5 bg-zinc-800 border border-zinc-700/50 rounded text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple-500/50"
-                                title="双击弹框编辑"
-                            />
-                            <span className="text-[8px] text-zinc-500">仅作用当前卡片</span>
-                        </div>
-                    )}
-                    {canEditDimOverrides && enabledDimNames.map(dimName => {
-                        const val = item.overrideTextOverrides?.[dimName] || '';
-                        const globalCount = globalOverrideCounts?.[dimName] ?? 0;
-                        const cardCount = item.overrideCountOverrides?.[dimName];
-                        const effectiveCount = cardCount !== undefined ? cardCount : globalCount;
-                        const isCustomCount = cardCount !== undefined;
-                        return (
-                            <div key={dimName} className="min-w-[168px] max-w-[168px] rounded border border-zinc-700/50 bg-zinc-900/50 p-1.5 flex flex-col gap-1">
-                                <span className={`text-[9px] ${val.trim() ? 'text-cyan-300' : 'text-zinc-500'}`}>{dimName}</span>
+                <div
+                    className="flex items-center gap-1 cursor-pointer select-none text-cyan-400 w-fit hover:opacity-80 transition-opacity mb-1"
+                    onClick={(e) => { e.stopPropagation(); setIsTextOverrideExpanded(!isTextOverrideExpanded); }}
+                >
+                    <span className="text-[9px]">✍️ 文字覆盖</span>
+                    {isTextOverrideExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                </div>
+
+                {isTextOverrideExpanded && (
+                    <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1 pr-1">
+                        {canEditAppendPrompt && (
+                            <div className="min-w-[196px] max-w-[196px] rounded border border-purple-700/40 bg-purple-950/20 p-1.5 flex flex-col gap-1">
+                                <span className={`text-[9px] ${(item.customPrompt || '').trim() ? 'text-purple-300' : 'text-zinc-500'}`}>追加内容</span>
                                 <input
                                     type="text"
-                                    value={val}
+                                    value={item.customPrompt || ''}
                                     onChange={e => {
                                         e.stopPropagation();
-                                        onUpdateCardTextOverride?.(item.id, dimName, e.target.value || null);
+                                        onUpdateCustomPrompt?.(item.id, e.target.value);
                                     }}
                                     onMouseDown={e => e.stopPropagation()}
                                     onDoubleClick={e => {
                                         e.stopPropagation();
                                         setPromptModalImageIndex(null);
-                                        setTextOverrideModal({ kind: 'dim', dimName });
+                                        setTextOverrideModal({ kind: 'append' });
                                     }}
-                                    placeholder="覆盖词"
-                                    className="h-6 px-1.5 bg-zinc-800 border border-zinc-700/50 rounded text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50"
+                                    placeholder="这张图单独追加"
+                                    className="h-6 px-1.5 bg-zinc-800 border border-zinc-700/50 rounded text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple-500/50"
                                     title="双击弹框编辑"
                                 />
-                                <div className="flex items-center justify-center gap-1">
-                                    <button
-                                        onClick={e => {
+                                <span className="text-[8px] text-zinc-500">仅作用当前卡片</span>
+                            </div>
+                        )}
+                        {canEditDimOverrides && enabledDimNames.map(dimName => {
+                            const val = item.overrideTextOverrides?.[dimName] || '';
+                            const globalCount = globalOverrideCounts?.[dimName] ?? 0;
+                            const cardCount = item.overrideCountOverrides?.[dimName];
+                            const effectiveCount = cardCount !== undefined ? cardCount : globalCount;
+                            const isCustomCount = cardCount !== undefined;
+                            return (
+                                <div key={dimName} className="min-w-[168px] max-w-[168px] rounded border border-zinc-700/50 bg-zinc-900/50 p-1.5 flex flex-col gap-1">
+                                    <span className={`text-[9px] ${val.trim() ? 'text-cyan-300' : 'text-zinc-500'}`}>{dimName}</span>
+                                    <input
+                                        type="text"
+                                        value={val}
+                                        onChange={e => {
                                             e.stopPropagation();
-                                            onUpdateCardOverrideCount?.(item.id, dimName, Math.max(0, effectiveCount - 1));
+                                            onUpdateCardTextOverride?.(item.id, dimName, e.target.value || null);
                                         }}
                                         onMouseDown={e => e.stopPropagation()}
-                                        className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
-                                    >-</button>
-                                    <span className={`text-[9px] min-w-[14px] text-center ${isCustomCount ? 'text-amber-300 font-semibold' : 'text-zinc-400'}`}>
-                                        {effectiveCount === 0 ? '全' : effectiveCount}
-                                    </span>
-                                    <button
-                                        onClick={e => {
+                                        onDoubleClick={e => {
                                             e.stopPropagation();
-                                            onUpdateCardOverrideCount?.(item.id, dimName, effectiveCount + 1);
+                                            setPromptModalImageIndex(null);
+                                            setTextOverrideModal({ kind: 'dim', dimName });
                                         }}
-                                        onMouseDown={e => e.stopPropagation()}
-                                        className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
-                                    >+</button>
-                                    {isCustomCount ? (
+                                        placeholder="覆盖词"
+                                        className="h-6 px-1.5 bg-zinc-800 border border-zinc-700/50 rounded text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50"
+                                        title="双击弹框编辑"
+                                    />
+                                    <div className="flex items-center justify-center gap-1">
                                         <button
                                             onClick={e => {
                                                 e.stopPropagation();
-                                                onUpdateCardOverrideCount?.(item.id, dimName, null);
+                                                onUpdateCardOverrideCount?.(item.id, dimName, Math.max(0, effectiveCount - 1));
                                             }}
                                             onMouseDown={e => e.stopPropagation()}
-                                            className="text-[8px] text-zinc-600 hover:text-zinc-400"
-                                            title="恢复全局"
-                                        >↩</button>
-                                    ) : (
-                                        <span className="text-[8px] text-transparent">·</span>
-                                    )}
+                                            className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
+                                        >-</button>
+                                        <span className={`text-[9px] min-w-[14px] text-center ${isCustomCount ? 'text-amber-300 font-semibold' : 'text-zinc-400'}`}>
+                                            {effectiveCount === 0 ? '全' : effectiveCount}
+                                        </span>
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                onUpdateCardOverrideCount?.(item.id, dimName, effectiveCount + 1);
+                                            }}
+                                            onMouseDown={e => e.stopPropagation()}
+                                            className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
+                                        >+</button>
+                                        {isCustomCount ? (
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    onUpdateCardOverrideCount?.(item.id, dimName, null);
+                                                }}
+                                                onMouseDown={e => e.stopPropagation()}
+                                                className="text-[8px] text-zinc-600 hover:text-zinc-400"
+                                                title="恢复全局"
+                                            >↩</button>
+                                        ) : (
+                                            <span className="text-[8px] text-transparent">·</span>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         );
     };
@@ -4654,7 +4664,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         ? `${panelHeights[item.id]}px`
                                         : ((item.isChatOpen || item.isInnovationOpen)
                                             ? '360px'
-                                        : (workMode === 'quick' ? '420px' : '300px'))
+                                            : (workMode === 'quick' ? '420px' : '300px'))
                                 }}
                             >
                                 {/* 左侧：图片 + 结果 + 操作按钮 */}
