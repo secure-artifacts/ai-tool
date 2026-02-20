@@ -72,7 +72,7 @@ const TabBar: React.FC<TabBarProps> = ({
     };
 
     return (
-        <div className="flex items-center gap-1 px-2 py-1 bg-zinc-900/50 border-b border-zinc-800 overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
+        <div className="ai-recognition-tabbar flex items-center gap-1 px-2 py-1 bg-zinc-900/50 border-b border-zinc-800 overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
             {tabs.map((tab) => {
                 const isActive = tab.id === activeTabId;
                 const isEditing = editingTabId === tab.id;
@@ -81,8 +81,9 @@ const TabBar: React.FC<TabBarProps> = ({
                     <div
                         key={tab.id}
                         className={`
-                            group flex items-center gap-1.5 px-3 py-1.5 rounded-md cursor-pointer
+                            ai-recognition-tab group flex items-center gap-1.5 px-3 py-1.5 rounded-md cursor-pointer
                             transition-all duration-150 select-none min-w-[100px] max-w-[200px]
+                            ${isActive ? 'is-active' : 'is-inactive'}
                             ${isActive
                                 ? 'bg-teal-600/30 text-teal-400 border border-teal-600/50'
                                 : 'bg-zinc-800/50 text-zinc-400 border border-transparent hover:bg-zinc-700/50 hover:text-zinc-300'
@@ -157,7 +158,7 @@ const TabBar: React.FC<TabBarProps> = ({
             {/* 新建标签页按钮 */}
             <button
                 onClick={onTabAdd}
-                className="flex items-center justify-center w-8 h-8 rounded-md text-zinc-500 hover:text-teal-400 hover:bg-zinc-800/50 transition-colors"
+                className="ai-recognition-tab-add flex items-center justify-center w-8 h-8 rounded-md text-zinc-500 hover:text-teal-400 hover:bg-zinc-800/50 transition-colors"
                 title="新建标签页"
             >
                 <Plus size={18} />

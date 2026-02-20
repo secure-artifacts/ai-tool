@@ -20,104 +20,104 @@
    zinc-600 → 强调面板 #94A3B8 (Slate-400)
    zinc-500 → 禁用/辅助 #64748B (Slate-500)
 */
-body.light .bg-zinc-950 {
+body.light :is(.bg-zinc-950, .bg-slate-950, .bg-gray-950, .bg-neutral-950, .bg-stone-950) {
     background-color: #F8FAFC !important;
 }
 
-body.light .bg-zinc-950\/95 {
+body.light :is(.bg-zinc-950\/95, .bg-slate-950\/95, .bg-gray-950\/95, .bg-neutral-950\/95, .bg-stone-950\/95) {
     background-color: rgba(248, 250, 252, 0.97) !important;
 }
 
-body.light .bg-zinc-950\/80 {
+body.light :is(.bg-zinc-950\/80, .bg-slate-950\/80, .bg-gray-950\/80, .bg-neutral-950\/80, .bg-stone-950\/80) {
     background-color: rgba(248, 250, 252, 0.85) !important;
 }
 
-body.light .bg-zinc-950\/50 {
+body.light :is(.bg-zinc-950\/50, .bg-slate-950\/50, .bg-gray-950\/50, .bg-neutral-950\/50, .bg-stone-950\/50) {
     background-color: rgba(248, 250, 252, 0.6) !important;
 }
 
-body.light .bg-zinc-950\/40 {
+body.light :is(.bg-zinc-950\/40, .bg-slate-950\/40, .bg-gray-950\/40, .bg-neutral-950\/40, .bg-stone-950\/40) {
     background-color: rgba(248, 250, 252, 0.5) !important;
 }
 
-body.light .bg-zinc-950\/30 {
+body.light :is(.bg-zinc-950\/30, .bg-slate-950\/30, .bg-gray-950\/30, .bg-neutral-950\/30, .bg-stone-950\/30) {
     background-color: rgba(248, 250, 252, 0.4) !important;
 }
 
-body.light .bg-zinc-900 {
+body.light :is(.bg-zinc-900, .bg-slate-900, .bg-gray-900, .bg-neutral-900, .bg-stone-900) {
     background-color: #F1F5F9 !important;
 }
 
-body.light .bg-zinc-900\/95 {
+body.light :is(.bg-zinc-900\/95, .bg-slate-900\/95, .bg-gray-900\/95, .bg-neutral-900\/95, .bg-stone-900\/95) {
     background-color: rgba(241, 245, 249, 0.96) !important;
 }
 
-body.light .bg-zinc-900\/90 {
+body.light :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutral-900\/90, .bg-stone-900\/90) {
     background-color: rgba(241, 245, 249, 0.92) !important;
 }
 
-body.light .bg-zinc-900\/80 {
+body.light :is(.bg-zinc-900\/80, .bg-slate-900\/80, .bg-gray-900\/80, .bg-neutral-900\/80, .bg-stone-900\/80) {
     background-color: rgba(241, 245, 249, 0.85) !important;
 }
 
-body.light .bg-zinc-900\/60 {
+body.light :is(.bg-zinc-900\/60, .bg-slate-900\/60, .bg-gray-900\/60, .bg-neutral-900\/60, .bg-stone-900\/60) {
     background-color: rgba(241, 245, 249, 0.65) !important;
 }
 
-body.light .bg-zinc-900\/50 {
+body.light :is(.bg-zinc-900\/50, .bg-slate-900\/50, .bg-gray-900\/50, .bg-neutral-900\/50, .bg-stone-900\/50) {
     background-color: rgba(241, 245, 249, 0.55) !important;
 }
 
-body.light .bg-zinc-900\/30 {
+body.light :is(.bg-zinc-900\/30, .bg-slate-900\/30, .bg-gray-900\/30, .bg-neutral-900\/30, .bg-stone-900\/30) {
     background-color: rgba(241, 245, 249, 0.35) !important;
 }
 
-body.light .bg-zinc-800 {
+body.light :is(.bg-zinc-800, .bg-slate-800, .bg-gray-800, .bg-neutral-800, .bg-stone-800) {
     background-color: #E2E8F0 !important;
 }
 
-body.light .bg-zinc-800\/80 {
+body.light :is(.bg-zinc-800\/80, .bg-slate-800\/80, .bg-gray-800\/80, .bg-neutral-800\/80, .bg-stone-800\/80) {
     background-color: rgba(226, 232, 240, 0.85) !important;
 }
 
-body.light .bg-zinc-800\/60 {
+body.light :is(.bg-zinc-800\/60, .bg-slate-800\/60, .bg-gray-800\/60, .bg-neutral-800\/60, .bg-stone-800\/60) {
     background-color: rgba(226, 232, 240, 0.65) !important;
 }
 
-body.light .bg-zinc-800\/50 {
+body.light :is(.bg-zinc-800\/50, .bg-slate-800\/50, .bg-gray-800\/50, .bg-neutral-800\/50, .bg-stone-800\/50) {
     background-color: rgba(226, 232, 240, 0.55) !important;
 }
 
-body.light .bg-zinc-800\/40 {
+body.light :is(.bg-zinc-800\/40, .bg-slate-800\/40, .bg-gray-800\/40, .bg-neutral-800\/40, .bg-stone-800\/40) {
     background-color: rgba(226, 232, 240, 0.45) !important;
 }
 
-body.light .bg-zinc-800\/30 {
+body.light :is(.bg-zinc-800\/30, .bg-slate-800\/30, .bg-gray-800\/30, .bg-neutral-800\/30, .bg-stone-800\/30) {
     background-color: rgba(226, 232, 240, 0.35) !important;
 }
 
-body.light .bg-zinc-700 {
-    background-color: #CBD5E1 !important;
-}
-
-body.light .bg-zinc-700\/80 {
-    background-color: rgba(203, 213, 225, 0.85) !important;
-}
-
-body.light .bg-zinc-700\/60 {
-    background-color: rgba(203, 213, 225, 0.65) !important;
-}
-
-body.light .bg-zinc-700\/50 {
-    background-color: rgba(203, 213, 225, 0.55) !important;
-}
-
-body.light .bg-zinc-600 {
+body.light :is(.bg-zinc-700, .bg-slate-700, .bg-gray-700, .bg-neutral-700, .bg-stone-700) {
     background-color: #94A3B8 !important;
 }
 
-body.light .bg-zinc-500 {
+body.light :is(.bg-zinc-700\/80, .bg-slate-700\/80, .bg-gray-700\/80, .bg-neutral-700\/80, .bg-stone-700\/80) {
+    background-color: rgba(203, 213, 225, 0.85) !important;
+}
+
+body.light :is(.bg-zinc-700\/60, .bg-slate-700\/60, .bg-gray-700\/60, .bg-neutral-700\/60, .bg-stone-700\/60) {
+    background-color: rgba(203, 213, 225, 0.65) !important;
+}
+
+body.light :is(.bg-zinc-700\/50, .bg-slate-700\/50, .bg-gray-700\/50, .bg-neutral-700\/50, .bg-stone-700\/50) {
+    background-color: rgba(203, 213, 225, 0.55) !important;
+}
+
+body.light :is(.bg-zinc-600, .bg-slate-600, .bg-gray-600, .bg-neutral-600, .bg-stone-600) {
     background-color: #64748B !important;
+}
+
+body.light :is(.bg-zinc-500, .bg-slate-500, .bg-gray-500, .bg-neutral-500, .bg-stone-500) {
+    background-color: #475569 !important;
 }
 
 body.light .bg-black {
@@ -141,159 +141,159 @@ body.light .text-white {
     color: #0F172A !important;
 }
 
-body.light .text-zinc-100 {
+body.light :is(.text-zinc-100, .text-slate-100, .text-gray-100, .text-neutral-100, .text-stone-100) {
     color: #1E293B !important;
 }
 
-body.light .text-zinc-100\/80 {
+body.light :is(.text-zinc-100\/80, .text-slate-100\/80, .text-gray-100\/80, .text-neutral-100\/80, .text-stone-100\/80) {
     color: rgba(30, 41, 59, 0.82) !important;
 }
 
-body.light .text-zinc-200 {
-    color: #334155 !important;
-}
-
-body.light .text-zinc-300 {
-    color: #475569 !important;
-}
-
-body.light .text-zinc-400 {
-    color: #64748B !important;
-}
-
-body.light .text-zinc-400\/80 {
-    color: rgba(100, 116, 139, 0.82) !important;
-}
-
-body.light .text-zinc-500 {
-    color: #94A3B8 !important;
-}
-
-body.light .text-zinc-600 {
-    color: #CBD5E1 !important;
-}
-
-/* --- Borders --- */
-body.light .border-zinc-800 {
-    border-color: #E2E8F0 !important;
-}
-
-body.light .border-zinc-800\/70 {
-    border-color: rgba(226, 232, 240, 0.75) !important;
-}
-
-body.light .border-zinc-800\/50 {
-    border-color: rgba(226, 232, 240, 0.55) !important;
-}
-
-body.light .border-zinc-800\/30 {
-    border-color: rgba(226, 232, 240, 0.35) !important;
-}
-
-body.light .border-zinc-700 {
-    border-color: #CBD5E1 !important;
-}
-
-body.light .border-zinc-700\/60 {
-    border-color: rgba(203, 213, 225, 0.65) !important;
-}
-
-body.light .border-zinc-700\/50 {
-    border-color: rgba(203, 213, 225, 0.55) !important;
-}
-
-body.light .border-zinc-700\/40 {
-    border-color: rgba(203, 213, 225, 0.45) !important;
-}
-
-body.light .border-zinc-700\/30 {
-    border-color: rgba(203, 213, 225, 0.35) !important;
-}
-
-body.light .border-zinc-700\/20 {
-    border-color: rgba(203, 213, 225, 0.25) !important;
-}
-
-body.light .border-zinc-600 {
-    border-color: #94A3B8 !important;
-}
-
-body.light .border-zinc-600\/50 {
-    border-color: rgba(148, 163, 184, 0.55) !important;
-}
-
-body.light .border-zinc-500 {
-    border-color: #64748B !important;
-}
-
-/* --- Hover Backgrounds --- */
-body.light .hover\:bg-zinc-800:hover {
-    background-color: #E2E8F0 !important;
-}
-
-body.light .hover\:bg-zinc-800\/70:hover {
-    background-color: rgba(226, 232, 240, 0.75) !important;
-}
-
-body.light .hover\:bg-zinc-800\/60:hover {
-    background-color: rgba(226, 232, 240, 0.65) !important;
-}
-
-body.light .hover\:bg-zinc-800\/50:hover {
-    background-color: rgba(226, 232, 240, 0.55) !important;
-}
-
-body.light .hover\:bg-zinc-800\/30:hover {
-    background-color: rgba(226, 232, 240, 0.35) !important;
-}
-
-body.light .hover\:bg-zinc-700:hover {
-    background-color: #CBD5E1 !important;
-}
-
-body.light .hover\:bg-zinc-700\/60:hover {
-    background-color: rgba(203, 213, 225, 0.65) !important;
-}
-
-body.light .hover\:bg-zinc-700\/50:hover {
-    background-color: rgba(203, 213, 225, 0.55) !important;
-}
-
-body.light .hover\:bg-zinc-700\/40:hover {
-    background-color: rgba(203, 213, 225, 0.45) !important;
-}
-
-body.light .hover\:bg-zinc-700\/30:hover {
-    background-color: rgba(203, 213, 225, 0.35) !important;
-}
-
-body.light .hover\:bg-zinc-600:hover {
-    background-color: #94A3B8 !important;
-}
-
-body.light .hover\:bg-zinc-600\/50:hover {
-    background-color: rgba(148, 163, 184, 0.55) !important;
-}
-
-body.light .hover\:bg-zinc-500:hover {
-    background-color: #64748B !important;
-}
-
-/* --- Hover Text --- */
-body.light .hover\:text-zinc-100:hover {
+body.light :is(.text-zinc-200, .text-slate-200, .text-gray-200, .text-neutral-200, .text-stone-200) {
     color: #1E293B !important;
 }
 
-body.light .hover\:text-zinc-200:hover {
+body.light :is(.text-zinc-300, .text-slate-300, .text-gray-300, .text-neutral-300, .text-stone-300) {
     color: #334155 !important;
 }
 
-body.light .hover\:text-zinc-300:hover {
+body.light :is(.text-zinc-400, .text-slate-400, .text-gray-400, .text-neutral-400, .text-stone-400) {
     color: #475569 !important;
 }
 
-body.light .hover\:text-zinc-400:hover {
+body.light :is(.text-zinc-400\/80, .text-slate-400\/80, .text-gray-400\/80, .text-neutral-400\/80, .text-stone-400\/80) {
+    color: rgba(71, 85, 105, 0.82) !important;
+}
+
+body.light :is(.text-zinc-500, .text-slate-500, .text-gray-500, .text-neutral-500, .text-stone-500) {
     color: #64748B !important;
+}
+
+body.light :is(.text-zinc-600, .text-slate-600, .text-gray-600, .text-neutral-600, .text-stone-600) {
+    color: #94A3B8 !important;
+}
+
+/* --- Borders --- */
+body.light :is(.border-zinc-800, .border-slate-800, .border-gray-800, .border-neutral-800, .border-stone-800) {
+    border-color: #E2E8F0 !important;
+}
+
+body.light :is(.border-zinc-800\/70, .border-slate-800\/70, .border-gray-800\/70, .border-neutral-800\/70, .border-stone-800\/70) {
+    border-color: rgba(226, 232, 240, 0.75) !important;
+}
+
+body.light :is(.border-zinc-800\/50, .border-slate-800\/50, .border-gray-800\/50, .border-neutral-800\/50, .border-stone-800\/50) {
+    border-color: rgba(226, 232, 240, 0.55) !important;
+}
+
+body.light :is(.border-zinc-800\/30, .border-slate-800\/30, .border-gray-800\/30, .border-neutral-800\/30, .border-stone-800\/30) {
+    border-color: rgba(226, 232, 240, 0.35) !important;
+}
+
+body.light :is(.border-zinc-700, .border-slate-700, .border-gray-700, .border-neutral-700, .border-stone-700) {
+    border-color: #94A3B8 !important;
+}
+
+body.light :is(.border-zinc-700\/60, .border-slate-700\/60, .border-gray-700\/60, .border-neutral-700\/60, .border-stone-700\/60) {
+    border-color: rgba(203, 213, 225, 0.65) !important;
+}
+
+body.light :is(.border-zinc-700\/50, .border-slate-700\/50, .border-gray-700\/50, .border-neutral-700\/50, .border-stone-700\/50) {
+    border-color: rgba(203, 213, 225, 0.55) !important;
+}
+
+body.light :is(.border-zinc-700\/40, .border-slate-700\/40, .border-gray-700\/40, .border-neutral-700\/40, .border-stone-700\/40) {
+    border-color: rgba(203, 213, 225, 0.45) !important;
+}
+
+body.light :is(.border-zinc-700\/30, .border-slate-700\/30, .border-gray-700\/30, .border-neutral-700\/30, .border-stone-700\/30) {
+    border-color: rgba(203, 213, 225, 0.35) !important;
+}
+
+body.light :is(.border-zinc-700\/20, .border-slate-700\/20, .border-gray-700\/20, .border-neutral-700\/20, .border-stone-700\/20) {
+    border-color: rgba(203, 213, 225, 0.25) !important;
+}
+
+body.light :is(.border-zinc-600, .border-slate-600, .border-gray-600, .border-neutral-600, .border-stone-600) {
+    border-color: #64748B !important;
+}
+
+body.light :is(.border-zinc-600\/50, .border-slate-600\/50, .border-gray-600\/50, .border-neutral-600\/50, .border-stone-600\/50) {
+    border-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+body.light :is(.border-zinc-500, .border-slate-500, .border-gray-500, .border-neutral-500, .border-stone-500) {
+    border-color: #475569 !important;
+}
+
+/* --- Hover Backgrounds --- */
+body.light :is(.hover\:bg-zinc-800, .hover\:bg-slate-800, .hover\:bg-gray-800, .hover\:bg-neutral-800, .hover\:bg-stone-800):hover {
+    background-color: #E2E8F0 !important;
+}
+
+body.light :is(.hover\:bg-zinc-800\/70, .hover\:bg-slate-800\/70, .hover\:bg-gray-800\/70, .hover\:bg-neutral-800\/70, .hover\:bg-stone-800\/70):hover {
+    background-color: rgba(226, 232, 240, 0.75) !important;
+}
+
+body.light :is(.hover\:bg-zinc-800\/60, .hover\:bg-slate-800\/60, .hover\:bg-gray-800\/60, .hover\:bg-neutral-800\/60, .hover\:bg-stone-800\/60):hover {
+    background-color: rgba(226, 232, 240, 0.65) !important;
+}
+
+body.light :is(.hover\:bg-zinc-800\/50, .hover\:bg-slate-800\/50, .hover\:bg-gray-800\/50, .hover\:bg-neutral-800\/50, .hover\:bg-stone-800\/50):hover {
+    background-color: rgba(226, 232, 240, 0.55) !important;
+}
+
+body.light :is(.hover\:bg-zinc-800\/30, .hover\:bg-slate-800\/30, .hover\:bg-gray-800\/30, .hover\:bg-neutral-800\/30, .hover\:bg-stone-800\/30):hover {
+    background-color: rgba(226, 232, 240, 0.35) !important;
+}
+
+body.light :is(.hover\:bg-zinc-700, .hover\:bg-slate-700, .hover\:bg-gray-700, .hover\:bg-neutral-700, .hover\:bg-stone-700):hover {
+    background-color: #94A3B8 !important;
+}
+
+body.light :is(.hover\:bg-zinc-700\/60, .hover\:bg-slate-700\/60, .hover\:bg-gray-700\/60, .hover\:bg-neutral-700\/60, .hover\:bg-stone-700\/60):hover {
+    background-color: rgba(203, 213, 225, 0.65) !important;
+}
+
+body.light :is(.hover\:bg-zinc-700\/50, .hover\:bg-slate-700\/50, .hover\:bg-gray-700\/50, .hover\:bg-neutral-700\/50, .hover\:bg-stone-700\/50):hover {
+    background-color: rgba(203, 213, 225, 0.55) !important;
+}
+
+body.light :is(.hover\:bg-zinc-700\/40, .hover\:bg-slate-700\/40, .hover\:bg-gray-700\/40, .hover\:bg-neutral-700\/40, .hover\:bg-stone-700\/40):hover {
+    background-color: rgba(203, 213, 225, 0.45) !important;
+}
+
+body.light :is(.hover\:bg-zinc-700\/30, .hover\:bg-slate-700\/30, .hover\:bg-gray-700\/30, .hover\:bg-neutral-700\/30, .hover\:bg-stone-700\/30):hover {
+    background-color: rgba(203, 213, 225, 0.35) !important;
+}
+
+body.light :is(.hover\:bg-zinc-600, .hover\:bg-slate-600, .hover\:bg-gray-600, .hover\:bg-neutral-600, .hover\:bg-stone-600):hover {
+    background-color: #64748B !important;
+}
+
+body.light :is(.hover\:bg-zinc-600\/50, .hover\:bg-slate-600\/50, .hover\:bg-gray-600\/50, .hover\:bg-neutral-600\/50, .hover\:bg-stone-600\/50):hover {
+    background-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+body.light :is(.hover\:bg-zinc-500, .hover\:bg-slate-500, .hover\:bg-gray-500, .hover\:bg-neutral-500, .hover\:bg-stone-500):hover {
+    background-color: #475569 !important;
+}
+
+/* --- Hover Text --- */
+body.light :is(.hover\:text-zinc-100, .hover\:text-slate-100, .hover\:text-gray-100, .hover\:text-neutral-100, .hover\:text-stone-100):hover {
+    color: #1E293B !important;
+}
+
+body.light :is(.hover\:text-zinc-200, .hover\:text-slate-200, .hover\:text-gray-200, .hover\:text-neutral-200, .hover\:text-stone-200):hover {
+    color: #1E293B !important;
+}
+
+body.light :is(.hover\:text-zinc-300, .hover\:text-slate-300, .hover\:text-gray-300, .hover\:text-neutral-300, .hover\:text-stone-300):hover {
+    color: #334155 !important;
+}
+
+body.light :is(.hover\:text-zinc-400, .hover\:text-slate-400, .hover\:text-gray-400, .hover\:text-neutral-400, .hover\:text-stone-400):hover {
+    color: #475569 !important;
 }
 
 body.light .hover\:text-white:hover {
@@ -301,28 +301,28 @@ body.light .hover\:text-white:hover {
 }
 
 /* --- Placeholder --- */
-body.light .placeholder\:text-zinc-600::placeholder {
-    color: #94A3B8 !important;
+body.light :is(.placeholder\:text-zinc-600, .placeholder\:text-slate-600, .placeholder\:text-gray-600, .placeholder\:text-neutral-600, .placeholder\:text-stone-600)::placeholder {
+    color: #64748B !important;
 }
 
-body.light .placeholder\:text-zinc-500\/80::placeholder {
-    color: rgba(100, 116, 139, 0.7) !important;
+body.light :is(.placeholder\:text-zinc-500\/80, .placeholder\:text-slate-500\/80, .placeholder\:text-gray-500\/80, .placeholder\:text-neutral-500\/80, .placeholder\:text-stone-500\/80)::placeholder {
+    color: rgba(71, 85, 105, 0.7) !important;
 }
 
 /* --- Divide / Ring --- */
-body.light .divide-zinc-800> :not([hidden])~ :not([hidden]) {
+body.light :is(.divide-zinc-800, .divide-slate-800, .divide-gray-800, .divide-neutral-800, .divide-stone-800)> :not([hidden])~ :not([hidden]) {
     border-color: #E2E8F0 !important;
 }
 
-body.light .divide-zinc-700> :not([hidden])~ :not([hidden]) {
-    border-color: #CBD5E1 !important;
+body.light :is(.divide-zinc-700, .divide-slate-700, .divide-gray-700, .divide-neutral-700, .divide-stone-700)> :not([hidden])~ :not([hidden]) {
+    border-color: #94A3B8 !important;
 }
 
-body.light .ring-zinc-700 {
-    --tw-ring-color: #CBD5E1 !important;
+body.light :is(.ring-zinc-700, .ring-slate-700, .ring-gray-700, .ring-neutral-700, .ring-stone-700) {
+    --tw-ring-color: #94A3B8 !important;
 }
 
-body.light .ring-zinc-800 {
+body.light :is(.ring-zinc-800, .ring-slate-800, .ring-gray-800, .ring-neutral-800, .ring-stone-800) {
     --tw-ring-color: #E2E8F0 !important;
 }
 
@@ -839,6 +839,60 @@ body.light ::-webkit-scrollbar-thumb:hover {
     background: #94A3B8;
 }
 
+/* --- Inline Style Override (PromptManager etc.) --- */
+body.light [style*="linear-gradient"][class*="bg-gradient"],
+body.light [style*="rgba(24"],
+body.light [style*="rgba(39"] {
+    background: linear-gradient(135deg, rgba(241, 245, 249, 0.97) 0%, rgba(226, 232, 240, 0.92) 50%, rgba(241, 245, 249, 0.97) 100%) !important;
+}
+
+body.light .bg-gradient-to-br:is(.from-zinc-900\/95, .from-slate-900\/95, .from-gray-900\/95, .from-neutral-900\/95, .from-stone-900\/95) {
+    background: linear-gradient(to bottom right, rgba(241, 245, 249, 0.97), rgba(226, 232, 240, 0.92), rgba(241, 245, 249, 0.97)) !important;
+}
+
+/* Teal accent tints */
+body.light .bg-teal-500\/10 {
+    background-color: rgba(13, 148, 136, 0.08) !important;
+}
+
+body.light .bg-teal-500\/20 {
+    background-color: rgba(13, 148, 136, 0.12) !important;
+}
+
+body.light .bg-teal-500\/30 {
+    background-color: rgba(13, 148, 136, 0.18) !important;
+}
+
+body.light .hover\:bg-teal-500\/20:hover {
+    background-color: rgba(13, 148, 136, 0.15) !important;
+}
+
+body.light .hover\:bg-teal-500\/30:hover {
+    background-color: rgba(13, 148, 136, 0.2) !important;
+}
+
+body.light .hover\:border-teal-500\/30:hover {
+    border-color: rgba(13, 148, 136, 0.22) !important;
+}
+
+/* Shadow override: remove dark glow */
+body.light .shadow-2xl {
+    box-shadow: 0 4px 24px rgba(148, 163, 184, 0.15) !important;
+}
+
+body.light .shadow-lg {
+    box-shadow: 0 2px 12px rgba(148, 163, 184, 0.12) !important;
+}
+
+body.light .hover\:shadow-teal-500\/5:hover {
+    box-shadow: 0 4px 24px rgba(13, 148, 136, 0.06) !important;
+}
+
+/* h-px decorative lines */
+body.light .h-px.bg-gradient-to-r {
+    opacity: 0.5;
+}
+
 
 /* ═══════════════════════════════════════════
    🌿  EYE-CARE MODE
@@ -854,104 +908,104 @@ body.light ::-webkit-scrollbar-thumb:hover {
    zinc-600 → 强调 #B8AD98
    zinc-500 → 禁用 #9A8E7A
 */
-body.eye-care .bg-zinc-950 {
+body.eye-care :is(.bg-zinc-950, .bg-slate-950, .bg-gray-950, .bg-neutral-950, .bg-stone-950) {
     background-color: #F5F0E8 !important;
 }
 
-body.eye-care .bg-zinc-950\/95 {
+body.eye-care :is(.bg-zinc-950\/95, .bg-slate-950\/95, .bg-gray-950\/95, .bg-neutral-950\/95, .bg-stone-950\/95) {
     background-color: rgba(245, 240, 232, 0.97) !important;
 }
 
-body.eye-care .bg-zinc-950\/80 {
+body.eye-care :is(.bg-zinc-950\/80, .bg-slate-950\/80, .bg-gray-950\/80, .bg-neutral-950\/80, .bg-stone-950\/80) {
     background-color: rgba(245, 240, 232, 0.85) !important;
 }
 
-body.eye-care .bg-zinc-950\/50 {
+body.eye-care :is(.bg-zinc-950\/50, .bg-slate-950\/50, .bg-gray-950\/50, .bg-neutral-950\/50, .bg-stone-950\/50) {
     background-color: rgba(245, 240, 232, 0.6) !important;
 }
 
-body.eye-care .bg-zinc-950\/40 {
+body.eye-care :is(.bg-zinc-950\/40, .bg-slate-950\/40, .bg-gray-950\/40, .bg-neutral-950\/40, .bg-stone-950\/40) {
     background-color: rgba(245, 240, 232, 0.5) !important;
 }
 
-body.eye-care .bg-zinc-950\/30 {
+body.eye-care :is(.bg-zinc-950\/30, .bg-slate-950\/30, .bg-gray-950\/30, .bg-neutral-950\/30, .bg-stone-950\/30) {
     background-color: rgba(245, 240, 232, 0.4) !important;
 }
 
-body.eye-care .bg-zinc-900 {
+body.eye-care :is(.bg-zinc-900, .bg-slate-900, .bg-gray-900, .bg-neutral-900, .bg-stone-900) {
     background-color: #EDE7DC !important;
 }
 
-body.eye-care .bg-zinc-900\/95 {
+body.eye-care :is(.bg-zinc-900\/95, .bg-slate-900\/95, .bg-gray-900\/95, .bg-neutral-900\/95, .bg-stone-900\/95) {
     background-color: rgba(237, 231, 220, 0.96) !important;
 }
 
-body.eye-care .bg-zinc-900\/90 {
+body.eye-care :is(.bg-zinc-900\/90, .bg-slate-900\/90, .bg-gray-900\/90, .bg-neutral-900\/90, .bg-stone-900\/90) {
     background-color: rgba(237, 231, 220, 0.92) !important;
 }
 
-body.eye-care .bg-zinc-900\/80 {
+body.eye-care :is(.bg-zinc-900\/80, .bg-slate-900\/80, .bg-gray-900\/80, .bg-neutral-900\/80, .bg-stone-900\/80) {
     background-color: rgba(237, 231, 220, 0.85) !important;
 }
 
-body.eye-care .bg-zinc-900\/60 {
+body.eye-care :is(.bg-zinc-900\/60, .bg-slate-900\/60, .bg-gray-900\/60, .bg-neutral-900\/60, .bg-stone-900\/60) {
     background-color: rgba(237, 231, 220, 0.65) !important;
 }
 
-body.eye-care .bg-zinc-900\/50 {
+body.eye-care :is(.bg-zinc-900\/50, .bg-slate-900\/50, .bg-gray-900\/50, .bg-neutral-900\/50, .bg-stone-900\/50) {
     background-color: rgba(237, 231, 220, 0.55) !important;
 }
 
-body.eye-care .bg-zinc-900\/30 {
+body.eye-care :is(.bg-zinc-900\/30, .bg-slate-900\/30, .bg-gray-900\/30, .bg-neutral-900\/30, .bg-stone-900\/30) {
     background-color: rgba(237, 231, 220, 0.35) !important;
 }
 
-body.eye-care .bg-zinc-800 {
+body.eye-care :is(.bg-zinc-800, .bg-slate-800, .bg-gray-800, .bg-neutral-800, .bg-stone-800) {
     background-color: #E0D8CA !important;
 }
 
-body.eye-care .bg-zinc-800\/80 {
+body.eye-care :is(.bg-zinc-800\/80, .bg-slate-800\/80, .bg-gray-800\/80, .bg-neutral-800\/80, .bg-stone-800\/80) {
     background-color: rgba(224, 216, 202, 0.85) !important;
 }
 
-body.eye-care .bg-zinc-800\/60 {
+body.eye-care :is(.bg-zinc-800\/60, .bg-slate-800\/60, .bg-gray-800\/60, .bg-neutral-800\/60, .bg-stone-800\/60) {
     background-color: rgba(224, 216, 202, 0.65) !important;
 }
 
-body.eye-care .bg-zinc-800\/50 {
+body.eye-care :is(.bg-zinc-800\/50, .bg-slate-800\/50, .bg-gray-800\/50, .bg-neutral-800\/50, .bg-stone-800\/50) {
     background-color: rgba(224, 216, 202, 0.55) !important;
 }
 
-body.eye-care .bg-zinc-800\/40 {
+body.eye-care :is(.bg-zinc-800\/40, .bg-slate-800\/40, .bg-gray-800\/40, .bg-neutral-800\/40, .bg-stone-800\/40) {
     background-color: rgba(224, 216, 202, 0.45) !important;
 }
 
-body.eye-care .bg-zinc-800\/30 {
+body.eye-care :is(.bg-zinc-800\/30, .bg-slate-800\/30, .bg-gray-800\/30, .bg-neutral-800\/30, .bg-stone-800\/30) {
     background-color: rgba(224, 216, 202, 0.35) !important;
 }
 
-body.eye-care .bg-zinc-700 {
+body.eye-care :is(.bg-zinc-700, .bg-slate-700, .bg-gray-700, .bg-neutral-700, .bg-stone-700) {
     background-color: #D1C7B5 !important;
 }
 
-body.eye-care .bg-zinc-700\/80 {
+body.eye-care :is(.bg-zinc-700\/80, .bg-slate-700\/80, .bg-gray-700\/80, .bg-neutral-700\/80, .bg-stone-700\/80) {
     background-color: rgba(209, 199, 181, 0.85) !important;
 }
 
-body.eye-care .bg-zinc-700\/60 {
+body.eye-care :is(.bg-zinc-700\/60, .bg-slate-700\/60, .bg-gray-700\/60, .bg-neutral-700\/60, .bg-stone-700\/60) {
     background-color: rgba(209, 199, 181, 0.65) !important;
 }
 
-body.eye-care .bg-zinc-700\/50 {
+body.eye-care :is(.bg-zinc-700\/50, .bg-slate-700\/50, .bg-gray-700\/50, .bg-neutral-700\/50, .bg-stone-700\/50) {
     background-color: rgba(209, 199, 181, 0.55) !important;
 }
 
-body.eye-care .bg-zinc-600 {
-    background-color: #B8AD98 !important;
+body.eye-care :is(.bg-zinc-600, .bg-slate-600, .bg-gray-600, .bg-neutral-600, .bg-stone-600) {
+    background-color: #9A8E7A !important;
 }
 
-body.eye-care .bg-zinc-500 {
-    background-color: #9A8E7A !important;
+body.eye-care :is(.bg-zinc-500, .bg-slate-500, .bg-gray-500, .bg-neutral-500, .bg-stone-500) {
+    background-color: #7A6D5A !important;
 }
 
 body.eye-care .bg-black {
@@ -975,159 +1029,159 @@ body.eye-care .text-white {
     color: #2C2418 !important;
 }
 
-body.eye-care .text-zinc-100 {
+body.eye-care :is(.text-zinc-100, .text-slate-100, .text-gray-100, .text-neutral-100, .text-stone-100) {
     color: #3D3426 !important;
 }
 
-body.eye-care .text-zinc-100\/80 {
+body.eye-care :is(.text-zinc-100\/80, .text-slate-100\/80, .text-gray-100\/80, .text-neutral-100\/80, .text-stone-100\/80) {
     color: rgba(61, 52, 38, 0.82) !important;
 }
 
-body.eye-care .text-zinc-200 {
+body.eye-care :is(.text-zinc-200, .text-slate-200, .text-gray-200, .text-neutral-200, .text-stone-200) {
     color: #4A3F30 !important;
 }
 
-body.eye-care .text-zinc-300 {
+body.eye-care :is(.text-zinc-300, .text-slate-300, .text-gray-300, .text-neutral-300, .text-stone-300) {
+    color: #4A4031 !important;
+}
+
+body.eye-care :is(.text-zinc-400, .text-slate-400, .text-gray-400, .text-neutral-400, .text-stone-400) {
     color: #5C5040 !important;
 }
 
-body.eye-care .text-zinc-400 {
-    color: #7A6D5A !important;
-}
-
-body.eye-care .text-zinc-400\/80 {
+body.eye-care :is(.text-zinc-400\/80, .text-slate-400\/80, .text-gray-400\/80, .text-neutral-400\/80, .text-stone-400\/80) {
     color: rgba(122, 109, 90, 0.82) !important;
 }
 
-body.eye-care .text-zinc-500 {
+body.eye-care :is(.text-zinc-500, .text-slate-500, .text-gray-500, .text-neutral-500, .text-stone-500) {
+    color: #7A6D5A !important;
+}
+
+body.eye-care :is(.text-zinc-600, .text-slate-600, .text-gray-600, .text-neutral-600, .text-stone-600) {
     color: #9A8E7A !important;
 }
 
-body.eye-care .text-zinc-600 {
-    color: #B8AD98 !important;
-}
-
 /* --- Borders --- */
-body.eye-care .border-zinc-800 {
+body.eye-care :is(.border-zinc-800, .border-slate-800, .border-gray-800, .border-neutral-800, .border-stone-800) {
     border-color: #E0D8CA !important;
 }
 
-body.eye-care .border-zinc-800\/70 {
+body.eye-care :is(.border-zinc-800\/70, .border-slate-800\/70, .border-gray-800\/70, .border-neutral-800\/70, .border-stone-800\/70) {
     border-color: rgba(224, 216, 202, 0.75) !important;
 }
 
-body.eye-care .border-zinc-800\/50 {
+body.eye-care :is(.border-zinc-800\/50, .border-slate-800\/50, .border-gray-800\/50, .border-neutral-800\/50, .border-stone-800\/50) {
     border-color: rgba(224, 216, 202, 0.55) !important;
 }
 
-body.eye-care .border-zinc-800\/30 {
+body.eye-care :is(.border-zinc-800\/30, .border-slate-800\/30, .border-gray-800\/30, .border-neutral-800\/30, .border-stone-800\/30) {
     border-color: rgba(224, 216, 202, 0.35) !important;
 }
 
-body.eye-care .border-zinc-700 {
+body.eye-care :is(.border-zinc-700, .border-slate-700, .border-gray-700, .border-neutral-700, .border-stone-700) {
     border-color: #D1C7B5 !important;
 }
 
-body.eye-care .border-zinc-700\/60 {
+body.eye-care :is(.border-zinc-700\/60, .border-slate-700\/60, .border-gray-700\/60, .border-neutral-700\/60, .border-stone-700\/60) {
     border-color: rgba(209, 199, 181, 0.65) !important;
 }
 
-body.eye-care .border-zinc-700\/50 {
+body.eye-care :is(.border-zinc-700\/50, .border-slate-700\/50, .border-gray-700\/50, .border-neutral-700\/50, .border-stone-700\/50) {
     border-color: rgba(209, 199, 181, 0.55) !important;
 }
 
-body.eye-care .border-zinc-700\/40 {
+body.eye-care :is(.border-zinc-700\/40, .border-slate-700\/40, .border-gray-700\/40, .border-neutral-700\/40, .border-stone-700\/40) {
     border-color: rgba(209, 199, 181, 0.45) !important;
 }
 
-body.eye-care .border-zinc-700\/30 {
+body.eye-care :is(.border-zinc-700\/30, .border-slate-700\/30, .border-gray-700\/30, .border-neutral-700\/30, .border-stone-700\/30) {
     border-color: rgba(209, 199, 181, 0.35) !important;
 }
 
-body.eye-care .border-zinc-700\/20 {
+body.eye-care :is(.border-zinc-700\/20, .border-slate-700\/20, .border-gray-700\/20, .border-neutral-700\/20, .border-stone-700\/20) {
     border-color: rgba(209, 199, 181, 0.25) !important;
 }
 
-body.eye-care .border-zinc-600 {
-    border-color: #B8AD98 !important;
-}
-
-body.eye-care .border-zinc-600\/50 {
-    border-color: rgba(184, 173, 152, 0.55) !important;
-}
-
-body.eye-care .border-zinc-500 {
+body.eye-care :is(.border-zinc-600, .border-slate-600, .border-gray-600, .border-neutral-600, .border-stone-600) {
     border-color: #9A8E7A !important;
 }
 
+body.eye-care :is(.border-zinc-600\/50, .border-slate-600\/50, .border-gray-600\/50, .border-neutral-600\/50, .border-stone-600\/50) {
+    border-color: rgba(184, 173, 152, 0.55) !important;
+}
+
+body.eye-care :is(.border-zinc-500, .border-slate-500, .border-gray-500, .border-neutral-500, .border-stone-500) {
+    border-color: #7A6D5A !important;
+}
+
 /* --- Hover Backgrounds --- */
-body.eye-care .hover\:bg-zinc-800:hover {
+body.eye-care :is(.hover\:bg-zinc-800, .hover\:bg-slate-800, .hover\:bg-gray-800, .hover\:bg-neutral-800, .hover\:bg-stone-800):hover {
     background-color: #E0D8CA !important;
 }
 
-body.eye-care .hover\:bg-zinc-800\/70:hover {
+body.eye-care :is(.hover\:bg-zinc-800\/70, .hover\:bg-slate-800\/70, .hover\:bg-gray-800\/70, .hover\:bg-neutral-800\/70, .hover\:bg-stone-800\/70):hover {
     background-color: rgba(224, 216, 202, 0.75) !important;
 }
 
-body.eye-care .hover\:bg-zinc-800\/60:hover {
+body.eye-care :is(.hover\:bg-zinc-800\/60, .hover\:bg-slate-800\/60, .hover\:bg-gray-800\/60, .hover\:bg-neutral-800\/60, .hover\:bg-stone-800\/60):hover {
     background-color: rgba(224, 216, 202, 0.65) !important;
 }
 
-body.eye-care .hover\:bg-zinc-800\/50:hover {
+body.eye-care :is(.hover\:bg-zinc-800\/50, .hover\:bg-slate-800\/50, .hover\:bg-gray-800\/50, .hover\:bg-neutral-800\/50, .hover\:bg-stone-800\/50):hover {
     background-color: rgba(224, 216, 202, 0.55) !important;
 }
 
-body.eye-care .hover\:bg-zinc-800\/30:hover {
+body.eye-care :is(.hover\:bg-zinc-800\/30, .hover\:bg-slate-800\/30, .hover\:bg-gray-800\/30, .hover\:bg-neutral-800\/30, .hover\:bg-stone-800\/30):hover {
     background-color: rgba(224, 216, 202, 0.35) !important;
 }
 
-body.eye-care .hover\:bg-zinc-700:hover {
+body.eye-care :is(.hover\:bg-zinc-700, .hover\:bg-slate-700, .hover\:bg-gray-700, .hover\:bg-neutral-700, .hover\:bg-stone-700):hover {
     background-color: #D1C7B5 !important;
 }
 
-body.eye-care .hover\:bg-zinc-700\/60:hover {
+body.eye-care :is(.hover\:bg-zinc-700\/60, .hover\:bg-slate-700\/60, .hover\:bg-gray-700\/60, .hover\:bg-neutral-700\/60, .hover\:bg-stone-700\/60):hover {
     background-color: rgba(209, 199, 181, 0.65) !important;
 }
 
-body.eye-care .hover\:bg-zinc-700\/50:hover {
+body.eye-care :is(.hover\:bg-zinc-700\/50, .hover\:bg-slate-700\/50, .hover\:bg-gray-700\/50, .hover\:bg-neutral-700\/50, .hover\:bg-stone-700\/50):hover {
     background-color: rgba(209, 199, 181, 0.55) !important;
 }
 
-body.eye-care .hover\:bg-zinc-700\/40:hover {
+body.eye-care :is(.hover\:bg-zinc-700\/40, .hover\:bg-slate-700\/40, .hover\:bg-gray-700\/40, .hover\:bg-neutral-700\/40, .hover\:bg-stone-700\/40):hover {
     background-color: rgba(209, 199, 181, 0.45) !important;
 }
 
-body.eye-care .hover\:bg-zinc-700\/30:hover {
+body.eye-care :is(.hover\:bg-zinc-700\/30, .hover\:bg-slate-700\/30, .hover\:bg-gray-700\/30, .hover\:bg-neutral-700\/30, .hover\:bg-stone-700\/30):hover {
     background-color: rgba(209, 199, 181, 0.35) !important;
 }
 
-body.eye-care .hover\:bg-zinc-600:hover {
-    background-color: #B8AD98 !important;
-}
-
-body.eye-care .hover\:bg-zinc-600\/50:hover {
-    background-color: rgba(184, 173, 152, 0.55) !important;
-}
-
-body.eye-care .hover\:bg-zinc-500:hover {
+body.eye-care :is(.hover\:bg-zinc-600, .hover\:bg-slate-600, .hover\:bg-gray-600, .hover\:bg-neutral-600, .hover\:bg-stone-600):hover {
     background-color: #9A8E7A !important;
 }
 
+body.eye-care :is(.hover\:bg-zinc-600\/50, .hover\:bg-slate-600\/50, .hover\:bg-gray-600\/50, .hover\:bg-neutral-600\/50, .hover\:bg-stone-600\/50):hover {
+    background-color: rgba(184, 173, 152, 0.55) !important;
+}
+
+body.eye-care :is(.hover\:bg-zinc-500, .hover\:bg-slate-500, .hover\:bg-gray-500, .hover\:bg-neutral-500, .hover\:bg-stone-500):hover {
+    background-color: #7A6D5A !important;
+}
+
 /* --- Hover Text --- */
-body.eye-care .hover\:text-zinc-100:hover {
+body.eye-care :is(.hover\:text-zinc-100, .hover\:text-slate-100, .hover\:text-gray-100, .hover\:text-neutral-100, .hover\:text-stone-100):hover {
     color: #3D3426 !important;
 }
 
-body.eye-care .hover\:text-zinc-200:hover {
+body.eye-care :is(.hover\:text-zinc-200, .hover\:text-slate-200, .hover\:text-gray-200, .hover\:text-neutral-200, .hover\:text-stone-200):hover {
     color: #4A3F30 !important;
 }
 
-body.eye-care .hover\:text-zinc-300:hover {
-    color: #5C5040 !important;
+body.eye-care :is(.hover\:text-zinc-300, .hover\:text-slate-300, .hover\:text-gray-300, .hover\:text-neutral-300, .hover\:text-stone-300):hover {
+    color: #4A4031 !important;
 }
 
-body.eye-care .hover\:text-zinc-400:hover {
-    color: #7A6D5A !important;
+body.eye-care :is(.hover\:text-zinc-400, .hover\:text-slate-400, .hover\:text-gray-400, .hover\:text-neutral-400, .hover\:text-stone-400):hover {
+    color: #5C5040 !important;
 }
 
 body.eye-care .hover\:text-white:hover {
@@ -1135,28 +1189,28 @@ body.eye-care .hover\:text-white:hover {
 }
 
 /* --- Placeholder --- */
-body.eye-care .placeholder\:text-zinc-600::placeholder {
-    color: #9A8E7A !important;
+body.eye-care :is(.placeholder\:text-zinc-600, .placeholder\:text-slate-600, .placeholder\:text-gray-600, .placeholder\:text-neutral-600, .placeholder\:text-stone-600)::placeholder {
+    color: #7A6D5A !important;
 }
 
-body.eye-care .placeholder\:text-zinc-500\/80::placeholder {
+body.eye-care :is(.placeholder\:text-zinc-500\/80, .placeholder\:text-slate-500\/80, .placeholder\:text-gray-500\/80, .placeholder\:text-neutral-500\/80, .placeholder\:text-stone-500\/80)::placeholder {
     color: rgba(122, 109, 90, 0.7) !important;
 }
 
 /* --- Divide / Ring --- */
-body.eye-care .divide-zinc-800> :not([hidden])~ :not([hidden]) {
+body.eye-care :is(.divide-zinc-800, .divide-slate-800, .divide-gray-800, .divide-neutral-800, .divide-stone-800)> :not([hidden])~ :not([hidden]) {
     border-color: #E0D8CA !important;
 }
 
-body.eye-care .divide-zinc-700> :not([hidden])~ :not([hidden]) {
+body.eye-care :is(.divide-zinc-700, .divide-slate-700, .divide-gray-700, .divide-neutral-700, .divide-stone-700)> :not([hidden])~ :not([hidden]) {
     border-color: #D1C7B5 !important;
 }
 
-body.eye-care .ring-zinc-700 {
+body.eye-care :is(.ring-zinc-700, .ring-slate-700, .ring-gray-700, .ring-neutral-700, .ring-stone-700) {
     --tw-ring-color: #D1C7B5 !important;
 }
 
-body.eye-care .ring-zinc-800 {
+body.eye-care :is(.ring-zinc-800, .ring-slate-800, .ring-gray-800, .ring-neutral-800, .ring-stone-800) {
     --tw-ring-color: #E0D8CA !important;
 }
 
@@ -1660,3 +1714,348 @@ body.eye-care ::-webkit-scrollbar-thumb {
 body.eye-care ::-webkit-scrollbar-thumb:hover {
     background: #B8AD98;
 }
+
+/* --- Inline Style Override (PromptManager etc.) --- */
+body.eye-care [style*="linear-gradient"][class*="bg-gradient"],
+body.eye-care [style*="rgba(24"],
+body.eye-care [style*="rgba(39"] {
+    background: linear-gradient(135deg, rgba(237, 231, 220, 0.97) 0%, rgba(224, 216, 202, 0.92) 50%, rgba(237, 231, 220, 0.97) 100%) !important;
+}
+
+body.eye-care .bg-gradient-to-br:is(.from-zinc-900\/95, .from-slate-900\/95, .from-gray-900\/95, .from-neutral-900\/95, .from-stone-900\/95) {
+    background: linear-gradient(to bottom right, rgba(237, 231, 220, 0.97), rgba(224, 216, 202, 0.92), rgba(237, 231, 220, 0.97)) !important;
+}
+
+/* Teal accent tints */
+body.eye-care .bg-teal-500\/10 {
+    background-color: rgba(13, 148, 136, 0.08) !important;
+}
+
+body.eye-care .bg-teal-500\/20 {
+    background-color: rgba(13, 148, 136, 0.12) !important;
+}
+
+body.eye-care .bg-teal-500\/30 {
+    background-color: rgba(13, 148, 136, 0.18) !important;
+}
+
+body.eye-care .hover\:bg-teal-500\/20:hover {
+    background-color: rgba(13, 148, 136, 0.15) !important;
+}
+
+body.eye-care .hover\:bg-teal-500\/30:hover {
+    background-color: rgba(13, 148, 136, 0.2) !important;
+}
+
+body.eye-care .hover\:border-teal-500\/30:hover {
+    border-color: rgba(13, 148, 136, 0.22) !important;
+}
+
+/* Shadow override */
+body.eye-care .shadow-2xl {
+    box-shadow: 0 4px 24px rgba(184, 173, 152, 0.15) !important;
+}
+
+body.eye-care .shadow-lg {
+    box-shadow: 0 2px 12px rgba(184, 173, 152, 0.12) !important;
+}
+
+body.eye-care .hover\:shadow-teal-500\/5:hover {
+    box-shadow: 0 4px 24px rgba(13, 148, 136, 0.06) !important;
+}
+
+/* h-px decorative lines */
+body.eye-care .h-px.bg-gradient-to-r {
+    opacity: 0.5;
+}
+
+/* ============================================
+   🔧 Coverage Patch (state/gradient variants)
+   补齐 disabled/focus-within/group-hover/gradient 等漏网类
+   ============================================ */
+
+/* --- LIGHT: gradient stops (from/via/to + hover/disabled variants) --- */
+body.light [class*="from-zinc-"] {
+    --tw-gradient-from: rgba(241, 245, 249, 0.96) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgba(241, 245, 249, 0) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+body.light [class*="via-zinc-"] {
+    --tw-gradient-stops: var(--tw-gradient-from), rgba(226, 232, 240, 0.78) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+body.light [class*="to-zinc-"] {
+    --tw-gradient-to: rgba(226, 232, 240, 0.86) var(--tw-gradient-to-position) !important;
+}
+
+body.light [class*="from-blue-"] {
+    --tw-gradient-from: rgba(147, 197, 253, 0.92) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgba(147, 197, 253, 0) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+body.light [class*="to-blue-"] {
+    --tw-gradient-to: rgba(191, 219, 254, 0.92) var(--tw-gradient-to-position) !important;
+}
+
+body.light [class*="from-emerald-"] {
+    --tw-gradient-from: rgba(110, 231, 183, 0.45) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgba(110, 231, 183, 0) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+body.light [class*="to-emerald-"] {
+    --tw-gradient-to: rgba(167, 243, 208, 0.55) var(--tw-gradient-to-position) !important;
+}
+
+/* --- LIGHT: state variants --- */
+body.light :is(.disabled\:bg-zinc-700, .disabled\:bg-slate-700, .disabled\:bg-gray-700, .disabled\:bg-neutral-700, .disabled\:bg-stone-700):disabled {
+    background-color: #94A3B8 !important;
+}
+
+body.light :is(.disabled\:text-zinc-500, .disabled\:text-slate-500, .disabled\:text-gray-500, .disabled\:text-neutral-500, .disabled\:text-stone-500):disabled {
+    color: #64748B !important;
+}
+
+body.light [class*="focus-within\:border-emerald"] {
+    border-color: #059669 !important;
+}
+
+body.light [class*="focus-within\:ring-emerald"] {
+    --tw-ring-color: rgba(5, 150, 105, 0.35) !important;
+}
+
+body.light [class*="hover\:border-zinc-"]:hover {
+    border-color: #64748B !important;
+}
+
+body.light [class*="hover\:border-emerald-"]:hover {
+    border-color: #6EE7B7 !important;
+}
+
+body.light [class*="hover\:border-red-"]:hover {
+    border-color: #FCA5A5 !important;
+}
+
+body.light .group:hover .group-hover\:bg-emerald-900\/30 {
+    background-color: #D1FAE5 !important;
+}
+
+body.light .group:hover .group-hover\:text-emerald-500 {
+    color: #047857 !important;
+}
+
+body.light .group:hover :is(.group-hover\:text-zinc-300, .group-hover\:text-slate-300, .group-hover\:text-gray-300, .group-hover\:text-neutral-300, .group-hover\:text-stone-300) {
+    color: #334155 !important;
+}
+
+/* --- LIGHT: misc utility gaps --- */
+body.light :is(.divide-zinc-800\/50, .divide-slate-800\/50, .divide-gray-800\/50, .divide-neutral-800\/50, .divide-stone-800\/50)> :not([hidden])~ :not([hidden]) {
+    border-color: rgba(226, 232, 240, 0.55) !important;
+}
+
+body.light [class*="placeholder-zinc-"]::placeholder {
+    color: #64748B !important;
+}
+
+body.light [class*="ring-blue-"] {
+    --tw-ring-color: rgba(37, 99, 235, 0.3) !important;
+}
+
+body.light [class*="shadow-emerald-"] {
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.12) !important;
+}
+
+body.light [class*="shadow-blue-"] {
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12) !important;
+}
+
+body.light [class*="hover\:shadow-emerald-"]:hover {
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.16) !important;
+}
+
+body.light [class*="hover\:shadow-blue-"]:hover {
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.16) !important;
+}
+
+body.light .resizer\:bg-blue-500 {
+    background-color: #93C5FD !important;
+}
+
+body.light .corner\:border-blue-400 {
+    border-color: #93C5FD !important;
+}
+
+/* --- EYE-CARE: gradient stops (from/via/to + hover/disabled variants) --- */
+body.eye-care [class*="from-zinc-"] {
+    --tw-gradient-from: rgba(237, 231, 220, 0.96) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgba(237, 231, 220, 0) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+body.eye-care [class*="via-zinc-"] {
+    --tw-gradient-stops: var(--tw-gradient-from), rgba(224, 216, 202, 0.78) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+body.eye-care [class*="to-zinc-"] {
+    --tw-gradient-to: rgba(224, 216, 202, 0.86) var(--tw-gradient-to-position) !important;
+}
+
+body.eye-care [class*="from-blue-"] {
+    --tw-gradient-from: rgba(191, 219, 254, 0.88) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgba(191, 219, 254, 0) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+body.eye-care [class*="to-blue-"] {
+    --tw-gradient-to: rgba(219, 234, 254, 0.9) var(--tw-gradient-to-position) !important;
+}
+
+body.eye-care [class*="from-emerald-"] {
+    --tw-gradient-from: rgba(167, 243, 208, 0.42) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgba(167, 243, 208, 0) var(--tw-gradient-to-position) !important;
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+body.eye-care [class*="to-emerald-"] {
+    --tw-gradient-to: rgba(187, 247, 208, 0.52) var(--tw-gradient-to-position) !important;
+}
+
+/* --- EYE-CARE: state variants --- */
+body.eye-care :is(.disabled\:bg-zinc-700, .disabled\:bg-slate-700, .disabled\:bg-gray-700, .disabled\:bg-neutral-700, .disabled\:bg-stone-700):disabled {
+    background-color: #D1C7B5 !important;
+}
+
+body.eye-care :is(.disabled\:text-zinc-500, .disabled\:text-slate-500, .disabled\:text-gray-500, .disabled\:text-neutral-500, .disabled\:text-stone-500):disabled {
+    color: #7A6D5A !important;
+}
+
+body.eye-care [class*="focus-within\:border-emerald"] {
+    border-color: #047857 !important;
+}
+
+body.eye-care [class*="focus-within\:ring-emerald"] {
+    --tw-ring-color: rgba(4, 120, 87, 0.35) !important;
+}
+
+body.eye-care [class*="hover\:border-zinc-"]:hover {
+    border-color: #9A8E7A !important;
+}
+
+body.eye-care [class*="hover\:border-emerald-"]:hover {
+    border-color: #86EFAC !important;
+}
+
+body.eye-care [class*="hover\:border-red-"]:hover {
+    border-color: #FCA5A5 !important;
+}
+
+body.eye-care .group:hover .group-hover\:bg-emerald-900\/30 {
+    background-color: #D1FAE5 !important;
+}
+
+body.eye-care .group:hover .group-hover\:text-emerald-500 {
+    color: #065F46 !important;
+}
+
+body.eye-care .group:hover :is(.group-hover\:text-zinc-300, .group-hover\:text-slate-300, .group-hover\:text-gray-300, .group-hover\:text-neutral-300, .group-hover\:text-stone-300) {
+    color: #4A4031 !important;
+}
+
+/* --- EYE-CARE: misc utility gaps --- */
+body.eye-care :is(.divide-zinc-800\/50, .divide-slate-800\/50, .divide-gray-800\/50, .divide-neutral-800\/50, .divide-stone-800\/50)> :not([hidden])~ :not([hidden]) {
+    border-color: rgba(224, 216, 202, 0.55) !important;
+}
+
+body.eye-care [class*="placeholder-zinc-"]::placeholder {
+    color: #7A6D5A !important;
+}
+
+body.eye-care [class*="ring-blue-"] {
+    --tw-ring-color: rgba(29, 78, 216, 0.28) !important;
+}
+
+body.eye-care [class*="shadow-emerald-"] {
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.12) !important;
+}
+
+body.eye-care [class*="shadow-blue-"] {
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.12) !important;
+}
+
+body.eye-care [class*="hover\:shadow-emerald-"]:hover {
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.16) !important;
+}
+
+body.eye-care [class*="hover\:shadow-blue-"]:hover {
+    box-shadow: 0 4px 20px rgba(59, 130, 246, 0.16) !important;
+}
+
+body.eye-care .resizer\:bg-blue-500 {
+    background-color: #93C5FD !important;
+}
+
+body.eye-care .corner\:border-blue-400 {
+    border-color: #93C5FD !important;
+}
+
+/* ============================================
+   🎯 TabBar precise fallback
+   解决多标签栏在亮色/护眼下残留灰底
+   ============================================ */
+body.light .ai-recognition-tabbar {
+    background-color: #F8FAFC !important;
+    border-bottom-color: #E2E8F0 !important;
+}
+
+body.light .ai-recognition-tab.is-inactive {
+    background-color: rgba(226, 232, 240, 0.62) !important;
+    color: #475569 !important;
+}
+
+body.light .ai-recognition-tab.is-inactive:hover {
+    background-color: rgba(203, 213, 225, 0.72) !important;
+    color: #334155 !important;
+}
+
+
+body.light .ai-recognition-tab.is-active {
+    background-color: rgba(139, 92, 246, 0.15) !important;
+    color: #6D28D9 !important; /* purple-700 */
+    border-color: rgba(139, 92, 246, 0.3) !important;
+}
+\nbody.light .ai-recognition-tab-add:hover {
+    background-color: rgba(226, 232, 240, 0.62) !important;
+}
+
+body.eye-care .ai-recognition-tabbar {
+    background-color: #F5F0E8 !important;
+    border-bottom-color: #E0D8CA !important;
+}
+
+body.eye-care .ai-recognition-tab.is-inactive {
+    background-color: rgba(224, 216, 202, 0.62) !important;
+    color: #5C5040 !important;
+}
+
+body.eye-care .ai-recognition-tab.is-inactive:hover {
+    background-color: rgba(209, 199, 181, 0.72) !important;
+    color: #4A4031 !important;
+}
+
+
+body.eye-care .ai-recognition-tab.is-active {
+    background-color: rgba(139, 92, 246, 0.12) !important;
+    color: #5B21B6 !important; /* purple-800 */
+    border-color: rgba(139, 92, 246, 0.25) !important;
+}
+\nbody.eye-care .ai-recognition-tab-add:hover {
+    background-color: rgba(224, 216, 202, 0.62) !important;
+}
+
+/* --- Specific Tool Dark BG Overrides (AI Tools App) --- */
+body.light .bg-\\[\\#0a0f1a\\] { background-color: #F8FAFC !important; }
+body.light .bg-\\[\\#111827\\] { background-color: #F1F5F9 !important; }
+body.eye-care .bg-\\[\\#0a0f1a\\] { background-color: #F5F0E8 !important; }
+body.eye-care .bg-\\[\\#111827\\] { background-color: #EDE7DC !important; }

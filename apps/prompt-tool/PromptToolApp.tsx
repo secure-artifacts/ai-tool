@@ -1739,12 +1739,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
     // === 标签页栏 JSX ===
     const promptTabBar = state.promptTabs.length > 0 && (
-        <div style={{
-            display: 'flex', alignItems: 'center', gap: '4px',
-            padding: '4px 8px', background: 'rgba(24,24,27,0.6)',
-            borderBottom: '1px solid rgba(63,63,70,0.5)',
-            overflowX: 'auto',
-        }}>
+        <div className="ai-recognition-tabbar flex items-center gap-1 px-2 py-1 bg-zinc-900/60 border-b border-zinc-700/50 overflow-x-auto custom-scrollbar">
             {state.promptTabs.map(tab => {
                 const isActive = tab.id === state.activePromptTabId;
                 const isEditing = editingPromptTabId === tab.id;
@@ -1752,21 +1747,14 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                 return (
                     <div
                         key={tab.id}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
-                            minWidth: '90px', maxWidth: '200px',
-                            transition: 'all 0.15s',
-                            userSelect: 'none',
-                            fontSize: '12px',
-                            background: isActive ? 'rgba(139,92,246,0.2)' : 'rgba(63,63,70,0.3)',
-                            color: isActive ? '#c4b5fd' : '#a1a1aa',
-                            border: isActive ? '1px solid rgba(139,92,246,0.4)' : '1px solid transparent',
-                        }}
+                        className={`ai-recognition-tab group flex items-center gap-1.5 px-2.5 py-1 rounded-md cursor-pointer min-w-[90px] max-w-[200px] transition-all select-none text-xs border ${isActive
+                            ? 'is-active bg-purple-500/20 text-purple-300 border-purple-500/40'
+                            : 'is-inactive bg-zinc-700/30 text-zinc-400 border-transparent hover:bg-zinc-700/50'
+                            }`}
                         onClick={() => !isEditing && handlePromptTabSwitch(tab.id)}
                     >
                         {isEditing ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
+                            <div className="flex items-center gap-1 flex-1">
                                 <input
                                     ref={promptTabEditRef}
                                     type="text"
@@ -1778,38 +1766,29 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     }}
                                     onBlur={() => { handlePromptTabRename(tab.id, editingPromptTabName); setEditingPromptTabId(null); }}
                                     onClick={e => e.stopPropagation()}
-                                    style={{
-                                        flex: 1, background: 'rgba(24,24,27,0.8)', border: '1px solid #8b5cf6',
-                                        borderRadius: '3px', padding: '1px 4px', color: '#e4e4e7',
-                                        fontSize: '12px', outline: 'none', minWidth: '50px',
-                                    }}
+                                    className="flex-1 bg-zinc-900/80 border border-purple-500 rounded-sm px-1 py-0.5 text-zinc-200 text-xs outline-none min-w-[50px]"
                                 />
                                 <button onClick={e => { e.stopPropagation(); handlePromptTabRename(tab.id, editingPromptTabName); setEditingPromptTabId(null); }}
-                                    style={{ padding: '1px', color: '#c4b5fd', background: 'none', border: 'none', cursor: 'pointer' }}
+                                    className="p-0.5 text-purple-300 hover:text-purple-200"
                                 >
                                     <Check size={12} />
                                 </button>
                             </div>
                         ) : (
                             <>
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tab.name}>
+                                <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap" title={tab.name}>
                                     {tab.name}
                                 </span>
                                 {entryCount > 0 && (
-                                    <span style={{
-                                        fontSize: '10px', padding: '1px 5px', borderRadius: '9px',
-                                        background: isActive ? 'rgba(139,92,246,0.3)' : 'rgba(63,63,70,0.5)',
-                                        color: isActive ? '#c4b5fd' : '#71717a',
-                                    }}>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-purple-500/30 text-purple-300' : 'bg-zinc-700/50 text-zinc-500'
+                                        }`}>
                                         {entryCount}
                                     </span>
                                 )}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '2px', opacity: 0, transition: 'opacity 0.15s' }}
-                                    className="prompt-tab-actions"
-                                >
+                                <div className="prompt-tab-actions flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
                                         onClick={e => { e.stopPropagation(); setEditingPromptTabId(tab.id); setEditingPromptTabName(tab.name); }}
-                                        style={{ padding: '1px', color: '#71717a', background: 'none', border: 'none', cursor: 'pointer' }}
+                                        className="p-0.5 text-zinc-500 hover:text-zinc-300"
                                         title="重命名"
                                     >
                                         <Edit2 size={11} />
@@ -1817,7 +1796,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     {state.promptTabs.length > 1 && (
                                         <button
                                             onClick={e => { e.stopPropagation(); handlePromptTabRemove(tab.id); }}
-                                            style={{ padding: '1px', color: '#71717a', background: 'none', border: 'none', cursor: 'pointer' }}
+                                            className="p-0.5 text-zinc-500 hover:text-red-400"
                                             title="关闭标签页"
                                         >
                                             <X size={11} />
@@ -1831,12 +1810,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
             })}
             <button
                 onClick={handlePromptTabAdd}
-                style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: '28px', height: '28px', borderRadius: '6px',
-                    color: '#71717a', background: 'none', border: 'none', cursor: 'pointer',
-                    transition: 'all 0.15s',
-                }}
+                className="ai-recognition-tab-add flex items-center justify-center w-7 h-7 rounded-md text-zinc-500 hover:text-purple-400 hover:bg-zinc-800 transition-colors"
                 title="新建标签页"
             >
                 <Plus size={16} />
