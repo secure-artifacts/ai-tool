@@ -53,6 +53,8 @@ import {
     AICategoryResult,
     FIXED_PRIORITY_INSTRUCTION,
     getPriorityInstruction,
+    formatLibraryValuesAsTSV,
+    parseCombinationsToTSV,
 } from '../services/randomLibraryService';
 import { WorkMode } from '../types';
 
@@ -596,6 +598,18 @@ ${instructionToLibInput}
         if (!extractedBaseInstruction) return;
         navigator.clipboard.writeText(extractedBaseInstruction);
         toast.success('已复制基础指令');
+    };
+
+    // 复制全部库值为TSV格式（可直接粘贴到 Google Sheets）
+    const copyAllLibraryValues = () => {
+        const tsv = formatLibraryValuesAsTSV(config);
+        if (!tsv) {
+            toast.warning('没有可复制的库值');
+            return;
+        }
+        navigator.clipboard.writeText(tsv);
+        const enabledCount = config.libraries.filter(lib => lib.enabled && lib.values.length > 0).length;
+        toast.success(`已复制 ${enabledCount} 个库的值为表格格式`);
     };
 
     // 图片转库：处理图片上传
@@ -1493,6 +1507,15 @@ ${targetCountry}
                     >
                         <Download size={12} />
                         导出
+                    </button>
+                    <button
+                        onClick={copyAllLibraryValues}
+                        disabled={!config.libraries.some(lib => lib.enabled && lib.values.length > 0)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-violet-400 hover:text-violet-300 bg-violet-900/20 hover:bg-violet-800/30 rounded border border-violet-800/30 disabled:opacity-40"
+                        title="复制所有启用库的值为TSV格式，可直接粘贴到Google Sheets"
+                    >
+                        <Copy size={12} />
+                        复制库值
                     </button>
                     <button
                         onClick={() => setShowImportModal(true)}

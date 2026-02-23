@@ -82,31 +82,40 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
     const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
     const results: { type: 'url' | 'formula'; content: string; url: string }[] = [];
 
-    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
-    const urlRegex = /https?:\/\/[^\s]+/;
+    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/gi;
+    const urlRegex = /https?:\/\/[^\s\t]+/g;
 
     for (const line of lines) {
-        const trimmed = line.trim();
-        const formulaMatch = trimmed.match(formulaRegex);
+        // Split by tab to handle Google Sheets multi-column paste
+        const cells = line.split('\t');
+        for (const cell of cells) {
+            const trimmed = cell.trim();
+            if (!trimmed) continue;
 
-        if (formulaMatch) {
-            const rawUrl = decodeHtmlEntities(formulaMatch[1]);
-            results.push({
-                type: 'formula',
-                content: trimmed,
-                url: processImageUrl(rawUrl)
-            });
-            continue;
-        }
+            // Check for formula(s) first - use matchAll
+            const formulaMatches = [...trimmed.matchAll(formulaRegex)];
+            if (formulaMatches.length > 0) {
+                for (const match of formulaMatches) {
+                    const rawUrl = decodeHtmlEntities(match[1]);
+                    results.push({
+                        type: 'formula',
+                        content: match[0],
+                        url: processImageUrl(rawUrl)
+                    });
+                }
+                continue;
+            }
 
-        const urlMatch = trimmed.match(urlRegex);
-        if (urlMatch) {
-            const rawUrl = decodeHtmlEntities(urlMatch[0]);
-            results.push({
-                type: 'url',
-                content: trimmed,
-                url: processImageUrl(rawUrl)
-            });
+            // Check for URL(s)
+            const urlMatches = [...trimmed.matchAll(urlRegex)];
+            for (const match of urlMatches) {
+                const rawUrl = decodeHtmlEntities(match[0]);
+                results.push({
+                    type: 'url',
+                    content: trimmed,
+                    url: processImageUrl(rawUrl)
+                });
+            }
         }
     }
 

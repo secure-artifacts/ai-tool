@@ -333,6 +333,15 @@ function AppContent({ presetUser, registerSaveHandler, onSaveStatusChange, textM
       e.preventDefault();
     };
     const handlePaste = (e: ClipboardEvent) => {
+      // ===== 隔离检查：避免拦截其他工具的粘贴事件 =====
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+      if (!target.closest('.magic-canvas-root')) {
+        return;
+      }
+
       const items = e.clipboardData?.items;
       if (!items) return;
       for (let i = 0; i < items.length; i++) {

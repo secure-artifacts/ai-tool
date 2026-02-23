@@ -48,6 +48,7 @@ export interface ImageData {
     base64: string;
     type: string;
     name: string;
+    sourceUrl?: string;
 }
 
 // 单张图片状态

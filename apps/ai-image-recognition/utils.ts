@@ -116,34 +116,45 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
     const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
     const results: { type: 'url' | 'formula'; content: string; url: string }[] = [];
 
-    // Regex for =IMAGE("url") - handles variations in spacing and quotes
-    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
+    // Regex for =IMAGE(url, ...) - supports quoted/unquoted first arg and extra params
+    const formulaRegex = /=IMAGE\s*\(\s*(?:"([^"]+)"|'([^']+)'|([^,\)\s]+))/gi;
     // Loose Regex for URL - looks for http/https at the start of a string or after a space
-    const urlRegex = /https?:\/\/[^\s]+/;
+    const urlRegex = /https?:\/\/[^\s\t]+/g;
 
     for (const line of lines) {
-        const trimmed = line.trim();
-        // Check for formula first
-        const formulaMatch = trimmed.match(formulaRegex);
+        // Split by tab to handle Google Sheets multi-column paste
+        const cells = line.split('\t');
+        for (const cell of cells) {
+            const trimmed = cell.trim();
+            if (!trimmed) continue;
 
-        if (formulaMatch) {
-            const rawUrl = decodeHtmlEntities(formulaMatch[1]);  // 解码 HTML 实体
-            results.push({
-                type: 'formula',
-                content: trimmed, // Original formula string to preserve
-                url: processImageUrl(rawUrl) // Processed URL
-            });
-            continue;
-        }
+            // Check for formula(s) first - use matchAll to catch multiple in one cell
+            formulaRegex.lastIndex = 0;
+            const formulaMatches = [...trimmed.matchAll(formulaRegex)];
+            if (formulaMatches.length > 0) {
+                for (const match of formulaMatches) {
+                    const rawUrl = decodeHtmlEntities(match[1] || match[2] || match[3] || '');
+                    if (!rawUrl) continue;
+                    results.push({
+                        type: 'formula',
+                        content: match[0],
+                        url: processImageUrl(rawUrl)
+                    });
+                }
+                continue;
+            }
 
-        const urlMatch = trimmed.match(urlRegex);
-        if (urlMatch) {
-            const rawUrl = decodeHtmlEntities(urlMatch[0]);  // 解码 HTML 实体（如 &amp; -> &）
-            results.push({
-                type: 'url',
-                content: trimmed, // Original URL line
-                url: processImageUrl(rawUrl)
-            });
+            // Check for URL(s)
+            urlRegex.lastIndex = 0;
+            const urlMatches = [...trimmed.matchAll(urlRegex)];
+            for (const match of urlMatches) {
+                const rawUrl = decodeHtmlEntities(match[0]);
+                results.push({
+                    type: 'url',
+                    content: trimmed,
+                    url: processImageUrl(rawUrl)
+                });
+            }
         }
     }
 

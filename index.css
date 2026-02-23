@@ -2379,7 +2379,7 @@ button.primary:active,
 /* Image to Prompt Tool */
 .image-to-prompt-layout {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: clamp(280px, 22vw, 360px) minmax(0, 1fr);
   grid-template-rows: 1fr;
   gap: 1.5rem;
   border: 1px solid var(--border-color);
@@ -2389,6 +2389,7 @@ button.primary:active,
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  min-width: 0;
 }
 
 .image-to-prompt-layout .history-panel {
@@ -2400,10 +2401,13 @@ button.primary:active,
   border-radius: 8px;
   border: 1px solid var(--border-color);
   min-height: 0;
+  height: 100%;
+  max-height: none;
+  align-self: stretch;
   overflow: hidden;
 }
 
-.new-session-btn {
+.image-to-prompt-layout .new-session-btn {
   width: 100%;
   padding: 0.75rem;
   background-color: var(--primary-color);
@@ -2415,18 +2419,21 @@ button.primary:active,
   transition: filter 0.2s;
 }
 
-.new-session-btn:hover {
+.image-to-prompt-layout .new-session-btn:hover {
   filter: brightness(1.1);
 }
 
-.history-list {
+.image-to-prompt-layout .history-list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
-.history-item {
+.image-to-prompt-layout .history-item {
   position: relative;
   display: flex;
   align-items: center;
@@ -2438,16 +2445,16 @@ button.primary:active,
   transition: background-color 0.2s, border-color 0.2s;
 }
 
-.history-item:hover {
+.image-to-prompt-layout .history-item:hover {
   background-color: var(--control-bg-color);
 }
 
-.history-item.active {
+.image-to-prompt-layout .history-item.active {
   background-color: var(--primary-variant-color);
   border-color: var(--primary-color);
 }
 
-.history-item img {
+.image-to-prompt-layout .history-item img {
   width: 50px;
   height: 50px;
   object-fit: cover;
@@ -2455,7 +2462,7 @@ button.primary:active,
   flex-shrink: 0;
 }
 
-.history-item-info {
+.image-to-prompt-layout .history-item-info {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -2465,7 +2472,7 @@ button.primary:active,
   white-space: nowrap;
 }
 
-.history-item-expert {
+.image-to-prompt-layout .history-item-expert {
   font-weight: bold;
   color: var(--text-color);
   text-transform: capitalize;
@@ -2474,7 +2481,7 @@ button.primary:active,
   text-overflow: ellipsis;
 }
 
-.delete-session-btn {
+.image-to-prompt-layout .delete-session-btn {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -2495,16 +2502,16 @@ button.primary:active,
   transition: opacity 0.2s, background-color 0.2s;
 }
 
-.history-item:hover .delete-session-btn {
+.image-to-prompt-layout .history-item:hover .delete-session-btn {
   opacity: 1;
 }
 
-.delete-session-btn:hover {
+.image-to-prompt-layout .delete-session-btn:hover {
   background-color: var(--error-color);
   color: white;
 }
 
-.main-content {
+.image-to-prompt-layout .main-content {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -2569,7 +2576,8 @@ button.primary:active,
 
 .upload-buttons {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   margin-top: 1rem;
 }
 
@@ -2751,6 +2759,7 @@ button.primary:active,
   min-height: 300px;
   max-height: 50vh;
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border-color);
   padding: 1rem;
   border-radius: 8px;
@@ -2877,6 +2886,19 @@ body.eye-care .prompt-tab-btn:hover {
 .chat-message pre {
   white-space: pre-wrap;
   font-family: inherit;
+}
+
+.image-to-prompt-layout .prompt-tabs,
+.image-to-prompt-layout .tab-content,
+.image-to-prompt-layout .prompt-section {
+  min-width: 0;
+}
+
+.image-to-prompt-layout .prompt-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .chat-input {
@@ -3558,9 +3580,10 @@ body.eye-care .prompt-tab-btn:hover {
 /* Staging Styles (for Prompt Tool) */
 .staging-layout {
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: 1fr minmax(240px, 320px);
   gap: 1.5rem;
   align-items: flex-start;
+  min-width: 0;
 }
 
 .staging-main {
@@ -3575,7 +3598,7 @@ body.eye-care .prompt-tab-btn:hover {
 }
 
 .staging-grid {
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   margin-top: 0;
   max-height: 60vh;
   overflow-y: auto;
@@ -3662,6 +3685,20 @@ body.eye-care .prompt-tab-btn:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   color: #eee;
+}
+
+.batch-image-item-staging .delete-img-btn-absolute {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.2s;
+}
+
+.batch-image-item-staging .batch-image-item:hover .delete-img-btn-absolute,
+.batch-image-item-staging .batch-image-item:focus-within .delete-img-btn-absolute {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
 }
 
 .pre-modification-input {
@@ -4142,8 +4179,9 @@ body.eye-care .prompt-tab-btn:hover {
     grid-template-columns: 1fr;
   }
 
-  .history-panel {
+  .image-to-prompt-layout .history-panel {
     max-height: 250px;
+    height: auto;
   }
 
   .portrait-edit-layout {
@@ -4152,6 +4190,20 @@ body.eye-care .prompt-tab-btn:hover {
 
   .portrait-previews {
     position: static;
+  }
+}
+
+@media (max-width: 800px) {
+  .staging-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .staging-sidebar {
+    position: static;
+  }
+
+  .staging-grid {
+    max-height: none;
   }
 }
 
@@ -6135,6 +6187,22 @@ body.eye-care .prompt-tab-btn:hover {
 }
 
 /* Page wrapper visibility */
+.image-to-prompt-page-wrapper {
+  min-height: 0;
+}
+
+.image-to-prompt-page-wrapper.visible {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.image-to-prompt-page-wrapper.visible>.image-to-prompt-layout {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
 .copydedup-page-wrapper.visible {
   display: block;
 }
@@ -9584,6 +9652,7 @@ textarea:focus-visible {
   align-items: center;
   justify-content: center;
   z-index: 10000;
+  padding: 16px;
 }
 
 .generic-modal-content {
@@ -9591,6 +9660,7 @@ textarea:focus-visible {
   border-radius: 16px;
   padding: 24px;
   max-width: 800px;
+  width: 100%;
   max-height: 80vh;
   overflow: auto;
 }
@@ -9729,7 +9799,7 @@ textarea:focus-visible {
    📜 历史记录面板样式
    ============================================ */
 
-.history-panel {
+.deepl-layout .history-panel {
   background: linear-gradient(135deg, rgba(30, 30, 35, 0.95) 0%, rgba(25, 25, 30, 0.98) 100%);
   border-top: 1px solid rgba(100, 100, 120, 0.2);
   padding: 12px 16px;
@@ -9737,20 +9807,20 @@ textarea:focus-visible {
   overflow-y: auto;
 }
 
-.history-header {
+.deepl-layout .history-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
 }
 
-.history-title {
+.deepl-layout .history-title {
   color: #a0a0b0;
   font-size: 12px;
   font-weight: 500;
 }
 
-.history-view-all-btn {
+.deepl-layout .history-view-all-btn {
   background: transparent;
   border: none;
   color: #8b8bf0;
@@ -9758,28 +9828,28 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
-.history-loading,
-.history-empty {
+.deepl-layout .history-loading,
+.deepl-layout .history-empty {
   font-size: 12px;
   text-align: center;
   padding: 16px;
 }
 
-.history-loading {
+.deepl-layout .history-loading {
   color: #888;
 }
 
-.history-empty {
+.deepl-layout .history-empty {
   color: #666;
 }
 
-.history-list {
+.deepl-layout .history-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.history-item {
+.deepl-layout .history-item {
   background: rgba(50, 50, 60, 0.5);
   border-radius: 6px;
   padding: 8px 10px;
@@ -9790,22 +9860,22 @@ textarea:focus-visible {
   gap: 8px;
 }
 
-.history-item:hover {
+.deepl-layout .history-item:hover {
   background: rgba(70, 70, 90, 0.6);
 }
 
-.history-item-icon {
+.deepl-layout .history-item-icon {
   color: #888;
   font-size: 10px;
   flex-shrink: 0;
 }
 
-.history-item-content {
+.deepl-layout .history-item-content {
   flex: 1;
   min-width: 0;
 }
 
-.history-item-original {
+.deepl-layout .history-item-original {
   color: #d0d0e0;
   font-size: 11px;
   white-space: nowrap;
@@ -9813,7 +9883,7 @@ textarea:focus-visible {
   text-overflow: ellipsis;
 }
 
-.history-item-translated {
+.deepl-layout .history-item-translated {
   color: #8b8bf0;
   font-size: 11px;
   white-space: nowrap;
@@ -9822,7 +9892,7 @@ textarea:focus-visible {
   margin-top: 2px;
 }
 
-.history-item-copy-btn {
+.deepl-layout .history-item-copy-btn {
   background: transparent;
   border: none;
   color: #888;

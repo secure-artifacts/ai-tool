@@ -222,6 +222,15 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
     // 处理粘贴
     useEffect(() => {
         const handlePaste = async (e: ClipboardEvent) => {
+            // ===== 隔离检查：避免拦截其他工具的粘贴事件 =====
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                return;
+            }
+            if (!target.closest('.image-review-app')) {
+                return;
+            }
+
             const items = e.clipboardData?.items;
             if (!items) return;
 
@@ -857,7 +866,7 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
     return (
         <div
             ref={dropZoneRef}
-            className="h-full flex flex-col bg-zinc-950 text-white"
+            className="h-full flex flex-col bg-zinc-950 text-white image-review-app"
             onDrop={handleDrop}
             onDragOver={handleDragOver}
         >

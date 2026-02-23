@@ -7,10 +7,13 @@
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-// 库值类型（支持分类）
+// 库值类型（支持分类 + 图片URL识别）
 export interface LibraryValue {
-    value: string; // 值本身
+    value: string; // 值本身（文本 或 URL）
     categories?: string[]; // 所属分类，如 ["室内", "小空间"]
+    valueType?: 'text' | 'image-url'; // 值类型，默认 'text'
+    imageUrl?: string; // 当 valueType='image-url' 时，提取出的原始图片URL
+    cachedDescription?: string; // AI描述缓存（避免重复调用API）
 }
 
 // 随机库类型
@@ -18,7 +21,7 @@ export interface RandomLibrary {
     id: string;
     name: string;
     values: string[]; // 库中的值数组，允许重复（向后兼容，简单模式）
-    valuesWithCategory?: LibraryValue[]; // 带分类的值数组（分类联动模式）
+    valuesWithCategory?: LibraryValue[]; // 带分类的值数组（分类联动模式 + 图片URL标记）
     valueWeights?: Record<string, number>; // 值权重映射，如 {"神父": 1, "普通人-男性": 5}，权重越高被选中概率越大
     enabled: boolean; // 是否在创新时使用此库
     participationRate?: number; // 参与概率 0-100，默认100（必选）
@@ -27,6 +30,8 @@ export interface RandomLibrary {
     color: string; // 标签页颜色
     group?: string; // 分组名称（可选），如"衣服"、"场景"等
     sourceSheet?: string; // 来源总库分页名，用于分组显示
+    hasImageUrls?: boolean; // 是否包含图片URL（用于UI展示标志）
+    imageExtractPrompt?: string; // 图片URL描述指令（默认使用 getDefaultExtractPrompt）
     createdAt: number;
     updatedAt: number;
 }
@@ -360,6 +365,50 @@ export const createLibrary = (name: string, colorIndex: number = 0): RandomLibra
         createdAt: Date.now(),
         updatedAt: Date.now(),
     };
+};
+
+// ===== 图片URL检测工具 =====
+
+// 检测值是否为图片URL、=IMAGE()公式、还是纯文本
+export const detectValueType = (value: string): { type: 'text' | 'image-url'; imageUrl?: string } => {
+    if (!value || !value.trim()) return { type: 'text' };
+    const trimmed = value.trim();
+
+    // 1. 检测 =IMAGE("url") 公式
+    const imageFormulaMatch = trimmed.match(/^=IMAGE\s*\(\s*["']([^"']+)["']\s*(?:,\s*\d+)?\s*\)/i);
+    if (imageFormulaMatch && imageFormulaMatch[1]) {
+        return { type: 'image-url', imageUrl: imageFormulaMatch[1] };
+    }
+
+    // 2. 检测直接图片URL
+    if (/^https?:\/\/.+/i.test(trimmed)) {
+        const isImageUrl =
+            // 常见图片扩展名
+            /\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|tiff?)(\?.*)?$/i.test(trimmed)
+            // Google 用户内容链接（Google Sheets =IMAGE 背后的实际图片）
+            || trimmed.includes('googleusercontent.com')
+            || trimmed.includes('lh3.google.com')
+            || trimmed.includes('lh4.google.com')
+            || trimmed.includes('lh5.google.com')
+            || trimmed.includes('lh6.google.com')
+            // 常见图床/CDN
+            || trimmed.includes('imgur.com')
+            || trimmed.includes('unsplash.com/photos')
+            || trimmed.includes('pexels.com')
+            || trimmed.includes('images.weserv.nl');
+        if (isImageUrl) {
+            return { type: 'image-url', imageUrl: trimmed };
+        }
+    }
+
+    // 3. 默认为文本
+    return { type: 'text' };
+};
+
+// 从原始值中提取图片URL（如果是公式则提取URL，否则返回原值）
+export const extractImageUrl = (value: string): string | null => {
+    const result = detectValueType(value);
+    return result.type === 'image-url' ? (result.imageUrl || null) : null;
 };
 
 // 解析粘贴的表格数据（支持横向和竖向）
@@ -828,14 +877,18 @@ export const fetchMasterSheetLibraries = async (
                 const row = parseCSVLine(lines[i]);
 
                 libraryColumns.forEach(col => {
-                    const value = row[col.valueIndex]?.trim();
-                    if (!value) return;
+                    const rawValue = row[col.valueIndex]?.trim();
+                    if (!rawValue) return;
 
                     const data = libraryData.get(col.name);
                     if (!data) return;
 
+                    // 检测值类型：文本 or 图片URL/公式
+                    const detection = detectValueType(rawValue);
+                    const actualValue = (detection.type === 'image-url' && detection.imageUrl) ? detection.imageUrl : rawValue;
+
                     // 添加到简单值数组
-                    data.values.push(value);
+                    data.values.push(actualValue);
 
                     // 解析分类
                     let categories: string[] | undefined;
@@ -859,8 +912,13 @@ export const fetchMasterSheetLibraries = async (
                     }
 
                     data.valuesWithCategory.push({
-                        value,
+                        value: actualValue,
                         categories,
+                        // 图片URL标记
+                        ...(detection.type === 'image-url' ? {
+                            valueType: 'image-url' as const,
+                            imageUrl: detection.imageUrl || actualValue,
+                        } : {}),
                     });
                 });
             }
@@ -873,12 +931,15 @@ export const fetchMasterSheetLibraries = async (
                 if (data.values.length > 0) {
                     // 检查是否有分类信息
                     const hasCategories = data.valuesWithCategory.some(v => v.categories && v.categories.length > 0);
+                    // 检查是否有图片URL
+                    const hasImageUrls = data.valuesWithCategory.some(v => v.valueType === 'image-url');
 
                     libraries.push({
                         id: `lib_master_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                         name: name,
                         values: data.values,
-                        valuesWithCategory: hasCategories ? data.valuesWithCategory : undefined,
+                        valuesWithCategory: (hasCategories || hasImageUrls) ? data.valuesWithCategory : undefined,
+                        hasImageUrls: hasImageUrls || undefined,
                         enabled: true, // 从表格导入的有值，默认启用
                         pickMode: 'random-one',
                         pickCount: 1,
@@ -960,18 +1021,26 @@ export const fetchMasterSheetWithGroup = async (
         });
 
         // 解析数据行，同时收集值和分类
-        const libraryData: Map<string, { values: string[], categories: string[] }> = new Map();
+        const libraryData: Map<string, { values: string[], categories: string[], imageUrlCount: number }> = new Map();
         libraryColumns.forEach((_, name) => {
-            libraryData.set(name, { values: [], categories: [] });
+            libraryData.set(name, { values: [], categories: [], imageUrlCount: 0 });
         });
 
         for (let i = 1; i < lines.length; i++) {
             const row = parseCSVLine(lines[i]);
             libraryColumns.forEach((colIndex, libName) => {
-                const value = row[colIndex]?.trim();
-                if (value) {
+                const rawValue = row[colIndex]?.trim();
+                if (rawValue) {
                     const data = libraryData.get(libName)!;
-                    data.values.push(value);
+                    // 检测值类型：文本 or 图片URL/公式
+                    const detection = detectValueType(rawValue);
+                    if (detection.type === 'image-url' && detection.imageUrl) {
+                        // 图片URL/公式：存提取出的干净URL（而非原始公式文本）
+                        data.values.push(detection.imageUrl);
+                        data.imageUrlCount++;
+                    } else {
+                        data.values.push(rawValue);
+                    }
                     // 如果有对应的分类列，也收集分类
                     const catColIndex = categoryColumns.get(libName);
                     if (catColIndex !== undefined) {
@@ -1001,18 +1070,29 @@ export const fetchMasterSheetWithGroup = async (
         console.log('[fetchMasterSheetWithGroup] 分类列配对:', Object.fromEntries(categoryColumns));
 
         libraryData.forEach((data, name) => {
-            console.log(`[fetchMasterSheetWithGroup] 库 "${name}" 值数量:`, data.values.length, '分类数量:', data.categories.length);
+            console.log(`[fetchMasterSheetWithGroup] 库 "${name}" 值数量:`, data.values.length, '分类数量:', data.categories.length, '图片URL数量:', data.imageUrlCount);
 
-            // 构建 valuesWithCategory（如果有分类数据）
-            // LibraryValue 类型要求 categories 是数组，分类用逗号分隔
+            // 构建 valuesWithCategory（如果有分类数据 或 有图片URL）
+            // 有图片URL时，即使没有分类也需要构建 valuesWithCategory 来保存 valueType
+            const hasCategories = data.categories.length > 0 && data.categories.some(c => c);
+            const hasImageUrls = data.imageUrlCount > 0;
             let valuesWithCategory: LibraryValue[] | undefined;
-            if (data.categories.length > 0 && data.categories.some(c => c)) {
-                valuesWithCategory = data.values.map((value, idx) => ({
-                    value,
-                    categories: data.categories[idx]
-                        ? data.categories[idx].split(',').map(c => c.trim()).filter(c => c)
-                        : []
-                }));
+
+            if (hasCategories || hasImageUrls) {
+                valuesWithCategory = data.values.map((value, idx) => {
+                    const detection = detectValueType(value);
+                    return {
+                        value,
+                        categories: hasCategories && data.categories[idx]
+                            ? data.categories[idx].split(',').map(c => c.trim()).filter(c => c)
+                            : [],
+                        // 图片URL标记
+                        ...(detection.type === 'image-url' ? {
+                            valueType: 'image-url' as const,
+                            imageUrl: detection.imageUrl || value,
+                        } : {}),
+                    };
+                });
             }
 
             // 允许空库被创建（表头存在即创建）
@@ -1021,6 +1101,7 @@ export const fetchMasterSheetWithGroup = async (
                 name: name,
                 values: data.values,
                 valuesWithCategory,
+                hasImageUrls: hasImageUrls || undefined,
                 enabled: true,
                 pickMode: 'random-one',
                 pickCount: 1,
@@ -1460,6 +1541,66 @@ export const pickRandomValues = (library: RandomLibrary): string[] => {
     }
 };
 
+// AI图片描述回调类型
+export type AiDescribeImageFn = (imageUrl: string, prompt: string) => Promise<string>;
+
+// 检查库是否包含图片URL值
+export const libraryHasImageUrls = (library: RandomLibrary): boolean => {
+    return !!library.hasImageUrls || (library.valuesWithCategory?.some(v => v.valueType === 'image-url') ?? false);
+};
+
+// 异步版随机抽取：处理图片URL值（下载+AI描述）
+// 如果库不含图片URL，效果等同于同步版 pickRandomValues
+export const pickRandomValuesAsync = async (
+    library: RandomLibrary,
+    aiDescribe?: AiDescribeImageFn
+): Promise<string[]> => {
+    // 先用同步逻辑抽取
+    const picked = pickRandomValues(library);
+
+    // 如果库不包含图片URL 或 没有AI描述回调，直接返回
+    if (!libraryHasImageUrls(library) || !aiDescribe) {
+        return picked;
+    }
+
+    // 检查抽到的每个值是否为图片URL
+    const results: string[] = [];
+    for (const value of picked) {
+        const detection = detectValueType(value);
+        if (detection.type === 'image-url' && detection.imageUrl) {
+            // 检查缓存：在 valuesWithCategory 中查找
+            const cachedEntry = library.valuesWithCategory?.find(
+                v => v.imageUrl === detection.imageUrl && v.cachedDescription
+            );
+            if (cachedEntry?.cachedDescription) {
+                console.log(`[pickRandomValuesAsync] 使用缓存描述 (${library.name}):`, cachedEntry.cachedDescription.substring(0, 50));
+                results.push(cachedEntry.cachedDescription);
+            } else {
+                // 调用AI描述
+                try {
+                    const prompt = library.imageExtractPrompt || getDefaultExtractPrompt(library.name);
+                    console.log(`[pickRandomValuesAsync] 开始AI描述图片 (${library.name}):`, detection.imageUrl.substring(0, 80));
+                    const description = await aiDescribe(detection.imageUrl, prompt);
+                    results.push(description);
+                    // 缓存结果
+                    const entry = library.valuesWithCategory?.find(v => v.imageUrl === detection.imageUrl);
+                    if (entry) {
+                        entry.cachedDescription = description;
+                    }
+                    console.log(`[pickRandomValuesAsync] AI描述完成 (${library.name}):`, description.substring(0, 80));
+                } catch (err) {
+                    console.warn(`[pickRandomValuesAsync] AI描述失败 (${library.name}):`, err);
+                    // 失败时 fallback 到 URL 本身
+                    results.push(value);
+                }
+            }
+        } else {
+            results.push(value);
+        }
+    }
+    return results;
+};
+
 // 从带分类的库中随机抽取值（支持分类过滤）
 export const pickRandomValuesWithCategory = (
     library: RandomLibrary,
@@ -1631,9 +1772,16 @@ export interface OverrideEntry {
     autoExtract?: boolean;      // 开始时自动提取（mode=image 时，有图但未提取，开始处理时自动提取）
 }
 
-// 默认提取要求模板（根据库名自动生成）
+// 默认提取要求模板（根据库名自动生成，与拆分模式同等质量）
 export const getDefaultExtractPrompt = (libName: string): string => {
-    return `详细描述图片，请根据我指定的要覆盖的元素"${libName}"进行分别详细描述对应元素的完整的AI描述词。方便我直接给其他软件生成图片或者视频使用。你只需要给我指定元素的最终AI描述词就行，不需要其他任何多余的内容。并且英文回复我`;
+    return `详细描述图片，不要图片中的文字。请只针对"${libName}"这一个元素进行详细描述，输出完整的AI描述词。
+
+【核心规则】
+- 只描述"${libName}"本身的特征，严禁混入其他元素的信息
+- 描述必须详尽且高度细致，切勿简略
+- 包括外观、颜色、材质、风格、氛围等视觉细节
+
+方便我直接给其他软件生成图片或者视频使用。你只需要给我"${libName}"的最终AI描述词就行，不需要其他任何多余的内容。并且英文回复我。`;
 };
 
 // 构建多维度合并提取的 prompt（将多个维度的提取合并为一次 AI 调用）
@@ -1781,6 +1929,100 @@ export const generateRandomCombination = (config: RandomLibraryConfig): string =
     result = result.replace(/\{[^}]+\}/g, '');
 
     return result.trim();
+};
+
+// 检查配置中是否有启用的库包含图片URL
+export const configHasImageUrls = (config: RandomLibraryConfig): boolean => {
+    return config.libraries.some(lib => lib.enabled && lib.values.length > 0 && libraryHasImageUrls(lib));
+};
+
+// 异步版：生成随机组合文本（支持图片URL库的AI描述）
+// 如果没有图片URL库，效果等同于同步版
+export const generateRandomCombinationAsync = async (
+    config: RandomLibraryConfig,
+    aiDescribe?: AiDescribeImageFn
+): Promise<string> => {
+    // 如果没有图片URL库，直接用同步版（零开销）
+    if (!configHasImageUrls(config) || !aiDescribe) {
+        return generateRandomCombination(config);
+    }
+
+    if (!config.enabled || config.libraries.length === 0) return '';
+
+    const enabledLibraries = config.libraries.filter(lib => {
+        if (!lib.enabled || lib.values.length === 0) return false;
+        const rate = lib.participationRate ?? 100;
+        if (rate >= 100) return true;
+        if (rate <= 0) return false;
+        return Math.random() * 100 < rate;
+    });
+    if (enabledLibraries.length === 0) return '';
+
+    const useCategoryLink = config.categoryLinkEnabled && hasCategoryLinkData(config);
+    let selectedCategory: string | undefined;
+    if (useCategoryLink) {
+        const allCategories = getAllCategories(config);
+        if (allCategories.length > 0) {
+            selectedCategory = allCategories[Math.floor(Math.random() * allCategories.length)];
+        }
+    }
+
+    let result = config.insertTemplate;
+
+    if (!result.trim()) {
+        const parts: string[] = [];
+        for (const lib of enabledLibraries) {
+            // 使用异步版抽取
+            const picked = libraryHasImageUrls(lib)
+                ? await pickRandomValuesAsync(lib, aiDescribe)
+                : (useCategoryLink ? pickRandomValuesWithCategory(lib, selectedCategory) : pickRandomValues(lib));
+            if (picked.length > 0) {
+                parts.push(`${lib.name}：${picked.join('、')}`);
+            }
+        }
+        return parts.join('，');
+    }
+
+    for (const lib of enabledLibraries) {
+        const placeholder = `{${lib.name}}`;
+        if (result.includes(placeholder)) {
+            const picked = libraryHasImageUrls(lib)
+                ? await pickRandomValuesAsync(lib, aiDescribe)
+                : (useCategoryLink ? pickRandomValuesWithCategory(lib, selectedCategory) : pickRandomValues(lib));
+            result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), picked.join('、'));
+        }
+    }
+
+    result = result.replace(/\{[^}]+\}/g, '');
+    return result.trim();
+};
+
+// 异步版：生成多个不重复的随机组合（支持图片URL库）
+export const generateMultipleUniqueCombinationsAsync = async (
+    config: RandomLibraryConfig,
+    count: number,
+    aiDescribe?: AiDescribeImageFn
+): Promise<string[]> => {
+    // 如果没有图片URL库，直接用同步版
+    if (!configHasImageUrls(config) || !aiDescribe) {
+        return generateMultipleUniqueCombinations(config, count);
+    }
+
+    const combinations: string[] = [];
+    const localUsed = new Set<string>();
+    let maxRetries = count * 3;
+
+    while (combinations.length < count && maxRetries > 0) {
+        const combo = await generateRandomCombinationAsync(config, aiDescribe);
+        if (combo && !localUsed.has(combo) && !usedCombinations.has(combo)) {
+            combinations.push(combo);
+            localUsed.add(combo);
+            usedCombinations.add(combo);
+        }
+        maxRetries--;
+    }
+
+    return combinations;
 };
 
 // 全局已使用组合集合（用于跨卡片去重）
@@ -2070,4 +2312,68 @@ export const importLibraries = (
         console.error('导入失败:', error);
         throw new Error('导入失败：数据格式无效');
     }
+};
+
+// ===== 库值复制工具 =====
+
+// 将所有启用库的值导出为TSV格式（表头=库名，列=值）
+export const formatLibraryValuesAsTSV = (config: RandomLibraryConfig): string => {
+    const enabledLibs = config.libraries.filter(lib => lib.enabled && lib.values.length > 0);
+    if (enabledLibs.length === 0) return '';
+
+    // 找出最大行数
+    const maxRows = Math.max(...enabledLibs.map(lib => lib.values.length));
+
+    // 表头
+    const header = enabledLibs.map(lib => lib.name).join('\t');
+
+    // 数据行
+    const rows: string[] = [];
+    for (let i = 0; i < maxRows; i++) {
+        const cells = enabledLibs.map(lib => lib.values[i] || '');
+        rows.push(cells.join('\t'));
+    }
+
+    return [header, ...rows].join('\n');
+};
+
+// 将组合文本列表解析为TSV格式
+// 输入: ["场景：森林小道，衣服：白色长裙", "场景：海边，衣服：蓝色外套"]
+// 输出: "场景\t衣服\n森林小道\t白色长裙\n海边\t蓝色外套"
+export const parseCombinationsToTSV = (combinations: string[]): string => {
+    if (combinations.length === 0) return '';
+
+    // 解析每个组合文本为 { 维度名: 值 } 的映射
+    const parsed: Record<string, string>[] = [];
+    const allDimNames = new Set<string>();
+
+    for (const combo of combinations) {
+        const entry: Record<string, string> = {};
+        // 格式: "场景：森林小道，衣服：白色长裙" 或 "场景：森林小道\n衣服：白色长裙"
+        const parts = combo.split(/[，,\n]/).map(p => p.trim()).filter(p => p);
+        for (const part of parts) {
+            const colonIdx = part.indexOf('：');
+            const colonIdx2 = part.indexOf(':');
+            const idx = colonIdx !== -1 ? colonIdx : colonIdx2;
+            if (idx > 0) {
+                const dimName = part.substring(0, idx).trim();
+                const dimValue = part.substring(idx + 1).trim();
+                if (dimName && dimValue) {
+                    entry[dimName] = dimValue;
+                    allDimNames.add(dimName);
+                }
+            }
+        }
+        if (Object.keys(entry).length > 0) {
+            parsed.push(entry);
+        }
+    }
+
+    if (allDimNames.size === 0) return '';
+
+    const dimNames = Array.from(allDimNames);
+    const header = dimNames.join('\t');
+    const rows = parsed.map(entry => dimNames.map(name => entry[name] || '').join('\t'));
+
+    return [header, ...rows].join('\n');
 };

@@ -45,6 +45,34 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
     const [unmatchedBase, setUnmatchedBase] = useState<string[]>([]);
     const [unmatchedMatch, setUnmatchedMatch] = useState<string[]>([]);
 
+    // 解析 HTML 单元格（从 Google Sheets 复制时优先保留公式）
+    const parseHtmlCell = (cell: Element): string => {
+        const formula = cell.getAttribute('data-sheets-formula')?.trim();
+        if (formula) {
+            return formula.startsWith('=') ? formula : `=${formula}`;
+        }
+
+        const hyperlink = cell.getAttribute('data-sheets-hyperlink')?.trim();
+        if (hyperlink) {
+            const isLikelyImage =
+                /\.(png|jpg|jpeg|gif|webp|svg|bmp)(\?|$)/i.test(hyperlink) ||
+                /googleusercontent\.com|drive\.google\.com|gyazo\.com|imgur\.com|imgbb\.com|cloudinary\.com|unsplash\.com|pexels\.com|flickr\.com|pinterest\.com|instagram\.com/i.test(hyperlink);
+            return isLikelyImage ? `=IMAGE("${hyperlink}")` : hyperlink;
+        }
+
+        const link = cell.querySelector('a[href]');
+        const href = link?.getAttribute('href')?.trim();
+        if (href) return href;
+
+        const img = cell.querySelector('img[src]');
+        const src = img?.getAttribute('src')?.trim();
+        if (src && /^https?:\/\//i.test(src)) {
+            return `=IMAGE("${src}")`;
+        }
+
+        return (cell.textContent || '').trim();
+    };
+
     // 解析 HTML 表格数据（从 Google Sheets/Excel 复制时使用）
     const parseHtmlTable = (html: string): string[][] | null => {
         try {
@@ -59,7 +87,7 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
                 if (cells.length > 0) {
                     const rowData: string[] = [];
                     cells.forEach(cell => {
-                        rowData.push((cell.textContent || '').trim());
+                        rowData.push(parseHtmlCell(cell));
                     });
                     result.push(rowData);
                 }

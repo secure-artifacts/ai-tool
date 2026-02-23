@@ -1889,6 +1889,11 @@ ${numberedTexts}`;
 
         const target = e.target as HTMLElement;
 
+        // ===== 隔离检查：避免拦截其他工具的粘贴事件 =====
+        if (!target.closest('.smart-translate-app')) {
+            return;
+        }
+
         // 在输入框或文本区域中粘贴时，判断是否需要拦截
         // 只有在拖放区或者工具容器外部粘贴时才处理
         const isBatchTextarea = target instanceof HTMLElement && target.classList.contains('batch-textarea');

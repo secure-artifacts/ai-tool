@@ -20,6 +20,7 @@ import CopySearchApp from '@/apps/copy-search/CopySearchApp';
 import { MindMapApp } from '@/apps/ai-mind-map';
 import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
 import SkillGeneratorApp from '@/apps/skill-generator/SkillGeneratorApp';
+import ImageSorterApp from '@/apps/image-sorter/ImageSorterApp';
 import ImageTextExtractorApp from '@/apps/image-text-extractor/ImageTextExtractorApp';
 import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
 import GeminiChatApp from '@/apps/gemini-chat/GeminiChatApp';
@@ -80,7 +81,7 @@ import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
 import { TutorialModal } from '@/components/TutorialModal';
-import TutorialSurveyModal from '@/components/TutorialSurveyModal';
+import TutorialSurveyResults from '@/components/TutorialSurveyResults';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ModelProvider, MODEL_ROUTES, MODEL_LABELS, ModelMode } from '@/contexts/ModelContext';
 import LoginModal from '@/components/LoginModal';
@@ -180,6 +181,7 @@ const translations = {
     navAIToolsDirectory: "AI Tools",
     navApiImageGen: "API Image Gen",
     navSkillGenerator: "Template & Library Generator",
+    navImageSorter: "Image Sorter",
     navImageTextExtractor: "Image Text Extractor",
     navTutorialHub: "Tutorial Hub",
     navGeminiChat: "Gemini Chat",
@@ -436,6 +438,7 @@ const translations = {
     navAIToolsDirectory: "AI 工具集",
     navApiImageGen: "API 生图",
     navSkillGenerator: "模版指令+随机库生成器",
+    navImageSorter: "图片智能分拣",
     navImageTextExtractor: "图片前景文字提取",
     navTutorialHub: "教程检索台",
     navGeminiChat: "Gemini 对话",
@@ -1169,7 +1172,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7042,6 +7045,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   aiToolsDirectory: 'apps',
   apiImageGen: 'auto_awesome',
   skillGenerator: 'psychology',
+  imageSorter: 'category',
   imageTextExtractor: 'text_fields',
   tutorialHub: 'school',
   geminiChat: 'chat',
@@ -7068,6 +7072,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'imageTextExtractor', labelKey: 'navImageTextExtractor' },
   { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
   { tool: 'geminiChat', labelKey: 'navGeminiChat' },
+  { tool: 'imageSorter', labelKey: 'navImageSorter' },
 ];
 
 // 2025年12月 Gemini API 规范模型选项
@@ -8428,14 +8433,9 @@ const App = () => {
           userEmail={presetUser}
         />
       )}
-      <TutorialSurveyModal
+      <TutorialSurveyResults
         isOpen={showTutorialSurveyModal}
         onClose={() => setShowTutorialSurveyModal(false)}
-        onSubmitted={() => setIsTutorialSurveyDone(true)}
-        language={language}
-        userId={user?.uid || null}
-        userEmail={user?.email || null}
-        appVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : ''}
       />
 
       {/* 📖 帮助中心 */}
@@ -8655,11 +8655,11 @@ const App = () => {
             <div className="collapsed-toolbar">
               <button
                 onClick={() => setShowTutorialSurveyModal(true)}
-                className={`collapsed-settings-btn tooltip-bottom ${!isTutorialSurveyDone ? 'survey-attention-btn' : ''}`}
-                data-tip={language === 'zh' ? '用于统计模块教程需求人数和教程优先级。限时收集：2026-02-17 至 2026-02-20。' : 'Track tutorial demand by module and tutorial priority. Limited collection: 2026-02-17 to 2026-02-20.'}
+                className="collapsed-settings-btn tooltip-bottom"
+                data-tip={language === 'zh' ? '查看教程投票结果（已结束）' : 'View tutorial survey results (closed)'}
                 style={{ fontSize: '16px' }}
               >
-                <ClipboardList size={16} className={!isTutorialSurveyDone ? 'survey-attention-icon' : undefined} />
+                <ClipboardList size={16} />
               </button>
 
               {/* 分隔线 */}
@@ -9165,10 +9165,10 @@ const App = () => {
             <div className="header-controls">
               <button
                 onClick={() => setShowTutorialSurveyModal(true)}
-                className={`secondary-btn tutorial-btn tooltip-bottom ${!isTutorialSurveyDone ? 'survey-attention-btn' : ''}`}
-                data-tip={language === 'zh' ? '用于统计模块教程需求人数和教程优先级。限时收集：2026-02-17 至 2026-02-20。' : 'Track tutorial demand by module and tutorial priority. Limited collection: 2026-02-17 to 2026-02-20.'}
+                className="secondary-btn tutorial-btn tooltip-bottom"
+                data-tip={language === 'zh' ? '查看教程投票结果（已结束）' : 'View tutorial survey results (closed)'}
               >
-                <ClipboardList size={14} className={`inline mr-1 ${!isTutorialSurveyDone ? 'survey-attention-icon' : ''}`} /> {language === 'zh' ? '教程投票' : 'Survey'}
+                <ClipboardList size={14} className="inline mr-1" /> {language === 'zh' ? '投票结果' : 'Results'}
               </button>
               <button
                 onClick={() => setShowApiKeyModal(true)}
@@ -9566,6 +9566,10 @@ const App = () => {
           {/* 教程检索台 */}
           <div className={`tutorial-hub-wrapper ${activeTool === 'tutorialHub' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'tutorialHub' ? '100%' : '0', display: activeTool === 'tutorialHub' ? 'flex' : 'none' }}>
             <TutorialHubApp getAiInstance={getAiInstance} isKeySet={isKeySet} />
+          </div>
+          {/* 图片智能分拣 */}
+          <div className={`image-sorter-wrapper ${activeTool === 'imageSorter' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'imageSorter' ? '100%' : '0', display: activeTool === 'imageSorter' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
+            <ImageSorterApp getAiInstance={getAiInstance} />
           </div>
           {/* Gemini Chat - 完整多轮对话 */}
           <div className={`gemini-chat-wrapper ${activeTool === 'geminiChat' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'geminiChat' ? '100%' : '0', display: activeTool === 'geminiChat' ? 'flex' : 'none' }}>

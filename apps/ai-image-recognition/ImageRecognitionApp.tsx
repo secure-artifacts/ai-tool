@@ -48,6 +48,10 @@ import {
     parseMultiDimensionExtractResult,
     OverrideEntry,
     RefImage,
+    configHasImageUrls,
+    generateMultipleUniqueCombinationsAsync,
+    AiDescribeImageFn,
+    detectValueType,
 } from './services/randomLibraryService';
 import { QuickInnovationPanel } from './components/quick-innovation/QuickInnovationPanel';
 
@@ -1262,6 +1266,34 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         });
     };
 
+    // 从图片URL下载并AI描述（用于随机库中的图片URL值）
+    const aiDescribeImageUrl: AiDescribeImageFn = async (imageUrl: string, prompt: string): Promise<string> => {
+        console.log('[aiDescribeImageUrl] 开始处理:', imageUrl.substring(0, 80));
+        // 通过代理下载图片（避免CORS）
+        const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}&output=jpg&q=80&w=1024`;
+        const response = await fetch(proxyUrl);
+        if (!response.ok) {
+            throw new Error(`图片下载失败: ${response.status} ${response.statusText}`);
+        }
+        const blob = await response.blob();
+        // 转为base64
+        const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const dataUrl = reader.result as string;
+                // 去掉 data:xxx;base64, 前缀
+                const base64Data = dataUrl.split(',')[1];
+                resolve(base64Data);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+        const mimeType = blob.type || 'image/jpeg';
+        // 调用现有的AI分析
+        const result = await classifyImage(base64, mimeType, prompt);
+        return result.trim();
+    };
+
     // 从图片中提取多个维度的描述（合并为一次 AI 调用）
     const extractDimensionsFromImage = async (
         base64Data: string,
@@ -1856,7 +1888,7 @@ ${topicsList}
                     } else {
                         // 随机模式：按创新个数生成
                         const count = creativeCount || 5;
-                        const uniqueCombos = generateMultipleUniqueCombinations(randomLibraryConfigRef.current, count);
+                        const uniqueCombos = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
                         combinations.push(...uniqueCombos);
                     }
 
@@ -2062,7 +2094,7 @@ ${card.topic}
                     combinations.push(...cartesian);
                 } else {
                     const count = creativeCount || 5;
-                    const uniqueCombos = generateMultipleUniqueCombinations(randomLibraryConfigRef.current, count);
+                    const uniqueCombos = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
                     combinations.push(...uniqueCombos);
                 }
 
@@ -4199,7 +4231,7 @@ ${transitionInstruction}
                 // 高级创新模式：每个随机组合单独调用AI，生成1个结果
                 // count 表示生成多少个不同的随机组合
                 const totalCombinations = count * rounds;
-                const combinations = generateMultipleUniqueCombinations(randomLibraryConfigRef.current, totalCombinations);
+                const combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, totalCombinations, aiDescribeImageUrl);
 
                 for (const randomCombination of combinations) {
                     // 组合最终指令
@@ -4850,7 +4882,10 @@ ${text}`;
     // targetImageIds: 可选，指定要处理的图片ID列表。如果不传，处理所有图片
     const runCreativeAnalysis = useCallback(async (targetImageIds?: string[]) => {
         // 创新模式：处理所有有图片数据的图片（不限于idle状态）
-        let readyImages = images.filter(img => img.base64Data);
+        // 快捷模式下，也包含没有图片的卡片（与无图模式一样，纯文本创新）
+        let readyImages = workMode === 'quick'
+            ? [...images] // 快捷模式：所有卡片都可处理（含无图卡片）
+            : images.filter(img => img.base64Data);
 
         // 如果指定了目标图片，只处理这些图片
         if (targetImageIds && targetImageIds.length > 0) {
@@ -4858,7 +4893,7 @@ ${text}`;
         }
 
         if (readyImages.length === 0) {
-            showToast('请先添加图片');
+            showToast('请先添加卡片');
             return;
         }
 
@@ -4996,7 +5031,7 @@ ${text}`;
                     if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                         combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                     } else {
-                        combinations = generateMultipleUniqueCombinations(randomLibraryConfigRef.current, count);
+                        combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
                     }
 
                     // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
@@ -5229,7 +5264,9 @@ ${effectiveInstruction}
             const conversationLog: Array<{ timestamp: number; prompt: string; response: string; label?: string; imageSource?: string }> = [];
 
             try {
-                if (!item.base64Data || !item.mimeType) throw new Error('No image data');
+                // 快捷模式下允许无图卡片：走纯文本创新路径
+                const isNoImageCard = !item.base64Data || !item.mimeType;
+                if (isNoImageCard && workModeRef.current !== 'quick') throw new Error('No image data');
 
                 // 获取该图片的追加指令作为用户特殊要求
                 let itemUserInput = userInput; // 默认使用全局用户输入
@@ -5296,7 +5333,56 @@ ${effectiveInstruction}
                 let originalDesc = '';
                 let innovationResult = '';
 
-                if (needOriginalDesc) {
+                if (isNoImageCard) {
+                    // 无图卡片路径（快捷模式）：纯文本创新，不发送图片
+                    if (isAdvancedMode) {
+                        // 随机库模式
+                        let combinations: string[];
+                        if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                            combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
+                        } else {
+                            combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
+                        }
+                        // 快捷模式：应用用户维度覆盖
+                        let ov = quickOverridesRef.current;
+                        if (Object.values(ov).some(v => v.value?.trim())) {
+                            combinations = applyPartialOverrides(combinations, ov);
+                        }
+                        combinations = applyCardTextOverrides(combinations, item);
+
+                        const results: string[] = [];
+                        for (const randomCombination of combinations) {
+                            const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
+                            const priorityInstruction = getPriorityInstruction(!!itemUserInput, true);
+                            const noImgPrompt = `${itemEffectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}\n\n请生成1个创意描述。返回格式为JSON对象:\n{"en": "完整的英文创意描述", "zh": "完整的中文翻译"}\n\n只输出JSON对象，不要其他内容。`;
+                            const singleResult = await retryWithBackoff(async () => {
+                                const response = await ai.models.generateContent({
+                                    model: modelId,
+                                    contents: noImgPrompt,
+                                    config: { temperature: 0.85, responseMimeType: 'application/json' }
+                                });
+                                return response.text || '';
+                            }, 3, 2000, onRotateApiKey);
+                            conversationLog.push({ timestamp: Date.now(), prompt: noImgPrompt, response: singleResult, label: `无图创新第${results.length + 1}轮` });
+                            results.push(singleResult);
+                        }
+                        innovationResult = '[' + results.map(r => {
+                            try { return r.replace(/```json/g, '').replace(/```/g, '').trim(); } catch { return r; }
+                        }).join(',') + ']';
+                    } else {
+                        // 普通模式（无随机库）
+                        const noImgPrompt = `${itemEffectiveInstruction}\n\n请生成 ${count} 个创意描述。返回格式为JSON数组:\n[{"en": "完整的英文创意描述1", "zh": "完整的中文翻译1"}, ...]\n\n只输出JSON数组，不要其他内容。`;
+                        innovationResult = await retryWithBackoff(async () => {
+                            const response = await ai.models.generateContent({
+                                model: modelId,
+                                contents: noImgPrompt,
+                                config: { temperature: 0.8, responseMimeType: 'application/json' }
+                            });
+                            return response.text || '';
+                        }, 3, 2000, onRotateApiKey);
+                        conversationLog.push({ timestamp: Date.now(), prompt: noImgPrompt, response: innovationResult, label: '无图创新' });
+                    }
+                } else if (needOriginalDesc) {
                     // 模式A：先获取原始描述，再基于描述创新
                     // 第一步：使用固定的详细指令识别图片获取原始描述
                     const descPrompt = DEFAULT_ORIGINAL_DESC_PROMPT;
@@ -5331,7 +5417,7 @@ ${effectiveInstruction}
                         if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                             combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                         } else {
-                            combinations = generateMultipleUniqueCombinations(randomLibraryConfigRef.current, count);
+                            combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
                         }
                         // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
                         if (workModeRef.current === 'quick') {
@@ -5572,7 +5658,7 @@ ${itemEffectiveInstruction}
                             combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                         } else {
                             // 整体随机模式：由创新个数控制
-                            combinations = generateMultipleUniqueCombinations(randomLibraryConfigRef.current, count);
+                            combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
                         }
 
                         // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
@@ -5874,7 +5960,8 @@ ${itemEffectiveInstruction}
         if (!item) return;
 
         if (workMode === 'creative' || workMode === 'quick') {
-            if (!item.base64Data) {
+            // 快捷模式下允许没有图片的卡片开始（与无图模式一样）
+            if (workMode === 'creative' && !item.base64Data) {
                 showToast('该卡片还没有图片内容');
                 return;
             }
@@ -6429,7 +6516,7 @@ ${itemEffectiveInstruction}
                                             <div className="flex items-center justify-between gap-2 py-1.5 px-1">
                                                 <span className="text-[0.6875rem] text-zinc-400">批次模式</span>
                                                 <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-800">
-                                                    {[1, 3, 5, 8].map(size => (
+                                                    {[1, 3, 5, 8, 15, 25, 50].map(size => (
                                                         <button
                                                             key={size}
                                                             onClick={() => setImageBatchSize(size)}
@@ -6889,14 +6976,14 @@ ${itemEffectiveInstruction}
                                                         空卡
                                                     </button>
 
-                                                    {/* 开始创新按钮 */}
+                                                    {/* 开始创新按钮 - 快捷模式下允许无图开始 */}
                                                     <button
                                                         onClick={() => runCreativeAnalysis()}
-                                                        disabled={isProcessing || images.filter(i => i.base64Data).length === 0}
+                                                        disabled={isProcessing || images.length === 0}
                                                         className={`px-4 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg
                                                             ${isProcessing
                                                                 ? 'bg-purple-900/30 text-purple-400 animate-pulse border border-purple-700'
-                                                                : images.filter(i => i.base64Data).length === 0
+                                                                : images.length === 0
                                                                     ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                                                                     : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20'
                                                             }`}
@@ -6975,6 +7062,7 @@ ${itemEffectiveInstruction}
                                                                                         <span className="mr-0.5">{modeIcon}</span>
                                                                                     ) : null}
                                                                                     {lib.name}
+                                                                                    {lib.hasImageUrls && <span className="ml-0.5 text-[8px] opacity-60" title="含图片链接，随机时自动AI描述">🔗</span>}
                                                                                     {hasOverride && mode === 'queue-image' && <span className="ml-0.5 text-blue-400/80 text-[9px]">逐图</span>}
                                                                                     {hasOverride && mode !== 'queue-image' && override?.value?.trim() && (
                                                                                         <span className="ml-1 text-amber-200/80 text-[9px] max-w-[80px] truncate inline-block align-bottom" title={override.value}>

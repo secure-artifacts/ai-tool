@@ -28,6 +28,7 @@ import {
     Preset,
     ImageToPromptState,
     ImageToPromptToolProps,
+    ExpertPrompt,
     singleImageResponseSchema,
     batchImageResponseSchema,
     defaultModifiers,
@@ -143,6 +144,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
     const [showLinkModal, setShowLinkModal] = useState(false);
     const [linkTextInput, setLinkTextInput] = useState('');
+    const [linkModalError, setLinkModalError] = useState<string | null>(null);
 
     // Refs
     const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -150,6 +152,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const linkTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const showLinkModalRef = useRef(false);
 
     // ========== Computed ==========
 
@@ -206,45 +209,74 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                 linkTextareaRef.current?.focus();
             });
         }
+        if (!showLinkModal) {
+            setLinkModalError(null);
+        }
+    }, [showLinkModal]);
+
+    useEffect(() => {
+        showLinkModalRef.current = showLinkModal;
     }, [showLinkModal]);
 
     // （粘贴处理逻辑移到 handleAppendImages 之后，避免函数声明顺序问题）
 
     // 从 URL 添加图片
-    const fetchFilesFromUrls = async (urls: string[]): Promise<File[]> => {
-        if (urls.length === 0) return [];
+    const fetchFilesFromUrls = async (urls: string[]): Promise<{ files: File[]; sourceUrls: string[]; failedUrls: string[] }> => {
+        if (urls.length === 0) return { files: [], sourceUrls: [], failedUrls: [] };
 
         const files: File[] = [];
+        const sourceUrls: string[] = [];
+        const failedUrls: string[] = [];
         for (const url of urls) {
             try {
                 const { blob, mimeType } = await fetchImageBlob(url);
                 const ext = mimeType.split('/')[1] || 'jpg';
                 const file = new File([blob], `image-${Date.now()}.${ext}`, { type: mimeType });
                 files.push(file);
+                sourceUrls.push(url);
             } catch (error) {
                 console.warn('Failed to fetch image from URL:', url, error);
+                failedUrls.push(url);
             }
         }
 
-        return files;
+        return { files, sourceUrls, failedUrls };
     };
 
-    const handleAddFromUrls = async (urls: string[]) => {
-        const files = await fetchFilesFromUrls(urls);
-        if (files.length === 0) return;
+    const handleAddFromUrls = async (urls: string[]): Promise<number> => {
+        const { files, sourceUrls, failedUrls } = await fetchFilesFromUrls(urls);
+        if (files.length === 0) {
+            setError(`识别到 ${urls.length} 个链接，但都无法下载。请换直链，或先下载到本地后上传。`);
+            return 0;
+        }
+
+        if (failedUrls.length > 0) {
+            setError(`已添加 ${files.length} 张图，另有 ${failedUrls.length} 个链接下载失败。`);
+        } else {
+            setError(null);
+        }
 
         if (fusionMode === 'fusion') {
             await handleAddFusionImages(files);
         } else {
-            await handleBatchImageUpload(files);
+            await handleBatchImageUpload(files, sourceUrls);
         }
+        return files.length;
     };
 
-    const handleAppendFromUrls = async (urls: string[]) => {
-        const files = await fetchFilesFromUrls(urls);
+    const handleAppendFromUrls = async (urls: string[]): Promise<number> => {
+        const { files, sourceUrls, failedUrls } = await fetchFilesFromUrls(urls);
         if (files.length > 0) {
-            await handleAppendImages(files);
+            await handleAppendImages(files, sourceUrls);
+            if (failedUrls.length > 0) {
+                setError(`已追加 ${files.length} 张图，另有 ${failedUrls.length} 个链接下载失败。`);
+            } else {
+                setError(null);
+            }
+            return files.length;
         }
+        setError(`识别到 ${urls.length} 个链接，但都无法下载。请换直链，或先下载到本地后上传。`);
+        return 0;
     };
 
     // ========== Handlers ==========
@@ -280,13 +312,17 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     }, [activeSessionId, sessions]);
 
     // 创建图片对象
-    const createImageObjects = async (files: File[], sessionId: string): Promise<ImageEntry[]> => {
-        const imagePromises = files.map(async (file) => {
+    const createImageObjects = async (
+        files: File[],
+        sessionId: string,
+        sourceUrls?: Array<string | undefined>
+    ): Promise<ImageEntry[]> => {
+        const imagePromises = files.map(async (file, index) => {
             const url = URL.createObjectURL(file);
             const base64 = await fileToBase64(file);
             return {
                 id: `${sessionId}-${file.name}-${file.lastModified}`,
-                imageData: { file, url, base64, type: file.type, name: file.name },
+                imageData: { file, url, base64, type: file.type, name: file.name, sourceUrl: sourceUrls?.[index] },
                 chatHistory: [] as Message[],
                 status: 'pending' as ImageStatus,
                 error: null,
@@ -297,7 +333,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     };
 
     // 批量上传图片
-    const handleBatchImageUpload = async (files: File[]) => {
+    const handleBatchImageUpload = async (files: File[], sourceUrls?: Array<string | undefined>) => {
         if (selectedExperts.length === 0) {
             setError(t('error_selectExpert') || '请选择至少一个专家模型');
             return;
@@ -306,7 +342,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
         setError(null);
         const newSessionId = generateUniqueId();
-        const sessionImages = await createImageObjects(files, newSessionId);
+        const sessionImages = await createImageObjects(files, newSessionId, sourceUrls);
 
         const newSession: Session = {
             id: newSessionId,
@@ -371,12 +407,12 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     };
 
     // 追加图片到当前会话
-    const handleAppendImages = async (files: File[]) => {
+    const handleAppendImages = async (files: File[], sourceUrls?: Array<string | undefined>) => {
         if (!activeSessionId || files.length === 0) return;
         const currentSession = sessions.find(s => s.id === activeSessionId);
         if (!currentSession || currentSession.status !== 'staging') return;
 
-        const newImages = await createImageObjects(files, activeSessionId);
+        const newImages = await createImageObjects(files, activeSessionId, sourceUrls);
         setSessions(prev => prev.map(s =>
             s.id !== activeSessionId
                 ? s
@@ -398,12 +434,11 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
         await handleBatchImageUpload(files);
     }, [fusionMode, isStaging]);
 
-    const handlePasteUrls = useCallback(async (urls: string[]) => {
+    const handlePasteUrls = useCallback(async (urls: string[]): Promise<number> => {
         if (isStaging && fusionMode !== 'fusion') {
-            await handleAppendFromUrls(urls);
-            return;
+            return await handleAppendFromUrls(urls);
         }
-        await handleAddFromUrls(urls);
+        return await handleAddFromUrls(urls);
     }, [fusionMode, isStaging]);
 
     // 使用 refs 保存最新的处理函数引用（供 useEffect 中使用）
@@ -419,6 +454,9 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     // 使用 capture phase 确保此监听器在其他监听器之前运行
     useEffect(() => {
         const handleGlobalPasteEvent = async (e: ClipboardEvent) => {
+            // 链接输入弹窗打开时，始终让原生粘贴生效，避免“粘贴后输入框看不到内容”
+            if (showLinkModalRef.current) return;
+
             // 检查是否应该处理此粘贴事件：
             // 1. 如果组件容器不存在，跳过
             // 2. 如果粘贴目标在其他工具的容器内，跳过
@@ -603,16 +641,56 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     // 处理链接模态框中的输入
     const handleAddLinks = useCallback(async () => {
         if (!linkTextInput.trim()) return;
+        setLinkModalError(null);
 
         // 解析输入的链接/公式
         const parsed = parsePasteInput(linkTextInput);
-        if (parsed.length > 0) {
-            const urls = parsed.map(p => p.url);
-            await handlePasteUrls(urls);
+        if (parsed.length === 0) {
+            const msg = '未识别到有效图片链接或 =IMAGE() 公式，请检查格式。';
+            setError(msg);
+            setLinkModalError(msg);
+            return;
         }
-        setLinkTextInput('');
-        setShowLinkModal(false);
+
+        const urls = parsed.map(p => p.url);
+        const addedCount = await handlePasteUrls(urls);
+        if (addedCount > 0) {
+            setLinkTextInput('');
+            setShowLinkModal(false);
+            setLinkModalError(null);
+        }
     }, [linkTextInput, handlePasteUrls]);
+
+    // 链接弹窗专用粘贴处理：优先保留并展示可解析内容，避免被全局监听吞掉
+    const handleLinkTextareaPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+        const plainText = e.clipboardData.getData('text/plain') || '';
+        const htmlText = e.clipboardData.getData('text/html') || '';
+
+        let lines: string[] = [];
+
+        const parsedPlain = parsePasteInput(plainText);
+        if (parsedPlain.length > 0) {
+            lines = parsedPlain.map(item => item.content || item.url);
+        } else if (plainText.trim()) {
+            lines = [plainText.trim()];
+        } else if (htmlText) {
+            const extracted = extractUrlsFromHtml(htmlText);
+            if (extracted.length > 0) {
+                lines = extracted.map(item => item.originalUrl);
+            }
+        }
+
+        if (lines.length > 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            setLinkTextInput(prev => {
+                const next = lines.join('\n');
+                if (!prev.trim()) return next;
+                return `${prev.trimEnd()}\n${next}`;
+            });
+            setLinkModalError(null);
+        }
+    }, []);
 
     // 重试单张图片的处理
     const handleRetryImage = async (imageId: string) => {
@@ -947,6 +1025,233 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
         }
     };
 
+    const getLastModelMessage = (image: ImageEntry): Message | null => {
+        for (let i = image.chatHistory.length - 1; i >= 0; i -= 1) {
+            const message = image.chatHistory[i];
+            if (message.sender === 'model') return message;
+        }
+        return null;
+    };
+
+    const parseExpertPromptsFromText = (text: string): ExpertPrompt[] => {
+        const normalize = (items: any[]): ExpertPrompt[] => {
+            return items
+                .map((item) => ({
+                    expert: String(item?.expert || '').trim() || 'general',
+                    englishPrompt: String(item?.englishPrompt || '').trim(),
+                    chinesePrompt: String(item?.chinesePrompt || '').trim(),
+                }))
+                .filter((item) => item.englishPrompt || item.chinesePrompt);
+        };
+
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) {
+                return normalize(parsed);
+            }
+            if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).prompts)) {
+                return normalize((parsed as any).prompts);
+            }
+        } catch {
+            // ignore parse error and fallback to raw text export
+        }
+        return [];
+    };
+
+    const buildThumbnailDataUrl = async (mimeType: string, base64: string): Promise<string> => {
+        if (!base64) return '';
+        const source = `data:${mimeType || 'image/jpeg'};base64,${base64}`;
+        if (typeof window === 'undefined') return source;
+
+        return await new Promise<string>((resolve) => {
+            const image = new window.Image();
+            image.onload = () => {
+                const maxSide = 220;
+                const scale = Math.min(1, maxSide / Math.max(image.width || 1, image.height || 1));
+                const width = Math.max(1, Math.round((image.width || 1) * scale));
+                const height = Math.max(1, Math.round((image.height || 1) * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    resolve(source);
+                    return;
+                }
+                ctx.drawImage(image, 0, 0, width, height);
+                resolve(canvas.toDataURL('image/jpeg', 0.72));
+            };
+            image.onerror = () => resolve(source);
+            image.src = source;
+        });
+    };
+
+    const blobToDataUrl = async (blob: Blob): Promise<string> => {
+        return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        });
+    };
+
+    const handleExportExcel = async () => {
+        if (!activeSession || activeSession.images.length === 0) {
+            setError(t('alert_noRecords') || '没有可导出的会话记录。');
+            return;
+        }
+
+        try {
+            const ExcelJS = (window as any).ExcelJS;
+            if (!ExcelJS?.Workbook) {
+                throw new Error('ExcelJS 未加载');
+            }
+
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('prompts');
+
+            const headers = [
+                'image_preview',
+                'image_url',
+                'image_formula',
+                'session_id',
+                'image_index',
+                'image_id',
+                'image_name',
+                'image_status',
+                'pre_modification_prompt',
+                'expert_index',
+                'expert',
+                'english_prompt',
+                'chinese_prompt',
+                'raw_model_reply'
+            ];
+
+            worksheet.addRow(headers);
+            worksheet.getRow(1).font = { bold: true };
+            worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            worksheet.getRow(1).height = 24;
+
+            // 控制列宽，避免导出后难以阅读
+            const columnWidths = [16, 42, 36, 20, 10, 30, 24, 14, 28, 10, 14, 55, 55, 70];
+            columnWidths.forEach((width, idx) => {
+                worksheet.getColumn(idx + 1).width = width;
+            });
+
+            const imageIdCache = new Map<string, number>();
+            const imageDataUrlCache = new Map<string, string>();
+            const imageAnchors: Array<{ row: number; imageId: number }> = [];
+
+            for (let imageIndex = 0; imageIndex < activeSession.images.length; imageIndex += 1) {
+                const img = activeSession.images[imageIndex];
+                const lastModelMessage = getLastModelMessage(img);
+                const parsedPrompts = lastModelMessage ? parseExpertPromptsFromText(lastModelMessage.text) : [];
+                const remoteImageUrl = /^https?:\/\//i.test(img.imageData.sourceUrl || '')
+                    ? String(img.imageData.sourceUrl)
+                    : '';
+                const imageFormula = remoteImageUrl ? `=IMAGE("${remoteImageUrl}")` : '';
+                let thumbnailDataUrl = imageDataUrlCache.get(img.id) || '';
+                if (!thumbnailDataUrl) {
+                    thumbnailDataUrl = await buildThumbnailDataUrl(img.imageData.type, img.imageData.base64);
+                    // 兜底：某些历史数据可能没有 base64，尝试用 sourceUrl 拉取后再导出
+                    if (!thumbnailDataUrl && remoteImageUrl) {
+                        try {
+                            const { blob } = await fetchImageBlob(remoteImageUrl);
+                            const dataUrl = await blobToDataUrl(blob);
+                            const base64Part = dataUrl.split(',')[1] || '';
+                            if (base64Part) {
+                                thumbnailDataUrl = await buildThumbnailDataUrl(blob.type || 'image/jpeg', base64Part);
+                            }
+                        } catch (e) {
+                            console.warn('导出图片兜底拉取失败:', remoteImageUrl, e);
+                        }
+                    }
+                    if (thumbnailDataUrl) {
+                        imageDataUrlCache.set(img.id, thumbnailDataUrl);
+                    }
+                }
+
+                let excelImageId = imageIdCache.get(img.id);
+                if (excelImageId === undefined && thumbnailDataUrl.startsWith('data:image/')) {
+                    const extMatch = thumbnailDataUrl.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,/i);
+                    const rawExt = (extMatch?.[1] || 'jpeg').toLowerCase();
+                    const extension = rawExt === 'jpg' ? 'jpeg' : rawExt;
+                    // Excel 对 webp 兼容较差，强制回落为 jpeg，避免出现“导出后丢图”
+                    const safeExtension = extension === 'webp' ? 'jpeg' : extension;
+                    excelImageId = workbook.addImage({
+                        base64: thumbnailDataUrl,
+                        extension: safeExtension,
+                    });
+                    imageIdCache.set(img.id, excelImageId);
+                }
+
+                const common = [
+                    '',
+                    remoteImageUrl,
+                    imageFormula,
+                    activeSession.id,
+                    String(imageIndex + 1),
+                    img.id,
+                    img.imageData.name || `image-${imageIndex + 1}`,
+                    img.status,
+                    img.preModificationPrompt || '',
+                ];
+
+                const promptRows = parsedPrompts.length > 0
+                    ? parsedPrompts.map((prompt, promptIndex) => ([
+                        ...common,
+                        String(promptIndex + 1),
+                        prompt.expert || '',
+                        prompt.englishPrompt || '',
+                        prompt.chinesePrompt || '',
+                        lastModelMessage?.text || '',
+                    ]))
+                    : [[
+                        ...common,
+                        '',
+                        '',
+                        '',
+                        '',
+                        lastModelMessage?.text || '',
+                    ]];
+
+                promptRows.forEach((rowData, idx) => {
+                    const row = worksheet.addRow(rowData);
+                    row.alignment = { vertical: 'top', wrapText: true };
+                    row.height = 76;
+                    if (excelImageId !== undefined) {
+                        // 每一行都放图，避免多专家/多结果行看起来“丢图”
+                        imageAnchors.push({ row: row.number, imageId: excelImageId });
+                    }
+                });
+            }
+
+            imageAnchors.forEach(({ row, imageId }) => {
+                worksheet.addImage(imageId, {
+                    tl: { col: 0.08, row: row - 1 + 0.08 },
+                    ext: { width: 96, height: 96 },
+                    editAs: 'oneCell',
+                });
+            });
+
+            worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `prompts_with_images_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error('导出Excel失败:', e);
+            setError('导出Excel失败，请稍后重试。');
+        }
+    };
+
     // ========== Render ==========
 
     // 渲染创建会话视图（初始上传界面）
@@ -1171,6 +1476,12 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         }}
                     >
                         {copyFeedback === 'zh' ? <><Check size={14} /> 已复制</> : <><Copy size={14} /> 复制中文</>}
+                    </button>
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleExportExcel}
+                    >
+                        <Download size={14} /> 导出Excel
                     </button>
                     <button
                         className="btn btn-secondary btn-sm"
@@ -1511,6 +1822,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                             ref={linkTextareaRef}
                             value={linkTextInput}
                             onChange={(e) => setLinkTextInput(e.target.value)}
+                            onPaste={handleLinkTextareaPaste}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                                     handleAddLinks();
@@ -1523,6 +1835,11 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
                         <p className="text-muted mt-2 mb-3" style={{ fontSize: '12px' }}>
                             Ctrl+Enter 快速添加
                         </p>
+                        {linkModalError && (
+                            <p className="text-danger mb-3" style={{ fontSize: '12px' }}>
+                                {linkModalError}
+                            </p>
+                        )}
                         <div className="generic-modal-footer">
                             <button
                                 className="btn btn-secondary"

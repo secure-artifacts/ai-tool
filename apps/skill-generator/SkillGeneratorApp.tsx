@@ -102,6 +102,30 @@ interface SkillGenWorkspace {
     extendCount: number;
     extendGeneratedValues: string[];
     extendChatHistory: { role: 'user' | 'model'; text: string; timestamp: number }[];
+    // Advanced mode
+    advancedElements: string[];
+    // Manual tab
+    promptPreset: PromptPreset;
+    // Combo
+    comboTargetCount: number;
+    comboBatchSize: number;
+    comboValidatedRows: string[][];
+    // Code gen tab (general)
+    codegenSubTab: 'random' | 'category' | 'judge';
+    // Category Link
+    categoryInputMode: 'table' | 'text';
+    categoryRawTable: string;
+    categoryLinkText: string;
+    categoryPresetNames: string;
+    // Judge Node
+    judgeInputs: { id: string; name: string; connVar: string }[];
+    judgeType: 'chinese' | 'keyword' | 'length' | 'nonempty' | 'custom' | 'priorityReplace';
+    judgeKeywords: string;
+    judgeLenThreshold: number;
+    judgeCustomCondition: string;
+    judgePriorityGlobalKeyword: string;
+    judgeAppendKeywords: string;
+    judgePriorityRules: { id: string; keyword: string; replaceCount: number }[];
     // Sub-tab
     activeTab: 'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo';
 }
@@ -125,8 +149,58 @@ const createWorkspace = (name: string): SkillGenWorkspace => ({
     extendCount: 20,
     extendGeneratedValues: [],
     extendChatHistory: [],
+    advancedElements: ADVANCED_ELEMENT_PRESETS[0].elements,
+    promptPreset: 'nano-banana-pro',
+    comboTargetCount: 20,
+    comboBatchSize: 10,
+    comboValidatedRows: [],
+    codegenSubTab: 'random',
+    categoryInputMode: 'table',
+    categoryRawTable: '',
+    categoryLinkText: '',
+    categoryPresetNames: '',
+    judgeInputs: [
+        { id: 'j1', name: '内容A', connVar: 'cont' },
+        { id: 'j2', name: '内容B', connVar: 'cont' },
+    ],
+    judgeType: 'priorityReplace',
+    judgeKeywords: '',
+    judgeLenThreshold: 10,
+    judgeCustomCondition: '',
+    judgePriorityGlobalKeyword: '全局优先',
+    judgeAppendKeywords: '新要求、特殊要求',
+    judgePriorityRules: [
+        { id: 'pr1', keyword: '图片风格', replaceCount: 0 },
+        { id: 'pr2', keyword: '背景风景', replaceCount: 0 },
+    ],
     activeTab: 'ai',
 });
+
+const loadInitialWorkspaces = () => {
+    let ws: SkillGenWorkspace[] = [];
+    try {
+        const stored = localStorage.getItem('skill-gen-workspaces');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                ws = parsed;
+            }
+        }
+    } catch { }
+    if (ws.length === 0) {
+        ws = [createWorkspace('工作区 1')];
+    }
+    let activeId = ws[0].id;
+    try {
+        const storedId = localStorage.getItem('skill-gen-active-ws');
+        if (storedId && ws.some(w => w.id === storedId)) {
+            activeId = storedId;
+        }
+    } catch { }
+
+    const activeWs = ws.find(w => w.id === activeId) || ws[0];
+    return { ws, activeId, activeWs };
+};
 
 const HISTORY_KEY = 'skill-gen-history';
 const MAX_HISTORY = 20;
@@ -356,18 +430,20 @@ const extractResponseText = (response: any): string => {
 const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) => {
     const toast = useToast();
 
+    const initialWsData = React.useMemo(() => loadInitialWorkspaces(), []);
+
     // ==================== 工作区标签页管理 ====================
-    const [workspaces, setWorkspaces] = useState<SkillGenWorkspace[]>(() => [createWorkspace('工作区 1')]);
-    const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => workspaces[0]?.id || '');
+    const [workspaces, setWorkspaces] = useState<SkillGenWorkspace[]>(initialWsData.ws);
+    const [activeWorkspaceId, setActiveWorkspaceId] = useState(initialWsData.activeId);
     const [editingWsId, setEditingWsId] = useState<string | null>(null);
     const [editingWsName, setEditingWsName] = useState('');
     const wsEditInputRef = useRef<HTMLInputElement>(null);
 
     // === Input States ===
-    const [images, setImages] = useState<UploadedImage[]>([]);
-    const [samplePrompts, setSamplePrompts] = useState('');
-    const [roughRules, setRoughRules] = useState('');
-    const [customDimensions, setCustomDimensions] = useState<string[]>([]);
+    const [images, setImages] = useState<UploadedImage[]>(initialWsData.activeWs.images || []);
+    const [samplePrompts, setSamplePrompts] = useState(initialWsData.activeWs.samplePrompts || '');
+    const [roughRules, setRoughRules] = useState(initialWsData.activeWs.roughRules || '');
+    const [customDimensions, setCustomDimensions] = useState<string[]>(initialWsData.activeWs.customDimensions || []);
     const [dimInput, setDimInput] = useState('');
     const dimInputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -375,9 +451,9 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
 
     // === Output States ===
     const [generating, setGenerating] = useState(false);
-    const [generateDone, setGenerateDone] = useState(false);
-    const [baseInstruction, setBaseInstruction] = useState('');
-    const [libraryResult, setLibraryResult] = useState<LibraryResult | null>(null);
+    const [generateDone, setGenerateDone] = useState(initialWsData.activeWs.generateDone || false);
+    const [baseInstruction, setBaseInstruction] = useState(initialWsData.activeWs.baseInstruction || '');
+    const [libraryResult, setLibraryResult] = useState<LibraryResult | null>(initialWsData.activeWs.libraryResult || null);
     const [copiedInstruction, setCopiedInstruction] = useState(false);
     const [copiedLibrary, setCopiedLibrary] = useState(false);
     const [libraryTableExpanded, setLibraryTableExpanded] = useState(false);
@@ -448,10 +524,10 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     }, [highlightedCells]);
 
     // === 模式切换 ===
-    const [activeTab, setActiveTab] = useState<'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo'>('ai');
+    const [activeTab, setActiveTab] = useState<'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo'>(initialWsData.activeWs.activeTab || 'ai');
 
     // === 高级生成状态 ===
-    const [advancedElements, setAdvancedElements] = useState<string[]>(ADVANCED_ELEMENT_PRESETS[0].elements);
+    const [advancedElements, setAdvancedElements] = useState<string[]>(initialWsData.activeWs.advancedElements || ADVANCED_ELEMENT_PRESETS[0].elements);
     const [advancedElementInput, setAdvancedElementInput] = useState('');
     const advancedElementInputRef = useRef<HTMLInputElement>(null);
     const [advancedGenerating, setAdvancedGenerating] = useState(false);
@@ -459,7 +535,7 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     const [advancedGenerateDone, setAdvancedGenerateDone] = useState(false);
     const advancedConversationRef = useRef<any[]>([]);
     const [manualLibraryText, setManualLibraryText] = useState('');
-    const [promptPreset, setPromptPreset] = useState<PromptPreset>('nano-banana-pro');
+    const [promptPreset, setPromptPreset] = useState<PromptPreset>(initialWsData.activeWs.promptPreset || 'nano-banana-pro');
     const [skillFrameworks, setSkillFrameworks] = useState<Record<PromptPreset, string>>(() => ({
         'general-image': getDefaultSkillFramework('general-image'),
         'nano-banana-pro': getDefaultSkillFramework('nano-banana-pro'),
@@ -470,14 +546,14 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     const [manualRewritePreview, setManualRewritePreview] = useState<{ original: string; rewritten: string } | null>(null);
     const [isAligningInstruction, setIsAligningInstruction] = useState(false);
     const [isFillingLibrary, setIsFillingLibrary] = useState(false);
-    const [extendTargetDimension, setExtendTargetDimension] = useState('');
-    const [extendPrompt, setExtendPrompt] = useState('');
-    const [extendCount, setExtendCount] = useState(20);
+    const [extendTargetDimension, setExtendTargetDimension] = useState(initialWsData.activeWs.extendTargetDimension || '');
+    const [extendPrompt, setExtendPrompt] = useState(initialWsData.activeWs.extendPrompt || '');
+    const [extendCount, setExtendCount] = useState(initialWsData.activeWs.extendCount || 20);
     const [extendGenerating, setExtendGenerating] = useState(false);
-    const [extendGeneratedValues, setExtendGeneratedValues] = useState<string[]>([]);
+    const [extendGeneratedValues, setExtendGeneratedValues] = useState<string[]>(initialWsData.activeWs.extendGeneratedValues || []);
     const [extendCopied, setExtendCopied] = useState(false);
     const [extendPastePreview, setExtendPastePreview] = useState('');
-    const [extendChatHistory, setExtendChatHistory] = useState<Array<{ role: 'user' | 'model'; text: string; timestamp: number }>>([]);
+    const [extendChatHistory, setExtendChatHistory] = useState<Array<{ role: 'user' | 'model'; text: string; timestamp: number }>>(initialWsData.activeWs.extendChatHistory || []);
     const [extendChatInput, setExtendChatInput] = useState('');
     const [extendChatSending, setExtendChatSending] = useState(false);
     const extendChatEndRef = useRef<HTMLDivElement>(null);
@@ -523,7 +599,7 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
         textValues: string[]; // 文字列表的值
         probability: number; // 出现几率 0-100，默认 100
     }
-    const [codeEntries, setCodeEntries] = useState<RandomCodeEntry[]>([
+    const [codeEntries, setCodeEntries] = useState<RandomCodeEntry[]>(initialWsData.activeWs.codeEntries || [
         { id: 'e1', name: '', type: 'number', min: 1, max: 20, weight: '', textValues: [], probability: 100 }
     ]);
     const [batchRangeMin, setBatchRangeMin] = useState(1);
@@ -594,15 +670,15 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     };
 
     // === 分类联动代码生成 ===
-    const [categoryInputMode, setCategoryInputMode] = useState<'table' | 'text'>('table');
-    const [categoryRawTable, setCategoryRawTable] = useState(''); // TSV paste
+    const [categoryInputMode, setCategoryInputMode] = useState<'table' | 'text'>(initialWsData.activeWs.categoryInputMode || 'table');
+    const [categoryRawTable, setCategoryRawTable] = useState(initialWsData.activeWs.categoryRawTable || ''); // TSV paste
     const [categoryParsedDims, setCategoryParsedDims] = useState<{ name: string; values: string[] }[]>([]);
-    const [categoryLinkText, setCategoryLinkText] = useState('');
+    const [categoryLinkText, setCategoryLinkText] = useState(initialWsData.activeWs.categoryLinkText || '');
     const [categoryLinkCode, setCategoryLinkCode] = useState('');
     const [copiedCategoryCode, setCopiedCategoryCode] = useState(false);
     const [categoryRunResult, setCategoryRunResult] = useState<{ category: string; dims: { name: string; value: string }[] } | null>(null);
     const [categoryAILoading, setCategoryAILoading] = useState(false);
-    const [categoryPresetNames, setCategoryPresetNames] = useState(''); // 用户预设分类名，如 "室外, 室内, 水边"
+    const [categoryPresetNames, setCategoryPresetNames] = useState(initialWsData.activeWs.categoryPresetNames || ''); // 用户预设分类名，如 "室外, 室内, 水边"
     const [showAICategoryModal, setShowAICategoryModal] = useState(false);
     const [aiCategoryModalInput, setAiCategoryModalInput] = useState('');
     const [aiCategoryModalPresetNames, setAiCategoryModalPresetNames] = useState('');
@@ -629,18 +705,18 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     const [smartClassifyResult, setSmartClassifyResult] = useState('');
 
     // === 批量组合生成器 ===
-    const [comboTargetCount, setComboTargetCount] = useState(20);
-    const [comboBatchSize, setComboBatchSize] = useState(10); // 每批验证多少条
+    const [comboTargetCount, setComboTargetCount] = useState(initialWsData.activeWs.comboTargetCount || 20);
+    const [comboBatchSize, setComboBatchSize] = useState(initialWsData.activeWs.comboBatchSize || 10);
     const [comboGenerating, setComboGenerating] = useState(false);
-    const [comboValidatedRows, setComboValidatedRows] = useState<string[][]>([]); // 通过验证的组合
-    const [comboRejectedRows, setComboRejectedRows] = useState<{ row: string[]; reason: string }[]>([]); // 未通过验证的组合 + 原因
-    const [comboProgress, setComboProgress] = useState<string[]>([]); // 进度日志
-    const [comboUseInstruction, setComboUseInstruction] = useState(true); // 是否使用基础指令作为上下文
+    const [comboValidatedRows, setComboValidatedRows] = useState<string[][]>(initialWsData.activeWs.comboValidatedRows || []);
+    const [comboRejectedRows, setComboRejectedRows] = useState<{ row: string[]; reason: string }[]>([]);
+    const [comboProgress, setComboProgress] = useState<string[]>([]);
+    const [comboUseInstruction, setComboUseInstruction] = useState(true);
     const [comboCopied, setComboCopied] = useState(false);
     const comboAbortRef = useRef(false);
 
     // === 代码生成子标签 ===
-    const [codegenSubTab, setCodegenSubTab] = useState<'random' | 'category' | 'judge'>('random');
+    const [codegenSubTab, setCodegenSubTab] = useState<'random' | 'category' | 'judge'>(initialWsData.activeWs.codegenSubTab || 'random');
 
     // === 判断节点生成器 ===
     interface JudgeInput {
@@ -654,17 +730,17 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
         replaceCount: number; // 0 = 全部替换；N > 0 = 只替换前 N 个
     }
     type JudgeType = 'chinese' | 'keyword' | 'length' | 'nonempty' | 'custom' | 'priorityReplace';
-    const [judgeInputs, setJudgeInputs] = useState<JudgeInput[]>([
+    const [judgeInputs, setJudgeInputs] = useState<JudgeInput[]>(initialWsData.activeWs.judgeInputs || [
         { id: 'j1', name: '内容A', connVar: 'cont' },
         { id: 'j2', name: '内容B', connVar: 'cont' },
     ]);
-    const [judgeType, setJudgeType] = useState<JudgeType>('priorityReplace');
-    const [judgeKeywords, setJudgeKeywords] = useState(''); // 关键词匹配用
-    const [judgeLenThreshold, setJudgeLenThreshold] = useState(10); // 长度判断用
-    const [judgeCustomCondition, setJudgeCustomCondition] = useState(''); // 自定义条件
-    const [judgePriorityGlobalKeyword, setJudgePriorityGlobalKeyword] = useState('全局优先');
-    const [judgeAppendKeywords, setJudgeAppendKeywords] = useState('新要求、特殊要求');
-    const [judgePriorityRules, setJudgePriorityRules] = useState<JudgePriorityRule[]>([
+    const [judgeType, setJudgeType] = useState<JudgeType>(initialWsData.activeWs.judgeType || 'priorityReplace');
+    const [judgeKeywords, setJudgeKeywords] = useState(initialWsData.activeWs.judgeKeywords || ''); // 关键词匹配用
+    const [judgeLenThreshold, setJudgeLenThreshold] = useState(initialWsData.activeWs.judgeLenThreshold || 10); // 长度判断用
+    const [judgeCustomCondition, setJudgeCustomCondition] = useState(initialWsData.activeWs.judgeCustomCondition || ''); // 自定义条件
+    const [judgePriorityGlobalKeyword, setJudgePriorityGlobalKeyword] = useState(initialWsData.activeWs.judgePriorityGlobalKeyword || '全局优先');
+    const [judgeAppendKeywords, setJudgeAppendKeywords] = useState(initialWsData.activeWs.judgeAppendKeywords || '新要求、特殊要求');
+    const [judgePriorityRules, setJudgePriorityRules] = useState<JudgePriorityRule[]>(initialWsData.activeWs.judgePriorityRules || [
         { id: 'pr1', keyword: '图片风格', replaceCount: 0 },
         { id: 'pr2', keyword: '背景风景', replaceCount: 0 },
     ]);
@@ -1476,6 +1552,25 @@ ${librariesInfo}
     const extendGeneratedValuesRef = useRef(extendGeneratedValues);
     const extendChatHistoryRef = useRef(extendChatHistory);
     const activeTabRef = useRef(activeTab);
+    const advancedElementsRef = useRef(advancedElements);
+    const promptPresetRef = useRef(promptPreset);
+    const comboTargetCountRef = useRef(comboTargetCount);
+    const comboBatchSizeRef = useRef(comboBatchSize);
+    const comboValidatedRowsRef = useRef(comboValidatedRows);
+    const codegenSubTabRef = useRef(codegenSubTab);
+    const categoryInputModeRef = useRef(categoryInputMode);
+    const categoryRawTableRef = useRef(categoryRawTable);
+    const categoryLinkTextRef = useRef(categoryLinkText);
+    const categoryPresetNamesRef = useRef(categoryPresetNames);
+    const judgeInputsRef = useRef(judgeInputs);
+    const judgeTypeRef = useRef(judgeType);
+    const judgeKeywordsRef = useRef(judgeKeywords);
+    const judgeLenThresholdRef = useRef(judgeLenThreshold);
+    const judgeCustomConditionRef = useRef(judgeCustomCondition);
+    const judgePriorityGlobalKeywordRef = useRef(judgePriorityGlobalKeyword);
+    const judgeAppendKeywordsRef = useRef(judgeAppendKeywords);
+    const judgePriorityRulesRef = useRef(judgePriorityRules);
+
     useEffect(() => { imagesRef.current = images; }, [images]);
     useEffect(() => { samplePromptsRef.current = samplePrompts; }, [samplePrompts]);
     useEffect(() => { roughRulesRef.current = roughRules; }, [roughRules]);
@@ -1492,6 +1587,27 @@ ${librariesInfo}
     useEffect(() => { extendGeneratedValuesRef.current = extendGeneratedValues; }, [extendGeneratedValues]);
     useEffect(() => { extendChatHistoryRef.current = extendChatHistory; }, [extendChatHistory]);
     useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+    useEffect(() => { advancedElementsRef.current = advancedElements; }, [advancedElements]);
+    useEffect(() => { promptPresetRef.current = promptPreset; }, [promptPreset]);
+    useEffect(() => { comboTargetCountRef.current = comboTargetCount; }, [comboTargetCount]);
+    useEffect(() => { comboBatchSizeRef.current = comboBatchSize; }, [comboBatchSize]);
+    useEffect(() => { comboValidatedRowsRef.current = comboValidatedRows; }, [comboValidatedRows]);
+    useEffect(() => { codegenSubTabRef.current = codegenSubTab; }, [codegenSubTab]);
+    useEffect(() => { categoryInputModeRef.current = categoryInputMode; }, [categoryInputMode]);
+    useEffect(() => { categoryRawTableRef.current = categoryRawTable; }, [categoryRawTable]);
+    useEffect(() => { categoryLinkTextRef.current = categoryLinkText; }, [categoryLinkText]);
+    useEffect(() => { categoryPresetNamesRef.current = categoryPresetNames; }, [categoryPresetNames]);
+    useEffect(() => { judgeInputsRef.current = judgeInputs; }, [judgeInputs]);
+    useEffect(() => { judgeTypeRef.current = judgeType; }, [judgeType]);
+    useEffect(() => { judgeKeywordsRef.current = judgeKeywords; }, [judgeKeywords]);
+    useEffect(() => { judgeLenThresholdRef.current = judgeLenThreshold; }, [judgeLenThreshold]);
+    useEffect(() => { judgeCustomConditionRef.current = judgeCustomCondition; }, [judgeCustomCondition]);
+    useEffect(() => { judgePriorityGlobalKeywordRef.current = judgePriorityGlobalKeyword; }, [judgePriorityGlobalKeyword]);
+    useEffect(() => { judgeAppendKeywordsRef.current = judgeAppendKeywords; }, [judgeAppendKeywords]);
+    useEffect(() => { judgePriorityRulesRef.current = judgePriorityRules; }, [judgePriorityRules]);
+
+    const activeWorkspaceIdRef = useRef(activeWorkspaceId);
+    useEffect(() => { activeWorkspaceIdRef.current = activeWorkspaceId; }, [activeWorkspaceId]);
 
     const saveCurrentWorkspaceSnapshot = useCallback((): Partial<SkillGenWorkspace> => ({
         images: imagesRef.current,
@@ -1510,7 +1626,44 @@ ${librariesInfo}
         extendGeneratedValues: extendGeneratedValuesRef.current,
         extendChatHistory: extendChatHistoryRef.current,
         activeTab: activeTabRef.current,
+        advancedElements: advancedElementsRef.current,
+        promptPreset: promptPresetRef.current,
+        comboTargetCount: comboTargetCountRef.current,
+        comboBatchSize: comboBatchSizeRef.current,
+        comboValidatedRows: comboValidatedRowsRef.current,
+        codegenSubTab: codegenSubTabRef.current,
+        categoryInputMode: categoryInputModeRef.current,
+        categoryRawTable: categoryRawTableRef.current,
+        categoryLinkText: categoryLinkTextRef.current,
+        categoryPresetNames: categoryPresetNamesRef.current,
+        judgeInputs: judgeInputsRef.current,
+        judgeType: judgeTypeRef.current,
+        judgeKeywords: judgeKeywordsRef.current,
+        judgeLenThreshold: judgeLenThresholdRef.current,
+        judgeCustomCondition: judgeCustomConditionRef.current,
+        judgePriorityGlobalKeyword: judgePriorityGlobalKeywordRef.current,
+        judgeAppendKeywords: judgeAppendKeywordsRef.current,
+        judgePriorityRules: judgePriorityRulesRef.current,
     }), []);
+
+    // Auto-save workspaces to cache
+    const workspacesRef = useRef(workspaces);
+    useEffect(() => { workspacesRef.current = workspaces; }, [workspaces]);
+    useEffect(() => {
+        const timer = setInterval(() => {
+            const snap = saveCurrentWorkspaceSnapshot();
+            const toSave = workspacesRef.current.map(ws => ws.id === activeWorkspaceIdRef.current ? { ...ws, ...snap } : ws);
+            const safeSave = toSave.map(ws => ({
+                ...ws,
+                images: ws.images.map(img => ({ ...img, base64: '' }))
+            }));
+            try {
+                localStorage.setItem('skill-gen-workspaces', JSON.stringify(safeSave));
+                localStorage.setItem('skill-gen-active-ws', activeWorkspaceIdRef.current);
+            } catch { }
+        }, 5000);
+        return () => clearInterval(timer);
+    }, [saveCurrentWorkspaceSnapshot]);
 
     const restoreWorkspaceState = useCallback((ws: SkillGenWorkspace) => {
         setImages(ws.images);
@@ -1531,6 +1684,32 @@ ${librariesInfo}
         setExtendChatHistory(ws.extendChatHistory || []);
         setExtendChatInput('');
         setActiveTab(ws.activeTab);
+
+        setAdvancedElements(ws.advancedElements || ADVANCED_ELEMENT_PRESETS[0].elements);
+        setPromptPreset(ws.promptPreset || 'nano-banana-pro');
+        setComboTargetCount(ws.comboTargetCount || 20);
+        setComboBatchSize(ws.comboBatchSize || 10);
+        setComboValidatedRows(ws.comboValidatedRows || []);
+        setCodegenSubTab(ws.codegenSubTab || 'random');
+        setCategoryInputMode(ws.categoryInputMode || 'table');
+        setCategoryRawTable(ws.categoryRawTable || '');
+        setCategoryLinkText(ws.categoryLinkText || '');
+        setCategoryPresetNames(ws.categoryPresetNames || '');
+        setJudgeInputs(ws.judgeInputs || [
+            { id: 'j1', name: '内容A', connVar: 'cont' },
+            { id: 'j2', name: '内容B', connVar: 'cont' },
+        ]);
+        setJudgeType(ws.judgeType || 'priorityReplace');
+        setJudgeKeywords(ws.judgeKeywords || '');
+        setJudgeLenThreshold(ws.judgeLenThreshold || 10);
+        setJudgeCustomCondition(ws.judgeCustomCondition || '');
+        setJudgePriorityGlobalKeyword(ws.judgePriorityGlobalKeyword || '全局优先');
+        setJudgeAppendKeywords(ws.judgeAppendKeywords || '新要求、特殊要求');
+        setJudgePriorityRules(ws.judgePriorityRules || [
+            { id: 'pr1', keyword: '图片风格', replaceCount: 0 },
+            { id: 'pr2', keyword: '背景风景', replaceCount: 0 },
+        ]);
+
         setGenerating(false);
         setValidationReport(null);
         setShowOpalExport(false);
@@ -4629,7 +4808,7 @@ ${baseInstruction}`;
                     });
 
                     let verifyText = extractResponseText(verifyResponse);
-                    verifyText = verifyText.replace(/```json\s * /gi, '').replace(/```\s*/g, '').trim();
+                    verifyText = verifyText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
 
                     const verifyResult = JSON.parse(verifyText) as {
                         results: { index: number; valid: boolean; reason?: string }[];
