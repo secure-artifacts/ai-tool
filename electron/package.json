@@ -4,6 +4,10 @@
     "description": "AI 创作工具包 - 桌面版",
     "main": "main.js",
     "author": "ITEN Creative Toolkit",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/secure-artifacts/ai-tool.git"
+    },
     "scripts": {
         "start": "electron .",
         "start:dev": "NODE_ENV=development electron .",
