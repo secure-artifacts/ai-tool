@@ -7350,7 +7350,7 @@ const App = () => {
     const isInIframe = window.self !== window.top;
 
     // 3. 检查 referrer 是否来自 AI Studio
-    if (isInIframe && referrer.includes('aistudio.google.com')) {
+    if (isInIframe && (() => { try { return new URL(referrer).hostname === 'aistudio.google.com'; } catch { return false; } })()) {
       return 'aistudio';
     }
 

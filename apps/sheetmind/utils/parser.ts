@@ -177,7 +177,7 @@ export const readWorkbookFromHtml = async (html: string): Promise<XLSX.WorkBook>
                         if (hyperlink) {
                             // Check if the text content is an image URL
                             const text = cell.textContent?.trim() || '';
-                            if (text.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) || (() => { try { return new URL(hyperlink).hostname.endsWith('gyazo.com'); } catch { return false; } })()) {
+                            if (text.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) || (() => { try { const h = new URL(hyperlink).hostname; return h === 'gyazo.com' || h === 'i.gyazo.com'; } catch { return false; } })()) {
                                 rowData.push(`=IMAGE("${hyperlink}")`);
                             } else {
                                 rowData.push(hyperlink);

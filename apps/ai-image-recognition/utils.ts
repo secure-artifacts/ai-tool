@@ -76,32 +76,35 @@ export const processImageUrl = (url: string): string => {
     return url;
 };
 
-// 解码 HTML 实体（如 &amp; -> &）
+// 解码 HTML 实体（如 &amp; -> &）- 纯正则实现，避免 DOM 解析
 export const decodeHtmlEntities = (text: string): string => {
-    const doc = new DOMParser().parseFromString(text, 'text/html');
-    return doc.documentElement.textContent || '';
+    const entities: Record<string, string> = {
+        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
+        '&#39;': "'", '&apos;': "'", '&#x27;': "'", '&#x2F;': '/',
+        '&nbsp;': ' ', '&#160;': ' ',
+    };
+    return text.replace(/&(?:#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match) => {
+        if (match in entities) return entities[match];
+        if (match.startsWith('&#x')) return String.fromCharCode(parseInt(match.slice(3, -1), 16));
+        if (match.startsWith('&#')) return String.fromCharCode(parseInt(match.slice(2, -1), 10));
+        return match;
+    });
 };
 
 // Extract Image URLs from HTML (for Google Sheets support)
 // Returns both the original URL (for formula reconstruction) and the processed URL (for fetching)
 export const extractUrlsFromHtml = (html: string): { originalUrl: string; fetchUrl: string }[] => {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const images = doc.querySelectorAll('img');
         const results: { originalUrl: string; fetchUrl: string }[] = [];
-
-        images.forEach(img => {
-            if (img.src) {
-                // 解码 HTML 实体（如 &amp; -> &）
-                const decodedUrl = decodeHtmlEntities(img.src);
-                results.push({
-                    originalUrl: decodedUrl,  // Keep original for formula
-                    fetchUrl: processImageUrl(decodedUrl)  // Process for fetching
-                });
-            }
-        });
-
+        const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+        let match;
+        while ((match = imgRegex.exec(html)) !== null) {
+            const decodedUrl = decodeHtmlEntities(match[1]);
+            results.push({
+                originalUrl: decodedUrl,
+                fetchUrl: processImageUrl(decodedUrl)
+            });
+        }
         return results;
     } catch (e) {
         console.error("Error parsing HTML for images:", e);
@@ -163,37 +166,34 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
 // 按表格行分组：同一 <tr> 内的图片归为一组（一张卡片）
 export const extractUrlsFromHtmlGrouped = (html: string): { originalUrl: string; fetchUrl: string }[][] => {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const rows = doc.querySelectorAll('tr');
+        const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+        const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
 
-        // 如果有表格行结构，按行分组
-        if (rows.length > 0) {
+        // Try table row structure first
+        const trMatches = [...html.matchAll(trRegex)];
+        if (trMatches.length > 0) {
             const groups: { originalUrl: string; fetchUrl: string }[][] = [];
-            rows.forEach(row => {
-                const imgs = row.querySelectorAll('img');
-                if (imgs.length === 0) return;
+            for (const trMatch of trMatches) {
+                const rowHtml = trMatch[1];
                 const group: { originalUrl: string; fetchUrl: string }[] = [];
-                imgs.forEach(img => {
-                    if (img.src) {
-                        const decodedUrl = decodeHtmlEntities(img.src);
-                        group.push({ originalUrl: decodedUrl, fetchUrl: processImageUrl(decodedUrl) });
-                    }
-                });
+                let imgMatch;
+                const rowImgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+                while ((imgMatch = rowImgRegex.exec(rowHtml)) !== null) {
+                    const decodedUrl = decodeHtmlEntities(imgMatch[1]);
+                    group.push({ originalUrl: decodedUrl, fetchUrl: processImageUrl(decodedUrl) });
+                }
                 if (group.length > 0) groups.push(group);
-            });
+            }
             if (groups.length > 0) return groups;
         }
 
-        // 没有表格结构，所有图片各自一组
-        const images = doc.querySelectorAll('img');
+        // No table structure, each image is its own group
         const groups: { originalUrl: string; fetchUrl: string }[][] = [];
-        images.forEach(img => {
-            if (img.src) {
-                const decodedUrl = decodeHtmlEntities(img.src);
-                groups.push([{ originalUrl: decodedUrl, fetchUrl: processImageUrl(decodedUrl) }]);
-            }
-        });
+        let match;
+        while ((match = imgRegex.exec(html)) !== null) {
+            const decodedUrl = decodeHtmlEntities(match[1]);
+            groups.push([{ originalUrl: decodedUrl, fetchUrl: processImageUrl(decodedUrl) }]);
+        }
         return groups;
     } catch (e) {
         console.error("Error parsing HTML for grouped images:", e);

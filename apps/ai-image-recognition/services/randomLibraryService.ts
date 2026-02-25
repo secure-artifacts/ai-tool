@@ -1814,7 +1814,7 @@ export const buildMultiDimensionExtractPrompt = (
 
 // 正则转义辅助函数（在 parseMultiDimensionExtractResult 中使用）
 const escapeRegExp = (str: string): string => {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return str.replace(/\\/g, '\\\\').replace(/[.*+?^${}()|[\]]/g, '\\$&');
 };
 
 // 解析多维度提取结果

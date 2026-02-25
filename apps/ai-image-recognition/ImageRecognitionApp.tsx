@@ -8479,16 +8479,21 @@ ${itemEffectiveInstruction}
                                                 // 检查是否有 HTML 内容（如从 Google Sheets 粘贴）
                                                 const html = clipboardData.getData('text/html');
                                                 if (html) {
-                                                    const parsedDoc = new DOMParser().parseFromString(html, 'text/html');
-                                                    const imgs = parsedDoc.querySelectorAll('img');
-                                                    if (imgs.length > 0) {
-                                                        const decodeHtml = (str: string) => {
-                                                            const decoded = new DOMParser().parseFromString(str, 'text/html');
-                                                            return decoded.documentElement.textContent || '';
+                                                    const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+                                                    const imgMatches = [...html.matchAll(imgRegex)];
+                                                    if (imgMatches.length > 0) {
+                                                        const decodeHtml = (str: string): string => {
+                                                            const entities: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+                                                            return str.replace(/&(?:#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m) => {
+                                                                if (m in entities) return entities[m];
+                                                                if (m.startsWith('&#x')) return String.fromCharCode(parseInt(m.slice(3, -1), 16));
+                                                                if (m.startsWith('&#')) return String.fromCharCode(parseInt(m.slice(2, -1), 10));
+                                                                return m;
+                                                            });
                                                         };
 
-                                                        const urls = Array.from(imgs).map(img => {
-                                                            const decodedUrl = decodeHtml(img.src);
+                                                        const urls = imgMatches.map(m => {
+                                                            const decodedUrl = decodeHtml(m[1]);
                                                             return {
                                                                 originalUrl: decodedUrl,
                                                                 fetchUrl: decodedUrl

@@ -14,8 +14,17 @@ export const convertBlobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 export const decodeHtmlEntities = (text: string): string => {
-    const doc = new DOMParser().parseFromString(text, 'text/html');
-    return doc.documentElement.textContent || '';
+    const entities: Record<string, string> = {
+        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
+        '&#39;': "'", '&apos;': "'", '&#x27;': "'", '&#x2F;': '/',
+        '&nbsp;': ' ', '&#160;': ' ',
+    };
+    return text.replace(/&(?:#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match) => {
+        if (match in entities) return entities[match];
+        if (match.startsWith('&#x')) return String.fromCharCode(parseInt(match.slice(3, -1), 16));
+        if (match.startsWith('&#')) return String.fromCharCode(parseInt(match.slice(2, -1), 10));
+        return match;
+    });
 };
 
 export const processImageUrl = (url: string): string => {
@@ -54,21 +63,16 @@ export const processImageUrl = (url: string): string => {
 // 从 HTML 提取图片 URL (Google Sheets 支持)
 export const extractUrlsFromHtml = (html: string): { originalUrl: string; fetchUrl: string }[] => {
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const images = doc.querySelectorAll('img');
         const results: { originalUrl: string; fetchUrl: string }[] = [];
-
-        images.forEach(img => {
-            if (img.src) {
-                const decodedUrl = decodeHtmlEntities(img.src);
-                results.push({
-                    originalUrl: decodedUrl,
-                    fetchUrl: processImageUrl(decodedUrl)
-                });
-            }
-        });
-
+        const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+        let match;
+        while ((match = imgRegex.exec(html)) !== null) {
+            const decodedUrl = decodeHtmlEntities(match[1]);
+            results.push({
+                originalUrl: decodedUrl,
+                fetchUrl: processImageUrl(decodedUrl)
+            });
+        }
         return results;
     } catch (e) {
         console.error("Error parsing HTML for images:", e);
