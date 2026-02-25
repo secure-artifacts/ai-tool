@@ -7,6 +7,23 @@
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
+// Secure random helpers
+const secureRandom = (): number => {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    return arr[0] / 4294967296; // 0 to 1 exclusive
+};
+const secureRandomInt = (max: number): number => {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    return arr[0] % max;
+};
+const secureRandomId = (length: number = 9): string => {
+    const arr = new Uint8Array(length);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, b => b.toString(36)).join('').slice(0, length);
+};
+
 // 库值类型（支持分类 + 图片URL识别）
 export interface LibraryValue {
     value: string; // 值本身（文本 或 URL）
@@ -349,7 +366,7 @@ export const getDefaultConfigWithLibraries = (): RandomLibraryConfig => ({
 
 // 生成唯一ID
 export const generateLibraryId = (): string => {
-    return `lib_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `;
+    return `lib_${Date.now()}_${secureRandomId(9)} `;
 };
 
 // 创建新库
@@ -522,7 +539,7 @@ export const parseTableDataToLibraries = (
         if (data.values.length > 0) {
             const hasCategories = data.valuesWithCategory.some(v => v.categories && v.categories.length > 0);
             libraries.push({
-                id: `lib_paste_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                id: `lib_paste_${Date.now()}_${secureRandomId(5)}`,
                 name,
                 values: data.values,
                 valuesWithCategory: hasCategories ? data.valuesWithCategory : undefined,
@@ -935,7 +952,7 @@ export const fetchMasterSheetLibraries = async (
                     const hasImageUrls = data.valuesWithCategory.some(v => v.valueType === 'image-url');
 
                     libraries.push({
-                        id: `lib_master_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                        id: `lib_master_${Date.now()}_${secureRandomId(5)}`,
                         name: name,
                         values: data.values,
                         valuesWithCategory: (hasCategories || hasImageUrls) ? data.valuesWithCategory : undefined,
@@ -1097,7 +1114,7 @@ export const fetchMasterSheetWithGroup = async (
 
             // 允许空库被创建（表头存在即创建）
             libraries.push({
-                id: `lib_${groupName}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                id: `lib_${groupName}_${Date.now()}_${secureRandomId(5)}`,
                 name: name,
                 values: data.values,
                 valuesWithCategory,
@@ -1241,7 +1258,7 @@ export const scanMasterSheets = async (
                         sheetName,
                         groupName: category || '默认',
                         libraries: [{
-                            id: `lib_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                            id: `lib_${Date.now()}_${secureRandomId(5)}`,
                             name: libraryName,
                             values: values,
                             valuesWithCategory: valuesWithCategory,
@@ -1341,7 +1358,7 @@ export const importFromGoogleSheets = async (
                 }));
 
                 sheetLibraries.push({
-                    id: `lib_sheets_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                    id: `lib_sheets_${Date.now()}_${secureRandomId(5)}`,
                     name: libraryName,
                     values: values,
                     valuesWithCategory: valuesWithCategory,
@@ -1445,7 +1462,7 @@ export const importFromGoogleSheetsByGid = async (
 
                 if (mode === 'replace' || (mode === 'merge-add' && !existingLib)) {
                     importedLibraries.push({
-                        id: `lib_sheets_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                        id: `lib_sheets_${Date.now()}_${secureRandomId(5)}`,
                         name: config.name,
                         values: values,
                         enabled: true,
@@ -1484,7 +1501,7 @@ const weightedRandomSelect = (values: string[], weights: Record<string, number>)
     const totalWeight = weightedValues.reduce((sum, item) => sum + item.weight, 0);
 
     // 生成随机数
-    let random = Math.random() * totalWeight;
+    let random = secureRandom() * totalWeight;
 
     // 按权重选择
     for (const item of weightedValues) {
@@ -1631,12 +1648,12 @@ export const pickRandomValuesWithCategory = (
     // 根据抽取模式选择
     switch (library.pickMode) {
         case 'random-one': {
-            const index = Math.floor(Math.random() * filteredValues.length);
+            const index = secureRandomInt(filteredValues.length);
             return [filteredValues[index].value];
         }
         case 'random-multiple': {
             const count = Math.min(library.pickCount, filteredValues.length);
-            const shuffled = [...filteredValues].sort(() => Math.random() - 0.5);
+            const shuffled = [...filteredValues].sort(() => secureRandom() - 0.5);
             return shuffled.slice(0, count).map(v => v.value);
         }
         case 'sequential': {
@@ -1882,7 +1899,7 @@ export const generateRandomCombination = (config: RandomLibraryConfig): string =
         const rate = lib.participationRate ?? 100;
         if (rate >= 100) return true; // 100%必选
         if (rate <= 0) return false; // 0%不选
-        return Math.random() * 100 < rate; // 按概率决定
+        return secureRandom() * 100 < rate; // 按概率决定
     });
     if (enabledLibraries.length === 0) return '';
 
@@ -1894,7 +1911,7 @@ export const generateRandomCombination = (config: RandomLibraryConfig): string =
     if (useCategoryLink) {
         const allCategories = getAllCategories(config);
         if (allCategories.length > 0) {
-            selectedCategory = allCategories[Math.floor(Math.random() * allCategories.length)];
+            selectedCategory = allCategories[secureRandomInt(allCategories.length)];
         }
     }
 
@@ -1954,7 +1971,7 @@ export const generateRandomCombinationAsync = async (
         const rate = lib.participationRate ?? 100;
         if (rate >= 100) return true;
         if (rate <= 0) return false;
-        return Math.random() * 100 < rate;
+        return secureRandom() * 100 < rate;
     });
     if (enabledLibraries.length === 0) return '';
 
@@ -1963,7 +1980,7 @@ export const generateRandomCombinationAsync = async (
     if (useCategoryLink) {
         const allCategories = getAllCategories(config);
         if (allCategories.length > 0) {
-            selectedCategory = allCategories[Math.floor(Math.random() * allCategories.length)];
+            selectedCategory = allCategories[secureRandomInt(allCategories.length)];
         }
     }
 
@@ -2102,7 +2119,7 @@ export const generateCartesianCombinations = (
     // 从每个库随机抽取指定数量的值
     const libraryPicks: { name: string; values: string[] }[] = enabledLibraries.map(lib => {
         const count = lib.pickMode === 'random-multiple' ? Math.min(lib.pickCount, lib.values.length) : 1;
-        const shuffled = [...lib.values].sort(() => Math.random() - 0.5);
+        const shuffled = [...lib.values].sort(() => secureRandom() - 0.5);
         return {
             name: lib.name,
             values: shuffled.slice(0, count)

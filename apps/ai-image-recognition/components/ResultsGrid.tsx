@@ -70,6 +70,8 @@ interface ResultsGridProps {
     // 卡片级维度提取
     allEnabledDimNames?: string[]; // 随机库中所有开启的维度名
     onUpdateRefImageConfig?: (cardId: string, imageIndex: number, update: Partial<import('../types').RefImageConfig> | null) => void;
+    // 卡片级维度绑定（从卡片自身图片提取）
+    onToggleCardDimBinding?: (cardId: string, dimName: string) => void;
 }
 
 
@@ -1894,68 +1896,100 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                                 })()}
                             </div>
                             <span className="text-[8px] text-zinc-600">{img.index === 0 ? `图${img.index + 1}` : `图${img.index + 1}`}</span>
-                            <select
-                                value={cfg?.dimName || ''}
-                                onChange={e => {
-                                    e.stopPropagation();
-                                    const v = e.target.value;
-                                    if (!v) onUpdateRefImageConfig?.(item.id, img.index, null);
-                                    else if (v === QUICK_IMAGE_APPEND_DIM) onUpdateRefImageConfig?.(item.id, img.index, { dimName: v, extractPrompt: cfg?.extractPrompt || '' });
-                                    else onUpdateRefImageConfig?.(item.id, img.index, { dimName: v, extractPrompt: getDefaultExtractPrompt(v) });
-                                }}
-                                onMouseDown={e => e.stopPropagation()}
-                                className="text-[10px] bg-zinc-800 border border-zinc-700/50 rounded px-1.5 py-0.5 text-zinc-300 w-full"
-                                title={`图${img.index + 1}：先选维度，下面的提取指令就是针对这张图`}
-                            >
-                                <option value="">不提取</option>
-                                <option value={QUICK_IMAGE_APPEND_DIM}>📝追加内容</option>
+                            {/* 多选维度标签 */}
+                            <div className="flex flex-wrap gap-0.5">
                                 {enabledDimNames.map(d => {
-                                    const taken = usedDims.has(d) && cfg?.dimName !== d;
-                                    return <option key={d} value={d} disabled={taken}>{d}{taken ? ' ✓' : ''}</option>;
+                                    const dimCfg = cfgs.find(c => c.imageIndex === img.index && c.dimName === d);
+                                    const isBound = !!dimCfg;
+                                    return (
+                                        <button
+                                            key={d}
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                if (isBound) {
+                                                    // 取消绑定：只删除该维度
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${d}` } as any);
+                                                } else {
+                                                    // 添加绑定
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: d, extractPrompt: getDefaultExtractPrompt(d) });
+                                                }
+                                            }}
+                                            onMouseDown={e => e.stopPropagation()}
+                                            className={`px-1.5 py-px rounded text-[8px] border transition-all ${isBound
+                                                ? 'bg-purple-800/50 text-purple-200 border-purple-500/60'
+                                                : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/40 hover:text-zinc-300 hover:border-zinc-500'
+                                                }`}
+                                            title={isBound ? `取消「${d}」` : `从此图提取「${d}」`}
+                                        >
+                                            {isBound ? '✓' : ''}{d}
+                                        </button>
+                                    );
                                 })}
-                            </select>
-                            {cfg?.dimName && (
-                                <input
-                                    type="text"
-                                    placeholder={cfg.dimName === QUICK_IMAGE_APPEND_DIM
-                                        ? `图${img.index + 1}追加内容（针对该图）`
-                                        : `图${img.index + 1}提取指令（针对该图）`}
-                                    value={cfg.dimName === QUICK_IMAGE_APPEND_DIM
-                                        ? (cfg.extractPrompt || '')
-                                        : (cfg.extractPrompt ?? getDefaultExtractPrompt(cfg.dimName))}
-                                    onChange={e => { e.stopPropagation(); onUpdateRefImageConfig?.(item.id, img.index, { extractPrompt: e.target.value }); }}
-                                    onMouseDown={e => e.stopPropagation()}
-                                    onDoubleClick={e => {
+                                {/* 追加内容选项 */}
+                                <button
+                                    onClick={e => {
                                         e.stopPropagation();
-                                        setPromptModalImageIndex(img.index);
+                                        const appendCfg = cfgs.find(c => c.imageIndex === img.index && c.dimName === QUICK_IMAGE_APPEND_DIM);
+                                        if (appendCfg) {
+                                            onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${QUICK_IMAGE_APPEND_DIM}` } as any);
+                                        } else {
+                                            onUpdateRefImageConfig?.(item.id, img.index, { dimName: QUICK_IMAGE_APPEND_DIM, extractPrompt: '' });
+                                        }
                                     }}
-                                    className="h-7 text-[10px] leading-tight bg-zinc-800 border border-zinc-700/50 rounded px-1.5 py-0.5 text-zinc-300 placeholder-zinc-500 w-full"
-                                    title={cfg.dimName === QUICK_IMAGE_APPEND_DIM
-                                        ? `图${img.index + 1}：该图专用追加内容，双击可放大编辑`
-                                        : `图${img.index + 1}：该图专用提取指令，双击可放大编辑`}
-                                />
-                            )}
-                            {cfg?.dimName && cfg.dimName !== QUICK_IMAGE_APPEND_DIM && (
-                                <div className="flex items-center justify-center gap-1">
-                                    <button
-                                        onClick={e => {
-                                            e.stopPropagation();
-                                            onUpdateRefImageConfig?.(item.id, img.index, { overrideCount: Math.max(0, (cfg.overrideCount ?? 0) - 1) });
-                                        }}
+                                    onMouseDown={e => e.stopPropagation()}
+                                    className={`px-1.5 py-px rounded text-[8px] border transition-all ${cfgs.find(c => c.imageIndex === img.index && c.dimName === QUICK_IMAGE_APPEND_DIM)
+                                        ? 'bg-cyan-800/50 text-cyan-200 border-cyan-500/60'
+                                        : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/40 hover:text-zinc-300 hover:border-zinc-500'
+                                        }`}
+                                    title="追加内容"
+                                >
+                                    {cfgs.find(c => c.imageIndex === img.index && c.dimName === QUICK_IMAGE_APPEND_DIM) ? '✓' : ''}📝追加
+                                </button>
+                            </div>
+                            {/* 已选维度的提取指令和个数 */}
+                            {cfgs.filter(c => c.imageIndex === img.index && c.dimName).map(selCfg => (
+                                <div key={selCfg.dimName} className="flex flex-col gap-0.5 border-l-2 border-purple-500/40 pl-1">
+                                    <span className="text-[8px] text-purple-300 font-medium">{selCfg.dimName === QUICK_IMAGE_APPEND_DIM ? '📝 追加' : selCfg.dimName}</span>
+                                    <input
+                                        type="text"
+                                        placeholder={selCfg.dimName === QUICK_IMAGE_APPEND_DIM
+                                            ? `追加内容`
+                                            : `提取指令`}
+                                        value={selCfg.dimName === QUICK_IMAGE_APPEND_DIM
+                                            ? (selCfg.extractPrompt || '')
+                                            : (selCfg.extractPrompt ?? getDefaultExtractPrompt(selCfg.dimName))}
+                                        onChange={e => { e.stopPropagation(); onUpdateRefImageConfig?.(item.id, img.index, { dimName: selCfg.dimName, extractPrompt: e.target.value }); }}
                                         onMouseDown={e => e.stopPropagation()}
-                                        className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
-                                    >-</button>
-                                    <span className="text-[9px] text-amber-300 min-w-[14px] text-center">{(cfg.overrideCount ?? 0) === 0 ? '全' : cfg.overrideCount}</span>
-                                    <button
-                                        onClick={e => {
+                                        onDoubleClick={e => {
                                             e.stopPropagation();
-                                            onUpdateRefImageConfig?.(item.id, img.index, { overrideCount: (cfg.overrideCount ?? 0) + 1 });
+                                            setPromptModalImageIndex(img.index);
                                         }}
-                                        onMouseDown={e => e.stopPropagation()}
-                                        className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
-                                    >+</button>
+                                        className="h-6 text-[9px] leading-tight bg-zinc-800 border border-zinc-700/50 rounded px-1 py-0.5 text-zinc-300 placeholder-zinc-500 w-full"
+                                        title={`${selCfg.dimName} 提取指令，双击放大编辑`}
+                                    />
+                                    {selCfg.dimName !== QUICK_IMAGE_APPEND_DIM && (
+                                        <div className="flex items-center justify-center gap-1">
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: selCfg.dimName, overrideCount: Math.max(0, (selCfg.overrideCount ?? 0) - 1) });
+                                                }}
+                                                onMouseDown={e => e.stopPropagation()}
+                                                className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
+                                            >-</button>
+                                            <span className="text-[9px] text-amber-300 min-w-[14px] text-center">{(selCfg.overrideCount ?? 0) === 0 ? '全' : selCfg.overrideCount}</span>
+                                            <button
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: selCfg.dimName, overrideCount: (selCfg.overrideCount ?? 0) + 1 });
+                                                }}
+                                                onMouseDown={e => e.stopPropagation()}
+                                                className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
+                                            >+</button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            ))}
                         </div>
                     );
                 })}
@@ -2961,7 +2995,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     onUpdateCardOverrideCount,
     onUpdateCardTextOverride,
     allEnabledDimNames,
-    onUpdateRefImageConfig
+    onUpdateRefImageConfig,
+    onToggleCardDimBinding
 }) => {
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en' | null>(null);
@@ -3438,6 +3473,33 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                     </span>
                 )}
             </div>
+
+            {/* 卡片维度绑定标签 — 独立于全局覆盖 */}
+            {allEnabledDimNames && allEnabledDimNames.length > 0 && item.imageUrl && onToggleCardDimBinding && (
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent pt-5 pb-1 px-1">
+                    <div className="flex flex-wrap gap-0.5 justify-center">
+                        {allEnabledDimNames.map(dimName => {
+                            const isBound = item.overrideRefSelections?.[dimName] === '__self__';
+                            return (
+                                <button
+                                    key={dimName}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onToggleCardDimBinding(item.id, dimName);
+                                    }}
+                                    className={`px-1 py-px rounded text-[7px] leading-tight border transition-all ${isBound
+                                        ? 'bg-purple-700/70 text-purple-100 border-purple-500/60'
+                                        : 'bg-black/40 text-zinc-500 border-zinc-700/40 hover:text-zinc-300 hover:border-zinc-500'
+                                        }`}
+                                    title={isBound ? `取消从此图提取「${dimName}」` : `从此图提取「${dimName}」`}
+                                >
+                                    {isBound ? '✓' : ''}{dimName}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </>
     );
 

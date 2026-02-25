@@ -26,6 +26,7 @@ import CompactToolbar from './CompactToolbar';
 import { Play, Pause, Square, ClipboardCopy, Trash2, Settings, Settings2, Zap, LayoutGrid, List, Rows3, Check, X, RotateCw, RotateCcw, RefreshCcw, AlertCircle, CheckCircle2, ImagePlus, Upload, Loader2, Link, FileCode, MessageCircle, Send, Copy, ChevronDown, ChevronUp, Sparkles, Download, ArrowLeftRight, Share2, FileText, Eye, EyeOff, ListPlus, Plus, Info, Bell, Languages, HelpCircle } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { RandomLibraryManager } from './components/RandomLibraryManager';
+import { QuickModeStandalone } from './components/QuickModeStandalone';
 import TabBar from './components/TabBar';
 import {
     RandomLibraryConfig,
@@ -317,6 +318,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         setExpandedOverrideCountLib(null);
     }, [getOverrideEditSignature]);
     const [showCreativeSettings, setShowCreativeSettings] = useState(false); // 创新模式设置弹框
+    // === 快捷模式视图切换 ===
+    const [quickViewMode, setQuickViewMode] = useState<'classic' | 'standalone'>(() => {
+        try { return (localStorage.getItem('quick-view-mode') as 'classic' | 'standalone') || 'classic'; } catch { return 'classic'; }
+    });
     // === 拆分元素模式 ===
     const DEFAULT_SPLIT_ELEMENTS = ['背景', '主体/人物', '手持物品', '服装（须含性别）', '光影/氛围', '风格/构图'];
     const OLD_SPLIT_ELEMENTS_V1 = ['背景', '主体/人物', '服装/配饰', '光影/氛围', '风格/构图']; // 旧版默认，用于迁移检测
@@ -620,7 +625,8 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         const saved = localStorage.getItem('ai-image-recognition-no-image-mode');
         return saved === 'true';
     });
-    const [textCards, setTextCards] = useState<{ id: string, topic: string, results: string[], status: 'idle' | 'processing' | 'done' | 'error' }[]>(() => {
+    const [textCardLogItem, setTextCardLogItem] = useState<{ topic: string; aiConversationLog: Array<{ timestamp: number; prompt: string; response: string; label?: string }> } | null>(null);
+    const [textCards, setTextCards] = useState<{ id: string, topic: string, results: string[], resultsZh?: string[], status: 'idle' | 'processing' | 'done' | 'error', createdAt?: number, aiConversationLog?: Array<{ timestamp: number; prompt: string; response: string; label?: string }> }[]>(() => {
         // 从localStorage恢复无图模式卡片
         try {
             const saved = localStorage.getItem('ai-image-recognition-text-cards');
@@ -1363,24 +1369,29 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
         // 2. 处理 image 模式 + per-card 参考图选择：从卡片指定的参考图提取
         if (cardRefSelections) {
-            const perCardDims: Array<{ libName: string; refImg: RefImage; prompt: string }> = [];
+            const perCardDims: Array<{ libName: string; imgData: string; imgMime: string; prompt: string }> = [];
             for (const [libName, refId] of Object.entries(cardRefSelections)) {
                 const entry = overrides[libName];
-                if (entry?.mode === 'image' && entry.imageLibrary?.length) {
+                if (refId === '__self__') {
+                    // 使用卡片自身图片
+                    const prompt = entry?.extractPrompt || getDefaultExtractPrompt(libName);
+                    perCardDims.push({ libName, imgData: imageBase64, imgMime: imageMimeType, prompt });
+                } else if (entry?.mode === 'image' && entry.imageLibrary?.length) {
                     const refImg = entry.imageLibrary.find(img => img.id === refId);
                     if (refImg) {
                         perCardDims.push({
                             libName,
-                            refImg,
+                            imgData: refImg.data,
+                            imgMime: refImg.mimeType,
                             prompt: entry.extractPrompt || getDefaultExtractPrompt(libName)
                         });
                     }
                 }
             }
             // 逐个提取（每个维度可能对应不同参考图）
-            for (const { libName, refImg, prompt } of perCardDims) {
+            for (const { libName, imgData, imgMime, prompt } of perCardDims) {
                 try {
-                    const result = await classifyImage(refImg.data, refImg.mimeType, prompt);
+                    const result = await classifyImage(imgData, imgMime, prompt);
                     resolved[libName] = { ...resolved[libName], value: result.trim(), mode: 'text' };
                     logs.push({ timestamp: Date.now(), prompt, response: result, label: `参考图提取 (${libName})`, imageSource: `ref:${libName}` });
                 } catch (err) {
@@ -1518,12 +1529,13 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
     // 无图模式：添加文字卡片
     const addTextCard = useCallback(() => {
-        setTextCards(prev => [...prev, {
+        setTextCards(prev => [{
             id: uuidv4(),
             topic: '',
             results: [],
-            status: 'idle'
-        }]);
+            status: 'idle',
+            createdAt: Date.now()
+        }, ...prev]);
     }, []);
 
     // 图片模式：添加空卡片（可后续粘贴/拖拽/上传图片）
@@ -1728,8 +1740,46 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [noImageMode, workMode, handleNoImagePaste]);
 
 
+    // 解析双语JSON结果 {"en": "...", "zh": "..."}
+    const parseBilingualResults = (text: string): { en: string[]; zh: string[] } => {
+        const en: string[] = [];
+        const zh: string[] = [];
+        try {
+            // 尝试提取JSON部分
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const arr = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(arr)) {
+                    for (const item of arr) {
+                        if (item.en) en.push(item.en.trim());
+                        if (item.zh) zh.push(item.zh.trim());
+                    }
+                    if (en.length > 0) return { en, zh };
+                }
+            }
+            // 尝试单个JSON对象
+            const singleMatch = text.match(/\{[\s\S]*?\}/);
+            if (singleMatch) {
+                const obj = JSON.parse(singleMatch[0]);
+                if (obj.en) {
+                    en.push(obj.en.trim());
+                    if (obj.zh) zh.push(obj.zh.trim());
+                    return { en, zh };
+                }
+            }
+        } catch (e) {
+            // JSON解析失败，尝试用 --- 分隔的纯文本
+        }
+        // fallback: 用 --- 分隔
+        const parts = text.split(/---+/).map(r => r.trim()).filter(r => r.length > 0);
+        for (const part of parts) {
+            en.push(part);
+        }
+        return { en, zh };
+    };
+
     const runNoImageBatchInnovation = async () => {
-        const cardsToProcess = textCards.filter(card => card.topic.trim() && card.status !== 'processing');
+        const cardsToProcess = textCards.filter(card => card.topic.trim() && (card.status === 'idle' || card.status === 'error'));
         if (cardsToProcess.length === 0) {
             showToast('请至少输入一个主题');
             return;
@@ -1833,13 +1883,14 @@ ${topicsList}
                             .map(r => r.trim())
                             .filter(r => r.length > 0 && !r.match(/^\[?\d+\]?$/));
 
+                        const batchLog = [{ timestamp: Date.now(), prompt: batchPrompt, response: batchResult, label: `批次生成 (${batchCards.length}卡)` }];
                         if (results.length > 0) {
                             setTextCards(prev => prev.map(c =>
-                                c.id === card.id ? { ...c, status: 'done', results } : c
+                                c.id === card.id ? { ...c, status: 'done', results, aiConversationLog: [...(c.aiConversationLog || []), ...batchLog] } : c
                             ));
                         } else {
                             setTextCards(prev => prev.map(c =>
-                                c.id === card.id ? { ...c, status: 'error', results: ['批次解析失败'] } : c
+                                c.id === card.id ? { ...c, status: 'error', results: ['批次解析失败'], aiConversationLog: [...(c.aiConversationLog || []), ...batchLog] } : c
                             ));
                         }
                     }
@@ -1876,6 +1927,7 @@ ${topicsList}
                     randomLibraryConfigRef.current.libraries.filter(lib => lib.enabled && lib.values.length > 0).length > 0;
 
                 const results: string[] = [];
+                const resultsZh: string[] = [];
 
                 if (useRandomLibrary) {
                     // 随机库模式：根据设置生成多个组合
@@ -1926,29 +1978,20 @@ ${priorityInstruction}
 ${card.topic}
 
 【输出要求】
-- 使用 --- 作为分隔符，分隔不同组合的结果
-- 每个组合输出一个完整的图像生成描述词（英文）
+- 每个组合输出一个完整的图像生成描述词，同时提供英文和中文版本
+- 返回JSON数组格式，每个元素包含 en（英文）和 zh（中文）
 - 不要输出组合编号、标题或任何解释
-- 共 ${combinations.length} 个结果，以 --- 分隔
-- 格式示例：
-描述词1内容
----
-描述词2内容
----
-描述词3内容`;
+- 只输出JSON数组，不要其他内容
+- 格式：[{"en": "英文描述1", "zh": "中文翻译1"}, {"en": "英文描述2", "zh": "中文翻译2"}]`;
 
                         const batchResult = await generateText(batchPrompt);
-                        // 解析批量结果
-                        const parsedResults = batchResult
-                            .split(/---+/)
-                            .map(r => r.trim())
-                            .filter(r => r.length > 0);
+                        const parsed = parseBilingualResults(batchResult);
+                        results.push(...parsed.en);
+                        resultsZh.push(...parsed.zh);
 
-                        results.push(...parsedResults);
-
-                        // 更新结果
+                        // 更新结果（含对话记录）
                         setTextCards(prev => prev.map(c =>
-                            c.id === card.id ? { ...c, results: [...results] } : c
+                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: batchPrompt, response: batchResult, label: `随机库批量 (${combinations.length}组)` }] } : c
                         ));
                     } else if (combinations.length === 1) {
                         // 单个组合：正常处理
@@ -1965,17 +2008,18 @@ ${priorityInstruction}
 ${card.topic}
 
 【输出要求】
-- 直接输出完整的图像生成描述词（英文）
+- 生成一个完整的图像生成描述词，同时提供英文和中文版本
+- 返回JSON对象：{"en": "完整英文描述", "zh": "完整中文翻译"}
 - 以基础主题为核心，融入创意组合的风格/场景
-- 描述应该包含画面主体、风格、光影、色彩、氛围等要素
-- 不要输出任何解释、标题或编号
-- 可以直接用于AI图像生成`;
+- 只输出JSON对象，不要其他内容`;
 
                         const result = await generateText(aiPrompt);
-                        results.push(result.trim());
+                        const parsed = parseBilingualResults(result);
+                        results.push(...parsed.en);
+                        resultsZh.push(...parsed.zh);
 
                         setTextCards(prev => prev.map(c =>
-                            c.id === card.id ? { ...c, results: [...results] } : c
+                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: aiPrompt, response: result, label: '随机库单组' }] } : c
                         ));
                     }
                 } else {
@@ -1990,36 +2034,26 @@ ${card.topic}
 
 ${priorityInstruction}
 
-请根据以下用户要求，生成 ${count} 个完全不同的AI图像生成描述词（英文）：
+请根据以下用户要求，生成 ${count} 个完全不同的AI图像生成描述词：
 
 【用户特别要求】
 ${card.topic}
 
 【输出要求】
-- 使用 --- 作为分隔符，分隔不同变体
-- 每个变体输出一个完整的图像生成描述词（英文）
+- 每个变体同时提供英文和中文版本
+- 返回JSON数组格式：[{"en": "英文描述1", "zh": "中文翻译1"}, {"en": "英文描述2", "zh": "中文翻译2"}]
 - 每个变体要有不同的创意角度和风格
 - 描述应该包含画面主体、风格、光影、色彩、氛围等要素
-- 不要输出编号、标题或任何解释
-- 共 ${count} 个结果，以 --- 分隔
-- 格式示例：
-描述词1内容
----
-描述词2内容
----
-描述词3内容`;
+- 共 ${count} 个结果
+- 只输出JSON数组，不要其他内容`;
 
                         const batchResult = await generateText(batchPrompt);
-                        // 解析批量结果
-                        const parsedResults = batchResult
-                            .split(/---+/)
-                            .map(r => r.trim())
-                            .filter(r => r.length > 0);
-
-                        results.push(...parsedResults);
+                        const parsed = parseBilingualResults(batchResult);
+                        results.push(...parsed.en);
+                        resultsZh.push(...parsed.zh);
 
                         setTextCards(prev => prev.map(c =>
-                            c.id === card.id ? { ...c, results: [...results] } : c
+                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: batchPrompt, response: batchResult, label: `纯主题批量 (${count}个)` }] } : c
                         ));
                     } else {
                         // 单个：正常处理
@@ -2027,28 +2061,30 @@ ${card.topic}
 
 ${priorityInstruction}
 
-请根据以下用户要求，生成一个完整、专业、有创意的AI图像生成描述词（英文）：
+请根据以下用户要求，生成一个完整、专业、有创意的AI图像生成描述词：
 
 【用户特别要求】
 ${card.topic}
 
 【输出要求】
-- 直接输出完整的图像生成描述词（英文）
+- 同时提供英文和中文版本
+- 返回JSON对象：{"en": "完整英文描述", "zh": "完整中文翻译"}
 - 描述应该包含画面主体、风格、光影、色彩、氛围等要素
-- 不要输出任何解释、标题或编号
-- 可以直接用于AI图像生成`;
+- 只输出JSON对象，不要其他内容`;
 
                         const result = await generateText(aiPrompt);
-                        results.push(result.trim());
+                        const parsed = parseBilingualResults(result);
+                        results.push(...parsed.en);
+                        resultsZh.push(...parsed.zh);
 
                         setTextCards(prev => prev.map(c =>
-                            c.id === card.id ? { ...c, results: [...results] } : c
+                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: aiPrompt, response: result, label: '纯主题单个' }] } : c
                         ));
                     }
                 }
 
                 setTextCards(prev => prev.map(c =>
-                    c.id === card.id ? { ...c, status: 'done', results } : c
+                    c.id === card.id ? { ...c, status: 'done', results, resultsZh } : c
                 ));
             } catch (error) {
                 console.error('无图创新失败:', error);
@@ -2119,7 +2155,7 @@ ${transitionInstruction}
                     const result = await generateText(prompt);
                     results.push(result.trim());
                     setTextCards(prev => prev.map(c =>
-                        c.id === cardId ? { ...c, results: [...results] } : c
+                        c.id === cardId ? { ...c, results: [...results], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt, response: result, label: `重新创新-随机库第${results.length}组` }] } : c
                     ));
                 }
             } else {
@@ -2142,7 +2178,7 @@ ${transitionInstruction}
                     const result = await generateText(prompt);
                     results.push(result.trim());
                     setTextCards(prev => prev.map(c =>
-                        c.id === cardId ? { ...c, results: [...results] } : c
+                        c.id === cardId ? { ...c, results: [...results], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt, response: result, label: `重新创新-第${results.length}个` }] } : c
                     ));
                 }
             }
@@ -2220,7 +2256,7 @@ ${transitionInstruction}
                 if (c.id === cardId) {
                     const newResults = [...c.results];
                     newResults[resultIndex] = result.trim();
-                    return { ...c, status: 'done', results: newResults };
+                    return { ...c, status: 'done', results: newResults, aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: retryPrompt, response: result, label: `重试第${resultIndex + 1}条` }] };
                 }
                 return c;
             }));
@@ -2288,7 +2324,7 @@ ${transitionInstruction}
 
                 setTextCards(prev => prev.map(c => {
                     if (c.id === cardId) {
-                        return { ...c, results: [...c.results, ...newResults] };
+                        return { ...c, results: [...c.results, ...newResults], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: appendPrompt, response: result, label: `追加生成` }] };
                     }
                     return c;
                 }));
@@ -3190,7 +3226,10 @@ ${transitionInstruction}
                             ...img,
                             status: 'success',
                             result,
-                            chatHistory: [...img.chatHistory, userMsg, aiMsg]
+                            chatHistory: [...img.chatHistory, userMsg, aiMsg],
+                            translatedResult: undefined,
+                            lastSelectedText: undefined,
+                            lastTranslatedSelection: undefined
                         };
                     }
                     return img;
@@ -3207,7 +3246,7 @@ ${transitionInstruction}
     const handleResetAndRun = () => {
         const nextImages = images.map(img =>
             (img.status === 'success' || img.status === 'error') && img.base64Data
-                ? { ...img, status: 'idle' as const, result: undefined, errorMsg: undefined }
+                ? { ...img, status: 'idle' as const, result: undefined, errorMsg: undefined, translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined }
                 : img
         );
         setImages(nextImages);
@@ -3220,7 +3259,7 @@ ${transitionInstruction}
     const handleRetryFailedAndRun = () => {
         const nextImages = images.map(img =>
             img.status === 'error' && img.base64Data
-                ? { ...img, status: 'idle' as const, result: undefined, errorMsg: undefined }
+                ? { ...img, status: 'idle' as const, result: undefined, errorMsg: undefined, translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined }
                 : img
         );
         setImages(nextImages);
@@ -3308,7 +3347,7 @@ ${transitionInstruction}
                                 text: result,
                                 timestamp: Date.now()
                             };
-                            return { ...img, status: 'success' as const, result, chatHistory: [initialMessage] };
+                            return { ...img, status: 'success' as const, result, chatHistory: [initialMessage], translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined };
                         } else {
                             // 该图片未在批次结果中找到，标记为 idle 等待单独重试
                             return { ...img, status: 'idle' as const };
@@ -3325,7 +3364,7 @@ ${transitionInstruction}
                                 setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
                                 const singleResult = await classifyImage(item.base64Data!, item.mimeType!, effectivePrompt);
                                 const msg = { id: uuidv4(), role: 'model' as const, text: singleResult, timestamp: Date.now() };
-                                setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result: singleResult, chatHistory: [msg] } : img));
+                                setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result: singleResult, chatHistory: [msg], translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined } : img));
                             } catch (err: any) {
                                 setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
                             }
@@ -3343,7 +3382,7 @@ ${transitionInstruction}
                             setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'loading' } : img));
                             const singleResult = await classifyImage(item.base64Data!, item.mimeType!, effectivePrompt);
                             const msg = { id: uuidv4(), role: 'model' as const, text: singleResult, timestamp: Date.now() };
-                            setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result: singleResult, chatHistory: [msg] } : img));
+                            setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result: singleResult, chatHistory: [msg], translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined } : img));
                         } catch (err: any) {
                             setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
                         }
@@ -3372,7 +3411,7 @@ ${transitionInstruction}
 
                         const result = await classifyImage(item.base64Data, item.mimeType, ep);
                         const msg = { id: uuidv4(), role: 'model' as const, text: result, timestamp: Date.now() };
-                        setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result, chatHistory: [msg] } : img));
+                        setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'success', result, chatHistory: [msg], translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined } : img));
                     } catch (err: any) {
                         setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
                     }
@@ -3440,6 +3479,9 @@ ${transitionInstruction}
                         status: 'success',
                         result: result,
                         chatHistory: [initialMessage],
+                        translatedResult: undefined,
+                        lastSelectedText: undefined,
+                        lastTranslatedSelection: undefined,
                         aiConversationLog: [
                             ...(img.aiConversationLog || []),
                             { timestamp: Date.now(), prompt: effectivePrompt, response: result, label: '识别', imageSource: 'main' }
@@ -3609,7 +3651,10 @@ ${transitionInstruction}
                 setImages(prev => prev.map(img => img.id === item.id ? {
                     ...img,
                     status: 'success',
-                    result: result
+                    result: result,
+                    translatedResult: undefined,
+                    lastSelectedText: undefined,
+                    lastTranslatedSelection: undefined
                 } : img));
             } catch (error: any) {
                 setImages(prev => prev.map(img => img.id === item.id ? {
@@ -3729,7 +3774,7 @@ ${transitionInstruction}
     const resetAllToIdle = () => {
         setImages(prev => prev.map(img =>
             (img.status === 'success' || img.status === 'error') && img.base64Data
-                ? { ...img, status: 'idle' as const, result: undefined, errorMsg: undefined }
+                ? { ...img, status: 'idle' as const, result: undefined, errorMsg: undefined, translatedResult: undefined, lastSelectedText: undefined, lastTranslatedSelection: undefined }
                 : img
         ));
     };
@@ -3987,6 +4032,20 @@ ${transitionInstruction}
         }));
     }, [setImages]);
 
+    // 卡片维度绑定切换 — 纯粹修改卡片自身的 overrideRefSelections，不影响全局
+    const toggleCardDimBinding = useCallback((cardId: string, dimName: string) => {
+        setImages(prev => prev.map(img => {
+            if (img.id !== cardId) return img;
+            const sel = { ...(img.overrideRefSelections || {}) };
+            if (sel[dimName] === '__self__') {
+                delete sel[dimName];
+            } else {
+                sel[dimName] = '__self__';
+            }
+            return { ...img, overrideRefSelections: sel };
+        }));
+    }, [setImages]);
+
     // 更新卡片的覆盖个数（维度名 → 覆盖个数，null 表示恢复使用全局）
     const updateCardOverrideCount = useCallback((cardId: string, dimName: string, count: number | null) => {
         setImages(prev => prev.map(img => {
@@ -4019,22 +4078,35 @@ ${transitionInstruction}
         }));
     }, [setImages]);
 
-    // 更新卡片内某张图的参考图配置
+    // 更新卡片内某张图的参考图配置（支持多维度：同一 imageIndex 可有多个 dimName）
     const updateRefImageConfig = useCallback((cardId: string, imageIndex: number, update: Partial<import('./types').RefImageConfig> | null) => {
         setImages(prev => prev.map(img => {
             if (img.id !== cardId) return img;
             let configs = [...(img.refImageConfigs || [])];
-            const idx = configs.findIndex(c => c.imageIndex === imageIndex);
 
             if (update === null) {
-                // 删除
-                if (idx >= 0) configs.splice(idx, 1);
-            } else if (idx >= 0) {
-                // 更新
-                configs[idx] = { ...configs[idx], ...update };
+                // 删除该 imageIndex 的所有配置
+                configs = configs.filter(c => c.imageIndex !== imageIndex);
+            } else if (update.dimName && update.dimName.startsWith('__remove__')) {
+                // 删除指定维度
+                const realDim = update.dimName.replace('__remove__', '');
+                configs = configs.filter(c => !(c.imageIndex === imageIndex && c.dimName === realDim));
+            } else if (update.dimName) {
+                // 按 imageIndex + dimName 查找
+                const idx = configs.findIndex(c => c.imageIndex === imageIndex && c.dimName === update.dimName);
+                if (idx >= 0) {
+                    // 更新已有条目
+                    configs[idx] = { ...configs[idx], ...update };
+                } else {
+                    // 新增条目
+                    configs.push({ imageIndex, dimName: update.dimName, ...update });
+                }
             } else {
-                // 新建
-                configs.push({ imageIndex, dimName: update.dimName || '', ...update });
+                // 没有 dimName 的更新（如只改 extractPrompt）— 更新该 imageIndex 的第一条
+                const idx = configs.findIndex(c => c.imageIndex === imageIndex);
+                if (idx >= 0) {
+                    configs[idx] = { ...configs[idx], ...update };
+                }
             }
 
             return { ...img, refImageConfigs: configs.length > 0 ? configs : undefined };
@@ -4234,6 +4306,9 @@ ${transitionInstruction}
                 const combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, totalCombinations, aiDescribeImageUrl);
 
                 for (const randomCombination of combinations) {
+                    if (stoppedRef.current) break;
+                    while (pausedRef.current && !stoppedRef.current) { await new Promise(r => setTimeout(r, 200)); }
+                    if (stoppedRef.current) break;
                     // 组合最终指令
                     let finalInstruction = instruction;
                     if (randomLibraryConfigRef.current.insertPosition === 'before') {
@@ -5057,6 +5132,9 @@ ${text}`;
                     const results: string[] = [];
 
                     for (const randomCombination of combinations) {
+                        if (stoppedRef.current) break;
+                        while (pausedRef.current && !stoppedRef.current) { await new Promise(r => setTimeout(r, 200)); }
+                        if (stoppedRef.current) break;
                         const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
                         const priorityInstruction = getPriorityInstruction(!!userInput, true);
 
@@ -5352,6 +5430,9 @@ ${effectiveInstruction}
 
                         const results: string[] = [];
                         for (const randomCombination of combinations) {
+                            if (stoppedRef.current) break;
+                            while (pausedRef.current && !stoppedRef.current) { await new Promise(r => setTimeout(r, 200)); }
+                            if (stoppedRef.current) break;
                             const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
                             const priorityInstruction = getPriorityInstruction(!!itemUserInput, true);
                             const noImgPrompt = `${itemEffectiveInstruction}\n\n${transitionInstruction}\n${randomCombination}\n\n${priorityInstruction}\n\n请生成1个创意描述。返回格式为JSON对象:\n{"en": "完整的英文创意描述", "zh": "完整的中文翻译"}\n\n只输出JSON对象，不要其他内容。`;
@@ -5478,7 +5559,7 @@ ${effectiveInstruction}
 
                                 const dimsToExtract = cfgs.map(cfg => ({
                                     libName: cfg.dimName,
-                                    extractPrompt: cfg.extractPrompt || quickOverridesRef.current[cfg.dimName]?.extractPrompt || getDefaultExtractPrompt(cfg.dimName)
+                                    extractPrompt: cfg.extractPrompt || getDefaultExtractPrompt(cfg.dimName)
                                 }));
 
                                 try {
@@ -5566,6 +5647,9 @@ ${priorityInstruction}
                             const results: string[] = [];
 
                             for (const randomCombination of combinations) {
+                                if (stoppedRef.current) break;
+                                while (pausedRef.current && !stoppedRef.current) { await new Promise(r => setTimeout(r, 200)); }
+                                if (stoppedRef.current) break;
                                 const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
                                 const priorityInstruction = getPriorityInstruction(!!itemUserInput, true);
 
@@ -5718,7 +5802,7 @@ ${itemEffectiveInstruction}
 
                                 const dimsToExtract = cfgs.map(cfg => ({
                                     libName: cfg.dimName,
-                                    extractPrompt: cfg.extractPrompt || quickOverridesRef.current[cfg.dimName]?.extractPrompt || getDefaultExtractPrompt(cfg.dimName)
+                                    extractPrompt: cfg.extractPrompt || getDefaultExtractPrompt(cfg.dimName)
                                 }));
 
                                 try {
@@ -5817,6 +5901,9 @@ ${priorityInstruction}
                             const results: string[] = [];
 
                             for (const randomCombination of combinations) {
+                                if (stoppedRef.current) break;
+                                while (pausedRef.current && !stoppedRef.current) { await new Promise(r => setTimeout(r, 200)); }
+                                if (stoppedRef.current) break;
                                 const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
                                 const priorityInstruction = getPriorityInstruction(!!itemUserInput, true);
 
@@ -5995,6 +6082,21 @@ ${itemEffectiveInstruction}
 
     // 复制所有英文创新结果
     const copyCreativeEN = useCallback(() => {
+        // 无图模式：从 textCards 复制
+        if (noImageMode && textCards.length > 0) {
+            const textLines: string[] = [];
+            textCards.forEach(card => {
+                card.results.forEach(result => {
+                    textLines.push(result.replace(/[\r\n]+/g, ' ').trim());
+                });
+            });
+            if (textLines.length > 0) {
+                navigator.clipboard.writeText(textLines.join('\n'));
+                setCopySuccess('creative-en');
+                setTimeout(() => setCopySuccess(null), 2000);
+            }
+            return;
+        }
         const successResults = creativeResults.filter(r => r.status === 'success');
         if (successResults.length === 0) return;
 
@@ -6009,10 +6111,32 @@ ${itemEffectiveInstruction}
         navigator.clipboard.writeText(textLines.join('\n'));
         setCopySuccess('creative-en');
         setTimeout(() => setCopySuccess(null), 2000);
-    }, [creativeResults]);
+    }, [creativeResults, noImageMode, textCards]);
 
     // 复制所有中文创新结果
     const copyCreativeZH = useCallback(() => {
+        // 无图模式：从 textCards 复制中文
+        if (noImageMode && textCards.length > 0) {
+            const textLines: string[] = [];
+            textCards.forEach(card => {
+                if (card.resultsZh && card.resultsZh.length > 0) {
+                    card.resultsZh.forEach(result => {
+                        textLines.push(result.replace(/[\r\n]+/g, ' ').trim());
+                    });
+                } else {
+                    // 没有中文翻译，用英文代替
+                    card.results.forEach(result => {
+                        textLines.push(result.replace(/[\r\n]+/g, ' ').trim());
+                    });
+                }
+            });
+            if (textLines.length > 0) {
+                navigator.clipboard.writeText(textLines.join('\n'));
+                setCopySuccess('creative-zh');
+                setTimeout(() => setCopySuccess(null), 2000);
+            }
+            return;
+        }
         const successResults = creativeResults.filter(r => r.status === 'success');
         if (successResults.length === 0) return;
 
@@ -6027,7 +6151,7 @@ ${itemEffectiveInstruction}
         navigator.clipboard.writeText(textLines.join('\n'));
         setCopySuccess('creative-zh');
         setTimeout(() => setCopySuccess(null), 2000);
-    }, [creativeResults]);
+    }, [creativeResults, noImageMode, textCards]);
 
 
     // 卡片内添加融合图片
@@ -6123,8 +6247,8 @@ ${itemEffectiveInstruction}
                     className="absolute -left-[9999px] top-0 w-px h-px opacity-0"
                     aria-hidden="true"
                 />
-                {/* 顶部固定工具栏 */}
-                <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
+                {/* 顶部固定工具栏 - 独立视图下完全隐藏 */}
+                <div className={`sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800 ${workMode === 'quick' && quickViewMode === 'standalone' ? 'hidden' : ''}`}>
                     {/* ===== 工具栏 ===== */}
                     {isToolbarCompact ? (
                         <CompactToolbar
@@ -6175,8 +6299,8 @@ ${itemEffectiveInstruction}
                         />
                     ) : (
                         <div className="max-w-none mx-auto px-4 py-2 space-y-3">
-                            {/* 第一行：标题 + 进度统计 */}
-                            <div className="flex items-center w-full gap-3">
+                            {/* 第一行：标题 + 进度统计 - 独立视图下隐藏 */}
+                            <div className={`flex items-center w-full gap-3 ${workMode === 'quick' && quickViewMode === 'standalone' ? 'hidden' : ''}`}>
                                 <div className="flex items-center shrink-0 gap-2">
                                     <div className="bg-emerald-500/20 rounded-lg p-1.5">
                                         <Zap className="text-emerald-400 w-4 h-4" fill="currentColor" />
@@ -6265,6 +6389,24 @@ ${itemEffectiveInstruction}
                                             <Zap size={12} fill={workMode === 'quick' ? 'currentColor' : 'none'} />
                                             快捷
                                         </button>
+                                        {workMode === 'quick' && (
+                                            <div className="flex items-center ml-1 bg-zinc-800/60 rounded-md p-0.5 border border-zinc-700/40">
+                                                <button
+                                                    onClick={() => { setQuickViewMode('classic'); localStorage.setItem('quick-view-mode', 'classic'); }}
+                                                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${quickViewMode === 'classic' ? 'bg-orange-600/30 text-orange-400' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                >
+                                                    经典
+                                                </button>
+                                                <button
+                                                    onClick={() => { setQuickViewMode('standalone'); localStorage.setItem('quick-view-mode', 'standalone'); }}
+                                                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${quickViewMode === 'standalone' ? 'bg-purple-600/30 text-purple-400' : 'text-zinc-500 hover:text-zinc-300'
+                                                        }`}
+                                                >
+                                                    独立
+                                                </button>
+                                            </div>
+                                        )}
                                         <button
                                             onClick={() => setWorkMode('split')}
                                             className={`h-full flex items-center gap-1 px-2.5 rounded-md transition-all text-xs font-medium ${workMode === 'split'
@@ -6331,8 +6473,8 @@ ${itemEffectiveInstruction}
                                 </div>
                             </div>
 
-                            {/* 第二行：指令和操作区 */}
-                            <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 items-start">
+                            {/* 第二行：指令和操作区 - 独立视图下隐藏 */}
+                            <div className={`grid grid-cols-1 lg:grid-cols-5 gap-3 items-start ${workMode === 'quick' && quickViewMode === 'standalone' ? 'hidden' : ''}`}>
                                 {/* 指令输入区 - 快捷模式和拆分模式下隐藏（使用自动生成的指令） */}
                                 {workMode !== 'quick' && workMode !== 'split' && (
                                     <div className="lg:col-span-3 min-w-0">
@@ -7301,6 +7443,54 @@ ${itemEffectiveInstruction}
                                                                                             />
                                                                                         </div>
                                                                                     )}
+                                                                                    {/* 批量应用到其他维度 */}
+                                                                                    {((override?.imageLibrary?.length || 0) > 0 || override?.imageData) && enabledLibs.length > 1 && (
+                                                                                        <div className="mt-1.5 pt-1.5 border-t border-zinc-800/50">
+                                                                                            <div className="text-zinc-500 text-[9px] mb-1">📋 同时应用到其他维度：</div>
+                                                                                            <div className="flex flex-wrap gap-1">
+                                                                                                {enabledLibs.filter(otherLib => otherLib.name !== lib.name).map(otherLib => {
+                                                                                                    const otherOverride = quickOverrides[otherLib.name];
+                                                                                                    const isAlreadyLinked = otherOverride?.mode === 'image' && otherOverride?.imageData === override?.imageData;
+                                                                                                    return (
+                                                                                                        <button
+                                                                                                            key={otherLib.id}
+                                                                                                            onClick={() => {
+                                                                                                                if (isAlreadyLinked) {
+                                                                                                                    // 取消
+                                                                                                                    setQuickOverrides(prev => {
+                                                                                                                        const next = { ...prev };
+                                                                                                                        delete next[otherLib.name];
+                                                                                                                        return next;
+                                                                                                                    });
+                                                                                                                } else {
+                                                                                                                    // 应用同样的参考图
+                                                                                                                    setQuickOverrides(prev => ({
+                                                                                                                        ...prev,
+                                                                                                                        [otherLib.name]: {
+                                                                                                                            ...prev[otherLib.name],
+                                                                                                                            mode: 'image',
+                                                                                                                            imageData: override?.imageData,
+                                                                                                                            imageMimeType: override?.imageMimeType,
+                                                                                                                            imageLibrary: override?.imageLibrary ? [...override.imageLibrary] : [],
+                                                                                                                            extractPrompt: prev[otherLib.name]?.extractPrompt || getDefaultExtractPrompt(otherLib.name),
+                                                                                                                            value: prev[otherLib.name]?.value || '',
+                                                                                                                            count: prev[otherLib.name]?.count || 0,
+                                                                                                                        }
+                                                                                                                    }));
+                                                                                                                }
+                                                                                                            }}
+                                                                                                            className={`text-[9px] px-1.5 py-0.5 rounded border transition-all ${isAlreadyLinked
+                                                                                                                ? 'bg-amber-900/40 text-amber-300 border-amber-600/50'
+                                                                                                                : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/40 hover:text-zinc-300 hover:border-zinc-600'
+                                                                                                                }`}
+                                                                                                        >
+                                                                                                            {isAlreadyLinked ? '✓ ' : ''}{otherLib.name}
+                                                                                                        </button>
+                                                                                                    );
+                                                                                                })}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
                                                                             )}
 
@@ -7423,6 +7613,8 @@ ${itemEffectiveInstruction}
                                                                     </div>
                                                                 );
                                                             })()}
+
+
                                                         </div>
                                                     );
                                                 })()}
@@ -7696,550 +7888,752 @@ ${itemEffectiveInstruction}
                     )}
                 </div>
 
-                {/* 多标签页栏 */}
-                <TabBar
-                    tabs={tabs}
-                    activeTabId={activeTabId}
-                    onTabChange={handleTabChange}
-                    onTabAdd={handleTabAdd}
-                    onTabRemove={handleTabRemove}
-                    onTabRename={handleTabRename}
-                />
+                {/* 多标签页栏 - 独立视图下隐藏 */}
+                {!(workMode === 'quick' && quickViewMode === 'standalone') && (
+                    <TabBar
+                        tabs={tabs}
+                        activeTabId={activeTabId}
+                        onTabChange={handleTabChange}
+                        onTabAdd={handleTabAdd}
+                        onTabRemove={handleTabRemove}
+                        onTabRename={handleTabRename}
+                    />
+                )}
 
                 {/* 主内容区 */}
-                <div className={`flex-1 ${noImageMode ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto'}`}>
-                    <div className="max-w-none mx-auto px-4 py-4">
-                        {/* 结果列表 */}
-                        <div className="flex-1">
-                            {/* 无图模式：显示文字卡片（创新和快捷模式都支持） */}
-                            {noImageMode && (workMode === 'creative' || workMode === 'quick') ? (
-                                <div className="space-y-4">
-                                    {/* 无图模式工具栏 */}
-                                    <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-pink-700/30">
-                                        <div className="flex items-center gap-3">
-                                            <FileText size={18} className="text-pink-400" />
-                                            <span className="text-sm font-medium text-white">无图创新模式</span>
-                                            <span className="text-xs text-zinc-500">
-                                                {randomLibraryConfig.enabled ? '（随机库已启用）' : '（纯主题模式）'}
-                                            </span>
-                                            {textCards.length > 0 && (
-                                                <span className="text-xs px-2 py-0.5 bg-pink-600/30 text-pink-300 rounded">
-                                                    {textCards.length} 个卡片
+                {workMode === 'quick' && quickViewMode === 'standalone' ? (
+                    <div className="flex-1 overflow-hidden">
+                        <QuickModeStandalone
+                            images={images}
+                            onAddImages={(files: FileList) => {
+                                const arr = Array.from(files).filter(f => f.type.startsWith('image/'));
+                                if (arr.length > 0) handleFiles(arr);
+                            }}
+                            onRemoveImage={removeImage}
+                            onClearImages={() => setImages([])}
+                            prompt={prompt}
+                            onPromptChange={(val) => setPrompt(val)}
+                            randomLibraryConfig={randomLibraryConfig}
+                            onRandomLibraryConfigChange={handleRandomLibraryConfigChange}
+                            onOpenLibraryManager={() => setShowGlobalInnovationSettings(true)}
+                            onSyncLibraries={() => {
+                                // 触发自动同步
+                                const url = randomLibraryConfig.sourceSpreadsheetUrl;
+                                if (url) {
+                                    handleRandomLibraryConfigChange({ ...randomLibraryConfig, sourceSpreadsheetUrl: '' });
+                                    setTimeout(() => handleRandomLibraryConfigChange({ ...randomLibraryConfig, sourceSpreadsheetUrl: url }), 100);
+                                }
+                            }}
+                            isSyncing={false}
+                            quickOverrides={quickOverrides}
+                            onOverrideClick={(libName) => {
+                                if (editingOverrideLib === libName) {
+                                    closeOverrideEditor();
+                                } else {
+                                    openOverrideEditor(libName, quickOverrides[libName]);
+                                }
+                            }}
+                            onOverrideChange={(libName, updates) => {
+                                setQuickOverrides(prev => ({
+                                    ...prev,
+                                    [libName]: { ...prev[libName], ...updates, count: updates.count !== undefined ? updates.count : (prev[libName]?.count || 0) }
+                                }));
+                            }}
+                            editingOverrideLib={editingOverrideLib}
+                            creativeCount={creativeCount}
+                            onCreativeCountChange={(count) => setState(prev => ({ ...prev, creativeCount: count }))}
+                            isProcessing={isProcessing}
+                            onStartInnovation={() => {
+                                if (noImageMode || images.length === 0) {
+                                    // 无图模式：自动创建文字卡片并调用无图批量创新
+                                    if (!noImageMode) setNoImageMode(true);
+                                    const topic = prompt.trim() || '创新';
+                                    const existingCards = textCards.filter(c => c.topic.trim());
+
+                                    if (existingCards.length === 0) {
+                                        // 没有卡片：创建第一个（放最前面）
+                                        setTextCards(prev => [{
+                                            id: uuidv4(),
+                                            topic,
+                                            results: [],
+                                            status: 'idle' as const,
+                                            createdAt: Date.now()
+                                        }, ...prev]);
+                                        setTimeout(() => runNoImageBatchInnovation(), 50);
+                                    } else {
+                                        // 已有卡片：追加模式
+                                        const doneCards = existingCards.filter(c => c.status === 'done');
+                                        if (doneCards.length > 0) {
+                                            const appendTopic = prompt.trim() || doneCards[0].topic;
+                                            setTextCards(prev => [{
+                                                id: uuidv4(),
+                                                topic: appendTopic,
+                                                results: [],
+                                                status: 'idle' as const,
+                                                createdAt: Date.now()
+                                            }, ...prev]);
+                                            setTimeout(() => runNoImageBatchInnovation(), 50);
+                                        } else {
+                                            // 有卡片但没完成的（idle/error），直接重新生成
+                                            runNoImageBatchInnovation();
+                                        }
+                                    }
+                                } else {
+                                    runCreativeAnalysis();
+                                }
+                            }}
+                            onRetryFailed={() => {
+                                // 只重试失败的卡片
+                                setTextCards(prev => prev.map(c =>
+                                    c.status === 'error' ? { ...c, status: 'idle' as const, results: [], resultsZh: [] } : c
+                                ));
+                                setTimeout(() => runNoImageBatchInnovation(), 50);
+                            }}
+                            onRerunCards={() => {
+                                // 重跑所有已完成的卡片
+                                setTextCards(prev => prev.map(c =>
+                                    c.status === 'done' ? { ...c, status: 'idle' as const, results: [], resultsZh: [] } : c
+                                ));
+                                setTimeout(() => runNoImageBatchInnovation(), 50);
+                            }}
+                            creativeResults={creativeResults}
+                            onClearResults={clearCreativeResults}
+                            isPaused={isPaused}
+                            onPauseResume={handlePauseResume}
+                            onStop={handleStop}
+                            noImageMode={noImageMode}
+                            onToggleNoImageMode={() => setNoImageMode(!noImageMode)}
+                            textCards={textCards}
+                            isGeneratingNoImage={isGeneratingNoImage}
+                            onCopyEN={copyCreativeEN}
+                            onCopyZH={copyCreativeZH}
+                            onCopyAll={copyCreativeResults}
+                            copySuccess={copySuccess}
+                            onSwitchToClassic={() => { setQuickViewMode('classic'); localStorage.setItem('quick-view-mode', 'classic'); }}
+                        />
+                    </div>
+                ) : (
+                    <div className={`flex-1 ${noImageMode ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto'}`}>
+                        <div className="max-w-none mx-auto px-4 py-4">
+                            {/* 结果列表 */}
+                            <div className="flex-1">
+                                {/* 无图模式：显示文字卡片（创新和快捷模式都支持） */}
+                                {noImageMode && (workMode === 'creative' || workMode === 'quick') ? (
+                                    <div className="space-y-4">
+                                        {/* 无图模式工具栏 */}
+                                        <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-pink-700/30">
+                                            <div className="flex items-center gap-3">
+                                                <FileText size={18} className="text-pink-400" />
+                                                <span className="text-sm font-medium text-white">无图创新模式</span>
+                                                <span className="text-xs text-zinc-500">
+                                                    {randomLibraryConfig.enabled ? '（随机库已启用）' : '（纯主题模式）'}
                                                 </span>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={addTextCard}
-                                                className="flex items-center gap-1 px-2 py-1.5 text-xs bg-pink-600 hover:bg-pink-500 text-white rounded transition-colors"
-                                            >
-                                                <ImagePlus size={14} />
-                                                单个
-                                            </button>
-                                            <button
-                                                onClick={() => setShowBulkImportModal(true)}
-                                                className="flex items-center gap-1 px-2 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
-                                            >
-                                                <ListPlus size={14} />
-                                                批量
-                                            </button>
-                                            {textCards.length > 0 && (
-                                                <button
-                                                    onClick={clearAllTextCards}
-                                                    className="flex items-center gap-1 px-2 py-1.5 text-xs bg-red-600/30 hover:bg-red-600/50 text-red-300 rounded transition-colors"
-                                                >
-                                                    <Trash2 size={14} />
-                                                    清空
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={runNoImageBatchInnovation}
-                                                disabled={isGeneratingNoImage || textCards.filter(c => c.topic.trim()).length === 0}
-                                                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 text-white rounded transition-colors disabled:opacity-50"
-                                            >
-                                                {isGeneratingNoImage ? (
-                                                    <><Loader2 size={14} className="animate-spin" />生成中...</>
-                                                ) : (
-                                                    <><Sparkles size={14} />开始创新</>
+                                                {textCards.length > 0 && (
+                                                    <span className="text-xs px-2 py-0.5 bg-pink-600/30 text-pink-300 rounded">
+                                                        {textCards.length} 个卡片
+                                                    </span>
                                                 )}
-                                            </button>
-                                            {/* 批次设置 */}
-                                            <div className="flex items-center gap-1 px-2 py-1 bg-zinc-800/60 rounded border border-zinc-700/50 relative z-50" title="批次处理：多个卡片合并成一次AI请求，节省token">
-                                                <span className="text-[10px] text-zinc-400">批次</span>
-                                                <select
-                                                    value={cardBatchSize}
-                                                    onChange={(e) => setCardBatchSize(parseInt(e.target.value, 10))}
-                                                    className="bg-zinc-800 text-xs text-zinc-200 border-none outline-none cursor-pointer rounded px-1 py-0.5 relative z-50"
-                                                    style={{ WebkitAppearance: 'menulist', pointerEvents: 'auto' }}
-                                                >
-                                                    <option value="1" className="bg-zinc-800 text-zinc-200">×1（单条）</option>
-                                                    <option value="3" className="bg-zinc-800 text-zinc-200">×3</option>
-                                                    <option value="5" className="bg-zinc-800 text-zinc-200">×5</option>
-                                                    <option value="10" className="bg-zinc-800 text-zinc-200">×10</option>
-                                                    <option value="20" className="bg-zinc-800 text-zinc-200">×20</option>
-                                                </select>
                                             </div>
-                                            {/* 重新创新全部按钮 */}
-                                            <button
-                                                onClick={regenerateAllTextCards}
-                                                disabled={isGeneratingNoImage || textCards.filter(c => c.topic.trim() && c.results.length > 0).length === 0}
-                                                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 text-white rounded transition-colors disabled:opacity-50"
-                                                title="清空并重新生成所有卡片的结果"
-                                            >
-                                                <RefreshCcw size={14} />
-                                                全部重新创新
-                                            </button>
-                                            {/* 重试失败按钮 */}
-                                            {textCards.filter(c => c.status === 'error').length > 0 && (
+                                            <div className="flex items-center gap-2">
                                                 <button
-                                                    onClick={retryAllFailedCards}
-                                                    disabled={isGeneratingNoImage}
-                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 disabled:bg-zinc-700 text-white rounded transition-colors disabled:opacity-50"
-                                                    title="重试所有失败的卡片"
+                                                    onClick={addTextCard}
+                                                    className="flex items-center gap-1 px-2 py-1.5 text-xs bg-pink-600 hover:bg-pink-500 text-white rounded transition-colors"
                                                 >
-                                                    <RotateCcw size={14} />
-                                                    重试失败 ({textCards.filter(c => c.status === 'error').length})
+                                                    <ImagePlus size={14} />
+                                                    单个
                                                 </button>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* 文字卡片列表（类似创新模式） */}
-                                    {textCards.length === 0 ? (
-                                        <div
-                                            className="h-60 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-pink-700/50 rounded-2xl bg-zinc-900/30 cursor-pointer hover:border-pink-600/70 transition-colors"
-                                            onClick={addTextCard}
-                                            onPaste={handleNoImagePaste}
-                                            tabIndex={0}
-                                        >
-                                            <FileText size={48} className="text-pink-600/50 mb-4" />
-                                            <p className="text-lg font-medium text-zinc-400">点击添加 或 直接粘贴</p>
-                                            <p className="text-sm text-zinc-600 mt-2">支持从Google表格复制粘贴（Ctrl/Cmd+V）</p>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            {/* 复制按钮栏 */}
-                                            {textCards.some(c => c.results.length > 0) && (
-                                                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                                                    <span className="text-xs text-zinc-500">批量复制:</span>
+                                                <button
+                                                    onClick={() => setShowBulkImportModal(true)}
+                                                    className="flex items-center gap-1 px-2 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                                                >
+                                                    <ListPlus size={14} />
+                                                    批量
+                                                </button>
+                                                {textCards.length > 0 && (
                                                     <button
-                                                        onClick={() => {
-                                                            // 把结果内的换行替换成空格，确保每个结果是单行
-                                                            const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
-                                                            // 所有结果平铺，每个结果一行
-                                                            const allResults = textCards.flatMap(c => c.results).map(r => cleanText(r));
-                                                            navigator.clipboard.writeText(allResults.join('\n'));
-                                                            showToast(`已复制 ${allResults.length} 条结果！`);
-                                                        }}
-                                                        className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-purple-600 hover:bg-purple-500 text-white"
-                                                        title="每个结果一行（适合粘贴表格）"
+                                                        onClick={clearAllTextCards}
+                                                        className="flex items-center gap-1 px-2 py-1.5 text-xs bg-red-600/30 hover:bg-red-600/50 text-red-300 rounded transition-colors"
                                                     >
-                                                        <Copy size={12} />
-                                                        只复制结果
+                                                        <Trash2 size={14} />
+                                                        清空
                                                     </button>
-                                                    <button
-                                                        onClick={() => {
-                                                            // 把结果内的换行替换成空格
-                                                            const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
-                                                            // 第一列是主题，后面是结果
-                                                            const rows = textCards.filter(c => c.results.length > 0).map(c =>
-                                                                `${cleanText(c.topic)}\t${c.results.map(r => cleanText(r)).join('\t')}`
-                                                            );
-                                                            navigator.clipboard.writeText(rows.join('\n'));
-                                                            showToast(`已复制 ${textCards.flatMap(c => c.results).length} 条（主题+结果）！`);
-                                                        }}
-                                                        className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
-                                                        title="第一列主题，后面结果分列（适合粘贴表格）"
+                                                )}
+                                                <button
+                                                    onClick={runNoImageBatchInnovation}
+                                                    disabled={isGeneratingNoImage || textCards.filter(c => c.topic.trim()).length === 0}
+                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 text-white rounded transition-colors disabled:opacity-50"
+                                                >
+                                                    {isGeneratingNoImage ? (
+                                                        <><Loader2 size={14} className="animate-spin" />生成中...</>
+                                                    ) : (
+                                                        <><Sparkles size={14} />开始创新</>
+                                                    )}
+                                                </button>
+                                                {/* 批次设置 */}
+                                                <div className="flex items-center gap-1 px-2 py-1 bg-zinc-800/60 rounded border border-zinc-700/50 relative z-50" title="批次处理：多个卡片合并成一次AI请求，节省token">
+                                                    <span className="text-[10px] text-zinc-400">批次</span>
+                                                    <select
+                                                        value={cardBatchSize}
+                                                        onChange={(e) => setCardBatchSize(parseInt(e.target.value, 10))}
+                                                        className="bg-zinc-800 text-xs text-zinc-200 border-none outline-none cursor-pointer rounded px-1 py-0.5 relative z-50"
+                                                        style={{ WebkitAppearance: 'menulist', pointerEvents: 'auto' }}
                                                     >
-                                                        <Copy size={12} />
-                                                        主题+结果
-                                                    </button>
+                                                        <option value="1" className="bg-zinc-800 text-zinc-200">×1（单条）</option>
+                                                        <option value="3" className="bg-zinc-800 text-zinc-200">×3</option>
+                                                        <option value="5" className="bg-zinc-800 text-zinc-200">×5</option>
+                                                        <option value="10" className="bg-zinc-800 text-zinc-200">×10</option>
+                                                        <option value="20" className="bg-zinc-800 text-zinc-200">×20</option>
+                                                    </select>
                                                 </div>
-                                            )}
-
-                                            {/* 结果列表 */}
-                                            <div className="space-y-2">
-                                                {textCards.map((card, index) => (
-                                                    <div
-                                                        key={card.id}
-                                                        className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden"
+                                                {/* 重新创新全部按钮 */}
+                                                <button
+                                                    onClick={regenerateAllTextCards}
+                                                    disabled={isGeneratingNoImage || textCards.filter(c => c.topic.trim() && c.results.length > 0).length === 0}
+                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 text-white rounded transition-colors disabled:opacity-50"
+                                                    title="清空并重新生成所有卡片的结果"
+                                                >
+                                                    <RefreshCcw size={14} />
+                                                    全部重新创新
+                                                </button>
+                                                {/* 重试失败按钮 */}
+                                                {textCards.filter(c => c.status === 'error').length > 0 && (
+                                                    <button
+                                                        onClick={retryAllFailedCards}
+                                                        disabled={isGeneratingNoImage}
+                                                        className="flex items-center gap-1 px-3 py-1.5 text-xs bg-red-600 hover:bg-red-500 disabled:bg-zinc-700 text-white rounded transition-colors disabled:opacity-50"
+                                                        title="重试所有失败的卡片"
                                                     >
-                                                        {/* 表格布局：左右双列 */}
-                                                        <div className="grid gap-px bg-zinc-800" style={{ gridTemplateColumns: '30% 70%' }}>
-                                                            {/* 左列：主题 */}
-                                                            <div className="bg-zinc-950 flex flex-col">
-                                                                <div className="px-3 py-1.5 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
-                                                                    <span className="text-[10px] text-pink-400 font-medium">#{index + 1} 主题</span>
-                                                                    <div className="flex items-center gap-1">
-                                                                        {card.status === 'processing' && (
-                                                                            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/30 text-purple-400 text-[10px] rounded">
-                                                                                <Loader2 size={10} className="animate-spin" /> 处理中
-                                                                            </span>
-                                                                        )}
-                                                                        {card.status === 'done' && (
-                                                                            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-900/30 text-emerald-400 text-[10px] rounded">
-                                                                                <Check size={10} /> 完成
-                                                                            </span>
-                                                                        )}
-                                                                        {card.status === 'error' && (
-                                                                            <span className="px-1.5 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded">失败</span>
-                                                                        )}
-                                                                        {card.status === 'idle' && (
-                                                                            <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 text-[10px] rounded">待处理</span>
-                                                                        )}
-                                                                        <button
-                                                                            onClick={() => deleteTextCard(card.id)}
-                                                                            className="p-0.5 text-zinc-500 hover:text-red-400 transition-colors"
-                                                                        >
-                                                                            <X size={12} />
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="px-3 py-2 flex-1">
-                                                                    <textarea
-                                                                        value={card.topic}
-                                                                        onChange={(e) => updateTextCardTopic(card.id, e.target.value)}
-                                                                        placeholder="输入创作主题..."
-                                                                        className="w-full h-full min-h-[60px] px-2 py-1.5 text-sm bg-zinc-800/50 border border-zinc-700 rounded text-white placeholder-zinc-500 resize-none focus:border-pink-500 focus:outline-none"
-                                                                        disabled={card.status === 'processing'}
-                                                                    />
-                                                                </div>
-                                                            </div>
+                                                        <RotateCcw size={14} />
+                                                        重试失败 ({textCards.filter(c => c.status === 'error').length})
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
 
-                                                            {/* 右列：结果 */}
-                                                            <div className="bg-zinc-950 border-l-2 border-purple-500/50 flex flex-col">
-                                                                <div className="px-3 py-1.5 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
-                                                                    <span className="text-[10px] text-purple-400 font-medium">
-                                                                        生成结果 {card.results.length > 0 && `(${card.results.length})`}
-                                                                    </span>
-                                                                    <div className="flex items-center gap-1">
-                                                                        {/* 追加生成按钮 */}
-                                                                        <button
-                                                                            onClick={() => appendTextCardResults(card.id, 1)}
-                                                                            disabled={card.status === 'processing'}
-                                                                            className="px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded disabled:opacity-50 flex items-center gap-0.5"
-                                                                            title="追加生成1条"
-                                                                        >
-                                                                            <Plus size={9} />
-                                                                            追加
-                                                                        </button>
-                                                                        {/* 整体重新创新按钮 */}
-                                                                        <button
-                                                                            onClick={() => regenerateTextCard(card.id)}
-                                                                            disabled={card.status === 'processing'}
-                                                                            className="px-1.5 py-0.5 text-[9px] text-amber-400 hover:bg-amber-900/30 rounded disabled:opacity-50 flex items-center gap-0.5"
-                                                                            title="清空并重新生成所有结果"
-                                                                        >
-                                                                            <RefreshCcw size={9} />
-                                                                            重新创新
-                                                                        </button>
-                                                                        {/* 复制全部按钮 */}
-                                                                        {card.results.length > 0 && (
+                                        {/* 文字卡片列表（类似创新模式） */}
+                                        {textCards.length === 0 ? (
+                                            <div
+                                                className="h-60 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-pink-700/50 rounded-2xl bg-zinc-900/30 cursor-pointer hover:border-pink-600/70 transition-colors"
+                                                onClick={addTextCard}
+                                                onPaste={handleNoImagePaste}
+                                                tabIndex={0}
+                                            >
+                                                <FileText size={48} className="text-pink-600/50 mb-4" />
+                                                <p className="text-lg font-medium text-zinc-400">点击添加 或 直接粘贴</p>
+                                                <p className="text-sm text-zinc-600 mt-2">支持从Google表格复制粘贴（Ctrl/Cmd+V）</p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* 复制按钮栏 */}
+                                                {textCards.some(c => c.results.length > 0) && (
+                                                    <div className="flex items-center gap-2 mb-3 flex-wrap">
+                                                        <span className="text-xs text-zinc-500">批量复制:</span>
+                                                        <button
+                                                            onClick={() => {
+                                                                // 把结果内的换行替换成空格，确保每个结果是单行
+                                                                const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                                // 所有结果平铺，每个结果一行
+                                                                const allResults = textCards.flatMap(c => c.results).map(r => cleanText(r));
+                                                                navigator.clipboard.writeText(allResults.join('\n'));
+                                                                showToast(`已复制 ${allResults.length} 条结果！`);
+                                                            }}
+                                                            className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-purple-600 hover:bg-purple-500 text-white"
+                                                            title="每个结果一行（适合粘贴表格）"
+                                                        >
+                                                            <Copy size={12} />
+                                                            只复制结果
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                // 把结果内的换行替换成空格
+                                                                const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                                // 第一列是主题，后面是结果
+                                                                const rows = textCards.filter(c => c.results.length > 0).map(c =>
+                                                                    `${cleanText(c.topic)}\t${c.results.map(r => cleanText(r)).join('\t')}`
+                                                                );
+                                                                navigator.clipboard.writeText(rows.join('\n'));
+                                                                showToast(`已复制 ${textCards.flatMap(c => c.results).length} 条（主题+结果）！`);
+                                                            }}
+                                                            className="flex items-center gap-1 px-2.5 py-1 rounded text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+                                                            title="第一列主题，后面结果分列（适合粘贴表格）"
+                                                        >
+                                                            <Copy size={12} />
+                                                            主题+结果
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* 结果列表 */}
+                                                <div className="space-y-2">
+                                                    {textCards.map((card, index) => (
+                                                        <div
+                                                            key={card.id}
+                                                            className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden"
+                                                        >
+                                                            {/* 表格布局：左右双列 */}
+                                                            <div className="grid gap-px bg-zinc-800" style={{ gridTemplateColumns: '30% 70%' }}>
+                                                                {/* 左列：主题 */}
+                                                                <div className="bg-zinc-950 flex flex-col">
+                                                                    <div className="px-3 py-1.5 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
+                                                                        <span className="text-[10px] text-pink-400 font-medium">#{index + 1} 主题</span>
+                                                                        <div className="flex items-center gap-1">
+                                                                            {card.status === 'processing' && (
+                                                                                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-900/30 text-purple-400 text-[10px] rounded">
+                                                                                    <Loader2 size={10} className="animate-spin" /> 处理中
+                                                                                </span>
+                                                                            )}
+                                                                            {card.status === 'done' && (
+                                                                                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-900/30 text-emerald-400 text-[10px] rounded">
+                                                                                    <Check size={10} /> 完成
+                                                                                </span>
+                                                                            )}
+                                                                            {card.status === 'error' && (
+                                                                                <span className="px-1.5 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded">失败</span>
+                                                                            )}
+                                                                            {card.status === 'idle' && (
+                                                                                <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 text-[10px] rounded">待处理</span>
+                                                                            )}
                                                                             <button
-                                                                                onClick={() => {
-                                                                                    // 把结果内的换行替换成空格，确保每个结果是单行
-                                                                                    const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
-                                                                                    const cleanResults = card.results.map(r => cleanText(r));
-                                                                                    navigator.clipboard.writeText(cleanResults.join('\n'));
-                                                                                    showToast(`已复制 ${card.results.length} 条结果！`);
-                                                                                }}
-                                                                                className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded"
+                                                                                onClick={() => deleteTextCard(card.id)}
+                                                                                className="p-0.5 text-zinc-500 hover:text-red-400 transition-colors"
                                                                             >
-                                                                                复制全部
+                                                                                <X size={12} />
                                                                             </button>
-                                                                        )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="px-3 py-2 flex-1">
+                                                                        <textarea
+                                                                            value={card.topic}
+                                                                            onChange={(e) => updateTextCardTopic(card.id, e.target.value)}
+                                                                            placeholder="输入创作主题..."
+                                                                            className="w-full h-full min-h-[60px] px-2 py-1.5 text-sm bg-zinc-800/50 border border-zinc-700 rounded text-white placeholder-zinc-500 resize-none focus:border-pink-500 focus:outline-none"
+                                                                            disabled={card.status === 'processing'}
+                                                                        />
                                                                     </div>
                                                                 </div>
-                                                                <div
-                                                                    className="px-3 py-2 flex-1 max-h-60 overflow-y-auto cursor-pointer"
-                                                                    onDoubleClick={() => setResultDetailModal({ show: true, card })}
-                                                                    title="双击放大查看"
-                                                                >
-                                                                    {card.status === 'processing' ? (
-                                                                        <div className="flex items-center gap-2 text-purple-400 text-sm">
-                                                                            <Loader2 size={14} className="animate-spin" />
-                                                                            AI正在创作...{card.results.length > 0 && ` (${card.results.length}条)`}
+
+                                                                {/* 右列：结果 */}
+                                                                <div className="bg-zinc-950 border-l-2 border-purple-500/50 flex flex-col">
+                                                                    <div className="px-3 py-1.5 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
+                                                                        <span className="text-[10px] text-purple-400 font-medium">
+                                                                            生成结果 {card.results.length > 0 && `(${card.results.length})`}
+                                                                        </span>
+                                                                        <div className="flex items-center gap-1">
+                                                                            {/* 追加生成按钮 */}
+                                                                            <button
+                                                                                onClick={() => appendTextCardResults(card.id, 1)}
+                                                                                disabled={card.status === 'processing'}
+                                                                                className="px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded disabled:opacity-50 flex items-center gap-0.5"
+                                                                                title="追加生成1条"
+                                                                            >
+                                                                                <Plus size={9} />
+                                                                                追加
+                                                                            </button>
+                                                                            {/* 整体重新创新按钮 */}
+                                                                            <button
+                                                                                onClick={() => regenerateTextCard(card.id)}
+                                                                                disabled={card.status === 'processing'}
+                                                                                className="px-1.5 py-0.5 text-[9px] text-amber-400 hover:bg-amber-900/30 rounded disabled:opacity-50 flex items-center gap-0.5"
+                                                                                title="清空并重新生成所有结果"
+                                                                            >
+                                                                                <RefreshCcw size={9} />
+                                                                                重新创新
+                                                                            </button>
+                                                                            {/* 复制全部按钮 */}
+                                                                            {card.results.length > 0 && (
+                                                                                <button
+                                                                                    onClick={() => {
+                                                                                        // 把结果内的换行替换成空格，确保每个结果是单行
+                                                                                        const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                                                        const cleanResults = card.results.map(r => cleanText(r));
+                                                                                        navigator.clipboard.writeText(cleanResults.join('\n'));
+                                                                                        showToast(`已复制 ${card.results.length} 条结果！`);
+                                                                                    }}
+                                                                                    className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded"
+                                                                                >
+                                                                                    复制全部
+                                                                                </button>
+                                                                            )}
+                                                                            {/* AI对话记录 */}
+                                                                            {card.aiConversationLog && card.aiConversationLog.length > 0 && (
+                                                                                <button
+                                                                                    onClick={() => setTextCardLogItem({ topic: card.topic, aiConversationLog: card.aiConversationLog! })}
+                                                                                    className="px-1.5 py-0.5 text-[9px] text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-0.5"
+                                                                                    title={`查看 AI 对话记录 (${card.aiConversationLog.length} 条)`}
+                                                                                >
+                                                                                    <Eye size={9} />
+                                                                                    日志
+                                                                                </button>
+                                                                            )}
                                                                         </div>
-                                                                    ) : card.results.length > 0 ? (
-                                                                        <div className="space-y-2">
-                                                                            {card.results.map((result, idx) => (
-                                                                                <div key={idx} className="group relative bg-zinc-900/50 rounded-lg p-2 border border-zinc-800">
-                                                                                    <div className="flex items-center justify-between mb-1">
-                                                                                        <span className="text-[10px] text-zinc-500">#{idx + 1}</span>
-                                                                                        <div className="flex items-center gap-1">
-                                                                                            <button
-                                                                                                onClick={() => retryTextCardResult(card.id, idx)}
-                                                                                                disabled={card.status === 'processing'}
-                                                                                                className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[9px] text-amber-400 hover:bg-amber-900/30 rounded transition-opacity disabled:opacity-50"
-                                                                                                title="重新生成这条结果"
-                                                                                            >
-                                                                                                <RotateCcw size={10} />
-                                                                                            </button>
-                                                                                            <button
-                                                                                                onClick={() => {
-                                                                                                    // 把结果内的换行替换成空格，确保是单行
-                                                                                                    const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
-                                                                                                    navigator.clipboard.writeText(cleanText);
-                                                                                                    showToast('已复制！');
-                                                                                                }}
-                                                                                                className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded transition-opacity"
-                                                                                            >
-                                                                                                复制
-                                                                                            </button>
+                                                                    </div>
+                                                                    <div
+                                                                        className="px-3 py-2 flex-1 max-h-60 overflow-y-auto cursor-pointer"
+                                                                        onDoubleClick={() => setResultDetailModal({ show: true, card })}
+                                                                        title="双击放大查看"
+                                                                    >
+                                                                        {card.status === 'processing' ? (
+                                                                            <div className="flex items-center gap-2 text-purple-400 text-sm">
+                                                                                <Loader2 size={14} className="animate-spin" />
+                                                                                AI正在创作...{card.results.length > 0 && ` (${card.results.length}条)`}
+                                                                            </div>
+                                                                        ) : card.results.length > 0 ? (
+                                                                            <div className="space-y-2">
+                                                                                {card.results.map((result, idx) => (
+                                                                                    <div key={idx} className="group relative bg-zinc-900/50 rounded-lg p-2 border border-zinc-800">
+                                                                                        <div className="flex items-center justify-between mb-1">
+                                                                                            <span className="text-[10px] text-zinc-500">#{idx + 1}</span>
+                                                                                            <div className="flex items-center gap-1">
+                                                                                                <button
+                                                                                                    onClick={() => retryTextCardResult(card.id, idx)}
+                                                                                                    disabled={card.status === 'processing'}
+                                                                                                    className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[9px] text-amber-400 hover:bg-amber-900/30 rounded transition-opacity disabled:opacity-50"
+                                                                                                    title="重新生成这条结果"
+                                                                                                >
+                                                                                                    <RotateCcw size={10} />
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    onClick={() => {
+                                                                                                        // 把结果内的换行替换成空格，确保是单行
+                                                                                                        const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
+                                                                                                        navigator.clipboard.writeText(cleanText);
+                                                                                                        showToast('已复制！');
+                                                                                                    }}
+                                                                                                    className="opacity-0 group-hover:opacity-100 px-1 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded transition-opacity"
+                                                                                                >
+                                                                                                    复制
+                                                                                                </button>
+                                                                                            </div>
                                                                                         </div>
+                                                                                        <div className="text-sm text-purple-100 whitespace-pre-wrap break-words">
+                                                                                            {result}
+                                                                                        </div>
+                                                                                        {card.resultsZh && card.resultsZh[idx] && (
+                                                                                            <div className="text-xs text-cyan-300/80 whitespace-pre-wrap break-words mt-1.5 pt-1.5 border-t border-zinc-700/50">
+                                                                                                {card.resultsZh[idx]}
+                                                                                            </div>
+                                                                                        )}
                                                                                     </div>
-                                                                                    <div className="text-sm text-purple-100 whitespace-pre-wrap break-words">
-                                                                                        {result}
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : card.status === 'error' ? (
-                                                                        <div className="text-sm text-red-400">生成失败</div>
-                                                                    ) : (
-                                                                        <div className="text-sm text-zinc-600 italic">等待生成...</div>
-                                                                    )}
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : card.status === 'error' ? (
+                                                                            <div className="text-sm text-red-400">生成失败</div>
+                                                                        ) : (
+                                                                            <div className="text-sm text-zinc-600 italic">等待生成...</div>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
+                                                    ))}
+                                                </div>
+
+                                                {/* 无图模式对话记录弹窗 */}
+                                                {textCardLogItem && (
+                                                    <div
+                                                        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                                                        onClick={(e) => { if (e.target === e.currentTarget) setTextCardLogItem(null); }}
+                                                    >
+                                                        <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-[90vw] max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+                                                            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-700">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Eye size={16} className="text-amber-400" />
+                                                                    <span className="text-sm font-bold text-white">AI 对话记录</span>
+                                                                    <span className="text-xs text-zinc-500">
+                                                                        主题：{textCardLogItem.topic.substring(0, 30)}{textCardLogItem.topic.length > 30 ? '...' : ''} ({textCardLogItem.aiConversationLog.length} 条)
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            const text = textCardLogItem.aiConversationLog.map((entry, idx) => {
+                                                                                const header = `=== ${entry.label || `对话 #${idx + 1}`} (${new Date(entry.timestamp).toLocaleTimeString()}) ===`;
+                                                                                return `${header}\n\n【发送给 AI 的 Prompt】\n${entry.prompt}\n\n【AI 回复】\n${entry.response}`;
+                                                                            }).join('\n\n' + '─'.repeat(60) + '\n\n');
+                                                                            navigator.clipboard.writeText(text);
+                                                                            showToast('已复制全部对话记录');
+                                                                        }}
+                                                                        className="px-2.5 py-1 text-xs text-purple-300 hover:bg-purple-900/30 rounded transition-colors"
+                                                                    >
+                                                                        复制全部
+                                                                    </button>
+                                                                    <button onClick={() => setTextCardLogItem(null)} className="p-1 text-zinc-400 hover:text-white transition-colors">
+                                                                        <X size={16} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex-1 overflow-y-auto p-4 space-y-4" style={{ userSelect: 'text' }}>
+                                                                {textCardLogItem.aiConversationLog.map((entry, idx) => (
+                                                                    <div key={idx} className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg overflow-hidden">
+                                                                        <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-700/30 border-b border-zinc-700/50">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <span className="text-[10px] font-bold text-amber-300">#{idx + 1} {entry.label || '对话'}</span>
+                                                                                <span className="text-[10px] text-zinc-500">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    const text = `=== ${entry.label || '对话'} ===\n\n【Prompt】\n${entry.prompt}\n\n【AI 回复】\n${entry.response}`;
+                                                                                    navigator.clipboard.writeText(text);
+                                                                                    showToast('已复制');
+                                                                                }}
+                                                                                className="px-1.5 py-0.5 text-[9px] text-zinc-400 hover:text-white hover:bg-zinc-600/50 rounded transition-colors"
+                                                                            >
+                                                                                复制
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="p-3 space-y-3">
+                                                                            <div>
+                                                                                <div className="text-[10px] text-cyan-400 font-bold mb-1">发送给 AI 的 Prompt</div>
+                                                                                <pre className="text-xs text-zinc-300 whitespace-pre-wrap break-words font-mono bg-zinc-950/50 rounded p-2 max-h-40 overflow-y-auto">{entry.prompt}</pre>
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="text-[10px] text-emerald-400 font-bold mb-1">AI 回复</div>
+                                                                                <pre className="text-xs text-zinc-300 whitespace-pre-wrap break-words font-mono bg-zinc-950/50 rounded p-2 max-h-40 overflow-y-auto">{entry.response}</pre>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            ) : images.length === 0 ? (
-                                <div
-                                    className="h-80 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-700 hover:border-emerald-600/50 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/30 rounded-2xl bg-zinc-900/30 transition-all cursor-pointer group relative"
-                                    ref={dropzoneRef}
-                                    onClick={(e) => {
-                                        // 单击：聚焦隐藏的 textarea，以便接收粘贴事件
-                                        const textarea = (e.currentTarget as HTMLElement).querySelector('textarea');
-                                        textarea?.focus();
-                                    }}
-                                    onDoubleClick={(e) => {
-                                        // 双击：选择文件
-                                        e.stopPropagation();
-                                        const input = document.createElement('input');
-                                        input.type = 'file';
-                                        input.multiple = true;
-                                        input.accept = 'image/*';
-                                        input.onchange = (e: any) => {
-                                            if (e.target.files?.length) {
-                                                handleFiles(Array.from(e.target.files));
-                                            }
-                                        };
-                                        input.click();
-                                    }}
-                                >
-                                    {/* 隐藏的 textarea 用于接收粘贴事件 */}
-                                    <textarea
-                                        className="absolute opacity-0 w-0 h-0 pointer-events-none"
-                                        aria-hidden="true"
-                                        tabIndex={0}
-                                        onPaste={async (e) => {
-                                            console.log('[Global Paste] Triggered! workMode:', workMode, 'selectedCardId:', selectedCardId);
-                                            e.preventDefault();
-                                            const clipboardData = e.clipboardData;
-
-                                            // 检查是否有图片文件
-                                            const files = (Array.from(clipboardData.files) as File[]).filter(file => file.type.startsWith('image/'));
-                                            console.log('[Global Paste] files:', files.length);
-                                            if (files.length > 0) {
-                                                // 创新模式下，如果有选中的卡片，添加到该卡片的融合图片
-                                                if ((workMode === 'creative' || workMode === 'quick') && selectedCardId) {
-                                                    console.log('[Global Paste] Adding to selected card:', selectedCardId);
-                                                    for (const file of files) {
-                                                        await handleAddFusionImage(selectedCardId, file);
-                                                    }
-                                                    return;
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                ) : images.length === 0 ? (
+                                    <div
+                                        className="h-80 flex flex-col items-center justify-center text-zinc-500 border-2 border-dashed border-zinc-700 hover:border-emerald-600/50 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-500/30 rounded-2xl bg-zinc-900/30 transition-all cursor-pointer group relative"
+                                        ref={dropzoneRef}
+                                        onClick={(e) => {
+                                            // 单击：聚焦隐藏的 textarea，以便接收粘贴事件
+                                            const textarea = (e.currentTarget as HTMLElement).querySelector('textarea');
+                                            textarea?.focus();
+                                        }}
+                                        onDoubleClick={(e) => {
+                                            // 双击：选择文件
+                                            e.stopPropagation();
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.multiple = true;
+                                            input.accept = 'image/*';
+                                            input.onchange = (e: any) => {
+                                                if (e.target.files?.length) {
+                                                    handleFiles(Array.from(e.target.files));
                                                 }
-                                                console.log('[Global Paste] Creating new card with handleFiles');
-                                                handleFiles(files);
-                                                return;
-                                            }
+                                            };
+                                            input.click();
+                                        }}
+                                    >
+                                        {/* 隐藏的 textarea 用于接收粘贴事件 */}
+                                        <textarea
+                                            className="absolute opacity-0 w-0 h-0 pointer-events-none"
+                                            aria-hidden="true"
+                                            tabIndex={0}
+                                            onPaste={async (e) => {
+                                                console.log('[Global Paste] Triggered! workMode:', workMode, 'selectedCardId:', selectedCardId);
+                                                e.preventDefault();
+                                                const clipboardData = e.clipboardData;
 
-                                            // Some browsers only expose pasted images via clipboard items
-                                            const items = Array.from(clipboardData.items || []);
-                                            const imageItems = items.filter(item => item.type.startsWith('image/'));
-                                            if (imageItems.length > 0) {
-                                                const itemFiles = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
-                                                if (itemFiles.length > 0) {
+                                                // 检查是否有图片文件
+                                                const files = (Array.from(clipboardData.files) as File[]).filter(file => file.type.startsWith('image/'));
+                                                console.log('[Global Paste] files:', files.length);
+                                                if (files.length > 0) {
                                                     // 创新模式下，如果有选中的卡片，添加到该卡片的融合图片
                                                     if ((workMode === 'creative' || workMode === 'quick') && selectedCardId) {
-                                                        for (const file of itemFiles) {
+                                                        console.log('[Global Paste] Adding to selected card:', selectedCardId);
+                                                        for (const file of files) {
                                                             await handleAddFusionImage(selectedCardId, file);
                                                         }
                                                         return;
                                                     }
-                                                    handleFiles(itemFiles);
+                                                    console.log('[Global Paste] Creating new card with handleFiles');
+                                                    handleFiles(files);
                                                     return;
                                                 }
-                                            }
 
-                                            // 优先检查纯文本中是否有 =IMAGE() 公式
-                                            const text = clipboardData.getData('text/plain');
-                                            if (text && text.includes('=IMAGE')) {
-                                                handleTextPaste(text);
-                                                return;
-                                            }
+                                                // Some browsers only expose pasted images via clipboard items
+                                                const items = Array.from(clipboardData.items || []);
+                                                const imageItems = items.filter(item => item.type.startsWith('image/'));
+                                                if (imageItems.length > 0) {
+                                                    const itemFiles = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
+                                                    if (itemFiles.length > 0) {
+                                                        // 创新模式下，如果有选中的卡片，添加到该卡片的融合图片
+                                                        if ((workMode === 'creative' || workMode === 'quick') && selectedCardId) {
+                                                            for (const file of itemFiles) {
+                                                                await handleAddFusionImage(selectedCardId, file);
+                                                            }
+                                                            return;
+                                                        }
+                                                        handleFiles(itemFiles);
+                                                        return;
+                                                    }
+                                                }
 
-                                            // 检查是否有 HTML 内容（如从 Google Sheets 粘贴）
-                                            const html = clipboardData.getData('text/html');
-                                            if (html) {
-                                                const tempDiv = document.createElement('div');
-                                                tempDiv.innerHTML = html;
-                                                const imgs = tempDiv.querySelectorAll('img');
-                                                if (imgs.length > 0) {
-                                                    const decodeHtml = (str: string) => {
-                                                        const txt = document.createElement('textarea');
-                                                        txt.innerHTML = str;
-                                                        return txt.value;
-                                                    };
+                                                // 优先检查纯文本中是否有 =IMAGE() 公式
+                                                const text = clipboardData.getData('text/plain');
+                                                if (text && text.includes('=IMAGE')) {
+                                                    handleTextPaste(text);
+                                                    return;
+                                                }
 
-                                                    const urls = Array.from(imgs).map(img => {
-                                                        const decodedUrl = decodeHtml(img.src);
-                                                        return {
-                                                            originalUrl: decodedUrl,
-                                                            fetchUrl: decodedUrl
+                                                // 检查是否有 HTML 内容（如从 Google Sheets 粘贴）
+                                                const html = clipboardData.getData('text/html');
+                                                if (html) {
+                                                    const tempDiv = document.createElement('div');
+                                                    tempDiv.innerHTML = html;
+                                                    const imgs = tempDiv.querySelectorAll('img');
+                                                    if (imgs.length > 0) {
+                                                        const decodeHtml = (str: string) => {
+                                                            const txt = document.createElement('textarea');
+                                                            txt.innerHTML = str;
+                                                            return txt.value;
                                                         };
-                                                    });
 
-                                                    const urlItems = urls.map(({ originalUrl, fetchUrl }) => ({
-                                                        type: 'url' as const,
-                                                        content: `=IMAGE("${originalUrl}")`,
-                                                        url: fetchUrl
-                                                    }));
-                                                    addFromUrls(urlItems);
-                                                    return;
+                                                        const urls = Array.from(imgs).map(img => {
+                                                            const decodedUrl = decodeHtml(img.src);
+                                                            return {
+                                                                originalUrl: decodedUrl,
+                                                                fetchUrl: decodedUrl
+                                                            };
+                                                        });
+
+                                                        const urlItems = urls.map(({ originalUrl, fetchUrl }) => ({
+                                                            type: 'url' as const,
+                                                            content: `=IMAGE("${originalUrl}")`,
+                                                            url: fetchUrl
+                                                        }));
+                                                        addFromUrls(urlItems);
+                                                        return;
+                                                    }
                                                 }
-                                            }
 
-                                            // 检查是否有文本内容（链接）
-                                            if (text && text.trim()) {
-                                                handleTextPaste(text);
-                                            }
-                                        }}
-                                    />
-                                    <div className="flex flex-col items-center gap-4 p-8">
-                                        <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center group-hover:bg-emerald-900/30 transition-colors">
-                                            <ImagePlus className="w-10 h-10 text-zinc-600 group-hover:text-emerald-500 transition-colors" />
-                                        </div>
-                                        <div className="text-center space-y-2">
-                                            <p className="text-lg font-medium text-zinc-400 group-hover:text-white transition-colors">
-                                                拖拽图片到此处上传
-                                            </p>
-                                            <p className="text-sm text-zinc-600">
-                                                <span className="text-blue-400">单击后可粘贴</span> · <span className="text-emerald-500">双击选择文件</span>
-                                            </p>
-                                            <div className="flex items-center justify-center gap-4 mt-4 text-xs text-zinc-600">
-                                                <span className="flex items-center gap-1">
-                                                    <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-400">Ctrl</kbd>
-                                                    <span>+</span>
-                                                    <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-400">V</kbd>
-                                                    <span className="ml-1">粘贴图片/链接</span>
-                                                </span>
+                                                // 检查是否有文本内容（链接）
+                                                if (text && text.trim()) {
+                                                    handleTextPaste(text);
+                                                }
+                                            }}
+                                        />
+                                        <div className="flex flex-col items-center gap-4 p-8">
+                                            <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center group-hover:bg-emerald-900/30 transition-colors">
+                                                <ImagePlus className="w-10 h-10 text-zinc-600 group-hover:text-emerald-500 transition-colors" />
+                                            </div>
+                                            <div className="text-center space-y-2">
+                                                <p className="text-lg font-medium text-zinc-400 group-hover:text-white transition-colors">
+                                                    拖拽图片到此处上传
+                                                </p>
+                                                <p className="text-sm text-zinc-600">
+                                                    <span className="text-blue-400">单击后可粘贴</span> · <span className="text-emerald-500">双击选择文件</span>
+                                                </p>
+                                                <div className="flex items-center justify-center gap-4 mt-4 text-xs text-zinc-600">
+                                                    <span className="flex items-center gap-1">
+                                                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-400">Ctrl</kbd>
+                                                        <span>+</span>
+                                                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-400">V</kbd>
+                                                        <span className="ml-1">粘贴图片/链接</span>
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            ) : (
-                                <ResultsGrid
-                                    images={images}
-                                    onRemove={removeImage}
-                                    onRetry={handleRetry}
-                                    copyMode={copyMode}
-                                    viewMode={viewMode}
-                                    onToggleChat={toggleChat}
-                                    onSendMessage={sendChatMessage}
-                                    onUpdateChatInput={updateChatInput}
-                                    onCopyChatHistory={copyChatHistory}
-                                    onUpdateChatAttachments={updateChatAttachments}
-                                    presets={presets}
-                                    onUpdateCustomPrompt={updateCustomPrompt}
-                                    onApplyPreset={applyPresetToImage}
-                                    onToggleMergeMode={toggleMergeMode}
-                                    onToggleInnovation={toggleInnovation}
-                                    onStartInnovation={startSingleCardInnovation}
-                                    onCopyInnovation={copyInnovation}
-                                    onSendToDesc={handleSendSingleToDesc}
-                                    sentToDescIds={sentToDescIds}
-                                    globalInnovationInstruction={innovationInstruction || DEFAULT_INNOVATION_INSTRUCTION}
-                                    defaultInnovationInstruction={DEFAULT_INNOVATION_INSTRUCTION}
-                                    onUpdateCustomInnovationInstruction={updateCustomInnovationInstruction}
-                                    onUpdateCustomInnovationCount={updateCustomInnovationCount}
-                                    onUpdateCustomInnovationRounds={updateCustomInnovationRounds}
-                                    onUpdateCustomInnovationTemplateId={updateCustomInnovationTemplateId}
-                                    templateState={templateState}
-                                    unifiedPresets={unifiedPresets}
-                                    onToggleInnovationChat={toggleInnovationChat}
-                                    onSendInnovationMessage={sendInnovationChatMessage}
-                                    onUpdateInnovationInput={updateInnovationChatInput}
-                                    onCopyInnovationChatHistory={copyInnovationChatHistory}
-                                    onUpdateInnovationAttachments={updateInnovationChatAttachments}
-                                    onTranslate={translateText}
-                                    onSaveTranslation={saveTranslation}
-                                    onSaveSelection={saveSelection}
-                                    workMode={workMode}
-                                    creativeResults={creativeResults}
-                                    splitElements={splitElements}
-                                    onAddFusionImage={handleAddFusionImage}
-                                    onRemoveFusionImage={handleRemoveFusionImage}
-                                    selectedCardId={selectedCardId}
-                                    onSelectCard={setSelectedCardId}
-                                    globalUserPrompt={prompt}
-                                    baseInstruction={(() => {
-                                        // 快捷模式下：优先使用配套指令，否则使用默认预设
-                                        if (workMode === 'quick') {
-                                            const activeSheet = randomLibraryConfig.activeSourceSheet || '';
-                                            const linkedInstruction = randomLibraryConfig.linkedInstructions?.[activeSheet];
-                                            if (linkedInstruction && linkedInstruction.trim()) {
-                                                return linkedInstruction.trim();
+                                ) : (
+                                    <ResultsGrid
+                                        images={images}
+                                        onRemove={removeImage}
+                                        onRetry={handleRetry}
+                                        copyMode={copyMode}
+                                        viewMode={viewMode}
+                                        onToggleChat={toggleChat}
+                                        onSendMessage={sendChatMessage}
+                                        onUpdateChatInput={updateChatInput}
+                                        onCopyChatHistory={copyChatHistory}
+                                        onUpdateChatAttachments={updateChatAttachments}
+                                        presets={presets}
+                                        onUpdateCustomPrompt={updateCustomPrompt}
+                                        onApplyPreset={applyPresetToImage}
+                                        onToggleMergeMode={toggleMergeMode}
+                                        onToggleInnovation={toggleInnovation}
+                                        onStartInnovation={startSingleCardInnovation}
+                                        onCopyInnovation={copyInnovation}
+                                        onSendToDesc={handleSendSingleToDesc}
+                                        sentToDescIds={sentToDescIds}
+                                        globalInnovationInstruction={innovationInstruction || DEFAULT_INNOVATION_INSTRUCTION}
+                                        defaultInnovationInstruction={DEFAULT_INNOVATION_INSTRUCTION}
+                                        onUpdateCustomInnovationInstruction={updateCustomInnovationInstruction}
+                                        onUpdateCustomInnovationCount={updateCustomInnovationCount}
+                                        onUpdateCustomInnovationRounds={updateCustomInnovationRounds}
+                                        onUpdateCustomInnovationTemplateId={updateCustomInnovationTemplateId}
+                                        templateState={templateState}
+                                        unifiedPresets={unifiedPresets}
+                                        onToggleInnovationChat={toggleInnovationChat}
+                                        onSendInnovationMessage={sendInnovationChatMessage}
+                                        onUpdateInnovationInput={updateInnovationChatInput}
+                                        onCopyInnovationChatHistory={copyInnovationChatHistory}
+                                        onUpdateInnovationAttachments={updateInnovationChatAttachments}
+                                        onTranslate={translateText}
+                                        onSaveTranslation={saveTranslation}
+                                        onSaveSelection={saveSelection}
+                                        workMode={workMode}
+                                        creativeResults={creativeResults}
+                                        splitElements={splitElements}
+                                        onAddFusionImage={handleAddFusionImage}
+                                        onRemoveFusionImage={handleRemoveFusionImage}
+                                        selectedCardId={selectedCardId}
+                                        onSelectCard={setSelectedCardId}
+                                        globalUserPrompt={prompt}
+                                        baseInstruction={(() => {
+                                            // 快捷模式下：优先使用配套指令，否则使用默认预设
+                                            if (workMode === 'quick') {
+                                                const activeSheet = randomLibraryConfig.activeSourceSheet || '';
+                                                const linkedInstruction = randomLibraryConfig.linkedInstructions?.[activeSheet];
+                                                if (linkedInstruction && linkedInstruction.trim()) {
+                                                    return linkedInstruction.trim();
+                                                }
+                                                const isRandomLibEnabled = randomLibraryConfig.enabled &&
+                                                    randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
+                                                const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
+                                                return DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
                                             }
-                                            const isRandomLibEnabled = randomLibraryConfig.enabled &&
-                                                randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
-                                            const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
-                                            return DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
-                                        }
-                                        return prompt || DEFAULT_CREATIVE_INSTRUCTION;
-                                    })()}
-                                    overrideDimsWithImages={(() => {
-                                        const dims: Array<{ dimName: string; imageLibrary: import('./services/randomLibraryService').RefImage[] }> = [];
-                                        for (const [name, ov] of Object.entries(quickOverrides)) {
-                                            if (ov?.mode === 'image' && ov?.imageLibrary && ov.imageLibrary.length > 0) {
-                                                dims.push({ dimName: name, imageLibrary: ov.imageLibrary });
+                                            return prompt || DEFAULT_CREATIVE_INSTRUCTION;
+                                        })()}
+                                        overrideDimsWithImages={(() => {
+                                            const dims: Array<{ dimName: string; imageLibrary: import('./services/randomLibraryService').RefImage[] }> = [];
+                                            for (const [name, ov] of Object.entries(quickOverrides)) {
+                                                if (ov?.mode === 'image' && ov?.imageLibrary && ov.imageLibrary.length > 0) {
+                                                    dims.push({ dimName: name, imageLibrary: ov.imageLibrary });
+                                                }
                                             }
+                                            return dims;
+                                        })()}
+                                        onUpdateCardRefSelection={updateCardRefSelection}
+                                        overrideDimNames={(() => {
+                                            return Object.entries(quickOverrides)
+                                                .filter(([, ov]) => ov?.value?.trim() || ov?.mode === 'queue-image' || ov?.mode === 'image')
+                                                .map(([name]) => name);
+                                        })()}
+                                        globalOverrideCounts={(() => {
+                                            const counts: Record<string, number> = {};
+                                            for (const [name, ov] of Object.entries(quickOverrides)) {
+                                                counts[name] = ov?.count || 0;
+                                            }
+                                            return counts;
+                                        })()}
+                                        onUpdateCardOverrideCount={updateCardOverrideCount}
+                                        onUpdateCardTextOverride={updateCardTextOverride}
+                                        allEnabledDimNames={
+                                            randomLibraryConfig.enabled
+                                                ? randomLibraryConfig.libraries
+                                                    .filter(lib => lib.enabled && lib.values.length > 0)
+                                                    .map(lib => lib.name)
+                                                : []
                                         }
-                                        return dims;
-                                    })()}
-                                    onUpdateCardRefSelection={updateCardRefSelection}
-                                    overrideDimNames={(() => {
-                                        return Object.entries(quickOverrides)
-                                            .filter(([, ov]) => ov?.value?.trim() || ov?.mode === 'queue-image' || ov?.mode === 'image')
-                                            .map(([name]) => name);
-                                    })()}
-                                    globalOverrideCounts={(() => {
-                                        const counts: Record<string, number> = {};
-                                        for (const [name, ov] of Object.entries(quickOverrides)) {
-                                            counts[name] = ov?.count || 0;
-                                        }
-                                        return counts;
-                                    })()}
-                                    onUpdateCardOverrideCount={updateCardOverrideCount}
-                                    onUpdateCardTextOverride={updateCardTextOverride}
-                                    allEnabledDimNames={
-                                        randomLibraryConfig.enabled
-                                            ? randomLibraryConfig.libraries
-                                                .filter(lib => lib.enabled && lib.values.length > 0)
-                                                .map(lib => lib.name)
-                                            : []
-                                    }
-                                    onUpdateRefImageConfig={updateRefImageConfig}
-                                />
-                            )}
+                                        onUpdateRefImageConfig={updateRefImageConfig}
+                                        onToggleCardDimBinding={toggleCardDimBinding}
+                                    />
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* 批量导入弹窗 */}
                 {showBulkImportModal && (

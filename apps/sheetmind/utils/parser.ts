@@ -54,7 +54,7 @@ const fetchUrlWithProxy = async (targetUrl: string, signal?: AbortSignal): Promi
     }
 
     // All proxies failed - provide helpful error message
-    const isGoogleSheetsUrl = targetUrl.includes('docs.google.com/spreadsheets');
+    const isGoogleSheetsUrl = (() => { try { const u = new URL(targetUrl); return u.hostname === 'docs.google.com' && u.pathname.startsWith('/spreadsheets'); } catch { return false; } })();
     if (isGoogleSheetsUrl) {
         throw new Error(
             "无法获取 Google 表格数据。请尝试以下方法：\n\n" +
@@ -177,7 +177,7 @@ export const readWorkbookFromHtml = async (html: string): Promise<XLSX.WorkBook>
                         if (hyperlink) {
                             // Check if the text content is an image URL
                             const text = cell.textContent?.trim() || '';
-                            if (text.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) || text.includes('gyazo.com')) {
+                            if (text.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) || (() => { try { return new URL(hyperlink).hostname.endsWith('gyazo.com'); } catch { return false; } })()) {
                                 rowData.push(`=IMAGE("${hyperlink}")`);
                             } else {
                                 rowData.push(hyperlink);

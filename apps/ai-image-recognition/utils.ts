@@ -54,7 +54,7 @@ export const processImageUrl = (url: string): string => {
 
         // 3. Handle Google Drive Viewer Links
         // Converts https://drive.google.com/file/d/FILE_ID/view... to https://drive.google.com/uc?export=view&id=FILE_ID
-        if (urlObj.hostname.includes('drive.google.com')) {
+        if (urlObj.hostname === 'drive.google.com') {
             const pathMatch = urlObj.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
             if (pathMatch && pathMatch[1]) {
                 return `https://drive.google.com/uc?export=view&id=${pathMatch[1]}`;
@@ -66,7 +66,7 @@ export const processImageUrl = (url: string): string => {
         }
 
         // 4. Handle Google User Content (lh3.googleusercontent.com etc.)
-        if (urlObj.hostname.includes('googleusercontent.com')) {
+        if (urlObj.hostname.endsWith('.googleusercontent.com') || urlObj.hostname === 'googleusercontent.com') {
             // Usually these links work fine, but sometimes =s0 ensures full size
         }
 
@@ -78,9 +78,8 @@ export const processImageUrl = (url: string): string => {
 
 // 解码 HTML 实体（如 &amp; -> &）
 export const decodeHtmlEntities = (text: string): string => {
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = text;
-    return textarea.value;
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    return doc.documentElement.textContent || '';
 };
 
 // Extract Image URLs from HTML (for Google Sheets support)
@@ -390,7 +389,7 @@ export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeTyp
         return blob;
     };
 
-    const isGoogle = url.includes('google.com') || url.includes('googleusercontent.com');
+    const isGoogle = (() => { try { const h = new URL(url).hostname; return h.endsWith('.google.com') || h === 'google.com' || h.endsWith('.googleusercontent.com'); } catch { return false; } })();
     const errors: { url: string; error: any }[] = [];
 
     // 尝试使用 img 标签 + canvas 加载图片

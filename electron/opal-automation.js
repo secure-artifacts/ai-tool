@@ -121,9 +121,14 @@ class OpalAutomation {
             await this.page.waitForTimeout(5000);
 
             const currentUrl = this.page.url();
-            if (currentUrl.includes('accounts.google.com')) {
-                this.log('检测到未登录，请先手动登录', 'warning');
-                return false;
+            try {
+                const parsedUrl = new URL(currentUrl);
+                if (parsedUrl.hostname === 'accounts.google.com') {
+                    this.log('检测到未登录，请先手动登录', 'warning');
+                    return false;
+                }
+            } catch (e) {
+                // Invalid URL
             }
 
             this.log('登录状态正常', 'success');

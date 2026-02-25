@@ -534,9 +534,14 @@ const convertGoogleDriveUrl = (url: string): string | null => {
     }
 
     // Pattern 6: lh3.googleusercontent.com with other paths (thumbnail URLs)
-    if (url.includes('lh3.googleusercontent.com') || url.includes('googleusercontent.com')) {
-        // These URLs are often already direct image URLs
-        return url;
+    try {
+        const urlHost = new URL(url).hostname;
+        if (urlHost.endsWith('.googleusercontent.com') || urlHost === 'googleusercontent.com') {
+            // These URLs are often already direct image URLs
+            return url;
+        }
+    } catch (e) {
+        // Invalid URL
     }
 
     return null;
@@ -563,9 +568,12 @@ const normalizeUrl = (url: string): string => {
     let processedUrl = processImageUrl(decodedUrl);
 
     // Then check if it's a Google Drive URL that needs conversion
-    const isGoogleDrive = processedUrl.includes('drive.google.com') ||
-        processedUrl.includes('googleusercontent.com') ||
-        processedUrl.includes('drive.usercontent.google.com');
+    const isGoogleDrive = (() => {
+        try {
+            const h = new URL(processedUrl).hostname;
+            return h === 'drive.google.com' || h.endsWith('.googleusercontent.com') || h === 'drive.usercontent.google.com';
+        } catch { return false; }
+    })();
 
     if (isGoogleDrive) {
         const convertedUrl = convertGoogleDriveUrl(processedUrl);
@@ -837,17 +845,18 @@ const BatchItemCard: React.FC<{
             }
 
             // 检测是否需要代理的链接（Facebook CDN、Google 图片、Google Drive 等）
-            const needsProxy =
-                displayUrl.includes('fbcdn.net') ||
-                displayUrl.includes('scontent') ||
-                displayUrl.includes('googleusercontent.com') ||
-                displayUrl.includes('drive.google.com') ||
-                displayUrl.includes('drive.usercontent.google.com') ||
-                displayUrl.includes('lh3.google') ||
-                displayUrl.includes('lh4.google') ||
-                displayUrl.includes('lh5.google') ||
-                displayUrl.includes('lh6.google') ||
-                displayUrl.includes('ggpht.com');
+            const needsProxy = (() => {
+                try {
+                    const h = new URL(displayUrl).hostname;
+                    return h.endsWith('.fbcdn.net') ||
+                        h.startsWith('scontent') ||
+                        h.endsWith('.googleusercontent.com') ||
+                        h === 'drive.google.com' ||
+                        h === 'drive.usercontent.google.com' ||
+                        h.match(/^lh[3-6]\.google/) !== null ||
+                        h.endsWith('.ggpht.com');
+                } catch { return false; }
+            })();
 
             if (needsProxy) {
                 const urlNoProtocol = displayUrl.replace(/^https?:\/\//, '');
@@ -1105,9 +1114,9 @@ export const initialSmartTranslateState: SmartTranslateState = {
     mode: 'instant',
     items: [],
     inputText: '',
-    targetLanguage: 'smart_auto',
-    batchTargetLanguages: DEFAULT_BATCH_LANGS.slice(),
-    batchOnlyChinese: false,
+    targetLanguage: (() => { try { return localStorage.getItem('smart_translate_target_lang') || 'smart_auto'; } catch { return 'smart_auto'; } })(),
+    batchTargetLanguages: loadBatchLanguages(),
+    batchOnlyChinese: loadBatchOnlyChinese(),
     isProcessing: false,
 };
 
@@ -1203,7 +1212,9 @@ const TranslateTool = ({
     const [localMode, setLocalMode] = useState<'batch' | 'instant'>('instant');
     const [localItems, setLocalItems] = useState<TranslateItem[]>([]);
     const [localInputText, setLocalInputText] = useState("");
-    const [localTargetLanguage, setLocalTargetLanguage] = useState('smart_auto');
+    const [localTargetLanguage, setLocalTargetLanguage] = useState(() => {
+        try { return localStorage.getItem('smart_translate_target_lang') || 'smart_auto'; } catch { return 'smart_auto'; }
+    });
     const [localIsProcessing, setLocalIsProcessing] = useState(false);
     const [showHistoryPanel, setShowHistoryPanel] = useState(false); // 兼容式保留
     const [showProjectPanel, setShowProjectPanel] = useState(false);
@@ -1258,10 +1269,19 @@ const TranslateTool = ({
     }, [setState]);
 
     const setTargetLanguage = useCallback((val: string | ((prev: string) => string)) => {
+        const resolve = (prev: string) => typeof val === 'function' ? val(prev) : val;
         if (setState) {
-            setState(prev => ({ ...prev, targetLanguage: typeof val === 'function' ? val(prev.targetLanguage) : val }));
+            setState(prev => {
+                const next = resolve(prev.targetLanguage);
+                try { localStorage.setItem('smart_translate_target_lang', next); } catch { }
+                return { ...prev, targetLanguage: next };
+            });
         } else {
-            setLocalTargetLanguage(val);
+            setLocalTargetLanguage(prev => {
+                const next = resolve(prev);
+                try { localStorage.setItem('smart_translate_target_lang', next); } catch { }
+                return next;
+            });
         }
     }, [setState]);
 

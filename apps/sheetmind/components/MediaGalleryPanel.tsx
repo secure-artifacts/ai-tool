@@ -246,7 +246,7 @@ const extractImageUrl = (val: unknown): string | null => {
     }
 
     // Check for Google Drive URL
-    if (str.includes('drive.google.com') || str.includes('googleusercontent.com')) {
+    if ((() => { try { const h = new URL(str).hostname; return h === 'drive.google.com' || h.endsWith('.googleusercontent.com'); } catch { return false; } })()) {
         return str;
     }
 
@@ -4997,7 +4997,79 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             return;
         }
 
-        // Group rows by the primary group column (considering classification overrides)
+        // Multi-level grouping helper (inline version of getRowGroupKey logic)
+        const useMultiLevelLogic = effectiveGroupLevels.length > 1 ||
+            (effectiveGroupLevels.length === 1 && (
+                effectiveGroupLevels[0].numericBins?.length ||
+                effectiveGroupLevels[0].dateBins?.length ||
+                effectiveGroupLevels[0].textBins?.length
+            ));
+
+        const getGroupKeyForRow = (row: DataRow): string => {
+            if (useMultiLevelLogic && effectiveGroupLevels.length > 0) {
+                const keys: string[] = [];
+                for (const level of effectiveGroupLevels) {
+                    const rawVal = row[level.column];
+                    let key = '';
+
+                    if (level.type === 'numeric' && level.numericBins && level.numericBins.length > 0) {
+                        const numVal = parseFloat(String(rawVal));
+                        if (isNaN(numVal)) {
+                            key = '其他';
+                        } else {
+                            const bin = level.numericBins.find(b => numVal >= b.min && numVal <= b.max);
+                            key = bin ? bin.label : '其他';
+                        }
+                    } else if (level.type === 'date' && level.dateBins && level.dateBins.length > 0) {
+                        const dateVal = parseDate(rawVal);
+                        if (!dateVal) {
+                            key = '无效日期';
+                        } else {
+                            const dateTime = dateVal.getTime();
+                            const bin = level.dateBins.find(b => {
+                                const start = new Date(b.startDate).getTime();
+                                const end = new Date(b.endDate).getTime() + 86400000 - 1;
+                                return dateTime >= start && dateTime <= end;
+                            });
+                            key = bin ? bin.label : '其他日期';
+                        }
+                    } else if (level.type === 'text' && level.textBins && level.textBins.length > 0) {
+                        const groupResult = getGroupKey(rawVal);
+                        const strVal = groupResult?.originalText || groupResult?.key || String(rawVal || '').trim();
+                        const strValLower = strVal.toLowerCase();
+                        const matchedBin = level.textBins.find(b => {
+                            if (b.conditions && b.conditions.length > 0) {
+                                return b.conditions.some(cond => {
+                                    const condValLower = (cond.value || '').toLowerCase();
+                                    switch (cond.operator) {
+                                        case 'equals': return strValLower === condValLower;
+                                        case 'contains': return strValLower.includes(condValLower);
+                                        case 'startsWith': return strValLower.startsWith(condValLower);
+                                        case 'endsWith': return strValLower.endsWith(condValLower);
+                                        default: return false;
+                                    }
+                                });
+                            }
+                            return (b.values || []).some(v => v === strVal);
+                        });
+                        key = matchedBin ? matchedBin.label : (strVal || '(空)');
+                    } else {
+                        const groupResult = getGroupKey(rawVal);
+                        key = groupResult?.originalText || groupResult?.key || String(rawVal || '').trim() || '(空)';
+                    }
+
+                    keys.push(key);
+                }
+                return keys.join(' › ');
+            }
+
+            // Simple grouping: use primary group column
+            return primaryGroupColumn
+                ? String(row[primaryGroupColumn] || '未分组')
+                : '全部图片';
+        };
+
+        // Group rows by multi-level group key (considering classification overrides)
         const groups = new Map<string, DataRow[]>();
         processedRows.forEach(row => {
             const imageUrl = extractImageUrl(row[effectiveImageColumn]);
@@ -5007,9 +5079,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             if (applyOverrides && imageUrl && classificationOverrides[imageUrl]) {
                 groupKey = classificationOverrides[imageUrl];
             } else {
-                groupKey = primaryGroupColumn
-                    ? String(row[primaryGroupColumn] || '未分组')
-                    : '全部图片';
+                groupKey = getGroupKeyForRow(row);
             }
 
             if (!groups.has(groupKey)) groups.set(groupKey, []);
@@ -5132,7 +5202,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             setCopyFeedback('❌ 复制失败，请重试');
             setTimeout(() => setCopyFeedback(null), 2000);
         });
-    }, [processedRows, effectiveGroupColumns, effectiveImageColumn, config.groupNotes, extractImageUrl, classificationOverrides, customOrderByGroup, copyViewModal]);
+    }, [processedRows, effectiveGroupColumns, effectiveGroupLevels, effectiveImageColumn, config.groupNotes, extractImageUrl, classificationOverrides, customOrderByGroup, copyViewModal, getGroupKey]);
 
     // Copy a single group's data to clipboard (TSV format for pasting to spreadsheets)
     const copyGroupDataToClipboard = useCallback((groupKey: string, groupRows: DataRow[]) => {

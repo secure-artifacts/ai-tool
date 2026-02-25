@@ -14,9 +14,8 @@ export const convertBlobToBase64 = (blob: Blob): Promise<string> => {
 };
 
 export const decodeHtmlEntities = (text: string): string => {
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = text;
-    return textarea.value;
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    return doc.documentElement.textContent || '';
 };
 
 export const processImageUrl = (url: string): string => {
@@ -40,7 +39,7 @@ export const processImageUrl = (url: string): string => {
             }
         }
 
-        if (urlObj.hostname.includes('drive.google.com')) {
+        if (urlObj.hostname === 'drive.google.com') {
             const pathMatch = urlObj.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
             if (pathMatch && pathMatch[1]) {
                 return `https://drive.google.com/uc?export=view&id=${pathMatch[1]}`;

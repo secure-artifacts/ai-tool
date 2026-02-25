@@ -381,7 +381,9 @@
     border-bottom: 1px solid var(--border-color, #2a2a2a);
     flex-shrink: 0;
     max-height: 80px;
+    overflow-x: hidden;
     overflow-y: auto;
+    scrollbar-width: thin;
 }
 
 .is-tag {

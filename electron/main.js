@@ -136,11 +136,22 @@ function createWindow() {
 
         // 创建简单的静态文件服务器
         const server = http.createServer((req, res) => {
-            let filePath = path.join(appDir, req.url === '/' ? 'index.html' : req.url);
+            // Sanitize URL path to prevent path traversal
+            let reqPath = req.url === '/' ? 'index.html' : req.url;
+            // Remove query parameters
+            if (reqPath.includes('?')) {
+                reqPath = reqPath.split('?')[0];
+            }
+            // Decode and resolve to prevent directory traversal
+            reqPath = decodeURIComponent(reqPath).replace(/\.\./g, '').replace(/^\/+/, '');
+            let filePath = path.join(appDir, reqPath);
 
-            // 处理 URL 中的查询参数
-            if (filePath.includes('?')) {
-                filePath = filePath.split('?')[0];
+            // Ensure the resolved path is within appDir
+            const resolvedPath = path.resolve(filePath);
+            if (!resolvedPath.startsWith(path.resolve(appDir))) {
+                res.writeHead(403);
+                res.end('Forbidden');
+                return;
             }
 
             // 获取文件扩展名
@@ -215,10 +226,15 @@ function createWindow() {
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         // 允许 Firebase/Google 认证弹窗在 Electron 中打开
-        if (url.includes('accounts.google.com') ||
-            url.includes('firebaseapp.com') ||
-            url.includes('googleapis.com/identitytoolkit')) {
-            return { action: 'allow' }; // 允许认证弹窗
+        try {
+            const urlObj = new URL(url);
+            if (urlObj.hostname === 'accounts.google.com' ||
+                urlObj.hostname.endsWith('.firebaseapp.com') ||
+                (urlObj.hostname.endsWith('.googleapis.com') && urlObj.pathname.startsWith('/identitytoolkit'))) {
+                return { action: 'allow' }; // 允许认证弹窗
+            }
+        } catch (e) {
+            // Invalid URL, deny
         }
 
         // 其他链接用 Chrome 打开
@@ -231,10 +247,15 @@ function createWindow() {
         const appUrl = isDev ? 'http://localhost:3000' : 'file://';
 
         // 允许 Firebase/Google 认证页面导航
-        if (url.includes('accounts.google.com') ||
-            url.includes('firebaseapp.com') ||
-            url.includes('googleapis.com')) {
-            return; // 不拦截
+        try {
+            const navUrl = new URL(url);
+            if (navUrl.hostname === 'accounts.google.com' ||
+                navUrl.hostname.endsWith('.firebaseapp.com') ||
+                navUrl.hostname.endsWith('.googleapis.com')) {
+                return; // 不拦截
+            }
+        } catch (e) {
+            // Invalid URL
         }
 
         // 如果不是应用内部链接，在 Chrome 中打开

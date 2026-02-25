@@ -8,7 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import type { GoogleGenAI } from '@google/genai';
 import {
     Upload, Sparkles, Tags, Grid3x3, List, CheckSquare, Copy, Trash2,
-    Loader2, StopCircle, Filter, ImagePlus, X, Check, Download
+    Loader2, StopCircle, Filter, ImagePlus, X, Check, Download, Plus
 } from 'lucide-react';
 import {
     extractUrlsFromHtml,
@@ -19,12 +19,20 @@ import {
 import './ImageSorter.css';
 
 // ========== Types ==========
+interface ClassificationDimension {
+    id: string;
+    name: string;          // Dimension name, e.g. "场景", "风格"
+    categories: string[];  // Category options for this dimension
+    inputValue: string;    // Current input value for chip input
+}
+
 interface SorterImage {
     id: string;
     src: string; // base64 for display
     originalUrl?: string; // preserve source URL for =IMAGE() formula
     name: string;
-    category?: string;
+    category?: string;                    // Primary category (first dim or auto) - backward compat
+    categories?: Record<string, string>;  // Multi-dimension: dimName → category
     tags?: string[];
     classified: boolean;
     originalIndex: number; // preserve insertion order
@@ -170,9 +178,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
     const [images, setImages] = useState<SorterImage[]>([]);
     const [classifying, setClassifying] = useState(false);
     const [progress, setProgress] = useState({ done: 0, total: 0 });
-    const [userCategories, setUserCategories] = useState<string[]>([]);
-    const [catInput, setCatInput] = useState('');
-    const [activeCategory, setActiveCategory] = useState<string | null>(null); // null = all
+    const [dimensions, setDimensions] = useState<ClassificationDimension[]>([]);
+    const [activeFilters, setActiveFilters] = useState<Record<string, string | null>>({});
     const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
     const [activeRatio, setActiveRatio] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -204,16 +211,44 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
         localStorage.setItem('image-sorter-classify-model', classifyModel);
     }, [classifyModel]);
 
-    // ======== Derived data ========
-    const allCategories = React.useMemo(() => {
-        const map = new Map<string, number>();
+    // State for multi-select assigning categories/tags to a dimension
+    const [pendingAssignItems, setPendingAssignItems] = useState<Array<{ source: string; value: string }>>([]);
+    const [assignTargetDim, setAssignTargetDim] = useState('');
+    const [assignIsNewDim, setAssignIsNewDim] = useState(true);
+
+    // Helper: get all dimension names (from config + from image data)
+    const effectiveDimNames = React.useMemo(() => {
+        const names = new Set<string>();
+        dimensions.forEach(d => { if (d.name.trim()) names.add(d.name.trim()); });
+        // Also include dimensions from classified images (in case config was cleared)
         images.forEach(img => {
-            if (img.category) {
-                map.set(img.category, (map.get(img.category) || 0) + 1);
+            if (img.categories) Object.keys(img.categories).forEach(k => names.add(k));
+        });
+        return Array.from(names);
+    }, [dimensions, images]);
+
+    // ======== Derived data ========
+    // Per-dimension category counts
+    const allCategoriesByDim = React.useMemo(() => {
+        const result = new Map<string, Map<string, number>>();
+        // If no dimensions configured but images have a primary category, use "分类" as label
+        images.forEach(img => {
+            if (img.categories) {
+                for (const [dimName, catValue] of Object.entries(img.categories)) {
+                    if (!result.has(dimName)) result.set(dimName, new Map());
+                    const dimMap = result.get(dimName)!;
+                    dimMap.set(catValue, (dimMap.get(catValue) || 0) + 1);
+                }
+            } else if (img.category) {
+                // Backward compat: single category
+                const dimName = dimensions.length > 0 ? dimensions[0].name : '分类';
+                if (!result.has(dimName)) result.set(dimName, new Map());
+                const dimMap = result.get(dimName)!;
+                dimMap.set(img.category, (dimMap.get(img.category) || 0) + 1);
             }
         });
-        return map;
-    }, [images]);
+        return result;
+    }, [images, dimensions]);
 
     const allTags = React.useMemo(() => {
         const map = new Map<string, number>();
@@ -240,8 +275,18 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
 
     const filteredImages = React.useMemo(() => {
         let filtered = images;
-        if (activeCategory) {
-            filtered = filtered.filter(img => img.category === activeCategory);
+        // Apply multi-dimension filters
+        for (const [dimName, filterValue] of Object.entries(activeFilters)) {
+            if (filterValue) {
+                filtered = filtered.filter(img => {
+                    if (img.categories) return img.categories[dimName] === filterValue;
+                    // Backward compat: single category matches first dim
+                    if (img.category && dimName === (dimensions.length > 0 ? dimensions[0].name : '分类')) {
+                        return img.category === filterValue;
+                    }
+                    return false;
+                });
+            }
         }
         if (activeTags.size > 0) {
             filtered = filtered.filter(img =>
@@ -253,7 +298,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
         }
         // Always sort by original paste order
         return [...filtered].sort((a, b) => a.originalIndex - b.originalIndex);
-    }, [images, activeCategory, activeTags, activeRatio]);
+    }, [images, activeFilters, activeTags, activeRatio, dimensions]);
 
     const classifiedCount = images.filter(img => img.classified).length;
 
@@ -496,6 +541,118 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
         return () => document.removeEventListener('paste', handlePaste);
     }, [addImages, toast, loadUrlsToGallery]);
 
+    // ======== Multi-select assign categories/tags to a dimension ========
+    const togglePendingAssign = (source: string, value: string) => {
+        setPendingAssignItems(prev => {
+            const exists = prev.some(p => p.source === source && p.value === value);
+            if (exists) return prev.filter(p => !(p.source === source && p.value === value));
+            return [...prev, { source, value }];
+        });
+    };
+
+    const applyAssignToDimension = (targetDimName: string) => {
+        if (!targetDimName.trim() || pendingAssignItems.length === 0) return;
+        const dimName = targetDimName.trim();
+
+        // Collect all unique values to add to the dimension
+        const newValues = [...new Set(pendingAssignItems.map(p => p.value))];
+
+        // Ensure the target dimension exists in config
+        const existingDim = dimensions.find(d => d.name === dimName);
+        if (!existingDim) {
+            setDimensions(prev => [...prev, {
+                id: `dim-${Date.now()}`,
+                name: dimName,
+                categories: newValues,
+                inputValue: '',
+            }]);
+        } else {
+            const toAdd = newValues.filter(v => !existingDim.categories.includes(v));
+            if (toAdd.length > 0) {
+                setDimensions(prev => prev.map(d => d.id === existingDim.id
+                    ? { ...d, categories: [...d.categories, ...toAdd] }
+                    : d
+                ));
+            }
+        }
+
+        // If any source is auto-classify "分类", promote it first
+        const hasAutoSource = pendingAssignItems.some(p => p.source === '分类');
+        if (hasAutoSource && !dimensions.some(d => d.name === '分类')) {
+            const uniqueCats = new Set<string>();
+            images.forEach(img => { if (img.category) uniqueCats.add(img.category); });
+            setDimensions(prev => {
+                if (prev.some(d => d.name === '分类')) return prev;
+                return [...prev, {
+                    id: `dim-auto-${Date.now()}`,
+                    name: '分类',
+                    categories: [...uniqueCats].filter(c => c !== '其他' && c !== '未识别'),
+                    inputValue: '',
+                }];
+            });
+        }
+
+        // Batch update images
+        let totalCount = 0;
+        setImages(prev => prev.map(img => {
+            const baseCats = { ...img.categories };
+            if (img.category && !baseCats['分类'] && hasAutoSource) {
+                baseCats['分类'] = img.category;
+            }
+
+            let matched = false;
+            for (const item of pendingAssignItems) {
+                let itemMatches = false;
+                if (item.source === '__tag__') {
+                    itemMatches = !!(img.tags && img.tags.includes(item.value));
+                } else if (img.categories?.[item.source] === item.value) {
+                    itemMatches = true;
+                } else if (!img.categories && img.category === item.value && item.source === '分类') {
+                    itemMatches = true;
+                }
+                if (itemMatches) {
+                    baseCats[dimName] = item.value;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) return img;
+            totalCount++;
+            return { ...img, categories: baseCats };
+        }));
+
+        toast.success(`已将 ${totalCount} 张图片的 ${pendingAssignItems.length} 个分类/标签指定到维度「${dimName}」`);
+        setPendingAssignItems([]);
+    };
+
+    // ======== Promote auto-classification to a named dimension ========
+    const promoteAutoToDimension = (dimName: string) => {
+        if (!dimName.trim()) return;
+        const name = dimName.trim();
+        // Collect all unique auto-category values
+        const uniqueCats = new Set<string>();
+        images.forEach(img => {
+            if (img.category) uniqueCats.add(img.category);
+        });
+        // Create the dimension
+        const newDim: ClassificationDimension = {
+            id: `dim-${Date.now()}`,
+            name,
+            categories: [...uniqueCats].filter(c => c !== '其他' && c !== '未识别'),
+            inputValue: '',
+        };
+        setDimensions(prev => [...prev, newDim]);
+        // Transfer category -> categories[dimName] for all images
+        setImages(prev => prev.map(img => {
+            if (!img.category) return img;
+            return {
+                ...img,
+                categories: { ...img.categories, [name]: img.category },
+            };
+        }));
+        toast.success(`已将自动分类结果保存为维度「${name}」，包含 ${uniqueCats.size} 个分类`);
+    };
+
     // ======== AI Classification ========
     const handleClassify = async () => {
         const ai = getAiInstance();
@@ -504,7 +661,21 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
             return;
         }
 
-        const unclassified = images.filter(img => !img.classified);
+        // Determine which images need classification
+        // "Supplement" mode: if all images are classified but new dimensions are configured,
+        // re-classify images that are missing values for configured dimensions
+        const activeDimsPrecheck = dimensions.filter(d => d.name.trim());
+        const needsClassification = (img: SorterImage): boolean => {
+            if (!img.classified) return true;
+            if (img.loadFailed) return false;
+            // If there are configured dimensions, check if any dimension is missing a value
+            if (activeDimsPrecheck.length > 0) {
+                return activeDimsPrecheck.some(d => !img.categories?.[d.name.trim()]);
+            }
+            return false;
+        };
+
+        const unclassified = images.filter(needsClassification);
         if (unclassified.length === 0) {
             toast.info('所有图片都已分类');
             return;
@@ -514,7 +685,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
         abortRef.current = false;
         setProgress({ done: 0, total: unclassified.length });
 
-        const userCats = userCategories;
+        const userCats = dimensions.length > 0 ? dimensions[0].categories : [];
+        const activeDims = dimensions.filter(d => d.name.trim());
 
         const batches: SorterImage[][] = [];
         for (let i = 0; i < unclassified.length; i += imageBatchSize) {
@@ -526,9 +698,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
         // Process batches concurrently with BATCH_CONCURRENCY workers
         let batchIdx = 0;
 
-        const classifySingle = async (item: SorterImage): Promise<{ category: string; tags: string[] }> => {
+        const classifySingle = async (item: SorterImage): Promise<{ category: string; tags: string[]; categories?: Record<string, string> }> => {
             if (!item.src || item.loadFailed) {
-                return { category: userCats.length > 0 ? '其他' : '未识别', tags: [] };
+                const defaultCats: Record<string, string> = {};
+                activeDims.forEach(d => { defaultCats[d.name] = '其他'; });
+                return { category: userCats.length > 0 ? '其他' : '未识别', tags: [], categories: defaultCats };
             }
 
             try {
@@ -544,15 +718,35 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 ];
 
                 let prompt = `你是一个图片分类标签专家。请分析这 1 张图片。\n\n`;
-                if (userCats.length > 0) {
+
+                if (activeDims.length > 0) {
+                    // Multi-dimension prompt
+                    prompt += `请按以下 ${activeDims.length} 个维度分别分类：\n\n`;
+                    activeDims.forEach((dim, i) => {
+                        prompt += `【维度${i + 1}: ${dim.name}】`;
+                        if (dim.categories.length > 0) {
+                            prompt += `请从以下分类中选择一个，必须逐字匹配：\n`;
+                            prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                            prompt += `不匹配时返回"其他"。\n\n`;
+                        } else {
+                            prompt += `请自动判断最合适的分类。\n\n`;
+                        }
+                    });
+                } else if (userCats.length > 0) {
                     prompt += `【主分类】请严格从以下分类中选择一个，必须逐字匹配：\n`;
                     prompt += userCats.map(c => `"${c}"`).join('、') + '\n';
                     prompt += `不匹配时返回"其他"。\n\n`;
                 } else {
                     prompt += `【主分类】请输出最合适的主分类。\n\n`;
                 }
+
                 prompt += `【标签】输出 3-5 个中文标签。\n`;
-                prompt += `只返回 JSON，不要 markdown：{"category":"分类名","tags":["标签1","标签2"]}`;
+                if (activeDims.length > 0) {
+                    const dimFields = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
+                    prompt += `只返回 JSON，不要 markdown：{"categories":{${dimFields}},"tags":["\u6807\u7b7e1","\u6807\u7b7e2"]}`;
+                } else {
+                    prompt += `只返回 JSON，不要 markdown：{"category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2"]}`;
+                }
                 parts.push({ text: prompt });
 
                 const response = await ai.models.generateContent({
@@ -571,9 +765,22 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 }
                 if (Array.isArray(parsed)) parsed = parsed[0] || {};
 
+                // Parse multi-dimension categories
+                const categories: Record<string, string> = {};
+                if (parsed.categories && typeof parsed.categories === 'object') {
+                    for (const dim of activeDims) {
+                        categories[dim.name] = normalizeCategoryWithUserCats(parsed.categories[dim.name], dim.categories);
+                    }
+                }
+
+                const primaryCategory = activeDims.length > 0
+                    ? (categories[activeDims[0].name] || '其他')
+                    : normalizeCategoryWithUserCats(parsed.category, userCats);
+
                 return {
-                    category: normalizeCategoryWithUserCats(parsed.category, userCats),
+                    category: primaryCategory,
                     tags: normalizeTags(parsed.tags),
+                    categories: Object.keys(categories).length > 0 ? categories : undefined,
                 };
             } catch {
                 return { category: userCats.length > 0 ? '其他' : '未识别', tags: [] };
@@ -613,14 +820,28 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 let results: Array<{
                     index: number;
                     ref?: string;
-                    category: string;
+                    category?: string;
+                    categories?: Record<string, string>;
                     tags: string[];
                 }> = [];
 
                 if (sentCount > 0) {
                     let prompt = `你是一个图片分类标签专家。请分析以下 ${sentCount} 张图片。\n\n`;
 
-                    if (userCats.length > 0) {
+                    if (activeDims.length > 0) {
+                        // Multi-dimension prompt
+                        prompt += `请按以下 ${activeDims.length} 个维度分别分类：\n\n`;
+                        activeDims.forEach((dim, i) => {
+                            prompt += `【维度${i + 1}: ${dim.name}】`;
+                            if (dim.categories.length > 0) {
+                                prompt += `请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
+                                prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                                prompt += `⚠️ 分类名必须与上面完全一致，逐字匹配。不属于以上任何分类，使用"其他"。\n\n`;
+                            } else {
+                                prompt += `请根据图片内容自动判断一个最合适的分类。\n\n`;
+                            }
+                        });
+                    } else if (userCats.length > 0) {
                         prompt += `【主分类】请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
                         prompt += userCats.map(c => `"${c}"`).join('、') + '\n';
                         prompt += `⚠️ 分类名必须与上面完全一致，逐字匹配。例如用户给 "没人" 就必须返回 "没人"，不能返回 "无人"。\n`;
@@ -631,7 +852,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
 
                     prompt += `【标签】同时为每张图片生成 3-5 个描述性标签（必须使用中文），涵盖：内容主体、色调/配色、构图风格、情绪氛围等。\n\n`;
                     prompt += `请严格按以下 JSON 格式返回（不要有其他文字，不要有 markdown 代码块）：\n`;
-                    prompt += `[{"index":1,"ref":"REF_1_xxxx","category":"分类名","tags":["标签1","标签2","标签3"]},{"index":2,...}]\n`;
+                    if (activeDims.length > 0) {
+                        const dimFieldsExample = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
+                        prompt += `[{"index":1,"ref":"REF_1_xxxx","categories":{${dimFieldsExample}},"tags":["\u6807\u7b7e1","\u6807\u7b7e2"]},{"index":2,...}]\n`;
+                    } else {
+                        prompt += `[{"index":1,"ref":"REF_1_xxxx","category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2","\u6807\u7b7e3"]},{"index":2,...}]\n`;
+                    }
                     prompt += `注意：ref 字段必须原样回填为你看到的 REF 值，不可改写。`;
 
                     parts.push({ text: prompt });
@@ -655,7 +881,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                     }
                 }
 
-                const mapped = new Map<number, { category: string; tags: string[] }>();
+                const mapped = new Map<number, { category: string; tags: string[]; categories?: Record<string, string> }>();
                 const assignedBatchIndices = new Set<number>();
                 const unresolved: typeof results = [];
 
@@ -676,9 +902,20 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                         continue;
                     }
 
+                    // Parse multi-dimension categories from batch result
+                    const categories: Record<string, string> = {};
+                    if (r.categories && typeof r.categories === 'object') {
+                        for (const dim of activeDims) {
+                            categories[dim.name] = normalizeCategoryWithUserCats(r.categories[dim.name], dim.categories);
+                        }
+                    }
+
                     mapped.set(mappedBatchIdx, {
-                        category: normalizeCategoryWithUserCats(r.category, userCats),
+                        category: activeDims.length > 0
+                            ? (categories[activeDims[0].name] || normalizeCategoryWithUserCats(r.category, userCats))
+                            : normalizeCategoryWithUserCats(r.category, userCats),
                         tags: normalizeTags(r.tags),
+                        categories: Object.keys(categories).length > 0 ? categories : undefined,
                     });
                     assignedBatchIndices.add(mappedBatchIdx);
                 }
@@ -732,9 +969,17 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                     if (bIdx === undefined) return img;
                     const result = mapped.get(bIdx);
                     if (!result) return img;
+                    // Merge: preserve existing categories, add/update new ones
+                    const mergedCategories = { ...img.categories };
+                    if (result.categories) {
+                        for (const [k, v] of Object.entries(result.categories)) {
+                            mergedCategories[k] = v;
+                        }
+                    }
                     return {
                         ...img,
                         category: result.category,
+                        categories: Object.keys(mergedCategories).length > 0 ? mergedCategories : result.categories,
                         tags: result.tags,
                         classified: true,
                     };
@@ -812,7 +1057,15 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
             .sort((a, b) => a.originalIndex - b.originalIndex);
 
         const lines: string[] = [];
-        const header = ['序号', '图片', '分类', '标签', '比例', '尺寸', '状态', '文件名', '来源链接'];
+        // Build header with per-dimension category columns
+        const dimNames = effectiveDimNames;
+        const header = ['序号', '图片'];
+        if (dimNames.length > 0) {
+            dimNames.forEach(name => header.push(name));
+        } else {
+            header.push('分类');
+        }
+        header.push('标签', '比例', '尺寸', '状态', '文件名', '来源链接');
         lines.push(header.join('\t'));
         let hasUrl = false;
         for (let i = 0; i < ordered.length; i++) {
@@ -821,22 +1074,32 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 ? `=IMAGE("${img.originalUrl.replace(/"/g, '""')}")`
                 : (img.loadFailed ? '[加载失败]' : `[\u672c\u5730\u56fe\u7247: ${img.name}]`);
             if (img.originalUrl) hasUrl = true;
-            const category = img.category?.trim() || (img.classified ? '未识别' : '未分类');
             const tags = (img.tags && img.tags.length > 0) ? img.tags.join('\u3001') : '-';
             const ratio = img.aspectRatio || '-';
             const size = (img.width && img.height) ? `${img.width}×${img.height}` : '-';
             const status = img.loadFailed ? '加载失败' : (img.classified ? '已分类' : '未分类');
-            const row = [
+            const row: string[] = [
                 String(i + 1),
-                imageFormula, // keep formula raw so Sheets can evaluate
-                escapeTsvCell(category),
+                imageFormula,
+            ];
+            // Add per-dimension category values
+            if (dimNames.length > 0) {
+                dimNames.forEach(name => {
+                    const catVal = img.categories?.[name] || img.category || (img.classified ? '未识别' : '未分类');
+                    row.push(escapeTsvCell(catVal));
+                });
+            } else {
+                const category = img.category?.trim() || (img.classified ? '未识别' : '未分类');
+                row.push(escapeTsvCell(category));
+            }
+            row.push(
                 escapeTsvCell(tags),
                 escapeTsvCell(ratio),
                 escapeTsvCell(size),
                 escapeTsvCell(status),
                 escapeTsvCell(img.name || ''),
                 escapeTsvCell(img.originalUrl || '-'),
-            ];
+            );
             lines.push(row.join('\t'));
         }
         const tsv = lines.join('\n');
@@ -872,7 +1135,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
     const clearAll = () => {
         setImages([]);
         setSelectedIds(new Set());
-        setActiveCategory(null);
+        setActiveFilters({});
         setActiveTags(new Set());
         setActiveRatio(null);
         nextIndexRef.current = 0;
@@ -932,7 +1195,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 <div className="is-toolbar-stats">
                     <span>📷 {images.length} 张</span>
                     {classifiedCount > 0 && <span>✅ {classifiedCount} 已分类</span>}
-                    {allCategories.size > 0 && <span>📁 {allCategories.size} 个分类</span>}
+                    {allCategoriesByDim.size > 0 && <span>📁 {allCategoriesByDim.size} 个维度 / {[...allCategoriesByDim.values()].reduce((sum, m) => sum + m.size, 0)} 个分类</span>}
                     {allTags.size > 0 && <span>🏷️ {allTags.size} 个标签</span>}
                     {allRatios.size > 0 && <span>📐 {allRatios.size} 种比例</span>}
                 </div>
@@ -988,16 +1251,27 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                     </button>
 
                     {!classifying ? (
-                        <button
-                            className="is-btn is-btn-primary"
-                            onClick={handleClassify}
-                            disabled={images.length === 0}
-                        >
-                            <Sparkles size={14} />
-                            {classifiedCount > 0
-                                ? `继续分类 (${images.length - classifiedCount} 张, 批次${imageBatchSize})`
-                                : `开始 AI 分类 (${images.length} 张, 批次${imageBatchSize})`}
-                        </button>
+                        <>
+                            <button
+                                className="is-btn is-btn-primary"
+                                onClick={handleClassify}
+                                disabled={images.length === 0}
+                            >
+                                <Sparkles size={14} />
+                                {(() => {
+                                    const activeDimsCheck = dimensions.filter(d => d.name.trim());
+                                    const supplementCount = classifiedCount > 0 && activeDimsCheck.length > 0
+                                        ? images.filter(img => img.classified && !img.loadFailed && activeDimsCheck.some(d => !img.categories?.[d.name.trim()])).length
+                                        : 0;
+                                    if (supplementCount > 0) {
+                                        return `补充分类 (${supplementCount} 张缺少维度)`;
+                                    }
+                                    return classifiedCount > 0
+                                        ? `继续分类 (${images.length - classifiedCount} 张, 批次${imageBatchSize})`
+                                        : `开始 AI 分类 (${images.length} 张, 批次${imageBatchSize})`;
+                                })()}
+                            </button>
+                        </>
                     ) : (
                         <button
                             className="is-btn is-btn-danger"
@@ -1022,51 +1296,82 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 </div>
             </div>
 
-            {/* Config: user categories - chip mode */}
+            {/* Config: multi-dimension classification */}
             <div className="is-config-panel">
-                <div className="is-config-row">
-                    <span className="is-config-label">自定义分类：</span>
-                    <div className="is-chips-wrapper">
-                        {userCategories.map((cat, i) => (
-                            <span key={i} className="is-chip">
-                                {cat}
-                                <button
-                                    className="is-chip-remove"
-                                    onClick={() => setUserCategories(prev => prev.filter((_, idx) => idx !== i))}
-                                    disabled={classifying}
-                                >×</button>
-                            </span>
-                        ))}
+                {dimensions.map((dim, dimIdx) => (
+                    <div key={dim.id} className="is-config-row" style={{ marginBottom: dimensions.length > 1 ? 6 : 0 }}>
                         <input
                             className="is-chips-input"
-                            placeholder={userCategories.length === 0 ? '输入分类名按回车添加，或从表格粘贴。留空则 AI 自动分类' : '继续添加...'}
-                            value={catInput}
-                            onChange={e => setCatInput(e.target.value)}
+                            style={{ width: 80, flexShrink: 0, fontWeight: 600, borderRight: '1px solid rgba(255,255,255,0.1)', marginRight: 6 }}
+                            placeholder="维度名"
+                            value={dim.name}
                             disabled={classifying}
-                            onKeyDown={e => {
-                                if (e.key === 'Enter' && catInput.trim()) {
-                                    e.preventDefault();
-                                    const newCats = catInput.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
-                                    setUserCategories(prev => [...prev, ...newCats.filter(c => !prev.includes(c))]);
-                                    setCatInput('');
-                                } else if (e.key === 'Backspace' && !catInput && userCategories.length > 0) {
-                                    setUserCategories(prev => prev.slice(0, -1));
-                                }
-                            }}
-                            onPaste={e => {
-                                const text = e.clipboardData.getData('text/plain');
-                                if (text.includes('\t') || text.includes('\n') || text.includes(',') || text.includes('，') || text.includes('、')) {
-                                    e.preventDefault();
-                                    const newCats = text.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
-                                    setUserCategories(prev => [...prev, ...newCats.filter(c => !prev.includes(c))]);
-                                    setCatInput('');
-                                }
+                            onChange={e => {
+                                setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, name: e.target.value } : d));
                             }}
                         />
+                        <div className="is-chips-wrapper">
+                            {dim.categories.map((cat, catIdx) => (
+                                <span key={catIdx} className="is-chip">
+                                    {cat}
+                                    <button
+                                        className="is-chip-remove"
+                                        onClick={() => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: d.categories.filter((_, ci) => ci !== catIdx) } : d))}
+                                        disabled={classifying}
+                                    >×</button>
+                                </span>
+                            ))}
+                            <input
+                                className="is-chips-input"
+                                placeholder={dim.categories.length === 0 ? '输入分类选项按回车' : '继续添加...'}
+                                value={dim.inputValue}
+                                onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, inputValue: e.target.value } : d))}
+                                disabled={classifying}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' && dim.inputValue.trim()) {
+                                        e.preventDefault();
+                                        const newCats = dim.inputValue.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
+                                        setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
+                                    } else if (e.key === 'Backspace' && !dim.inputValue && dim.categories.length > 0) {
+                                        setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: d.categories.slice(0, -1) } : d));
+                                    }
+                                }}
+                                onPaste={e => {
+                                    const text = e.clipboardData.getData('text/plain');
+                                    if (text.includes('\t') || text.includes('\n') || text.includes(',') || text.includes('，') || text.includes('、')) {
+                                        e.preventDefault();
+                                        const newCats = text.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
+                                        setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
+                                    }
+                                }}
+                            />
+                        </div>
+                        <span className="is-config-hint" style={{ whiteSpace: 'nowrap' }}>
+                            {dim.categories.length > 0 ? `✅ ${dim.categories.length}` : '🤖 自动'}
+                        </span>
+                        <button
+                            className="is-chip-remove"
+                            style={{ marginLeft: 4, fontSize: 14, opacity: 0.5 }}
+                            onClick={() => setDimensions(prev => prev.filter((_, i) => i !== dimIdx))}
+                            disabled={classifying}
+                            title="删除此维度"
+                        >×</button>
                     </div>
-                    <span className="is-config-hint">
-                        {userCategories.length > 0 ? `✅ ${userCategories.length} 个分类` : '🤖 AI 自动判断分类'}
-                    </span>
+                ))}
+                {dimensions.length === 0 && (
+                    <div className="is-config-row">
+                        <span className="is-config-hint" style={{ opacity: 0.6 }}>🤖 未配置分类维度，AI 将自动判断分类</span>
+                    </div>
+                )}
+                <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0' }}>
+                    <button
+                        className="is-btn is-btn-sm"
+                        onClick={() => setDimensions(prev => [...prev, { id: `dim-${Date.now()}`, name: '', categories: [], inputValue: '' }])}
+                        disabled={classifying}
+                        style={{ fontSize: 11 }}
+                    >
+                        <Plus size={12} /> 添加分类维度
+                    </button>
                 </div>
             </div>
 
@@ -1086,25 +1391,106 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                 </div>
             )}
 
-            {/* Category filter tabs */}
-            {allCategories.size > 0 && (
-                <div className="is-filter-bar">
-                    <Filter size={14} style={{ color: '#888', flexShrink: 0 }} />
+            {/* Per-dimension category filter tabs */}
+            {[...allCategoriesByDim.entries()].map(([dimName, catMap]) => (
+                <div key={dimName} className="is-filter-bar">
+                    <span style={{ color: '#888', flexShrink: 0, fontSize: '11px', fontWeight: 600, marginRight: 2 }}>📁 {dimName}</span>
                     <button
-                        className={`is-filter-tab ${activeCategory === null ? 'active' : ''}`}
-                        onClick={() => setActiveCategory(null)}
+                        className={`is-filter-tab ${!activeFilters[dimName] ? 'active' : ''}`}
+                        onClick={() => setActiveFilters(prev => ({ ...prev, [dimName]: null }))}
                     >
                         全部 <span className="is-tab-count">({images.length})</span>
                     </button>
-                    {[...allCategories.entries()].map(([cat, count]) => (
-                        <button
-                            key={cat}
-                            className={`is-filter-tab ${activeCategory === cat ? 'active' : ''}`}
-                            onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-                        >
-                            {cat} <span className="is-tab-count">({count})</span>
-                        </button>
+                    {[...catMap.entries()].map(([cat, count]) => {
+                        const isPending = pendingAssignItems.some(p => p.source === dimName && p.value === cat);
+                        return (
+                            <span key={cat} style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
+                                <button
+                                    className={`is-filter-tab ${activeFilters[dimName] === cat ? 'active' : ''}`}
+                                    onClick={() => setActiveFilters(prev => ({ ...prev, [dimName]: prev[dimName] === cat ? null : cat }))}
+                                >
+                                    {cat} <span className="is-tab-count">({count})</span>
+                                </button>
+                                <button
+                                    className="is-chip-remove"
+                                    style={{ fontSize: 10, opacity: isPending ? 1 : 0.4, padding: '0 2px', marginLeft: -4, color: isPending ? '#a78bfa' : undefined }}
+                                    title={isPending ? `取消选择「${cat}」` : `将「${cat}」下的 ${count} 张图片指定到维度`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        togglePendingAssign(dimName, cat);
+                                    }}
+                                >{isPending ? '✓' : '→'}</button>
+                            </span>
+                        );
+                    })}
+                </div>
+            ))}
+
+            {/* Assignment panel - appears when items are pending */}
+            {pendingAssignItems.length > 0 && (
+                <div className="is-filter-bar" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', background: 'rgba(100,80,255,0.08)', borderLeft: '3px solid rgba(100,80,255,0.4)' }}>
+                    <span style={{ color: '#aaa', fontSize: 11, whiteSpace: 'nowrap' }}>
+                        已选 {pendingAssignItems.length} 个:
+                    </span>
+                    {pendingAssignItems.map((item, i) => (
+                        <span key={i} className="is-chip" style={{ fontSize: 10, padding: '1px 6px' }}>
+                            {item.source === '__tag__' ? `🏷${item.value}` : item.value}
+                            <button className="is-chip-remove" onClick={() => togglePendingAssign(item.source, item.value)}>×</button>
+                        </span>
                     ))}
+                    <span style={{ color: '#888', fontSize: 11 }}>→ 维度:</span>
+                    {/* Pick existing dimension or create new */}
+                    <select
+                        className="is-batch-control-select"
+                        style={{ fontSize: 11, minWidth: 80 }}
+                        value={assignIsNewDim ? '__new__' : assignTargetDim}
+                        onChange={e => {
+                            if (e.target.value === '__new__') {
+                                setAssignIsNewDim(true);
+                                setAssignTargetDim('');
+                            } else {
+                                setAssignIsNewDim(false);
+                                setAssignTargetDim(e.target.value);
+                            }
+                        }}
+                    >
+                        <option value="__new__">+ 新维度...</option>
+                        {dimensions.map(d => (
+                            <option key={d.id} value={d.name}>{d.name}</option>
+                        ))}
+                    </select>
+                    {assignIsNewDim && (
+                        <input
+                            className="is-chips-input"
+                            style={{ width: 80, padding: '2px 6px', fontSize: 11 }}
+                            value={assignTargetDim}
+                            onChange={e => setAssignTargetDim(e.target.value)}
+                            placeholder="维度名"
+                            autoFocus
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && assignTargetDim.trim()) {
+                                    applyAssignToDimension(assignTargetDim);
+                                } else if (e.key === 'Escape') {
+                                    setPendingAssignItems([]);
+                                }
+                            }}
+                        />
+                    )}
+                    <button
+                        className="is-btn is-btn-sm is-btn-primary"
+                        onClick={() => applyAssignToDimension(assignTargetDim)}
+                        disabled={!assignTargetDim.trim()}
+                        style={{ fontSize: 11 }}
+                    >
+                        <Check size={12} /> 确定
+                    </button>
+                    <button
+                        className="is-btn is-btn-sm"
+                        onClick={() => setPendingAssignItems([])}
+                        style={{ fontSize: 11 }}
+                    >
+                        取消
+                    </button>
                 </div>
             )}
 
@@ -1133,15 +1519,28 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
             {/* Tag cloud */}
             {allTags.size > 0 && (
                 <div className="is-tag-cloud">
-                    {[...allTags.entries()].slice(0, 50).map(([tag, count]) => (
-                        <button
-                            key={tag}
-                            className={`is-tag ${activeTags.has(tag) ? 'active' : ''}`}
-                            onClick={() => toggleTag(tag)}
-                        >
-                            {tag} <span className="is-tag-count">({count})</span>
-                        </button>
-                    ))}
+                    {[...allTags.entries()].slice(0, 50).map(([tag, count]) => {
+                        const isPending = pendingAssignItems.some(p => p.source === '__tag__' && p.value === tag);
+                        return (
+                            <span key={tag} style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
+                                <button
+                                    className={`is-tag ${activeTags.has(tag) ? 'active' : ''}`}
+                                    onClick={() => toggleTag(tag)}
+                                >
+                                    {tag} <span className="is-tag-count">({count})</span>
+                                </button>
+                                <button
+                                    className="is-chip-remove"
+                                    style={{ fontSize: 9, opacity: isPending ? 1 : 0.3, padding: '0 1px', marginLeft: -2, color: isPending ? '#a78bfa' : undefined }}
+                                    title={isPending ? `取消选择「${tag}」` : `将带「${tag}」标签的 ${count} 张图片指定到维度`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        togglePendingAssign('__tag__', tag);
+                                    }}
+                                >{isPending ? '✓' : '→'}</button>
+                            </span>
+                        );
+                    })}
                 </div>
             )}
 
@@ -1173,9 +1572,17 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
 
                         {img.classified && (
                             <div className="is-gallery-overlay">
-                                {img.category && (
+                                {img.categories && Object.keys(img.categories).length > 0 ? (
+                                    <div className="is-gallery-category" style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                        {Object.entries(img.categories).map(([dimName, catVal]) => (
+                                            <span key={dimName} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                                <span style={{ opacity: 0.7, fontSize: '9px' }}>{dimName}:</span>{catVal}
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : img.category ? (
                                     <div className="is-gallery-category">{img.category}</div>
-                                )}
+                                ) : null}
                                 {img.tags && img.tags.length > 0 && (
                                     <div className="is-gallery-tags">
                                         {img.tags.slice(0, 4).map((tag, i) => (

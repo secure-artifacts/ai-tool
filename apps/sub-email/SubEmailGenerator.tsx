@@ -65,9 +65,15 @@ interface PasswordOptions {
 }
 
 // Fisher-Yates shuffle
+function secureRandomInt(max: number): number {
+    const arr = new Uint32Array(1);
+    crypto.getRandomValues(arr);
+    return arr[0] % max;
+}
+
 function shuffleInPlace<T>(array: T[]): T[] {
     for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = secureRandomInt(i + 1);
         [array[i], array[j]] = [array[j], array[i]];
     }
     return array;
@@ -95,7 +101,7 @@ function generatePassword(length: number, opts: PasswordOptions): string {
 
     let password = '';
     for (let i = 0; i < length; i++) {
-        password += pool[Math.floor(Math.random() * pool.length)];
+        password += pool[secureRandomInt(pool.length)];
     }
     return password;
 }

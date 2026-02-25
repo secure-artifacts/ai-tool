@@ -47,7 +47,10 @@ export interface CreateSessionInput {
  * 生成唯一 ID
  */
 const generateId = (): string => {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const arr = new Uint8Array(8);
+    crypto.getRandomValues(arr);
+    const hex = Array.from(arr, b => b.toString(36)).join('').slice(0, 9);
+    return `${Date.now()}-${hex}`;
 };
 
 /**
