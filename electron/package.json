@@ -18,6 +18,7 @@
     "build": {
         "appId": "com.iten.ai-toolkit",
         "productName": "AI创作工具包",
+        "artifactName": "ai-creative-toolkit-${version}-${arch}.${ext}",
         "directories": {
             "output": "../dist-electron"
         },
