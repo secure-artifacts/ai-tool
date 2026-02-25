@@ -8479,14 +8479,12 @@ ${itemEffectiveInstruction}
                                                 // 检查是否有 HTML 内容（如从 Google Sheets 粘贴）
                                                 const html = clipboardData.getData('text/html');
                                                 if (html) {
-                                                    const tempDiv = document.createElement('div');
-                                                    tempDiv.innerHTML = html;
-                                                    const imgs = tempDiv.querySelectorAll('img');
+                                                    const parsedDoc = new DOMParser().parseFromString(html, 'text/html');
+                                                    const imgs = parsedDoc.querySelectorAll('img');
                                                     if (imgs.length > 0) {
                                                         const decodeHtml = (str: string) => {
-                                                            const txt = document.createElement('textarea');
-                                                            txt.innerHTML = str;
-                                                            return txt.value;
+                                                            const decoded = new DOMParser().parseFromString(str, 'text/html');
+                                                            return decoded.documentElement.textContent || '';
                                                         };
 
                                                         const urls = Array.from(imgs).map(img => {
