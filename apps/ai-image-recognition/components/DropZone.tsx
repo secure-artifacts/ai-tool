@@ -101,8 +101,7 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
         }
 
         // Handle HTML paste if applicable
-        const doc = new DOMParser().parseFromString(textInput, 'text/html');
-        const hasImages = doc.querySelectorAll('img').length > 0;
+        const hasImages = /<img[^>]+src=["'][^"']+["'][^>]*>/i.test(textInput);
 
         if (hasImages && onHtmlPasted) {
             const urls = extractUrlsFromHtml(textInput);

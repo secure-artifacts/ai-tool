@@ -1938,7 +1938,7 @@ export const generateRandomCombination = (config: RandomLibraryConfig): string =
             const picked = useCategoryLink
                 ? pickRandomValuesWithCategory(lib, selectedCategory)
                 : pickRandomValues(lib);
-            result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), picked.join('、'));
+            result = result.replace(new RegExp(escapeRegExp(placeholder), 'g'), picked.join('、'));
         }
     }
 
@@ -2006,7 +2006,7 @@ export const generateRandomCombinationAsync = async (
             const picked = libraryHasImageUrls(lib)
                 ? await pickRandomValuesAsync(lib, aiDescribe)
                 : (useCategoryLink ? pickRandomValuesWithCategory(lib, selectedCategory) : pickRandomValues(lib));
-            result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), picked.join('、'));
+            result = result.replace(new RegExp(escapeRegExp(placeholder), 'g'), picked.join('、'));
         }
     }
 

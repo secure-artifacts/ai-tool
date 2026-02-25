@@ -136,44 +136,43 @@ const parseHtmlTableRows = (html: string): { cells: string[]; images: string[] }
     const results: { cells: string[]; images: string[] }[] = [];
 
     try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const rows = doc.querySelectorAll('tr');
+        const stripTags = (s: string): string => s.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').trim();
+        const extractImgSrcs = (s: string): string[] => {
+            const srcs: string[] = [];
+            const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+            let m;
+            while ((m = imgRegex.exec(s)) !== null) srcs.push(m[1]);
+            return srcs;
+        };
 
-        if (rows.length === 0) {
-            // 没有 tr 标签，尝试直接查找 td
-            const cells = doc.querySelectorAll('td');
-            if (cells.length > 0) {
-                const cellTexts = Array.from(cells).map(cell =>
-                    (cell.textContent || '').trim()
-                );
-                const images = Array.from(cells).flatMap(cell =>
-                    Array.from(cell.querySelectorAll('img')).map(img => img.src)
-                );
+        const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+        const trMatches = [...html.matchAll(trRegex)];
+
+        if (trMatches.length === 0) {
+            // No tr tags, try to find td directly
+            const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+            const tdMatches = [...html.matchAll(tdRegex)];
+            if (tdMatches.length > 0) {
+                const cellTexts = tdMatches.map(m => stripTags(m[1]));
+                const images = tdMatches.flatMap(m => extractImgSrcs(m[1]));
                 results.push({ cells: cellTexts, images });
             }
             return results;
         }
 
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td, th');
-            if (cells.length === 0) return;
+        for (const trMatch of trMatches) {
+            const rowHtml = trMatch[1];
+            const cellRegex = /<(?:td|th)[^>]*>([\s\S]*?)<\/(?:td|th)>/gi;
+            const cellMatches = [...rowHtml.matchAll(cellRegex)];
+            if (cellMatches.length === 0) continue;
 
-            const getCellText = (cell: Element): string => {
-                const clone = cell.cloneNode(true) as Element;
-                clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-                return (clone.textContent || '').trim();
-            };
-
-            const cellTexts = Array.from(cells).map(cell => getCellText(cell));
-            const images = Array.from(cells).flatMap(cell =>
-                Array.from(cell.querySelectorAll('img')).map(img => img.src)
-            );
+            const cellTexts = cellMatches.map(m => stripTags(m[1]));
+            const images = cellMatches.flatMap(m => extractImgSrcs(m[1]));
 
             if (cellTexts.some(t => t) || images.length > 0) {
                 results.push({ cells: cellTexts, images });
             }
-        });
+        }
     } catch (e) {
         console.error('[parseHtmlTableRows] Error:', e);
     }
