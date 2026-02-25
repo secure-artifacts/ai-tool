@@ -411,7 +411,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance }) => {
                     console.warn('图片加载失败:', fetchUrl, err);
                     const placeholder: SorterImage = {
                         id: `img-fail-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        src: '',
+                        // Fallback: keep original URL so browser can still try to render it.
+                        src: displayUrl || fetchUrl,
                         originalUrl: displayUrl,
                         name: `图片-${job.index + 1}`,
                         classified: true,

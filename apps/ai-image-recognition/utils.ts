@@ -87,21 +87,116 @@ export const decodeHtmlEntities = (text: string): string => {
     return decoded;
 };
 
+const collectUrlsFromString = (text: string): string[] => {
+    if (!text) return [];
+    const urls: string[] = [];
+
+    const addUrl = (raw: string) => {
+        const decoded = decodeHtmlEntities(String(raw || '').trim());
+        if (!decoded) return;
+        if (!/^https?:\/\//i.test(decoded)) return;
+        urls.push(decoded);
+    };
+
+    // =IMAGE(HYPERLINK("url", ...), ...)
+    const imageHyperlinkRegex = /=IMAGE\s*\(\s*HYPERLINK\s*\(\s*(?:"([^"]+)"|'([^']+)'|([^,\)\s]+))/gi;
+    for (const m of text.matchAll(imageHyperlinkRegex)) {
+        addUrl(m[1] || m[2] || m[3] || '');
+    }
+
+    // =IMAGE("url", ...), =IMAGE('url', ...), =IMAGE(url, ...)
+    const imageFormulaRegex = /=IMAGE\s*\(\s*(?:"([^"]+)"|'([^']+)'|([^,\)\s]+))/gi;
+    for (const m of text.matchAll(imageFormulaRegex)) {
+        addUrl(m[1] || m[2] || m[3] || '');
+    }
+
+    // Plain URL in arbitrary text
+    const urlRegex = /https?:\/\/[^\s"'<>\\]+/gi;
+    for (const m of text.matchAll(urlRegex)) {
+        addUrl(m[0]);
+    }
+
+    return urls;
+};
+
 // Extract Image URLs from HTML (for Google Sheets support)
 // Returns both the original URL (for formula reconstruction) and the processed URL (for fetching)
 export const extractUrlsFromHtml = (html: string): { originalUrl: string; fetchUrl: string }[] => {
     try {
-        const results: { originalUrl: string; fetchUrl: string }[] = [];
-        const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
-        let match;
-        while ((match = imgRegex.exec(html)) !== null) {
-            const decodedUrl = decodeHtmlEntities(match[1]);
-            results.push({
-                originalUrl: decodedUrl,
-                fetchUrl: processImageUrl(decodedUrl)
+        const formulaResults: { originalUrl: string; fetchUrl: string }[] = [];
+        const imgResults: { originalUrl: string; fetchUrl: string }[] = [];
+
+        // Prefer Google Sheets' data attrs over <img src> thumbnail URLs.
+        if (typeof DOMParser !== 'undefined') {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+
+            doc.querySelectorAll('[data-sheets-formula]').forEach((el) => {
+                const formula = decodeHtmlEntities(el.getAttribute('data-sheets-formula') || '');
+                for (const url of collectUrlsFromString(formula)) {
+                    formulaResults.push({
+                        originalUrl: url,
+                        fetchUrl: processImageUrl(url),
+                    });
+                }
             });
+
+            doc.querySelectorAll('[data-sheets-value]').forEach((el) => {
+                const raw = decodeHtmlEntities(el.getAttribute('data-sheets-value') || '');
+                if (!raw) return;
+                try {
+                    const parsed = JSON.parse(raw);
+                    const scan = (value: unknown) => {
+                        if (typeof value === 'string') {
+                            for (const url of collectUrlsFromString(value)) {
+                                formulaResults.push({
+                                    originalUrl: url,
+                                    fetchUrl: processImageUrl(url),
+                                });
+                            }
+                            return;
+                        }
+                        if (Array.isArray(value)) {
+                            value.forEach(scan);
+                            return;
+                        }
+                        if (value && typeof value === 'object') {
+                            Object.values(value as Record<string, unknown>).forEach(scan);
+                        }
+                    };
+                    scan(parsed);
+                } catch {
+                    for (const url of collectUrlsFromString(raw)) {
+                        formulaResults.push({
+                            originalUrl: url,
+                            fetchUrl: processImageUrl(url),
+                        });
+                    }
+                }
+            });
+
+            doc.querySelectorAll('img[src]').forEach((img) => {
+                const src = img.getAttribute('src') || '';
+                const decodedUrl = decodeHtmlEntities(src);
+                if (!decodedUrl) return;
+                imgResults.push({
+                    originalUrl: decodedUrl,
+                    fetchUrl: processImageUrl(decodedUrl),
+                });
+            });
+        } else {
+            const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+            let match;
+            while ((match = imgRegex.exec(html)) !== null) {
+                const decodedUrl = decodeHtmlEntities(match[1]);
+                imgResults.push({
+                    originalUrl: decodedUrl,
+                    fetchUrl: processImageUrl(decodedUrl)
+                });
+            }
         }
-        return results;
+
+        if (formulaResults.length > 0) return formulaResults;
+        return imgResults;
     } catch (e) {
         console.error("Error parsing HTML for images:", e);
         return [];
@@ -258,23 +353,42 @@ export const parsePasteInputGrouped = (text: string): PasteGroup[] => {
 
 // Helper to fetch external image and convert to Blob (Handles CORS errors gracefully by trying a proxy)
 export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeType: string }> => {
-    // 优先尝试本地代理（Vite dev server 或 Electron 环境无 CORS 限制）
+    // 优先尝试本地代理（Vite dev server 或 Electron 本地服务器）
     const inElectron = !!(window as any).electronCache?.isElectron;
 
     const tryLocalProxy = async (targetUrl: string): Promise<{ blob: Blob; mimeType: string } | null> => {
+        const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(targetUrl)}`;
         try {
-            const fetchUrl = inElectron
-                ? targetUrl  // Electron 无 CORS 限制，直接 fetch
-                : `/api/image-proxy?url=${encodeURIComponent(targetUrl)}`;
-            const response = await fetch(fetchUrl);
+            const response = await fetch(proxyUrl);
             if (response.ok) {
                 const blob = await response.blob();
-                if (blob.size > 100 && blob.type.startsWith('image/')) {
+                // Some upstreams return application/octet-stream for valid images.
+                // Only reject clear non-image responses.
+                const type = (blob.type || '').toLowerCase();
+                const looksInvalidText = type.startsWith('text/') || type.includes('html') || type.includes('xml') || type.includes('json');
+                if (blob.size > 100 && !looksInvalidText) {
                     return { blob, mimeType: blob.type };
                 }
             }
         } catch (e) {
             // 本地代理不可用（可能是生产环境），继续走外部代理
+        }
+
+        // Electron 下再尝试直连（某些公开 CDN 可直接读）
+        if (inElectron) {
+            try {
+                const response = await fetch(targetUrl);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const type = (blob.type || '').toLowerCase();
+                    const looksInvalidText = type.startsWith('text/') || type.includes('html') || type.includes('xml') || type.includes('json');
+                    if (blob.size > 100 && !looksInvalidText) {
+                        return { blob, mimeType: blob.type };
+                    }
+                }
+            } catch (e) {
+                // ignore and continue with fallback proxies below
+            }
         }
         return null;
     };

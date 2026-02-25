@@ -136,6 +136,61 @@ function createWindow() {
 
         // 创建简单的静态文件服务器
         const server = http.createServer((req, res) => {
+            // 图片代理：统一解决渲染进程跨域加载远程图片问题
+            if (req.url && req.url.startsWith('/api/image-proxy')) {
+                (async () => {
+                    try {
+                        const parsed = new URL(req.url, `http://127.0.0.1:${PORT}`);
+                        const targetUrl = parsed.searchParams.get('url');
+                        if (!targetUrl) {
+                            res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+                            res.end('Missing url parameter');
+                            return;
+                        }
+
+                        let remoteUrl;
+                        try {
+                            remoteUrl = new URL(targetUrl);
+                        } catch {
+                            res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+                            res.end('Invalid url parameter');
+                            return;
+                        }
+
+                        if (!['http:', 'https:'].includes(remoteUrl.protocol)) {
+                            res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+                            res.end('Only http/https is allowed');
+                            return;
+                        }
+
+                        const upstream = await fetch(remoteUrl.toString(), {
+                            redirect: 'follow',
+                        });
+                        if (!upstream.ok) {
+                            res.writeHead(upstream.status, { 'Content-Type': 'text/plain; charset=utf-8' });
+                            res.end(`Upstream error: ${upstream.status}`);
+                            return;
+                        }
+
+                        const arrayBuffer = await upstream.arrayBuffer();
+                        const buffer = Buffer.from(arrayBuffer);
+                        const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+                        res.writeHead(200, {
+                            'Content-Type': contentType,
+                            'Content-Length': String(buffer.length),
+                            'Cache-Control': 'public, max-age=86400',
+                            'Access-Control-Allow-Origin': '*'
+                        });
+                        res.end(buffer);
+                    } catch (err) {
+                        const msg = err && err.message ? err.message : String(err);
+                        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+                        res.end(`Proxy error: ${msg}`);
+                    }
+                })();
+                return;
+            }
+
             // Sanitize URL path to prevent path traversal
             let reqPath = req.url === '/' ? 'index.html' : req.url;
             // Remove query parameters
