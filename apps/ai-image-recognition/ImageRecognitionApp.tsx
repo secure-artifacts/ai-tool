@@ -8483,13 +8483,12 @@ ${itemEffectiveInstruction}
                                                     const imgMatches = [...html.matchAll(imgRegex)];
                                                     if (imgMatches.length > 0) {
                                                         const decodeHtml = (str: string): string => {
-                                                            const entities: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
-                                                            return str.replace(/&(?:#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (m) => {
-                                                                if (m in entities) return entities[m];
-                                                                if (m.startsWith('&#x')) return String.fromCharCode(parseInt(m.slice(3, -1), 16));
-                                                                if (m.startsWith('&#')) return String.fromCharCode(parseInt(m.slice(2, -1), 10));
-                                                                return m;
-                                                            });
+                                                            if (!str || !str.includes('&')) return str;
+                                                            const ta = document.createElement('textarea');
+                                                            ta.innerHTML = str;
+                                                            const v = ta.value;
+                                                            ta.remove();
+                                                            return v;
                                                         };
 
                                                         const urls = imgMatches.map(m => {

@@ -158,17 +158,12 @@ export const copyToClipboard = async (text: string): Promise<boolean> => {
  * 解码 HTML 实体（如 &amp; -> &）
  */
 export const decodeHtmlEntities = (text: string): string => {
-    const entities: Record<string, string> = {
-        '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"',
-        '&#39;': "'", '&apos;': "'", '&#x27;': "'", '&#x2F;': '/',
-        '&nbsp;': ' ', '&#160;': ' ',
-    };
-    return text.replace(/&(?:#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match) => {
-        if (match in entities) return entities[match];
-        if (match.startsWith('&#x')) return String.fromCharCode(parseInt(match.slice(3, -1), 16));
-        if (match.startsWith('&#')) return String.fromCharCode(parseInt(match.slice(2, -1), 10));
-        return match;
-    });
+    if (!text || !text.includes('&')) return text;
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    const decoded = textarea.value;
+    textarea.remove();
+    return decoded;
 };
 
 /**
