@@ -10,7 +10,7 @@
  * 5. 多种复制选项，无空行，直接粘贴到表格
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../../contexts/AuthContext';
@@ -42,7 +42,10 @@ import {
     Tag,
     FileEdit,
     Search,
-    Lightbulb
+    Lightbulb,
+    Scissors,
+    Columns,
+    Library
 } from 'lucide-react';
 import { PresetManager, CopywritingPreset as PresetType } from './PresetManager';
 import {
@@ -76,6 +79,13 @@ interface InstructionResult {
     chatLoading?: boolean;
 }
 
+// 拆分列定义
+interface SplitColumn {
+    id: string;
+    name: string;        // 列名：如 "钩子"、"正文"、"互动语"
+    description: string; // 提取要求：如 "开头吸引注意力的句子"
+}
+
 interface CopywritingItem {
     id: string;
     originalForeign: string;      // 原始外文
@@ -86,6 +96,8 @@ interface CopywritingItem {
     error?: string;
     // 多指令结果
     instructionResults?: InstructionResult[];
+    // 拆分结果
+    splitResults?: Record<string, string>; // columnId -> 提取的内容
     // 折叠状态
     collapsed?: boolean;
     // 单条设置
@@ -96,6 +108,13 @@ interface CopywritingItem {
     chatHistory?: ChatMessage[];
     chatInput?: string;
     chatLoading?: boolean;
+    // 文案库匹配结果
+    libraryMatchedId?: string;
+    libraryMatchedContent?: string;
+    // 文案库：单条指定用哪些库（空=用全局启用的）
+    selectedLibraryIds?: string[];
+    // 多选
+    selected?: boolean;
 }
 
 interface CopywritingPreset {
@@ -305,7 +324,249 @@ const VOICE_MODE_DEFAULT_INSTRUCTION = `根据这个文案帮我加一些情感�
 2. 断句结果 - 根据标签合理断行，用于字幕显示（不带标签）`;
 
 // === 分类模式 ===
-type CopywritingMode = 'standard' | 'voice' | 'classify';
+type CopywritingMode = 'standard' | 'voice' | 'classify' | 'split' | 'library';
+
+// === 文案库模式 ===
+interface LibraryItem {
+    id: string;
+    content: string;
+    weight: number;
+    tags: string;
+    usedCount: number; // 运行时已用次数
+}
+
+interface CopywritingLibrary {
+    id: string;
+    name: string;
+    matchRule: string; // AI判断规则描述
+    maxRepeat: number; // 同一条最多用几次
+    items: LibraryItem[];
+    enabled: boolean;
+    color: string;
+}
+
+const LIB_COLORS = ['#4ade80', '#22d3ee', '#f472b6', '#fb923c', '#facc15', '#818cf8', '#c084fc', '#f87171'];
+
+const DEFAULT_LIBRARY: CopywritingLibrary = {
+    id: 'default_lib',
+    name: '互动语库',
+    matchRule: '根据文案的主题和语气，选择最匹配的互动引导语。优先选择剩余次数多的、优先级高的条目。',
+    maxRepeat: 3,
+    enabled: true,
+    color: LIB_COLORS[0],
+    items: [
+        { id: 'lib1', content: 'Type Amen if you believe 🙏', weight: 10, tags: '信仰,认同', usedCount: 0 },
+        { id: 'lib2', content: 'Share this with someone who needs it ❤️', weight: 5, tags: '分享,关怀', usedCount: 0 },
+        { id: 'lib3', content: 'Comment your favorite verse below 👇', weight: 5, tags: '评论,经文', usedCount: 0 },
+        { id: 'lib4', content: 'Double tap if this speaks to you 🙌', weight: 7, tags: '点赞,共鸣', usedCount: 0 },
+    ]
+};
+
+// Google Sheets 导入工具
+const extractSheetId = (url: string): string | null => {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match ? match[1] : null;
+};
+
+const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+            else { inQuotes = !inQuotes; }
+        } else if (ch === ',' && !inQuotes) {
+            result.push(current); current = '';
+        } else { current += ch; }
+    }
+    result.push(current);
+    return result.map(v => v.trim().replace(/^"|"$/g, ''));
+};
+
+const importLibrariesFromSheets = async (url: string): Promise<CopywritingLibrary[]> => {
+    const spreadsheetId = extractSheetId(url);
+    if (!spreadsheetId) throw new Error('无效的 Google Sheets 链接');
+
+    // === 第1步：发现所有分页名 ===
+    let sheetEntries: { name: string; matchRule: string }[] = [];
+
+    // 方法1：尝试读取目录分页（A列=分页名，B列=使用指令）
+    const catalogNames = ['分页目录', '随机总库目录', '目录', '库列表', 'catalog', 'index'];
+    for (const catName of catalogNames) {
+        try {
+            const catUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(catName)}`;
+            const resp = await fetch(catUrl);
+            if (!resp.ok) continue;
+            const csv = await resp.text();
+            const lines = csv.split('\n').filter(l => l.trim());
+            if (lines.length >= 2) {
+                sheetEntries = lines.slice(1).map(l => {
+                    const cols = parseCSVLine(l);
+                    return { name: cols[0]?.trim() || '', matchRule: cols[1]?.trim() || '' };
+                }).filter(e => e.name);
+                console.log(`[importLibrariesFromSheets] 从目录"${catName}"读取到 ${sheetEntries.length} 个分页`);
+                break;
+            }
+        } catch { continue; }
+    }
+
+    // 方法2：从 HTML 页面解析分页名
+    if (sheetEntries.length === 0) {
+        try {
+            const htmlUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/htmlview`;
+            const resp = await fetch(htmlUrl);
+            if (resp.ok) {
+                const html = await resp.text();
+                const tabMatches = html.matchAll(/id="sheet-button-[^"]*"[^>]*>([^<]+)</g);
+                for (const m of tabMatches) {
+                    const name = m[1].trim();
+                    if (name && !catalogNames.includes(name)) sheetEntries.push({ name, matchRule: '' });
+                }
+                console.log(`[importLibrariesFromSheets] 从 HTML 解析到 ${sheetEntries.length} 个分页:`, sheetEntries.map(e => e.name));
+            }
+        } catch (e) { console.log('[importLibrariesFromSheets] HTML解析失败:', e); }
+    }
+
+    // 方法3：常用名称回退
+    if (sheetEntries.length === 0) {
+        sheetEntries = [
+            '随机总库', '总库', '文案库', 'Master',
+            '场景', '画面风格', '装饰小元素', '道具配件', '其他元素',
+            '人物形象特征', '人物性别', '衣服', '文案', '年龄段', '季节', '天气', '镜头', '人物姿势',
+            '互动语', '标题', '开头语', '结尾语', '话题',
+            'Sheet1', 'Sheet2', 'Sheet3', 'Sheet4', 'Sheet5',
+            '工作表1', '工作表2', '工作表3'
+        ].map(n => ({ name: n, matchRule: '' }));
+    }
+
+    const allLibraries: CopywritingLibrary[] = [];
+    const isMasterSheet = (n: string) => n.includes('随机总库') || n.includes('总库') || n.toLowerCase() === 'master';
+
+    // === 第2步：逐个分页读取 ===
+    for (const entry of sheetEntries) {
+        try {
+            const csvUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(entry.name)}`;
+            const resp = await fetch(csvUrl);
+            if (!resp.ok) continue;
+            const csv = await resp.text();
+            const lines = csv.split('\n').filter(l => l.trim());
+            if (lines.length < 2) continue;
+
+            if (isMasterSheet(entry.name)) {
+                // 总库模式：每列 = 一个小库
+                const headers = parseCSVLine(lines[0]);
+                for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+                    const colName = headers[colIdx]?.trim();
+                    if (!colName) continue;
+                    const items: LibraryItem[] = [];
+                    for (let rowIdx = 1; rowIdx < lines.length; rowIdx++) {
+                        const row = parseCSVLine(lines[rowIdx]);
+                        const val = row[colIdx]?.trim();
+                        if (!val) continue;
+                        items.push({ id: `gs_${entry.name}_${colIdx}_${rowIdx}`, content: val, weight: 5, tags: '', usedCount: 0 });
+                    }
+                    if (items.length > 0) {
+                        allLibraries.push({
+                            id: `gs_${Date.now()}_${allLibraries.length}`,
+                            name: colName, matchRule: entry.matchRule || '语义匹配最合适的条目', maxRepeat: 3, items,
+                            enabled: true, color: LIB_COLORS[allLibraries.length % LIB_COLORS.length]
+                        });
+                    }
+                }
+            } else {
+                // 独立分页模式：分页名 = 库名，A列 = 条目
+                const items: LibraryItem[] = [];
+                for (let rowIdx = 0; rowIdx < lines.length; rowIdx++) {
+                    const row = parseCSVLine(lines[rowIdx]);
+                    const val = row[0]?.trim();
+                    if (!val) continue;
+                    // 跳过像表头的行（第一行如果看起来是标题就跳过）
+                    if (rowIdx === 0 && lines.length > 3 && val.length < 5 && /^[a-zA-Z\u4e00-\u9fff]+$/.test(val)) continue;
+                    items.push({ id: `gs_${entry.name}_0_${rowIdx}`, content: val, weight: 5, tags: '', usedCount: 0 });
+                }
+                if (items.length > 0) {
+                    allLibraries.push({
+                        id: `gs_${Date.now()}_${allLibraries.length}`,
+                        name: entry.name, matchRule: entry.matchRule || '语义匹配最合适的条目', maxRepeat: 3, items,
+                        enabled: true, color: LIB_COLORS[allLibraries.length % LIB_COLORS.length]
+                    });
+                }
+            }
+        } catch { continue; }
+    }
+
+    if (allLibraries.length === 0) {
+        throw new Error('未能从表格读取数据，请检查：\n1. 表格已开启"链接可查看"权限\n2. 每个分页 = 一个库（分页名=库名，A列=条目）');
+    }
+    console.log(`[importLibrariesFromSheets] 共导入 ${allLibraries.length} 个库`);
+    return allLibraries;
+};
+
+// === 拆分模式 ===
+const SPLIT_MODE_SYSTEM_INSTRUCTION = `你是一个专业的文案分析与结构化处理专家。
+
+【核心任务】
+根据用户定义的列，对文案进行对应的处理。每一列可能是以下任意类型的任务：
+- 拆分提取：从原文中提取对应部分的内容
+- 分类判断：判断文案属于什么类别/方向
+- 分析总结：对文案进行分析、总结、统计
+- 关联推导：根据前面列的结果，进行进一步的细分或推导
+
+【重要】列与列之间可能存在依赖关系，请注意每列描述中的上下文要求。
+
+【文本结构注意】
+1. 文案的结构可能不固定。例如：引用出处可能在开头，也可能在结尾
+2. 需要根据语义判断每个部分属于哪一列，而不是简单按位置拆分
+3. 每一列都应该尽力提取，不要因为一列匹配了就忽略其他列
+4. 一条文案中可能包含多种内容类型，请全部识别
+
+【输出规则】
+1. 严格按照用户定义的列名和描述要求输出
+2. 每一列用 ||| 分隔
+3. 如果某列确实不存在对应内容，该列输出 "-"
+4. 不要添加列名标注、序号或其他多余格式
+5. 拆分提取类任务：保持原文内容，不要修改或翻译
+6. 分析总结类任务：简洁准确地输出分析结果
+7. 每一列输出为单行，不要在列内容中换行（用空格代替换行）`;
+
+const DEFAULT_SPLIT_COLUMNS: SplitColumn[] = [
+    { id: 'hook', name: '开头钩子', description: '文案开头用来吸引读者注意力的句子或词组，如标题、引子、感叹句等' },
+    { id: 'body', name: '正文内容', description: '文案的主体内容部分，包括核心信息、故事、论述等' },
+    { id: 'cta', name: '结尾互动语', description: '文案结尾的互动引导语，如 "Amen"、"分享"、"评论" 等呼吁行动的句子' },
+    { id: 'keywords', name: '核心关键词', description: '提取3-5个核心主题关键词，用英文逗号分隔。关注：信仰主题词（faith/信心、grace/恩典、hope/盼望等）、情感属性词（love/爱、peace/平安、joy/喜乐等）、行动号召词（pray/祷告、trust/信靠、praise/赞美等）。忽略虚词和常见连接词，只提取有主题意义的实词' },
+];
+
+// 拆分模式预设方案
+const SPLIT_COLUMN_PRESETS: { id: string; name: string; columns: SplitColumn[] }[] = [
+    {
+        id: 'default',
+        name: '📝 文案结构拆分',
+        columns: DEFAULT_SPLIT_COLUMNS
+    },
+    {
+        id: 'bible',
+        name: '✝️ 经文提取分析',
+        columns: [
+            { id: 'scripture_ref', name: '经文来源', description: '提取经文的出处/引用来源（如 "1 PETER 5:10"、"Proverbs 8:17"、"约翰福音 3:16" 等）。经文来源可能在文案的任意位置，通常是"书卷名 章:节"的格式' },
+            { id: 'scripture_text', name: '经文内容', description: '提取圣经经文本身的文字。判断标准：经文通常用引号包围、或紧跟在经文来源后面、或是从圣经书卷中直接引用的原文。不包括作者自己写的感悟、解读或祷告词。如果文案没有引用经文，输出"-"' },
+            { id: 'non_scripture', name: '非经文内容', description: '文案中作者自己写的所有内容：感悟、解读、祷告词、"GOD SAYS"开头的改写内容。判断标准：凡是不是直接引用圣经原文的部分，都属于非经文内容（不包括结尾互动语）' },
+            { id: 'cta', name: '结尾互动语', description: '文案结尾的互动引导语，如 "Amen"、"Type Amen"、"分享"、"评论"、"关注" 等呼吁行动的句子' },
+            { id: 'keywords', name: '核心关键词', description: '提取3-5个核心主题关键词，用英文逗号分隔。关注信仰主题词、情感属性词、行动号召词等有主题意义的实词' },
+        ]
+    },
+    {
+        id: 'theme',
+        name: '🏷️ 主题分类分析',
+        columns: [
+            { id: 'theme', name: '主题分类', description: '判断文案的主要方向/主题分类。根据内容语义给出一个准确的类别名称' },
+            { id: 'sub_theme', name: '细分方向', description: '根据第1列的主题分类结果，进一步细分该主题下的具体方向' },
+            { id: 'keywords', name: '核心关键词', description: '提取3-5个核心主题关键词，用英文逗号分隔' },
+            { id: 'summary', name: '一句话总结', description: '用一句话概括文案的核心内容和表达意图' },
+        ]
+    },
+];
 
 const CLASSIFY_MODE_SYSTEM_INSTRUCTION = `你是一个专业的文案分类专家。
 
@@ -413,15 +674,60 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
     const [allCollapsed, setAllCollapsed] = useState(false); // 全局折叠状态
     const [activePresetDropdown, setActivePresetDropdown] = useState<number | null>(null); // 当前打开的预设下拉索引
     const [editingInstructionIndex, setEditingInstructionIndex] = useState<number | null>(null); // 双击编辑的指令索引
+    const [editingSplitColumnId, setEditingSplitColumnId] = useState<string | null>(null); // 双击编辑的拆分列ID
     const [copyToast, setCopyToast] = useState<string | null>(null); // 复制提示
     const [showPresetManager, setShowPresetManager] = useState(false); // 预设管理器
     const [pendingRetryStart, setPendingRetryStart] = useState(false); // 等待重试后开始
-    const [mode, setMode] = useState<CopywritingMode>('standard'); // 模式：标准/人声/分类
+    const [mode, setMode] = useState<CopywritingMode>('standard'); // 模式：标准/人声/分类/拆分
     const [voiceModeSystemInstruction, setVoiceModeSystemInstruction] = useState(VOICE_MODE_SYSTEM_INSTRUCTION); // 人声模式系统指令（可编辑）
     const [classifyModeSystemInstruction, setClassifyModeSystemInstruction] = useState(CLASSIFY_MODE_SYSTEM_INSTRUCTION); // 分类模式系统指令（可编辑）
+    const [splitModeSystemInstruction, setSplitModeSystemInstruction] = useState(SPLIT_MODE_SYSTEM_INSTRUCTION); // 拆分模式系统指令（可编辑）
+    const [splitColumns, setSplitColumns] = useState<SplitColumn[]>(DEFAULT_SPLIT_COLUMNS); // 拆分列定义
+    const [keywordFreqMap, setKeywordFreqMap] = useState<Record<string, number>>({}); // 关键词全局频率表
+    const [keywordStatsColumnId, setKeywordStatsColumnId] = useState<string | null>(null); // 统计关键词所用的列ID
+    const [keywordStatsTotalItems, setKeywordStatsTotalItems] = useState(0); // 统计时的总条目数
     const [showDiff, setShowDiff] = useState(false); // 显示差异高亮
     const [batchSize, setBatchSize] = useState(1); // 批次处理大小（1-2000，默认1）
     const [showBatchSettings, setShowBatchSettings] = useState(false); // 显示批次设置
+
+    // === 文案库模式状态 ===
+    const [libraries, setLibraries] = useState<CopywritingLibrary[]>(() => {
+        try {
+            const saved = localStorage.getItem('copywriting_libraries');
+            if (saved) return JSON.parse(saved);
+        } catch { /* ignore */ }
+        return [{ ...DEFAULT_LIBRARY, items: DEFAULT_LIBRARY.items.map(i => ({ ...i })) }];
+    });
+    const [activeLibraryId, setActiveLibraryId] = useState<string>(() => {
+        try { return localStorage.getItem('copywriting_activeLibId') || 'default_lib'; } catch { return 'default_lib'; }
+    });
+    const [showLibraryEditor, setShowLibraryEditor] = useState(false);
+    const [libraryInstruction, setLibraryInstruction] = useState('根据文案内容选择合适的互动语，并替换/添加到文案末尾'); // 库模式的改写指令
+    const [libraryExtraInstructions, setLibraryExtraInstructions] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('copywriting_libExtraInsts');
+            if (saved) return JSON.parse(saved);
+        } catch { /* ignore */ }
+        return [''];
+    });
+    const [editingLibField, setEditingLibField] = useState<{ type: 'matchRule', libId: string } | { type: 'extraInst', idx: number } | null>(null); // 库模式双击编辑
+    const [libSheetsUrl, setLibSheetsUrl] = useState(() => {
+        try { return localStorage.getItem('copywriting_lib_sheetsUrl') || ''; } catch { return ''; }
+    });
+    const [libSheetsImporting, setLibSheetsImporting] = useState(false);
+    const [libAutoRefreshed, setLibAutoRefreshed] = useState(false); // 防止重复自动刷新
+
+    // 缓存统计状态，避免每次渲染都计算 Object.keys
+    const hasStats = useMemo(() => Object.keys(keywordFreqMap).length > 0, [keywordFreqMap]);
+    const statsKeyCount = useMemo(() => Object.keys(keywordFreqMap).length, [keywordFreqMap]);
+    const splitGridStyle = useMemo(() => {
+        const colCount = 1 + splitColumns.length + (hasStats ? 1 : 0);
+        if (colCount <= 4) {
+            return `repeat(${colCount}, 1fr)`;
+        } else {
+            return `minmax(280px, 1fr) repeat(${splitColumns.length}, minmax(250px, 1fr))${hasStats ? ' minmax(280px, 1fr)' : ''}`;
+        }
+    }, [splitColumns.length, hasStats]);
 
     // 保存到表格状态
     const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -521,6 +827,60 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // --- 库模式: 保存设置到 localStorage ---
+    useEffect(() => {
+        try { localStorage.setItem('copywriting_libraries', JSON.stringify(libraries)); } catch { /* ignore */ }
+    }, [libraries]);
+
+    useEffect(() => {
+        try { localStorage.setItem('copywriting_libExtraInsts', JSON.stringify(libraryExtraInstructions)); } catch { /* ignore */ }
+    }, [libraryExtraInstructions]);
+
+    useEffect(() => {
+        try { localStorage.setItem('copywriting_activeLibId', activeLibraryId); } catch { /* ignore */ }
+    }, [activeLibraryId]);
+
+    // --- 库模式: 自动从 Sheets 刷新（如果有保存的URL） ---
+    useEffect(() => {
+        if (libAutoRefreshed || !libSheetsUrl || libSheetsImporting) return;
+        setLibAutoRefreshed(true);
+
+        const autoRefresh = async () => {
+            try {
+                console.log('[CopywritingView] Auto-refreshing libraries from Sheets...');
+                setLibSheetsImporting(true);
+                const newLibs = await importLibrariesFromSheets(libSheetsUrl);
+                if (newLibs.length > 0) {
+                    // 合并：保留本地设置（enabled, matchRule, maxRepeat, usedCount），用新的条目内容
+                    setLibraries(prev => {
+                        const prevMap = new Map(prev.map(l => [l.name, l]));
+                        return newLibs.map(newLib => {
+                            const existing = prevMap.get(newLib.name);
+                            if (existing) {
+                                // 保留本地设置，更新条目内容
+                                const existingItemMap = new Map(existing.items.map(i => [i.content, i]));
+                                const mergedItems = newLib.items.map(newItem => {
+                                    const existingItem = existingItemMap.get(newItem.content);
+                                    return existingItem
+                                        ? { ...newItem, usedCount: existingItem.usedCount, weight: existingItem.weight }
+                                        : newItem;
+                                });
+                                return { ...newLib, enabled: existing.enabled, matchRule: existing.matchRule, maxRepeat: existing.maxRepeat, color: existing.color, items: mergedItems };
+                            }
+                            return newLib;
+                        });
+                    });
+                    showCopyToast(`已自动刷新 ${newLibs.length} 个库`);
+                }
+            } catch (e) {
+                console.error('[CopywritingView] Auto-refresh failed:', e);
+            } finally {
+                setLibSheetsImporting(false);
+            }
+        };
+        autoRefresh();
+    }, [libSheetsUrl]);
 
     // --- Parse input (参照创新模式的解析逻辑) ---
     const parseInput = (mode: 'batch' | 'single' = 'batch'): { foreign: string; chinese?: string }[] => {
@@ -950,7 +1310,252 @@ ${numberedInputs}
         const idleItems = items.filter(item => item.status === 'idle');
         if (idleItems.length === 0) return;
 
-        // 过滤掉空指令
+        setIsProcessing(true);
+        stopRef.current = false;
+
+        // === 拆分模式专用处理 ===
+        if (mode === 'split') {
+            if (splitColumns.length === 0) {
+                showCopyToast('请至少添加一个拆分列');
+                setIsProcessing(false);
+                return;
+            }
+
+            // 设置所有 idle 项目为 processing 状态
+            setItems(prev => prev.map(item =>
+                item.status === 'idle' ? { ...item, status: 'processing' as const } : item
+            ));
+
+            if (batchSize > 1) {
+                // 批量拆分处理
+                try {
+                    for (let i = 0; i < idleItems.length; i += batchSize) {
+                        if (stopRef.current) break;
+                        const batchItems = idleItems.slice(i, i + batchSize);
+                        try {
+                            const batchResults = await processSplitBatch(batchItems);
+                            setItems(prev => prev.map(item => {
+                                const splitResult = batchResults.get(item.id);
+                                if (splitResult) {
+                                    return {
+                                        ...item,
+                                        status: 'success' as const,
+                                        splitResults: splitResult
+                                    };
+                                }
+                                return item;
+                            }));
+                            // 标记未返回结果的
+                            const missingItems = batchItems.filter(item => !batchResults.has(item.id));
+                            if (missingItems.length > 0) {
+                                setItems(prev => prev.map(item => {
+                                    if (missingItems.find(m => m.id === item.id)) {
+                                        return { ...item, status: 'error' as const, error: '批量拆分中未返回结果' };
+                                    }
+                                    return item;
+                                }));
+                            }
+                        } catch (error: any) {
+                            setItems(prev => prev.map(item => {
+                                if (batchItems.find(b => b.id === item.id)) {
+                                    return { ...item, status: 'error' as const, error: error.message || '批量拆分失败' };
+                                }
+                                return item;
+                            }));
+                        }
+                        if (i + batchSize < idleItems.length) {
+                            await new Promise(resolve => setTimeout(resolve, 300));
+                        }
+                    }
+                } catch (error: any) {
+                    console.error('[CopywritingView] Split batch processing error:', error);
+                }
+            } else {
+                // 单条拆分处理（并发3）
+                const CONCURRENT_LIMIT = 3;
+                const processOneSplit = async (item: CopywritingItem) => {
+                    if (stopRef.current) return;
+                    try {
+                        const splitResult = await processSplitItem(item);
+                        if (stopRef.current) return; // 停止后不更新
+                        if (splitResult) {
+                            setItems(prev => prev.map(i =>
+                                i.id === item.id ? { ...i, status: 'success' as const, splitResults: splitResult } : i
+                            ));
+                        }
+                    } catch (error: any) {
+                        if (stopRef.current) return; // 停止后不更新
+                        setItems(prev => prev.map(i =>
+                            i.id === item.id ? { ...i, status: 'error' as const, error: error.message || '拆分失败' } : i
+                        ));
+                    }
+                };
+
+                // 并发处理
+                let idx = 0;
+                const runNext = async (): Promise<void> => {
+                    while (idx < idleItems.length && !stopRef.current) {
+                        const currentIdx = idx++;
+                        await processOneSplit(idleItems[currentIdx]);
+                    }
+                };
+                const workers = Array(Math.min(CONCURRENT_LIMIT, idleItems.length)).fill(null).map(() => runNext());
+                await Promise.all(workers);
+            }
+
+            setIsProcessing(false);
+            // 条目多时自动折叠，避免 DOM 过多导致卡顿
+            if (idleItems.length > 20) {
+                setItems(prev => prev.map(i => ({ ...i, collapsed: true })));
+                setAllCollapsed(true);
+            }
+            return;
+        }
+
+        // === 文案库模式 ===
+        if (mode === 'library') {
+            const enabledLibs = libraries.filter(l => l.enabled && l.items.length > 0);
+            if (enabledLibs.length === 0) {
+                alert('请先启用至少一个有条目的库');
+                setIsProcessing(false);
+                return;
+            }
+
+            const ai = getAiInstance();
+            const extraInsts = libraryExtraInstructions.filter(i => i.trim());
+
+            // 逐条处理，确保去重计数准确
+            for (let idx = 0; idx < idleItems.length; idx++) {
+                if (stopRef.current) break;
+                const item = idleItems[idx];
+
+                setItems(prev => prev.map(i =>
+                    i.id === item.id ? { ...i, status: 'processing' as const } : i
+                ));
+
+                try {
+                    // 确定这条文案用哪些库
+                    const itemLibIds = item.selectedLibraryIds && item.selectedLibraryIds.length > 0
+                        ? item.selectedLibraryIds
+                        : enabledLibs.map(l => l.id);
+                    const itemLibs = libraries.filter(l => itemLibIds.includes(l.id) && l.items.length > 0);
+
+                    // 构建多库候选列表
+                    let allLibsPrompt = '';
+                    let hasAvailable = false;
+                    for (const lib of itemLibs) {
+                        const available = lib.items
+                            .filter(li => li.usedCount < lib.maxRepeat)
+                            .map(li => {
+                                const pl = li.weight <= 3 ? '低' : li.weight <= 6 ? '中' : li.weight <= 8 ? '高' : '极高';
+                                return `  [${li.id}] (优先级:${pl}, 剩余${lib.maxRepeat - li.usedCount}次) ${li.content}`;
+                            })
+                            .join('\n');
+                        if (available) {
+                            hasAvailable = true;
+                            allLibsPrompt += `\n【库: ${lib.name}】 ${lib.matchRule || '语义匹配最合适的条目'}\n${available}\n`;
+                        }
+                    }
+
+                    if (!hasAvailable) {
+                        if (stopRef.current) break;
+                        setItems(prev => prev.map(i =>
+                            i.id === item.id ? { ...i, status: 'error' as const, error: '所有库条目全部已达使用上限' } : i
+                        ));
+                        continue;
+                    }
+
+                    const libNames = itemLibs.map(l => l.name);
+                    const systemPrompt = `你是一个专业的文案改写专家。
+
+【任务】
+1. 分析原始文案内容
+2. 从每个候选库中各选择一个最匹配的条目（按照每个库的使用指令）
+3. 将选中的条目融入文案完成改写
+
+【重要规则】
+- 必须保持原文语言！英文文案输出英文，中文文案输出中文，绝对不要翻译！
+- 只修改指令要求的部分，其余内容保持原样
+
+【输出格式】
+严格按以下格式输出：
+${libNames.map(n => `SELECTED_${n}: [选中条目的ID]`).join('\n')}
+RESULT: [改写后的完整文案，保持原文语言]
+RESULT_ZH: [改写后文案的中文翻译]
+
+注意：RESULT后面的改写文案必须完整，保持原文语言！RESULT_ZH是中文翻译（如果原文已经是中文则相同）。`;
+
+                    let userPrompt = `【原始文案】
+${item.originalForeign}
+${allLibsPrompt}`;
+
+                    if (extraInsts.length > 0) {
+                        userPrompt += `\n\n【额外改写要求】\n${extraInsts.map((inst, i) => `${i + 1}. ${inst}`).join('\n')}`;
+                    }
+
+                    const result = await ai.models.generateContent({
+                        model: textModel,
+                        contents: { parts: [{ text: userPrompt }] },
+                        config: { systemInstruction: systemPrompt }
+                    });
+
+                    const responseText = result.text?.trim() || '';
+                    const resultMatch = responseText.match(/RESULT:\s*(.+?)(?=\nRESULT_ZH:|$)/is);
+                    const resultZhMatch = responseText.match(/RESULT_ZH:\s*([\s\S]+)/i);
+
+                    if (stopRef.current) break;
+
+                    if (resultMatch) {
+                        const rewrittenText = resultMatch[1].trim();
+
+                        // 解析每个库的选中ID并更新计数
+                        const matchedContents: string[] = [];
+                        for (const lib of itemLibs) {
+                            const selMatch = responseText.match(new RegExp(`SELECTED_${lib.name}:\\s*\\[?([^\\]\\n]+)\\]?`, 'i'));
+                            const selectedId = selMatch?.[1]?.trim() || '';
+                            if (selectedId) {
+                                const matchedItem = lib.items.find(li => li.id === selectedId);
+                                if (matchedItem) matchedContents.push(`${lib.name}: ${matchedItem.content}`);
+                                setLibraries(prev => prev.map(l => l.id === lib.id
+                                    ? { ...l, items: l.items.map(li => li.id === selectedId ? { ...li, usedCount: li.usedCount + 1 } : li) }
+                                    : l
+                                ));
+                            }
+                        }
+
+                        const chineseText = resultZhMatch?.[1]?.trim() || '';
+
+                        setItems(prev => prev.map(i =>
+                            i.id === item.id ? {
+                                ...i,
+                                status: 'success' as const,
+                                resultForeign: rewrittenText,
+                                resultChinese: chineseText,
+                                libraryMatchedContent: matchedContents.join(' | ')
+                            } : i
+                        ));
+                    } else {
+                        setItems(prev => prev.map(i =>
+                            i.id === item.id ? { ...i, status: 'error' as const, error: '解析失败: ' + responseText.slice(0, 100) } : i
+                        ));
+                    }
+                } catch (error: any) {
+                    if (stopRef.current) break;
+                    setItems(prev => prev.map(i =>
+                        i.id === item.id ? { ...i, status: 'error' as const, error: error.message || '处理失败' } : i
+                    ));
+                }
+            }
+
+            setIsProcessing(false);
+            if (idleItems.length > 20) {
+                setItems(prev => prev.map(i => ({ ...i, collapsed: true })));
+                setAllCollapsed(true);
+            }
+            return;
+        }
+
+        // === 非拆分模式：过滤掉空指令 ===
         const activeInstructions = instructions.filter(inst => inst.trim());
         if (activeInstructions.length === 0) {
             // 如果多指令列表为空，使用单个instruction
@@ -960,9 +1565,6 @@ ${numberedInputs}
                 activeInstructions.push(DEFAULT_INSTRUCTION);
             }
         }
-
-        setIsProcessing(true);
-        stopRef.current = false;
 
         // === 批量处理模式（batchSize > 1）===
         if (batchSize > 1) {
@@ -1189,6 +1791,7 @@ ${item.originalForeign}
 
                 // 完成：设置最终状态
                 const hasError = results.some(r => r.status === 'error');
+                if (stopRef.current) return; // 停止后不更新
                 setItems(prev => prev.map(i =>
                     i.id === item.id ? {
                         ...i,
@@ -1200,6 +1803,7 @@ ${item.originalForeign}
                 ));
 
             } catch (error: any) {
+                if (stopRef.current) return; // 停止后不更新
                 setItems(prev => prev.map(i =>
                     i.id === item.id ? {
                         ...i,
@@ -1224,11 +1828,21 @@ ${item.originalForeign}
         }
 
         setIsProcessing(false);
+        // 条目多时自动折叠
+        if (idleItems.length > 20) {
+            setItems(prev => prev.map(i => ({ ...i, collapsed: true })));
+            setAllCollapsed(true);
+        }
     };
 
     // --- Stop processing ---
     const handleStopProcessing = () => {
         stopRef.current = true;
+        setIsProcessing(false);
+        // 把所有还在 processing 的项目恢复为 idle
+        setItems(prev => prev.map(item =>
+            item.status === 'processing' ? { ...item, status: 'idle' as const } : item
+        ));
     };
 
     // --- Copy functions (无空行) ---
@@ -1654,6 +2268,207 @@ ${item.originalForeign}
         setInstructions(prev => prev.map((inst, i) => i === index ? value : inst));
     };
 
+    // --- 拆分列管理 ---
+    const addSplitColumn = () => {
+        setSplitColumns(prev => [...prev, {
+            id: uuidv4(),
+            name: `列${prev.length + 1}`,
+            description: ''
+        }]);
+    };
+
+    const removeSplitColumn = (id: string) => {
+        if (splitColumns.length <= 1) return;
+        setSplitColumns(prev => prev.filter(col => col.id !== id));
+    };
+
+    const updateSplitColumn = (id: string, updates: Partial<SplitColumn>) => {
+        setSplitColumns(prev => prev.map(col =>
+            col.id === id ? { ...col, ...updates } : col
+        ));
+    };
+
+    // --- 拆分模式处理单条 ---
+    const processSplitItem = async (item: CopywritingItem): Promise<Record<string, string> | null> => {
+        try {
+            const ai = getAiInstance();
+
+            const columnsDesc = splitColumns.map((col, idx) =>
+                `第${idx + 1}列【${col.name}】：${col.description || '无特殊要求'}`
+            ).join('\n');
+
+            const systemPrompt = `${splitModeSystemInstruction}
+
+【处理列定义】
+${columnsDesc}
+
+【输出格式】
+严格按照 ${splitColumns.length} 列输出，列之间用 ||| 分隔。
+示例：第1列内容|||第2列内容|||第3列内容`;
+
+            const userPrompt = `请按照列定义处理以下文案，输出 ${splitColumns.length} 列结果：
+
+${item.originalForeign}
+
+严格按 ||| 分隔输出：`;
+
+            const result = await ai.models.generateContent({
+                model: textModel,
+                contents: { parts: [{ text: userPrompt }] },
+                config: {
+                    systemInstruction: systemPrompt
+                }
+            });
+
+            const responseText = result.text?.trim() || '';
+
+            // 解析响应：按 ||| 分割
+            const parts = responseText.split('|||').map(p => p.trim());
+            const splitResults: Record<string, string> = {};
+            splitColumns.forEach((col, idx) => {
+                splitResults[col.id] = parts[idx] || '-';
+            });
+
+            return splitResults;
+        } catch (error: any) {
+            console.error('[CopywritingView] Split processing error:', error);
+            throw error;
+        }
+    };
+
+    // --- 拆分模式批量处理 ---
+    const processSplitBatch = async (
+        batchItems: CopywritingItem[]
+    ): Promise<Map<string, Record<string, string>>> => {
+        const ai = getAiInstance();
+        const resultsMap = new Map<string, Record<string, string>>();
+
+        const columnsDesc = splitColumns.map((col, idx) =>
+            `第${idx + 1}列【${col.name}】：${col.description || '无特殊要求'}`
+        ).join('\n');
+
+        // 构建批量输入
+        const batchInput = batchItems.map((item, idx) =>
+            `[${idx + 1}] ${item.originalForeign.replace(/\n/g, ' ')}`
+        ).join('\n');
+
+        const systemPrompt = `${splitModeSystemInstruction}
+
+【处理列定义】
+${columnsDesc}
+
+【输出格式】
+对每条文案，严格按照 ${splitColumns.length} 列输出，列之间用 ||| 分隔。
+每条结果以 [编号] 开头。
+示例：
+[1] 第1列内容|||第2列内容|||第3列内容
+[2] 第1列内容|||第2列内容|||第3列内容`;
+
+        const userPrompt = `请按照列定义分别处理以下 ${batchItems.length} 条文案，每条输出 ${splitColumns.length} 列结果：
+
+${batchInput}
+
+每条结果以 [编号] 开头，列之间用 ||| 分隔：`;
+
+        const result = await ai.models.generateContent({
+            model: textModel,
+            contents: { parts: [{ text: userPrompt }] },
+            config: {
+                systemInstruction: systemPrompt
+            }
+        });
+
+        const responseText = result.text?.trim() || '';
+
+        // 解析批量响应 - 支持多行内容
+        // 先按 [编号] 标记分割，而不是按换行分割
+        const itemRegex = /\[(\d+)\]\s*/g;
+        const markers: { idx: number; pos: number }[] = [];
+        let m;
+        while ((m = itemRegex.exec(responseText)) !== null) {
+            markers.push({ idx: parseInt(m[1]) - 1, pos: m.index + m[0].length });
+        }
+
+        for (let mi = 0; mi < markers.length; mi++) {
+            const { idx } = markers[mi];
+            const start = markers[mi].pos;
+            const end = mi + 1 < markers.length ? markers[mi + 1].pos - markers[mi + 1].idx.toString().length - 3 : responseText.length;
+            // 取当前编号到下一编号之间的全部内容
+            const rawContent = responseText.slice(start, end).trim();
+
+            if (idx >= 0 && idx < batchItems.length) {
+                const parts = rawContent.split('|||').map(p => p.trim());
+                const splitResults: Record<string, string> = {};
+                splitColumns.forEach((col, colIdx) => {
+                    splitResults[col.id] = parts[colIdx] || '-';
+                });
+                resultsMap.set(batchItems[idx].id, splitResults);
+            }
+        }
+
+        return resultsMap;
+    };
+
+    // --- 拆分模式复制列 ---
+    const handleCopySplitColumn = (columnId: string) => {
+        const successItems = items.filter(i => i.status === 'success' && i.splitResults);
+        const col = splitColumns.find(c => c.id === columnId);
+        if (!col) return;
+        const text = successItems.map(item => item.splitResults?.[columnId] || '-').join('\n');
+        navigator.clipboard.writeText(text);
+        setCopiedType(`split_${columnId}`);
+        showCopyToast(`已复制「${col.name}」列 (${successItems.length}条)`);
+        setTimeout(() => setCopiedType(null), 1500);
+    };
+
+    // --- 拆分模式复制全部列（Tab分隔表格格式）---
+    const handleCopySplitAll = () => {
+        const successItems = items.filter(i => i.status === 'success' && i.splitResults);
+        const headers = ['原文', ...splitColumns.map(col => col.name), ...(hasStats ? ['频率统计'] : [])].join('\t');
+        const rows = successItems.map(item => {
+            const cols = splitColumns.map(col => escapeForSheet(item.splitResults?.[col.id] || '-'));
+            const statsCol = hasStats ? [escapeForSheet(getItemKeywordStatsText(item) || '-')] : [];
+            return [escapeForSheet(item.originalForeign), ...cols, ...statsCol].join('\t');
+        });
+        navigator.clipboard.writeText([headers, ...rows].join('\n'));
+        setCopiedType('split_all');
+        showCopyToast(`已复制完整结果 (${successItems.length}条${hasStats ? ' + 统计' : ''})`);
+        setTimeout(() => setCopiedType(null), 1500);
+    };
+
+    // --- 关键词频率统计 ---
+    const computeKeywordFrequency = (columnId: string) => {
+        const successItems = items.filter(i => i.status === 'success' && i.splitResults);
+        const freqMap: Record<string, number> = {};
+
+        for (const item of successItems) {
+            const rawKeywords = item.splitResults?.[columnId] || '';
+            if (!rawKeywords || rawKeywords === '-') continue;
+            // 支持中英文逗号、顿号分隔
+            const keywords = rawKeywords.split(/[,，、;；]+/).map(k => k.trim().toLowerCase()).filter(k => k && k !== '-');
+            // 每条文案中同一关键词只计一次
+            const unique = [...new Set(keywords)];
+            for (const kw of unique) {
+                freqMap[kw] = (freqMap[kw] || 0) + 1;
+            }
+        }
+
+        setKeywordFreqMap(freqMap);
+        setKeywordStatsColumnId(columnId);
+        setKeywordStatsTotalItems(successItems.length);
+        showCopyToast(`已统计 ${Object.keys(freqMap).length} 个关键词 (${successItems.length}条文案)`);
+    };
+
+    // 获取单条文案的关键词统计文本
+    const getItemKeywordStatsText = (item: CopywritingItem): string => {
+        if (!keywordStatsColumnId || !item.splitResults || Object.keys(keywordFreqMap).length === 0) return '';
+        const rawKeywords = item.splitResults[keywordStatsColumnId] || '';
+        if (!rawKeywords || rawKeywords === '-') return '-';
+        const keywords = rawKeywords.split(/[,，、;；]+/).map(k => k.trim().toLowerCase()).filter(k => k && k !== '-');
+        const unique = [...new Set(keywords)];
+        return unique.map(kw => `${kw}(${keywordFreqMap[kw] || 0}/${keywordStatsTotalItems})`).join(', ');
+    };
+
     // --- 检测文本是否主要是中文 ---
     const isMostlyChinese = (text: string): boolean => {
         if (!text) return false;
@@ -1954,9 +2769,9 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                 <div className="w-2/5 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                            <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : 'text-amber-400'} />
+                            <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : 'text-amber-400'} />
                             <span className="text-xs font-medium text-zinc-300">
-                                {mode === 'voice' ? '人声文案指令' : mode === 'classify' ? '分类规则' : '改写指令'}
+                                {mode === 'voice' ? '人声文案指令' : mode === 'classify' ? '分类规则' : mode === 'split' ? '拆分列定义' : mode === 'library' ? '文案库配置' : '改写指令'}
                             </span>
                             {/* 模式切换按钮组 */}
                             <div className="flex items-center gap-0.5">
@@ -1991,13 +2806,37 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         setMode('classify');
                                         setInstructions([CLASSIFY_MODE_DEFAULT_INSTRUCTION]);
                                     }}
-                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'classify'
+                                    className={`px-2 py-0.5 text-[10px] transition-all border-y ${mode === 'classify'
                                         ? 'bg-cyan-600 text-white border-cyan-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
                                         } tooltip-bottom`}
                                     data-tip="分类模式：按规则输出分类结果"
                                 >
                                     <Tag size={10} className="inline mr-0.5" /> 分类
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setMode('split');
+                                    }}
+                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'split'
+                                        ? 'bg-orange-600 text-white border-orange-500'
+                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                        } tooltip-bottom`}
+                                    data-tip="拆分模式：按自定义列智能拆分文案结构"
+                                >
+                                    <Scissors size={10} className="inline mr-0.5" /> 拆分
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setMode('library');
+                                    }}
+                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'library'
+                                        ? 'bg-green-600 text-white border-green-500'
+                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                        } tooltip-bottom`}
+                                    data-tip="文案库模式：语义匹配文案库 + 智能改写"
+                                >
+                                    <Library size={10} className="inline mr-0.5" /> 文案库
                                 </button>
                             </div>
                             {/* 显示差异开关 - 仅标准模式 */}
@@ -2124,83 +2963,312 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                             </button>
                         </div>
                     </div>
-                    {/* 多指令列表 */}
-                    <div className="space-y-1.5 max-h-48 overflow-y-auto overflow-x-hidden">
-                        {instructions.map((inst, idx) => (
-                            <div key={idx} className="flex items-start gap-1">
-                                <span className="text-[10px] text-amber-400 w-4 shrink-0 mt-1.5">{idx + 1}.</span>
-                                <div className="flex-1 relative tooltip-bottom">
+                    {/* === 拆分模式：列编辑器 === */}
+                    {mode === 'split' ? (
+                        <div className="space-y-1.5 max-h-60 overflow-y-auto overflow-x-hidden">
+                            {splitColumns.map((col, idx) => (
+                                <div key={col.id} className="bg-zinc-950 border border-orange-900/30 rounded-lg p-2">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        <span className="text-[10px] text-orange-400 font-bold w-4 shrink-0">{idx + 1}.</span>
+                                        <input
+                                            type="text"
+                                            value={col.name}
+                                            onChange={(e) => updateSplitColumn(col.id, { name: e.target.value })}
+                                            placeholder="列名（如：钩子）"
+                                            className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-xs text-orange-200 focus:outline-none focus:border-orange-500 placeholder-zinc-600"
+                                        />
+                                        {splitColumns.length > 1 && (
+                                            <button
+                                                onClick={() => removeSplitColumn(col.id)}
+                                                className="p-0.5 text-zinc-500 hover:text-red-400"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
                                     <textarea
-                                        value={inst}
-                                        onChange={(e) => updateInstruction(idx, e.target.value)}
-                                        onDoubleClick={() => setEditingInstructionIndex(idx)}
-                                        placeholder="输入改写指令..."
+                                        value={col.description}
+                                        onChange={(e) => updateSplitColumn(col.id, { description: e.target.value })}
+                                        onDoubleClick={() => setEditingSplitColumnId(col.id)}
+                                        placeholder="提取要求（双击放大编辑）"
                                         data-tip="双击弹框编辑"
-                                        className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 placeholder-zinc-600 resize-none min-h-[36px]"
-                                        rows={2}
+                                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-orange-500 placeholder-zinc-600 resize-none tooltip-bottom cursor-pointer"
+                                        rows={1}
                                     />
                                 </div>
-                                {/* 预设选择按钮 */}
+                            ))}
+                            <div className="flex items-center gap-2 flex-wrap">
                                 <button
-                                    onClick={() => setActivePresetDropdown(activePresetDropdown === idx ? null : idx)}
-                                    className={`p-1 rounded transition-colors mt-0.5 ${activePresetDropdown === idx
-                                        ? 'text-amber-400 bg-amber-900/30'
-                                        : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
-                                        } tooltip-bottom`}
-                                    data-tip="选择预设"
+                                    onClick={addSplitColumn}
+                                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-orange-400 hover:bg-orange-900/20 rounded border border-orange-900/30"
                                 >
-                                    <ChevronDown size={12} />
+                                    <Plus size={10} /> 添加列
                                 </button>
-                                {instructions.length > 1 && (
-                                    <button
-                                        onClick={() => removeInstruction(idx)}
-                                        className="p-0.5 text-zinc-500 hover:text-red-400 mt-1"
-                                    >
-                                        <X size={12} />
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* 预设选择面板 - 当选中某个指令时显示 */}
-                    {activePresetDropdown !== null && activePresetDropdown >= 0 && (
-                        <div className="mt-2 bg-zinc-950 border border-amber-700/50 rounded-lg p-2">
-                            <div className="text-[10px] text-amber-400 mb-1.5">
-                                选择预设填充到指令 {activePresetDropdown + 1}：
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                                {BUILTIN_PRESETS.map(preset => (
+                                <span className="text-zinc-600">|</span>
+                                <span className="text-[10px] text-zinc-500">预设：</span>
+                                {SPLIT_COLUMN_PRESETS.map(preset => (
                                     <button
                                         key={preset.id}
-                                        onClick={() => { updateInstruction(activePresetDropdown, preset.instruction); setActivePresetDropdown(null); }}
-                                        className="px-2 py-1 bg-zinc-800 hover:bg-amber-900/30 text-xs text-amber-300 rounded border border-zinc-700 hover:border-amber-600 truncate max-w-[150px]"
-                                        title={preset.instruction}
+                                        onClick={() => setSplitColumns(preset.columns.map(c => ({ ...c })))}
+                                        className="px-2 py-0.5 text-[10px] text-amber-300 hover:bg-amber-900/20 rounded border border-amber-900/30"
                                     >
                                         {preset.name}
                                     </button>
                                 ))}
-                                {presets.map(preset => (
-                                    <button
-                                        key={preset.id}
-                                        onClick={() => { updateInstruction(activePresetDropdown, preset.instruction); setActivePresetDropdown(null); }}
-                                        className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 rounded border border-zinc-700 truncate max-w-[150px]"
-                                        title={preset.instruction}
-                                    >
-                                        {preset.name}
-                                    </button>
-                                ))}
+                                <span className="text-zinc-600">|</span>
+                                <button
+                                    onClick={() => setSplitColumns(DEFAULT_SPLIT_COLUMNS)}
+                                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded border border-zinc-700/50"
+                                >
+                                    <RotateCw size={10} /> 重置默认
+                                </button>
                             </div>
                         </div>
-                    )}
+                    ) : mode === 'library' ? (
+                        <div className="space-y-2 max-h-60 overflow-y-auto overflow-x-hidden">
+                            {/* 当前活动库信息 */}
+                            {(() => {
+                                return (
+                                    <div className="bg-zinc-950 border border-green-900/30 rounded-lg p-2">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-green-400 text-xs font-medium">📚 文案库</span>
+                                                <span className="text-[10px] text-zinc-500">
+                                                    {libraries.filter(l => l.enabled).length}/{libraries.length} 个库启用 | 共 {libraries.reduce((s, l) => s + l.items.length, 0)} 条
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={() => {
+                                                        setLibraries(prev => prev.map(l => ({ ...l, items: l.items.map(i => ({ ...i, usedCount: 0 })) })));
+                                                        showCopyToast('已重置所有库的使用计数');
+                                                    }}
+                                                    className="px-1.5 py-0.5 text-[9px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded"
+                                                >
+                                                    <RotateCw size={9} className="inline mr-0.5" /> 重置计数
+                                                </button>
+                                                <button
+                                                    onClick={() => setShowLibraryEditor(true)}
+                                                    className="px-1.5 py-0.5 text-[9px] text-green-400 hover:bg-green-900/20 rounded border border-green-900/30"
+                                                >
+                                                    <Settings2 size={9} className="inline mr-0.5" /> 编辑库
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {/* 每个库一行 */}
+                                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                                            {libraries.map(lib => (
+                                                <div key={lib.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all ${lib.enabled ? 'bg-zinc-800/80' : 'bg-zinc-900/50 opacity-50'}`}>
+                                                    {/* 启用开关 */}
+                                                    <button
+                                                        onClick={() => setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, enabled: !l.enabled } : l))}
+                                                        className={`w-7 h-4 rounded-full relative transition-colors shrink-0 ${lib.enabled ? 'bg-green-600' : 'bg-zinc-700'}`}
+                                                    >
+                                                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${lib.enabled ? 'left-3.5' : 'left-0.5'}`} />
+                                                    </button>
+                                                    {/* 颜色标识 */}
+                                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: lib.color }} />
+                                                    {/* 库名 + 数量 */}
+                                                    <span className={`text-[11px] font-medium shrink-0 ${lib.enabled ? 'text-zinc-200' : 'text-zinc-500 line-through'}`}>
+                                                        {lib.name}
+                                                    </span>
+                                                    <span className="text-[9px] text-zinc-600 shrink-0">
+                                                        {lib.items.filter(i => i.usedCount < lib.maxRepeat).length}/{lib.items.length}
+                                                    </span>
+                                                    {/* 使用指令（可编辑，双击放大） */}
+                                                    <input
+                                                        type="text"
+                                                        value={lib.matchRule}
+                                                        onChange={(e) => setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, matchRule: e.target.value } : l))}
+                                                        onDoubleClick={() => setEditingLibField({ type: 'matchRule', libId: lib.id })}
+                                                        className="flex-1 bg-transparent border-none text-[10px] text-zinc-400 focus:text-zinc-200 focus:outline-none focus:bg-zinc-800/50 rounded px-1.5 truncate cursor-pointer"
+                                                        placeholder="如：选合适的互动语添加到文案末尾"
+                                                        title="双击放大编辑"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
-                    {/* 添加指令按钮 */}
-                    <button
-                        onClick={addInstruction}
-                        className="mt-2 flex items-center gap-1 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/20 rounded border border-amber-900/30"
-                    >
-                        <Plus size={10} /> 添加指令
-                    </button>
+                            {/* 额外改写指令（全局，可选） */}
+                            <div className="bg-zinc-950 border border-green-900/30 rounded-lg p-2">
+                                <div className="text-[10px] text-green-400 font-medium mb-1">额外改写指令（可选）</div>
+                                {libraryExtraInstructions.map((inst, idx) => (
+                                    <div key={idx} className="flex items-start gap-1 mb-1">
+                                        <span className="text-[10px] text-green-400 w-4 shrink-0 mt-1">{idx + 1}.</span>
+                                        <textarea
+                                            value={inst}
+                                            onChange={(e) => {
+                                                setLibraryExtraInstructions(prev => {
+                                                    const next = [...prev];
+                                                    next[idx] = e.target.value;
+                                                    return next;
+                                                });
+                                            }}
+                                            onDoubleClick={() => setEditingLibField({ type: 'extraInst', idx })}
+                                            placeholder="如：把标题改为疑问句"
+                                            data-tip="双击放大编辑"
+                                            className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-green-500 placeholder-zinc-600 resize-none tooltip-bottom cursor-pointer"
+                                            rows={1}
+                                        />
+                                        {/* 预设选择按钮 */}
+                                        <button
+                                            onClick={() => setActivePresetDropdown(activePresetDropdown === -(200 + idx) ? null : -(200 + idx))}
+                                            className={`p-1 rounded transition-colors mt-0.5 ${activePresetDropdown === -(200 + idx)
+                                                ? 'text-amber-400 bg-amber-900/30'
+                                                : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
+                                                } tooltip-bottom`}
+                                            data-tip="选择预设"
+                                        >
+                                            <ChevronDown size={12} />
+                                        </button>
+                                        {libraryExtraInstructions.length > 1 && (
+                                            <button
+                                                onClick={() => setLibraryExtraInstructions(prev => prev.filter((_, i) => i !== idx))}
+                                                className="p-0.5 text-zinc-500 hover:text-red-400 mt-0.5"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                                {/* 预设下拉（当某个额外指令激活时显示） */}
+                                {activePresetDropdown !== null && activePresetDropdown <= -200 && (
+                                    <div className="mt-1 bg-zinc-950 border border-amber-700/50 rounded-lg p-2">
+                                        <div className="text-[10px] text-amber-400 mb-1.5">
+                                            选择预设填充到指令 {-(activePresetDropdown) - 200 + 1}：
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                            {BUILTIN_PRESETS.map(preset => (
+                                                <button
+                                                    key={preset.id}
+                                                    onClick={() => {
+                                                        const targetIdx = -(activePresetDropdown!) - 200;
+                                                        setLibraryExtraInstructions(prev => {
+                                                            const next = [...prev];
+                                                            next[targetIdx] = preset.instruction;
+                                                            return next;
+                                                        });
+                                                        setActivePresetDropdown(null);
+                                                    }}
+                                                    className="px-2 py-1 bg-zinc-800 hover:bg-amber-900/30 text-xs text-amber-300 rounded border border-zinc-700 hover:border-amber-600 truncate max-w-[150px]"
+                                                    title={preset.instruction}
+                                                >
+                                                    {preset.name}
+                                                </button>
+                                            ))}
+                                            {presets.map(preset => (
+                                                <button
+                                                    key={preset.id}
+                                                    onClick={() => {
+                                                        const targetIdx = -(activePresetDropdown!) - 200;
+                                                        setLibraryExtraInstructions(prev => {
+                                                            const next = [...prev];
+                                                            next[targetIdx] = preset.instruction;
+                                                            return next;
+                                                        });
+                                                        setActivePresetDropdown(null);
+                                                    }}
+                                                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 rounded border border-zinc-700 truncate max-w-[150px]"
+                                                    title={preset.instruction}
+                                                >
+                                                    {preset.name}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                <button
+                                    onClick={() => setLibraryExtraInstructions(prev => [...prev, ''])}
+                                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-green-400 hover:bg-green-900/20 rounded border border-green-900/30"
+                                >
+                                    <Plus size={10} /> 添加指令
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {/* 多指令列表 */}
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto overflow-x-hidden">
+                                {instructions.map((inst, idx) => (
+                                    <div key={idx} className="flex items-start gap-1">
+                                        <span className="text-[10px] text-amber-400 w-4 shrink-0 mt-1.5">{idx + 1}.</span>
+                                        <div className="flex-1 relative tooltip-bottom">
+                                            <textarea
+                                                value={inst}
+                                                onChange={(e) => updateInstruction(idx, e.target.value)}
+                                                onDoubleClick={() => setEditingInstructionIndex(idx)}
+                                                placeholder="输入改写指令..."
+                                                data-tip="双击弹框编辑"
+                                                className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-amber-500 placeholder-zinc-600 resize-none min-h-[36px]"
+                                                rows={2}
+                                            />
+                                        </div>
+                                        {/* 预设选择按钮 */}
+                                        <button
+                                            onClick={() => setActivePresetDropdown(activePresetDropdown === idx ? null : idx)}
+                                            className={`p-1 rounded transition-colors mt-0.5 ${activePresetDropdown === idx
+                                                ? 'text-amber-400 bg-amber-900/30'
+                                                : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-800'
+                                                } tooltip-bottom`}
+                                            data-tip="选择预设"
+                                        >
+                                            <ChevronDown size={12} />
+                                        </button>
+                                        {instructions.length > 1 && (
+                                            <button
+                                                onClick={() => removeInstruction(idx)}
+                                                className="p-0.5 text-zinc-500 hover:text-red-400 mt-1"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 预设选择面板 - 当选中某个指令时显示 */}
+                            {activePresetDropdown !== null && activePresetDropdown >= 0 && (
+                                <div className="mt-2 bg-zinc-950 border border-amber-700/50 rounded-lg p-2">
+                                    <div className="text-[10px] text-amber-400 mb-1.5">
+                                        选择预设填充到指令 {activePresetDropdown + 1}：
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                        {BUILTIN_PRESETS.map(preset => (
+                                            <button
+                                                key={preset.id}
+                                                onClick={() => { updateInstruction(activePresetDropdown, preset.instruction); setActivePresetDropdown(null); }}
+                                                className="px-2 py-1 bg-zinc-800 hover:bg-amber-900/30 text-xs text-amber-300 rounded border border-zinc-700 hover:border-amber-600 truncate max-w-[150px]"
+                                                title={preset.instruction}
+                                            >
+                                                {preset.name}
+                                            </button>
+                                        ))}
+                                        {presets.map(preset => (
+                                            <button
+                                                key={preset.id}
+                                                onClick={() => { updateInstruction(activePresetDropdown, preset.instruction); setActivePresetDropdown(null); }}
+                                                className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 rounded border border-zinc-700 truncate max-w-[150px]"
+                                                title={preset.instruction}
+                                            >
+                                                {preset.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 添加指令按钮 */}
+                            <button
+                                onClick={addInstruction}
+                                className="mt-2 flex items-center gap-1 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/20 rounded border border-amber-900/30"
+                            >
+                                <Plus size={10} /> 添加指令
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 {/* 输入文案 (右侧 60%) */}
@@ -2317,10 +3385,10 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     ) : (
                         <button
                             onClick={handleStartProcessing}
-                            disabled={stats.idle === 0 || !instructions.some(i => i.trim())}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-medium disabled:opacity-50"
+                            disabled={stats.idle === 0 || (mode !== 'split' && mode !== 'library' && !instructions.some(i => i.trim()))}
+                            className={`flex items-center gap-1 px-3 py-1.5 ${mode === 'split' ? 'bg-orange-600 hover:bg-orange-500' : mode === 'library' ? 'bg-green-600 hover:bg-green-500' : 'bg-purple-600 hover:bg-purple-500'} text-white rounded text-xs font-medium disabled:opacity-50`}
                         >
-                            <Play size={14} /> 开始改写
+                            <Play size={14} /> {mode === 'split' ? '开始拆分' : mode === 'library' ? '开始匹配改写' : '开始改写'}
                         </button>
                     )}
                 </div>
@@ -2330,86 +3398,224 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
             {items.length > 0 && (
                 <div className="w-full max-w-none mx-auto flex-1">
 
+                    {/* 库模式：多选批量分配工具栏 */}
+                    {mode === 'library' && (
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            <button
+                                onClick={() => setItems(prev => prev.map(i => ({ ...i, selected: !prev.every(p => p.selected) })))}
+                                className="px-2 py-1 text-[10px] text-green-400 hover:bg-green-900/20 rounded border border-green-900/30"
+                            >
+                                {items.every(i => i.selected) ? '取消全选' : '全选'}
+                            </button>
+                            {items.some(i => i.selected) && (
+                                <>
+                                    <span className="text-[10px] text-zinc-500">已选 {items.filter(i => i.selected).length} 条</span>
+                                    <span className="text-[10px] text-zinc-600">|</span>
+                                    <span className="text-[10px] text-zinc-500">指定库:</span>
+                                    {libraries.map(lib => {
+                                        const selectedItems = items.filter(i => i.selected);
+                                        const allHaveLib = selectedItems.every(i => (i.selectedLibraryIds || []).includes(lib.id));
+                                        return (
+                                            <button
+                                                key={lib.id}
+                                                onClick={() => {
+                                                    setItems(prev => prev.map(i => {
+                                                        if (!i.selected) return i;
+                                                        const current = i.selectedLibraryIds || [];
+                                                        if (allHaveLib) {
+                                                            return { ...i, selectedLibraryIds: current.filter(id => id !== lib.id) };
+                                                        } else {
+                                                            return { ...i, selectedLibraryIds: [...new Set([...current, lib.id])] };
+                                                        }
+                                                    }));
+                                                }}
+                                                className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded ${allHaveLib ? 'bg-green-800 text-green-200' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}
+                                            >
+                                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lib.color }} />
+                                                {lib.name}
+                                            </button>
+                                        );
+                                    })}
+                                    <button
+                                        onClick={() => setItems(prev => prev.map(i => i.selected ? { ...i, selectedLibraryIds: undefined } : i))}
+                                        className="px-1.5 py-0.5 text-[9px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded"
+                                    >
+                                        清除指定
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
                     {/* 复制按钮栏 */}
                     {stats.success > 0 && (
                         <div className="flex items-center gap-2 mb-4 flex-wrap">
                             <span className="text-xs text-zinc-500">批量复制:</span>
-                            <button
-                                onClick={() => handleCopy('foreign')}
-                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'foreign'
-                                    ? 'bg-emerald-600 text-white'
-                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                                    }`}
-                            >
-                                {copiedType === 'foreign' ? <Check size={12} /> : <Copy size={12} />}
-                                {mode === "voice" ? '加标签' : '外文'}
-                            </button>
-                            <button
-                                onClick={() => handleCopy('chinese')}
-                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'chinese'
-                                    ? 'bg-emerald-600 text-white'
-                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                                    }`}
-                            >
-                                {copiedType === 'chinese' ? <Check size={12} /> : <Copy size={12} />}
-                                {mode === "voice" ? '断句' : '中文'}
-                            </button>
-                            <button
-                                onClick={() => handleCopy('both')}
-                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'both'
-                                    ? 'bg-emerald-600 text-white'
-                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                                    }`}
-                            >
-                                {copiedType === 'both' ? <Check size={12} /> : <Copy size={12} />}
-                                {mode === "voice" ? '标签+断句' : '结果两列'}
-                            </button>
-                            <button
-                                onClick={() => handleCopy('all')}
-                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'all'
-                                    ? 'bg-emerald-600 text-white'
-                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
-                                    }`}
-                            >
-                                {copiedType === 'all' ? <Check size={12} /> : <Copy size={12} />}
-                                全部四列
-                            </button>
 
-                            {/* 按指令复制 - 当有多指令结果时显示 */}
-                            {instructions.filter(i => i.trim()).length > 0 && items.some(item => item.instructionResults && item.instructionResults.length > 0) && (
+                            {/* === 拆分模式复制按钮 === */}
+                            {mode === 'split' ? (
                                 <>
-                                    <span className="text-zinc-600">|</span>
-                                    <span className="text-[10px] text-zinc-500">按指令:</span>
-                                    {instructions.filter(i => i.trim()).map((_, instIdx) => (
+                                    {splitColumns.map(col => (
                                         <button
-                                            key={`copy_inst_${instIdx}`}
-                                            onClick={() => {
-                                                const allItems = items.filter(item => item.instructionResults && item.instructionResults.length > 0);
-                                                const col1Name = mode === "voice" ? '加标签' : '外文';
-                                                const col2Name = mode === "voice" ? '断句' : '中文';
-                                                const headers = [`指令${instIdx + 1}${col1Name}`, `指令${instIdx + 1}${col2Name}`];
-                                                const rows = allItems.map(item => {
-                                                    const r = item.instructionResults![instIdx];
-                                                    if (r?.status === 'success') {
-                                                        return `${escapeForSheet(r.resultForeign)}\t${escapeForSheet(r.resultChinese)}`;
-                                                    }
-                                                    return '\t'; // 空占位
-                                                });
-                                                const text = [headers.join('\t'), ...rows].join('\n');
-                                                navigator.clipboard.writeText(text);
-                                                setCopiedType(`inst_${instIdx}`);
-                                                showCopyToast(`已复制指令${instIdx + 1}结果 (${allItems.length}条)`);
-                                                setTimeout(() => setCopiedType(null), 1500);
-                                            }}
-                                            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors ${copiedType === `inst_${instIdx}`
-                                                ? 'bg-purple-600 text-white'
-                                                : 'bg-purple-900/30 hover:bg-purple-800/40 text-purple-300 border border-purple-700/30'
+                                            key={`copy_split_${col.id}`}
+                                            onClick={() => handleCopySplitColumn(col.id)}
+                                            className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === `split_${col.id}`
+                                                ? 'bg-orange-600 text-white'
+                                                : 'bg-orange-900/30 hover:bg-orange-800/40 text-orange-300 border border-orange-700/30'
                                                 }`}
                                         >
-                                            {copiedType === `inst_${instIdx}` ? <Check size={10} /> : <Copy size={10} />}
-                                            指令{instIdx + 1}
+                                            {copiedType === `split_${col.id}` ? <Check size={12} /> : <Copy size={12} />}
+                                            {col.name}
                                         </button>
                                     ))}
+                                    <span className="text-zinc-600">|</span>
+                                    <button
+                                        onClick={handleCopySplitAll}
+                                        className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'split_all'
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                                            }`}
+                                    >
+                                        {copiedType === 'split_all' ? <Check size={12} /> : <Columns size={12} />}
+                                        全部列（表格）
+                                    </button>
+
+                                    {/* 关键词频率统计 */}
+                                    <span className="text-zinc-600">|</span>
+                                    <select
+                                        value={keywordStatsColumnId || ''}
+                                        onChange={(e) => setKeywordStatsColumnId(e.target.value || null)}
+                                        className="px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-300"
+                                    >
+                                        <option value="">选择统计列...</option>
+                                        {splitColumns.map(col => (
+                                            <option key={col.id} value={col.id}>{col.name}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        onClick={() => {
+                                            const colId = keywordStatsColumnId || splitColumns.find(c => c.name.includes('关键词'))?.id || splitColumns[splitColumns.length - 1]?.id;
+                                            if (colId) computeKeywordFrequency(colId);
+                                        }}
+                                        disabled={stats.success === 0}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors bg-sky-900/30 hover:bg-sky-800/40 text-sky-300 border border-sky-700/30 disabled:opacity-50"
+                                    >
+                                        <FileText size={12} />
+                                        统计关键词频率
+                                    </button>
+                                    {hasStats && (
+                                        <>
+                                            <span className="text-[10px] text-sky-400">
+                                                已统计 {statsKeyCount} 个词 / {keywordStatsTotalItems} 条
+                                            </span>
+                                            <button
+                                                onClick={() => {
+                                                    const successItems = items.filter(i => i.status === 'success' && i.splitResults);
+                                                    // 汇总表：关键词\t出现次数\t频率
+                                                    const sortedKeywords = Object.entries(keywordFreqMap)
+                                                        .sort((a, b) => b[1] - a[1])
+                                                        .map(([kw, count]) => `${kw}\t${count}\t${(count / keywordStatsTotalItems * 100).toFixed(1)}%`);
+                                                    const header = `关键词\t出现次数\t频率(总${keywordStatsTotalItems}条)`;
+                                                    navigator.clipboard.writeText([header, ...sortedKeywords].join('\n'));
+                                                    setCopiedType('stats_all');
+                                                    showCopyToast(`已复制 ${sortedKeywords.length} 个关键词统计`);
+                                                    setTimeout(() => setCopiedType(null), 1500);
+                                                }}
+                                                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'stats_all'
+                                                    ? 'bg-sky-600 text-white'
+                                                    : 'bg-sky-900/30 hover:bg-sky-800/40 text-sky-300 border border-sky-700/30'
+                                                    }`}
+                                            >
+                                                {copiedType === 'stats_all' ? <Check size={12} /> : <Copy size={12} />}
+                                                复制统计表
+                                            </button>
+                                            <button
+                                                onClick={() => { setKeywordFreqMap({}); setKeywordStatsColumnId(null); setKeywordStatsTotalItems(0); }}
+                                                className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                                            >清除</button>
+                                        </>
+                                    )}
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => handleCopy('foreign')}
+                                        className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'foreign'
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                                            }`}
+                                    >
+                                        {copiedType === 'foreign' ? <Check size={12} /> : <Copy size={12} />}
+                                        {mode === "voice" ? '加标签' : '外文'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleCopy('chinese')}
+                                        className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'chinese'
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                                            }`}
+                                    >
+                                        {copiedType === 'chinese' ? <Check size={12} /> : <Copy size={12} />}
+                                        {mode === "voice" ? '断句' : '中文'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleCopy('both')}
+                                        className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'both'
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                                            }`}
+                                    >
+                                        {copiedType === 'both' ? <Check size={12} /> : <Copy size={12} />}
+                                        {mode === "voice" ? '标签+断句' : '结果两列'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleCopy('all')}
+                                        className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${copiedType === 'all'
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+                                            }`}
+                                    >
+                                        {copiedType === 'all' ? <Check size={12} /> : <Copy size={12} />}
+                                        全部四列
+                                    </button>
+
+                                    {/* 按指令复制 - 当有多指令结果时显示 */}
+                                    {instructions.filter(i => i.trim()).length > 0 && items.some(item => item.instructionResults && item.instructionResults.length > 0) && (
+                                        <>
+                                            <span className="text-zinc-600">|</span>
+                                            <span className="text-[10px] text-zinc-500">按指令:</span>
+                                            {instructions.filter(i => i.trim()).map((_, instIdx) => (
+                                                <button
+                                                    key={`copy_inst_${instIdx}`}
+                                                    onClick={() => {
+                                                        const allItems = items.filter(item => item.instructionResults && item.instructionResults.length > 0);
+                                                        const col1Name = mode === "voice" ? '加标签' : '外文';
+                                                        const col2Name = mode === "voice" ? '断句' : '中文';
+                                                        const headers = [`指令${instIdx + 1}${col1Name}`, `指令${instIdx + 1}${col2Name}`];
+                                                        const rows = allItems.map(item => {
+                                                            const r = item.instructionResults![instIdx];
+                                                            if (r?.status === 'success') {
+                                                                return `${escapeForSheet(r.resultForeign)}\t${escapeForSheet(r.resultChinese)}`;
+                                                            }
+                                                            return '\t'; // 空占位
+                                                        });
+                                                        const text = [headers.join('\t'), ...rows].join('\n');
+                                                        navigator.clipboard.writeText(text);
+                                                        setCopiedType(`inst_${instIdx}`);
+                                                        showCopyToast(`已复制指令${instIdx + 1}结果 (${allItems.length}条)`);
+                                                        setTimeout(() => setCopiedType(null), 1500);
+                                                    }}
+                                                    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors ${copiedType === `inst_${instIdx}`
+                                                        ? 'bg-purple-600 text-white'
+                                                        : 'bg-purple-900/30 hover:bg-purple-800/40 text-purple-300 border border-purple-700/30'
+                                                        }`}
+                                                >
+                                                    {copiedType === `inst_${instIdx}` ? <Check size={10} /> : <Copy size={10} />}
+                                                    指令{instIdx + 1}
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
                                 </>
                             )}
 
@@ -2456,12 +3662,34 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     onClick={() => toggleItemCollapse(item.id)}
                                 >
                                     <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        {/* 库模式：多选勾选 */}
+                                        {mode === 'library' && (
+                                            <input
+                                                type="checkbox"
+                                                checked={!!item.selected}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    setItems(prev => prev.map(i => i.id === item.id ? { ...i, selected: !i.selected } : i));
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="w-3 h-3 accent-green-500 cursor-pointer shrink-0"
+                                            />
+                                        )}
                                         <button className="text-zinc-400 hover:text-zinc-200">
                                             {item.collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
                                         </button>
                                         <span className="text-xs text-zinc-200 truncate flex-1">
                                             {item.originalForeign.slice(0, 80)}{item.originalForeign.length > 80 ? '...' : ''}
                                         </span>
+                                        {/* 库模式：显示单条指定的库 */}
+                                        {mode === 'library' && item.selectedLibraryIds && item.selectedLibraryIds.length > 0 && (
+                                            <span className="flex items-center gap-0.5 px-1 py-0.5 bg-zinc-800 rounded text-[8px] text-zinc-500 shrink-0">
+                                                {item.selectedLibraryIds.map(lid => {
+                                                    const lib = libraries.find(l => l.id === lid);
+                                                    return lib ? <span key={lid} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lib.color }} title={lib.name} /> : null;
+                                                })}
+                                            </span>
+                                        )}
                                         {/* 状态标签 */}
                                         {item.status === 'processing' && (
                                             <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-900/30 text-amber-400 text-[10px] rounded">
@@ -2476,6 +3704,11 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                 )}
                                             </span>
                                         )}
+                                        {item.status === 'success' && mode === 'library' && item.libraryMatchedContent && (
+                                            <span className="px-1.5 py-0.5 bg-green-900/30 text-green-300 text-[10px] rounded truncate max-w-[200px]" title={item.libraryMatchedContent}>
+                                                📚 {item.libraryMatchedContent.slice(0, 30)}{item.libraryMatchedContent.length > 30 ? '...' : ''}
+                                            </span>
+                                        )}
                                         {item.status === 'error' && (
                                             <span className="px-1.5 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded">错误</span>
                                         )}
@@ -2488,105 +3721,184 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 {/* 折叠内容 */}
                                 {!item.collapsed && (
                                     <>
-                                        {/* 横向表格布局 - 类似谷歌表格，可水平滚动 */}
-                                        <div className="overflow-x-auto">
-                                            <div
-                                                className="grid gap-px bg-zinc-800"
-                                                style={{
-                                                    gridTemplateColumns: (() => {
-                                                        const colCount = 2 + (item.instructionResults?.length || 1) * 2;
-                                                        // 少于等于4列时平分宽度，超过4列时固定宽度可滚动
-                                                        if (colCount <= 4) {
-                                                            return `repeat(${colCount}, 1fr)`;
-                                                        } else {
-                                                            return `repeat(${colCount}, minmax(280px, 1fr))`;
-                                                        }
-                                                    })()
-                                                }}
-                                            >
-                                                {/* 原始外文 */}
-                                                <div className="bg-zinc-950 p-3">
-                                                    <div className="text-[10px] text-zinc-500 mb-1">
-                                                        原始外文
-                                                        {showDiff && item.status === 'success' && item.resultForeign && (
-                                                            <span className="ml-2 text-amber-500">（差异高亮）</span>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-sm text-zinc-300 whitespace-pre-wrap break-words">
-                                                        {showDiff && item.status === 'success' && item.resultForeign
-                                                            ? computeWordDiff(item.originalForeign, item.resultForeign).originalWithDiff
-                                                            : item.originalForeign
-                                                        }
-                                                    </div>
-                                                </div>
-
-                                                {/* 原始中文 */}
-                                                <div className="bg-zinc-950 p-3">
-                                                    <div className="text-[10px] text-zinc-500 mb-1">原始中文</div>
-                                                    <div className="text-sm text-zinc-400 whitespace-pre-wrap break-words">
-                                                        {item.originalChinese || <span className="italic text-zinc-600">-</span>}
-                                                    </div>
-                                                </div>
-
-                                                {/* 各指令结果列 */}
-                                                {item.instructionResults?.map((result, idx) => (
-                                                    <React.Fragment key={result.id}>
-                                                        {/* 指令N - 外文/加标签/分类结果列 */}
-                                                        <div className={`bg-zinc-950 border-l-2 ${mode === "classify" ? 'border-yellow-500/50' : 'border-purple-500/50'} flex flex-col`}>
-                                                            {/* 标签行 */}
-                                                            <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
-                                                                <span className={`text-[10px] ${mode === "classify" ? 'text-yellow-400' : 'text-purple-400'} font-medium`}>
-                                                                    {mode === "classify" ? `分类结果 ${idx + 1}` : `指令${idx + 1} ${mode === "voice" ? '加标签' : '外文'}`}
-                                                                </span>
-                                                                {result.status === 'success' && (
-                                                                    <div className="flex items-center gap-1">
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultForeign); showCopyToast(mode === "classify" ? `已复制分类结果${idx + 1}` : `已复制指令${idx + 1}${mode === "voice" ? '加标签' : '外文'}`); }}
-                                                                            className={`px-1 py-0.5 text-[9px] ${mode === "classify" ? 'text-yellow-400 hover:bg-yellow-900/30' : 'text-purple-400 hover:bg-purple-900/30'} rounded`}
-                                                                            title={mode === "classify" ? '复制分类结果' : (mode === "voice" ? '复制加标签结果' : '复制外文')}
-                                                                        >{mode === "classify" ? '分' : (mode === "voice" ? '标' : '外')}</button>
-                                                                        {mode !== "classify" && (
-                                                                            <button
-                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${result.resultForeign}\t${result.resultChinese}`); showCopyToast(`已复制指令${idx + 1}${mode === "voice" ? '标签+断句' : '外文+中文'}`); }}
-                                                                                className="px-1 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded"
-                                                                                title={mode === "voice" ? '复制标签+断句' : '复制外文+中文'}
-                                                                            >全</button>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                            {/* 内容行 */}
-                                                            <div className="px-3 py-2 flex-1">
-                                                                {result.status === 'processing' ? (
-                                                                    <div className="flex items-center gap-2 text-amber-400 text-sm">
-                                                                        <Loader2 size={14} className="animate-spin" />
-                                                                        处理中...
-                                                                    </div>
-                                                                ) : result.status === 'success' ? (
-                                                                    <div className={`text-sm ${mode === "classify" ? 'text-yellow-100' : 'text-purple-100'} whitespace-pre-wrap break-words`}>
-                                                                        {mode === "classify" ? result.resultForeign : highlightDiff(result.inputForeign, result.resultForeign)}
-                                                                    </div>
-                                                                ) : result.status === 'error' ? (
-                                                                    <div className="text-sm text-red-400">{result.error || '失败'}</div>
-                                                                ) : (
-                                                                    <div className="text-sm text-zinc-600">-</div>
-                                                                )}
-                                                            </div>
+                                        {/* === 拆分模式结果渲染 === */}
+                                        {mode === 'split' && (
+                                            <div className="overflow-x-auto">
+                                                <div
+                                                    className="grid gap-px bg-zinc-800"
+                                                    style={{
+                                                        gridTemplateColumns: splitGridStyle
+                                                    }}
+                                                >
+                                                    {/* 原文列 */}
+                                                    <div className="bg-zinc-950 p-3">
+                                                        <div className="text-[10px] text-zinc-500 mb-1">原文</div>
+                                                        <div className="text-sm text-zinc-300 whitespace-pre-wrap break-words">
+                                                            {item.originalForeign}
                                                         </div>
-                                                        {/* 指令N - 中文/断句列 - 分类模式不显示 */}
-                                                        {mode !== "classify" && (
-                                                            <div className="bg-zinc-950 flex flex-col">
-                                                                {/* 标签行：指令N 中文/断句 + 复制按钮 */}
+                                                    </div>
+
+                                                    {/* 各拆分列 */}
+                                                    {splitColumns.map((col, colIdx) => {
+                                                        const colorClasses = [
+                                                            'border-orange-500/50 text-orange-400 text-orange-100',
+                                                            'border-sky-500/50 text-sky-400 text-sky-100',
+                                                            'border-emerald-500/50 text-emerald-400 text-emerald-100',
+                                                            'border-violet-500/50 text-violet-400 text-violet-100',
+                                                            'border-pink-500/50 text-pink-400 text-pink-100',
+                                                            'border-amber-500/50 text-amber-400 text-amber-100',
+                                                            'border-cyan-500/50 text-cyan-400 text-cyan-100',
+                                                            'border-rose-500/50 text-rose-400 text-rose-100',
+                                                        ];
+                                                        const colors = colorClasses[colIdx % colorClasses.length].split(' ');
+                                                        const borderClass = colors[0];
+                                                        const labelClass = colors[1];
+                                                        const textClass = colors[2];
+                                                        const content = item.splitResults?.[col.id];
+
+                                                        return (
+                                                            <div key={col.id} className={`bg-zinc-950 border-l-2 ${borderClass} flex flex-col`}>
                                                                 <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
-                                                                    <span className={`text-[10px] ${mode === "voice" ? 'text-cyan-400' : 'text-blue-400'} font-medium`}>
-                                                                        指令{idx + 1} {mode === "voice" ? '断句' : '中文'}
+                                                                    <span className={`text-[10px] ${labelClass} font-medium`}>
+                                                                        {col.name}
+                                                                    </span>
+                                                                    {item.status === 'success' && content && content !== '-' && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                navigator.clipboard.writeText(content);
+                                                                                showCopyToast(`已复制「${col.name}」`);
+                                                                            }}
+                                                                            className={`px-1 py-0.5 text-[9px] ${labelClass} hover:bg-zinc-700/50 rounded`}
+                                                                        >
+                                                                            <Copy size={10} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                <div className="px-3 py-2 flex-1">
+                                                                    {item.status === 'processing' ? (
+                                                                        <div className="flex items-center gap-2 text-amber-400 text-sm">
+                                                                            <Loader2 size={14} className="animate-spin" />
+                                                                            处理中...
+                                                                        </div>
+                                                                    ) : item.status === 'success' ? (
+                                                                        <div className={`text-sm ${textClass} whitespace-pre-wrap break-words`}>
+                                                                            {content || '-'}
+                                                                        </div>
+                                                                    ) : item.status === 'error' ? (
+                                                                        <div className="text-sm text-red-400">{item.error || '失败'}</div>
+                                                                    ) : (
+                                                                        <div className="text-sm text-zinc-600 italic">待处理</div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+
+                                                    {/* 关键词频率统计列 */}
+                                                    {hasStats && (() => {
+                                                        const statsText = getItemKeywordStatsText(item);
+                                                        return (
+                                                            <div className="bg-zinc-950 border-l-2 border-sky-500/50 flex flex-col">
+                                                                <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
+                                                                    <span className="text-[10px] text-sky-400 font-medium">
+                                                                        📊 频率统计
+                                                                    </span>
+                                                                    {item.status === 'success' && statsText && statsText !== '-' && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                navigator.clipboard.writeText(statsText);
+                                                                                showCopyToast('已复制统计结果');
+                                                                            }}
+                                                                            className="px-1 py-0.5 text-[9px] text-sky-400 hover:bg-zinc-700/50 rounded"
+                                                                        >
+                                                                            <Copy size={10} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                <div className="px-3 py-2 flex-1">
+                                                                    {item.status === 'success' ? (
+                                                                        <div className="text-sm text-sky-100 whitespace-pre-wrap break-words">
+                                                                            {statsText || '-'}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-sm text-zinc-600 italic">-</div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* === 非拆分模式结果渲染 === */}
+                                        {mode !== 'split' && (
+                                            <div className="overflow-x-auto">
+                                                <div
+                                                    className="grid gap-px bg-zinc-800"
+                                                    style={{
+                                                        gridTemplateColumns: (() => {
+                                                            const colCount = 2 + (item.instructionResults?.length || 1) * 2;
+                                                            // 少于等于4列时平分宽度，超过4列时固定宽度可滚动
+                                                            if (colCount <= 4) {
+                                                                return `repeat(${colCount}, 1fr)`;
+                                                            } else {
+                                                                return `repeat(${colCount}, minmax(280px, 1fr))`;
+                                                            }
+                                                        })()
+                                                    }}
+                                                >
+                                                    {/* 原始外文 */}
+                                                    <div className="bg-zinc-950 p-3">
+                                                        <div className="text-[10px] text-zinc-500 mb-1">
+                                                            原始外文
+                                                            {showDiff && item.status === 'success' && item.resultForeign && (
+                                                                <span className="ml-2 text-amber-500">（差异高亮）</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-sm text-zinc-300 whitespace-pre-wrap break-words">
+                                                            {showDiff && item.status === 'success' && item.resultForeign
+                                                                ? computeWordDiff(item.originalForeign, item.resultForeign).originalWithDiff
+                                                                : item.originalForeign
+                                                            }
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 原始中文 */}
+                                                    <div className="bg-zinc-950 p-3">
+                                                        <div className="text-[10px] text-zinc-500 mb-1">原始中文</div>
+                                                        <div className="text-sm text-zinc-400 whitespace-pre-wrap break-words">
+                                                            {item.originalChinese || <span className="italic text-zinc-600">-</span>}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 各指令结果列 */}
+                                                    {item.instructionResults?.map((result, idx) => (
+                                                        <React.Fragment key={result.id}>
+                                                            {/* 指令N - 外文/加标签/分类结果列 */}
+                                                            <div className={`bg-zinc-950 border-l-2 ${mode === "classify" ? 'border-yellow-500/50' : 'border-purple-500/50'} flex flex-col`}>
+                                                                {/* 标签行 */}
+                                                                <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
+                                                                    <span className={`text-[10px] ${mode === "classify" ? 'text-yellow-400' : 'text-purple-400'} font-medium`}>
+                                                                        {mode === "classify" ? `分类结果 ${idx + 1}` : `指令${idx + 1} ${mode === "voice" ? '加标签' : '外文'}`}
                                                                     </span>
                                                                     {result.status === 'success' && (
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultChinese); showCopyToast(`已复制指令${idx + 1}${mode === "voice" ? '断句' : '中文'}`); }}
-                                                                            className={`px-1 py-0.5 text-[9px] ${mode === "voice" ? 'text-cyan-400 hover:bg-cyan-900/30' : 'text-blue-400 hover:bg-blue-900/30'} rounded`}
-                                                                            title={mode === "voice" ? '复制断句结果' : '复制中文'}
-                                                                        >{mode === "voice" ? '断' : '中'}</button>
+                                                                        <div className="flex items-center gap-1">
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultForeign); showCopyToast(mode === "classify" ? `已复制分类结果${idx + 1}` : `已复制指令${idx + 1}${mode === "voice" ? '加标签' : '外文'}`); }}
+                                                                                className={`px-1 py-0.5 text-[9px] ${mode === "classify" ? 'text-yellow-400 hover:bg-yellow-900/30' : 'text-purple-400 hover:bg-purple-900/30'} rounded`}
+                                                                                title={mode === "classify" ? '复制分类结果' : (mode === "voice" ? '复制加标签结果' : '复制外文')}
+                                                                            >{mode === "classify" ? '分' : (mode === "voice" ? '标' : '外')}</button>
+                                                                            {mode !== "classify" && (
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`${result.resultForeign}\t${result.resultChinese}`); showCopyToast(`已复制指令${idx + 1}${mode === "voice" ? '标签+断句' : '外文+中文'}`); }}
+                                                                                    className="px-1 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded"
+                                                                                    title={mode === "voice" ? '复制标签+断句' : '复制外文+中文'}
+                                                                                >全</button>
+                                                                            )}
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                                 {/* 内容行 */}
@@ -2597,119 +3909,154 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                             处理中...
                                                                         </div>
                                                                     ) : result.status === 'success' ? (
-                                                                        <div className="text-sm text-blue-100 whitespace-pre-wrap break-words">
-                                                                            {result.resultChinese}
+                                                                        <div className={`text-sm ${mode === "classify" ? 'text-yellow-100' : 'text-purple-100'} whitespace-pre-wrap break-words`}>
+                                                                            {mode === "classify" ? result.resultForeign : highlightDiff(result.inputForeign, result.resultForeign)}
                                                                         </div>
+                                                                    ) : result.status === 'error' ? (
+                                                                        <div className="text-sm text-red-400">{result.error || '失败'}</div>
                                                                     ) : (
                                                                         <div className="text-sm text-zinc-600">-</div>
                                                                     )}
                                                                 </div>
-                                                                {/* 指令操作栏：重试、对话 */}
-                                                                <div className="px-2 py-1 bg-zinc-900/50 border-t border-zinc-700/30 flex items-center gap-1 justify-end">
-                                                                    {(result.status === 'error' || result.status === 'success') && (
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); handleRetryInstruction(item.id, idx); }}
-                                                                            className="p-1 text-amber-400 hover:bg-amber-900/20 rounded transition-colors tooltip-bottom"
-                                                                            data-tip="重试该指令"
-                                                                        >
-                                                                            <RotateCw size={12} />
-                                                                        </button>
-                                                                    )}
-                                                                    {result.status === 'success' && (
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); toggleInstructionChat(item.id, idx); }}
-                                                                            className={`p-1 rounded transition-colors ${result.chatOpen ? 'text-amber-400 bg-amber-900/20' : 'text-zinc-500 hover:text-amber-400'} tooltip-bottom`}
-                                                                            data-tip="对话修改"
-                                                                        >
-                                                                            <MessageSquare size={12} />
-                                                                        </button>
+                                                            </div>
+                                                            {/* 指令N - 中文/断句列 - 分类模式不显示 */}
+                                                            {mode !== "classify" && (
+                                                                <div className="bg-zinc-950 flex flex-col">
+                                                                    {/* 标签行：指令N 中文/断句 + 复制按钮 */}
+                                                                    <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
+                                                                        <span className={`text-[10px] ${mode === "voice" ? 'text-cyan-400' : 'text-blue-400'} font-medium`}>
+                                                                            指令{idx + 1} {mode === "voice" ? '断句' : '中文'}
+                                                                        </span>
+                                                                        {result.status === 'success' && (
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultChinese); showCopyToast(`已复制指令${idx + 1}${mode === "voice" ? '断句' : '中文'}`); }}
+                                                                                className={`px-1 py-0.5 text-[9px] ${mode === "voice" ? 'text-cyan-400 hover:bg-cyan-900/30' : 'text-blue-400 hover:bg-blue-900/30'} rounded`}
+                                                                                title={mode === "voice" ? '复制断句结果' : '复制中文'}
+                                                                            >{mode === "voice" ? '断' : '中'}</button>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* 内容行 */}
+                                                                    <div className="px-3 py-2 flex-1">
+                                                                        {result.status === 'processing' ? (
+                                                                            <div className="flex items-center gap-2 text-amber-400 text-sm">
+                                                                                <Loader2 size={14} className="animate-spin" />
+                                                                                处理中...
+                                                                            </div>
+                                                                        ) : result.status === 'success' ? (
+                                                                            <div className="text-sm text-blue-100 whitespace-pre-wrap break-words">
+                                                                                {result.resultChinese}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="text-sm text-zinc-600">-</div>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* 指令操作栏：重试、对话 */}
+                                                                    <div className="px-2 py-1 bg-zinc-900/50 border-t border-zinc-700/30 flex items-center gap-1 justify-end">
+                                                                        {(result.status === 'error' || result.status === 'success') && (
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); handleRetryInstruction(item.id, idx); }}
+                                                                                className="p-1 text-amber-400 hover:bg-amber-900/20 rounded transition-colors tooltip-bottom"
+                                                                                data-tip="重试该指令"
+                                                                            >
+                                                                                <RotateCw size={12} />
+                                                                            </button>
+                                                                        )}
+                                                                        {result.status === 'success' && (
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); toggleInstructionChat(item.id, idx); }}
+                                                                                className={`p-1 rounded transition-colors ${result.chatOpen ? 'text-amber-400 bg-amber-900/20' : 'text-zinc-500 hover:text-amber-400'} tooltip-bottom`}
+                                                                                data-tip="对话修改"
+                                                                            >
+                                                                                <MessageSquare size={12} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                    {/* 指令对话面板 */}
+                                                                    {result.chatOpen && (
+                                                                        <div className="px-2 py-2 bg-zinc-900 border-t border-amber-600/30">
+                                                                            {/* 对话历史 */}
+                                                                            {result.chatHistory && result.chatHistory.length > 0 && (
+                                                                                <div className="max-h-32 overflow-y-auto mb-2 space-y-1">
+                                                                                    {result.chatHistory.map(msg => (
+                                                                                        <div key={msg.id} className={`text-[10px] px-2 py-1 rounded ${msg.role === 'user' ? 'bg-blue-900/30 text-blue-200' : 'bg-zinc-800 text-zinc-300'}`}>
+                                                                                            {msg.text}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                            {/* 输入框 */}
+                                                                            <div className="flex gap-1">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={result.chatInput || ''}
+                                                                                    onChange={(e) => updateInstructionChatInput(item.id, idx, e.target.value)}
+                                                                                    onKeyDown={(e) => { if (e.key === 'Enter') handleInstructionChatSend(item.id, idx); }}
+                                                                                    placeholder="输入修改要求..."
+                                                                                    className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-200 focus:outline-none focus:border-amber-500"
+                                                                                    onClick={(e) => e.stopPropagation()}
+                                                                                />
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); handleInstructionChatSend(item.id, idx); }}
+                                                                                    disabled={result.chatLoading || !result.chatInput?.trim()}
+                                                                                    className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] disabled:opacity-50"
+                                                                                >
+                                                                                    {result.chatLoading ? <Loader2 size={10} className="animate-spin" /> : '发送'}
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
                                                                     )}
                                                                 </div>
-                                                                {/* 指令对话面板 */}
-                                                                {result.chatOpen && (
-                                                                    <div className="px-2 py-2 bg-zinc-900 border-t border-amber-600/30">
-                                                                        {/* 对话历史 */}
-                                                                        {result.chatHistory && result.chatHistory.length > 0 && (
-                                                                            <div className="max-h-32 overflow-y-auto mb-2 space-y-1">
-                                                                                {result.chatHistory.map(msg => (
-                                                                                    <div key={msg.id} className={`text-[10px] px-2 py-1 rounded ${msg.role === 'user' ? 'bg-blue-900/30 text-blue-200' : 'bg-zinc-800 text-zinc-300'}`}>
-                                                                                        {msg.text}
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
-                                                                        {/* 输入框 */}
-                                                                        <div className="flex gap-1">
-                                                                            <input
-                                                                                type="text"
-                                                                                value={result.chatInput || ''}
-                                                                                onChange={(e) => updateInstructionChatInput(item.id, idx, e.target.value)}
-                                                                                onKeyDown={(e) => { if (e.key === 'Enter') handleInstructionChatSend(item.id, idx); }}
-                                                                                placeholder="输入修改要求..."
-                                                                                className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-200 focus:outline-none focus:border-amber-500"
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                            />
-                                                                            <button
-                                                                                onClick={(e) => { e.stopPropagation(); handleInstructionChatSend(item.id, idx); }}
-                                                                                disabled={result.chatLoading || !result.chatInput?.trim()}
-                                                                                className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] disabled:opacity-50"
-                                                                            >
-                                                                                {result.chatLoading ? <Loader2 size={10} className="animate-spin" /> : '发送'}
-                                                                            </button>
-                                                                        </div>
+                                                            )}
+                                                        </React.Fragment>
+                                                    ))}
+
+                                                    {/* 如果没有指令结果，显示默认的改写后列 */}
+                                                    {(!item.instructionResults || item.instructionResults.length === 0) && (
+                                                        <>
+                                                            {/* 改写后外文 / 加标签结果 */}
+                                                            <div className="bg-zinc-950 p-3">
+                                                                <div className={`text-[10px] ${mode === "voice" ? 'text-purple-500' : 'text-emerald-500'} mb-1`}>
+                                                                    {mode === "voice" ? '加标签结果' : '改写后外文'}
+                                                                </div>
+                                                                {item.status === 'processing' && (
+                                                                    <div className="flex items-center gap-2 text-amber-400 text-sm">
+                                                                        <Loader2 size={14} className="animate-spin" />
+                                                                        处理中...
                                                                     </div>
                                                                 )}
+                                                                {item.status === 'success' && (
+                                                                    <div className={`text-sm ${mode === "voice" ? 'text-purple-100' : 'text-emerald-100'} whitespace-pre-wrap break-words`}>
+                                                                        {showDiff && mode === 'standard' && item.resultForeign
+                                                                            ? computeWordDiff(item.originalForeign, item.resultForeign).resultWithDiff
+                                                                            : item.resultForeign
+                                                                        }
+                                                                    </div>
+                                                                )}
+                                                                {item.status === 'error' && (
+                                                                    <div className="text-sm text-red-400">错误: {item.error}</div>
+                                                                )}
+                                                                {item.status === 'idle' && (
+                                                                    <div className="text-sm text-zinc-600 italic">待处理</div>
+                                                                )}
                                                             </div>
-                                                        )}
-                                                    </React.Fragment>
-                                                ))}
-
-                                                {/* 如果没有指令结果，显示默认的改写后列 */}
-                                                {(!item.instructionResults || item.instructionResults.length === 0) && (
-                                                    <>
-                                                        {/* 改写后外文 / 加标签结果 */}
-                                                        <div className="bg-zinc-950 p-3">
-                                                            <div className={`text-[10px] ${mode === "voice" ? 'text-purple-500' : 'text-emerald-500'} mb-1`}>
-                                                                {mode === "voice" ? '加标签结果' : '改写后外文'}
+                                                            {/* 改写后中文 / 断句结果 */}
+                                                            <div className="bg-zinc-950 p-3">
+                                                                <div className={`text-[10px] ${mode === "voice" ? 'text-cyan-500' : 'text-blue-500'} mb-1`}>
+                                                                    {mode === "voice" ? '断句结果' : '改写后中文'}
+                                                                </div>
+                                                                {item.status === 'success' ? (
+                                                                    <div className={`text-sm ${mode === "voice" ? 'text-cyan-100' : 'text-blue-100'} whitespace-pre-wrap break-words`}>
+                                                                        {item.resultChinese}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-sm text-zinc-600 italic">-</div>
+                                                                )}
                                                             </div>
-                                                            {item.status === 'processing' && (
-                                                                <div className="flex items-center gap-2 text-amber-400 text-sm">
-                                                                    <Loader2 size={14} className="animate-spin" />
-                                                                    处理中...
-                                                                </div>
-                                                            )}
-                                                            {item.status === 'success' && (
-                                                                <div className={`text-sm ${mode === "voice" ? 'text-purple-100' : 'text-emerald-100'} whitespace-pre-wrap break-words`}>
-                                                                    {showDiff && mode === 'standard' && item.resultForeign
-                                                                        ? computeWordDiff(item.originalForeign, item.resultForeign).resultWithDiff
-                                                                        : item.resultForeign
-                                                                    }
-                                                                </div>
-                                                            )}
-                                                            {item.status === 'error' && (
-                                                                <div className="text-sm text-red-400">错误: {item.error}</div>
-                                                            )}
-                                                            {item.status === 'idle' && (
-                                                                <div className="text-sm text-zinc-600 italic">待处理</div>
-                                                            )}
-                                                        </div>
-                                                        {/* 改写后中文 / 断句结果 */}
-                                                        <div className="bg-zinc-950 p-3">
-                                                            <div className={`text-[10px] ${mode === "voice" ? 'text-cyan-500' : 'text-blue-500'} mb-1`}>
-                                                                {mode === "voice" ? '断句结果' : '改写后中文'}
-                                                            </div>
-                                                            {item.status === 'success' ? (
-                                                                <div className={`text-sm ${mode === "voice" ? 'text-cyan-100' : 'text-blue-100'} whitespace-pre-wrap break-words`}>
-                                                                    {item.resultChinese}
-                                                                </div>
-                                                            ) : (
-                                                                <div className="text-sm text-zinc-600 italic">-</div>
-                                                            )}
-                                                        </div>
-                                                    </>
-                                                )}
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                         {/* 单条复制按钮栏 */}
                                         {item.instructionResults && item.instructionResults.length > 0 && (
                                             <div className="px-3 py-1.5 bg-zinc-900/50 border-t border-zinc-800 flex items-center gap-2 flex-wrap">
@@ -2899,160 +4246,221 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                         ))}
                     </div>
                 </div>
-            )}
+            )
+            }
 
             {/* 空状态 */}
-            {items.length === 0 && (
-                <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-zinc-900/30 min-h-[300px]">
-                    <FileText size={48} className="mb-4 opacity-20" />
-                    <p className="text-sm">添加文案开始批量改写</p>
-                    <p className="text-xs text-zinc-700 mt-2">支持从表格复制粘贴（外文 + 中文参照两列）</p>
-                </div>
-            )}
+            {
+                items.length === 0 && (
+                    <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl bg-zinc-900/30 min-h-[300px]">
+                        <FileText size={48} className="mb-4 opacity-20" />
+                        <p className="text-sm">添加文案开始批量改写</p>
+                        <p className="text-xs text-zinc-700 mt-2">支持从表格复制粘贴（外文 + 中文参照两列）</p>
+                    </div>
+                )
+            }
 
             {/* === 预览指令弹框 === */}
-            {showPreview && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowPreview(false)}>
-                    <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                <Eye size={20} className={mode === "voice" ? "text-purple-400" : mode === "classify" ? "text-cyan-400" : "text-purple-400"} />
-                                {mode === "voice" ? '🎙️ 人声文案模式 - 指令预览' : mode === "classify" ? '🏷️ 分类模式 - 指令预览' : '最终指令预览'}
-                            </h3>
-                            <button onClick={() => setShowPreview(false)} className="text-zinc-500 hover:text-white">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="p-4 overflow-y-auto bg-zinc-950/50 space-y-4">
-                            <p className="text-xs text-zinc-500">
-                                {mode === "voice"
-                                    ? '以下是人声文案模式的 Prompt 结构（专为 ElevenLabs 配音优化）：'
-                                    : mode === "classify"
-                                        ? '以下是分类模式的 Prompt 结构（只输出分类结果，无需翻译）：'
-                                        : '以下是发送给 AI 的完整 Prompt 结构（如果修改结果不满意可以修改这里的指令）：'
-                                }
-                            </p>
+            {
+                showPreview && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowPreview(false)}>
+                        <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <Eye size={20} className={mode === "voice" ? "text-purple-400" : mode === "classify" ? "text-cyan-400" : "text-purple-400"} />
+                                    {mode === "voice" ? '🎙️ 人声文案模式 - 指令预览' : mode === "classify" ? '🏷️ 分类模式 - 指令预览' : '最终指令预览'}
+                                </h3>
+                                <button onClick={() => setShowPreview(false)} className="text-zinc-500 hover:text-white">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="p-4 overflow-y-auto bg-zinc-950/50 space-y-4">
+                                <p className="text-xs text-zinc-500">
+                                    {mode === "voice"
+                                        ? '以下是人声文案模式的 Prompt 结构（专为 ElevenLabs 配音优化）：'
+                                        : mode === "classify"
+                                            ? '以下是分类模式的 Prompt 结构（只输出分类结果，无需翻译）：'
+                                            : '以下是发送给 AI 的完整 Prompt 结构（如果修改结果不满意可以修改这里的指令）：'
+                                    }
+                                </p>
 
-                            {/* 系统指令 - 可编辑 */}
-                            <div className={`bg-black/30 p-4 rounded-lg border ${mode === "voice" ? 'border-purple-900/30' : mode === "classify" ? 'border-cyan-900/30' : 'border-blue-900/30'}`}>
-                                <div className={`${mode === "voice" ? 'text-purple-400' : mode === "classify" ? 'text-cyan-400' : 'text-blue-400'} font-medium mb-2 text-sm flex items-center gap-2`}>
-                                    {mode === "voice" ? '🎙️ 人声文案系统指令' : mode === "classify" ? '🏷️ 分类模式系统指令' : '📝 系统固定默认指令'}
-                                    <span className="text-zinc-500 text-xs font-normal">（可直接编辑）</span>
-                                    {mode === "voice" && (
+                                {/* 系统指令 - 可编辑 */}
+                                <div className={`bg-black/30 p-4 rounded-lg border ${mode === "voice" ? 'border-purple-900/30' : mode === "classify" ? 'border-cyan-900/30' : 'border-blue-900/30'}`}>
+                                    <div className={`${mode === "voice" ? 'text-purple-400' : mode === "classify" ? 'text-cyan-400' : 'text-blue-400'} font-medium mb-2 text-sm flex items-center gap-2`}>
+                                        {mode === "voice" ? '🎙️ 人声文案系统指令' : mode === "classify" ? '🏷️ 分类模式系统指令' : '📝 系统固定默认指令'}
+                                        <span className="text-zinc-500 text-xs font-normal">（可直接编辑）</span>
+                                        {mode === "voice" && (
+                                            <button
+                                                onClick={() => setVoiceModeSystemInstruction(VOICE_MODE_SYSTEM_INSTRUCTION)}
+                                                className="text-[10px] text-purple-400/60 hover:text-purple-400 px-1.5 py-0.5 rounded bg-purple-900/20 hover:bg-purple-900/40 transition-colors"
+                                            >
+                                                重置默认
+                                            </button>
+                                        )}
+                                        {mode === "classify" && (
+                                            <button
+                                                onClick={() => setClassifyModeSystemInstruction(CLASSIFY_MODE_SYSTEM_INSTRUCTION)}
+                                                className="text-[10px] text-cyan-400/60 hover:text-cyan-400 px-1.5 py-0.5 rounded bg-cyan-900/20 hover:bg-cyan-900/40 transition-colors"
+                                            >
+                                                重置默认
+                                            </button>
+                                        )}
+                                    </div>
+                                    <textarea
+                                        value={mode === "voice" ? voiceModeSystemInstruction : mode === "classify" ? classifyModeSystemInstruction : systemInstruction}
+                                        onChange={(e) => {
+                                            if (mode === "voice") {
+                                                setVoiceModeSystemInstruction(e.target.value);
+                                            } else if (mode === "classify") {
+                                                setClassifyModeSystemInstruction(e.target.value);
+                                            } else {
+                                                setSystemInstruction(e.target.value);
+                                            }
+                                        }}
+                                        placeholder={mode === "voice" ? VOICE_MODE_SYSTEM_INSTRUCTION : mode === "classify" ? CLASSIFY_MODE_SYSTEM_INSTRUCTION : DEFAULT_SYSTEM_INSTRUCTION}
+                                        className={`w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-300 focus:outline-none resize-none h-48 placeholder-zinc-600 ${mode === "voice" ? 'focus:border-purple-500' : mode === "classify" ? 'focus:border-cyan-500' : 'focus:border-blue-500'}`}
+                                    />
+                                </div>
+
+                                {/* 用户指令列表 - 可编辑 */}
+                                <div className={`bg-black/30 p-4 rounded-lg border ${mode === "voice" ? 'border-cyan-900/30' : mode === "classify" ? 'border-yellow-900/30' : 'border-emerald-900/30'}`}>
+                                    <div className={`${mode === "voice" ? 'text-cyan-400' : mode === "classify" ? 'text-yellow-400' : 'text-emerald-400'} font-medium mb-2 text-sm flex items-center gap-2`}>
+                                        {mode === "classify" ? '🏷️ 分类规则' : '🎯 用户指令列表'}
+                                        <span className="text-zinc-500 text-xs font-normal">（{instructions.filter(i => i.trim()).length}条指令，独立执行）</span>
+                                    </div>
+                                    <div className="space-y-2 max-h-60 overflow-y-auto overflow-x-hidden">
+                                        {instructions.map((inst, idx) => (
+                                            <div key={idx} className="flex items-start gap-2">
+                                                <span className={`text-[10px] ${mode === "voice" ? 'text-cyan-400' : mode === "classify" ? 'text-yellow-400' : 'text-emerald-400'} w-4 mt-2`}>{idx + 1}.</span>
+                                                <textarea
+                                                    value={inst}
+                                                    onChange={(e) => updateInstruction(idx, e.target.value)}
+                                                    placeholder={mode === "classify" ? "输入分类规则..." : "输入改写指令..."}
+                                                    className={`flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none placeholder-zinc-600 resize-none min-h-[60px] ${mode === "voice" ? 'focus:border-cyan-500' : mode === "classify" ? 'focus:border-yellow-500' : 'focus:border-emerald-500'}`}
+                                                    rows={2}
+                                                />
+                                                {instructions.length > 1 && (
+                                                    <button onClick={() => removeInstruction(idx)} className="text-zinc-500 hover:text-red-400 mt-2">
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
                                         <button
-                                            onClick={() => setVoiceModeSystemInstruction(VOICE_MODE_SYSTEM_INSTRUCTION)}
-                                            className="text-[10px] text-purple-400/60 hover:text-purple-400 px-1.5 py-0.5 rounded bg-purple-900/20 hover:bg-purple-900/40 transition-colors"
+                                            onClick={addInstruction}
+                                            className={`flex items-center gap-1 px-2 py-1 text-xs ${mode === "voice" ? 'text-cyan-400 hover:bg-cyan-900/20 border-cyan-900/30' : mode === "classify" ? 'text-yellow-400 hover:bg-yellow-900/20 border-yellow-900/30' : 'text-emerald-400 hover:bg-emerald-900/20 border-emerald-900/30'} rounded border`}
                                         >
-                                            重置默认
+                                            <Plus size={12} /> 添加指令
                                         </button>
+                                    </div>
+                                </div>
+
+                                {/* 输出格式 - 锁定 */}
+                                <div className="bg-black/30 p-4 rounded-lg border border-zinc-800 opacity-60">
+                                    <div className="text-zinc-500 font-medium mb-2 text-sm flex items-center gap-2">
+                                        🔒 输出格式（固定，不可修改）
+                                    </div>
+                                    <div className="text-zinc-600 text-xs font-mono">
+                                        {mode === "voice"
+                                            ? '加标签结果|||断句结果'
+                                            : mode === "classify"
+                                                ? '分类结果（仅输出分类名称，无需翻译）'
+                                                : '改写后的外文|||中文翻译'
+                                        }
+                                    </div>
+                                    {mode === "voice" && (
+                                        <p className="text-[10px] text-zinc-500 mt-2">
+                                            第一列：带情感标签的文案（用于 ElevenLabs）<br />
+                                            第二列：合理断行的纯文本（用于字幕显示）
+                                        </p>
                                     )}
                                     {mode === "classify" && (
-                                        <button
-                                            onClick={() => setClassifyModeSystemInstruction(CLASSIFY_MODE_SYSTEM_INSTRUCTION)}
-                                            className="text-[10px] text-cyan-400/60 hover:text-cyan-400 px-1.5 py-0.5 rounded bg-cyan-900/20 hover:bg-cyan-900/40 transition-colors"
-                                        >
-                                            重置默认
-                                        </button>
+                                        <p className="text-[10px] text-zinc-500 mt-2">
+                                            AI 将根据您的分类规则，只输出分类结果。<br />
+                                            适合大批量数据分类，比如小组名称归类、内容审核等。
+                                        </p>
                                     )}
                                 </div>
-                                <textarea
-                                    value={mode === "voice" ? voiceModeSystemInstruction : mode === "classify" ? classifyModeSystemInstruction : systemInstruction}
-                                    onChange={(e) => {
-                                        if (mode === "voice") {
-                                            setVoiceModeSystemInstruction(e.target.value);
-                                        } else if (mode === "classify") {
-                                            setClassifyModeSystemInstruction(e.target.value);
-                                        } else {
-                                            setSystemInstruction(e.target.value);
-                                        }
-                                    }}
-                                    placeholder={mode === "voice" ? VOICE_MODE_SYSTEM_INSTRUCTION : mode === "classify" ? CLASSIFY_MODE_SYSTEM_INSTRUCTION : DEFAULT_SYSTEM_INSTRUCTION}
-                                    className={`w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-300 focus:outline-none resize-none h-48 placeholder-zinc-600 ${mode === "voice" ? 'focus:border-purple-500' : mode === "classify" ? 'focus:border-cyan-500' : 'focus:border-blue-500'}`}
-                                />
                             </div>
-
-                            {/* 用户指令列表 - 可编辑 */}
-                            <div className={`bg-black/30 p-4 rounded-lg border ${mode === "voice" ? 'border-cyan-900/30' : mode === "classify" ? 'border-yellow-900/30' : 'border-emerald-900/30'}`}>
-                                <div className={`${mode === "voice" ? 'text-cyan-400' : mode === "classify" ? 'text-yellow-400' : 'text-emerald-400'} font-medium mb-2 text-sm flex items-center gap-2`}>
-                                    {mode === "classify" ? '🏷️ 分类规则' : '🎯 用户指令列表'}
-                                    <span className="text-zinc-500 text-xs font-normal">（{instructions.filter(i => i.trim()).length}条指令，独立执行）</span>
-                                </div>
-                                <div className="space-y-2 max-h-60 overflow-y-auto overflow-x-hidden">
-                                    {instructions.map((inst, idx) => (
-                                        <div key={idx} className="flex items-start gap-2">
-                                            <span className={`text-[10px] ${mode === "voice" ? 'text-cyan-400' : mode === "classify" ? 'text-yellow-400' : 'text-emerald-400'} w-4 mt-2`}>{idx + 1}.</span>
-                                            <textarea
-                                                value={inst}
-                                                onChange={(e) => updateInstruction(idx, e.target.value)}
-                                                placeholder={mode === "classify" ? "输入分类规则..." : "输入改写指令..."}
-                                                className={`flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none placeholder-zinc-600 resize-none min-h-[60px] ${mode === "voice" ? 'focus:border-cyan-500' : mode === "classify" ? 'focus:border-yellow-500' : 'focus:border-emerald-500'}`}
-                                                rows={2}
-                                            />
-                                            {instructions.length > 1 && (
-                                                <button onClick={() => removeInstruction(idx)} className="text-zinc-500 hover:text-red-400 mt-2">
-                                                    <X size={14} />
-                                                </button>
-                                            )}
-                                        </div>
-                                    ))}
-                                    <button
-                                        onClick={addInstruction}
-                                        className={`flex items-center gap-1 px-2 py-1 text-xs ${mode === "voice" ? 'text-cyan-400 hover:bg-cyan-900/20 border-cyan-900/30' : mode === "classify" ? 'text-yellow-400 hover:bg-yellow-900/20 border-yellow-900/30' : 'text-emerald-400 hover:bg-emerald-900/20 border-emerald-900/30'} rounded border`}
-                                    >
-                                        <Plus size={12} /> 添加指令
-                                    </button>
-                                </div>
+                            <div className="p-4 border-t border-zinc-800 flex justify-end gap-2">
+                                <button
+                                    onClick={() => setShowPreview(false)}
+                                    className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm transition-colors"
+                                >
+                                    关闭
+                                </button>
                             </div>
-
-                            {/* 输出格式 - 锁定 */}
-                            <div className="bg-black/30 p-4 rounded-lg border border-zinc-800 opacity-60">
-                                <div className="text-zinc-500 font-medium mb-2 text-sm flex items-center gap-2">
-                                    🔒 输出格式（固定，不可修改）
-                                </div>
-                                <div className="text-zinc-600 text-xs font-mono">
-                                    {mode === "voice"
-                                        ? '加标签结果|||断句结果'
-                                        : mode === "classify"
-                                            ? '分类结果（仅输出分类名称，无需翻译）'
-                                            : '改写后的外文|||中文翻译'
-                                    }
-                                </div>
-                                {mode === "voice" && (
-                                    <p className="text-[10px] text-zinc-500 mt-2">
-                                        第一列：带情感标签的文案（用于 ElevenLabs）<br />
-                                        第二列：合理断行的纯文本（用于字幕显示）
-                                    </p>
-                                )}
-                                {mode === "classify" && (
-                                    <p className="text-[10px] text-zinc-500 mt-2">
-                                        AI 将根据您的分类规则，只输出分类结果。<br />
-                                        适合大批量数据分类，比如小组名称归类、内容审核等。
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="p-4 border-t border-zinc-800 flex justify-end gap-2">
-                            <button
-                                onClick={() => setShowPreview(false)}
-                                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm transition-colors"
-                            >
-                                关闭
-                            </button>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* 双击编辑指令弹框 */}
-            {editingInstructionIndex !== null && (
+            {
+                editingInstructionIndex !== null && (
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                        <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl mx-4 shadow-2xl">
+                            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                                <div className="text-amber-400 font-medium flex items-center gap-2">
+                                    ✏️ 编辑指令 {editingInstructionIndex + 1}
+                                </div>
+                                <button
+                                    onClick={() => setEditingInstructionIndex(null)}
+                                    className="text-zinc-500 hover:text-zinc-300"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-4">
+                                <textarea
+                                    value={instructions[editingInstructionIndex] || ''}
+                                    onChange={(e) => updateInstruction(editingInstructionIndex, e.target.value)}
+                                    placeholder="在此输入完整的改写指令..."
+                                    className="w-full h-48 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-amber-500 placeholder-zinc-600 resize-none"
+                                    autoFocus
+                                />
+                                <div className="mt-3 text-[10px] text-zinc-500">
+                                    提示：在这里可以完整查看和编辑指令内容。关闭弹框后自动保存。
+                                </div>
+                            </div>
+                            <div className="p-4 border-t border-zinc-800 flex justify-between">
+                                {/* 预设快速填充 */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[10px] text-zinc-500">快速填充：</span>
+                                    {BUILTIN_PRESETS.slice(0, 4).map(preset => (
+                                        <button
+                                            key={preset.id}
+                                            onClick={() => updateInstruction(editingInstructionIndex, preset.instruction)}
+                                            className="px-2 py-1 bg-zinc-800 hover:bg-amber-900/30 text-[10px] text-amber-300 rounded border border-zinc-700"
+                                        >
+                                            {preset.name}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => setEditingInstructionIndex(null)}
+                                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-medium"
+                                >
+                                    确定
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* 库模式双击编辑弹窗 */}
+            {editingLibField !== null && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
                     <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl mx-4 shadow-2xl">
                         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-                            <div className="text-amber-400 font-medium flex items-center gap-2">
-                                ✏️ 编辑指令 {editingInstructionIndex + 1}
+                            <div className="text-green-400 font-medium flex items-center gap-2">
+                                ✏️ {editingLibField.type === 'matchRule'
+                                    ? `编辑库使用指令 - ${libraries.find(l => l.id === (editingLibField as any).libId)?.name || ''}`
+                                    : `编辑额外指令 ${(editingLibField as any).idx + 1}`}
                             </div>
                             <button
-                                onClick={() => setEditingInstructionIndex(null)}
+                                onClick={() => setEditingLibField(null)}
                                 className="text-zinc-500 hover:text-zinc-300"
                             >
                                 <X size={18} />
@@ -3060,10 +4468,26 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                         </div>
                         <div className="p-4">
                             <textarea
-                                value={instructions[editingInstructionIndex] || ''}
-                                onChange={(e) => updateInstruction(editingInstructionIndex, e.target.value)}
-                                placeholder="在此输入完整的改写指令..."
-                                className="w-full h-48 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-amber-500 placeholder-zinc-600 resize-none"
+                                value={
+                                    editingLibField.type === 'matchRule'
+                                        ? libraries.find(l => l.id === (editingLibField as any).libId)?.matchRule || ''
+                                        : libraryExtraInstructions[(editingLibField as any).idx] || ''
+                                }
+                                onChange={(e) => {
+                                    if (editingLibField.type === 'matchRule') {
+                                        const libId = (editingLibField as any).libId;
+                                        setLibraries(prev => prev.map(l => l.id === libId ? { ...l, matchRule: e.target.value } : l));
+                                    } else {
+                                        const idx = (editingLibField as any).idx;
+                                        setLibraryExtraInstructions(prev => {
+                                            const next = [...prev];
+                                            next[idx] = e.target.value;
+                                            return next;
+                                        });
+                                    }
+                                }}
+                                placeholder="在此输入完整的指令..."
+                                className="w-full h-48 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-green-500 placeholder-zinc-600 resize-none"
                                 autoFocus
                             />
                             <div className="mt-3 text-[10px] text-zinc-500">
@@ -3071,22 +4495,33 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                             </div>
                         </div>
                         <div className="p-4 border-t border-zinc-800 flex justify-between">
-                            {/* 预设快速填充 */}
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-[10px] text-zinc-500">快速填充：</span>
                                 {BUILTIN_PRESETS.slice(0, 4).map(preset => (
                                     <button
                                         key={preset.id}
-                                        onClick={() => updateInstruction(editingInstructionIndex, preset.instruction)}
-                                        className="px-2 py-1 bg-zinc-800 hover:bg-amber-900/30 text-[10px] text-amber-300 rounded border border-zinc-700"
+                                        onClick={() => {
+                                            if (editingLibField!.type === 'matchRule') {
+                                                const libId = (editingLibField as any).libId;
+                                                setLibraries(prev => prev.map(l => l.id === libId ? { ...l, matchRule: preset.instruction } : l));
+                                            } else {
+                                                const idx = (editingLibField as any).idx;
+                                                setLibraryExtraInstructions(prev => {
+                                                    const next = [...prev];
+                                                    next[idx] = preset.instruction;
+                                                    return next;
+                                                });
+                                            }
+                                        }}
+                                        className="px-2 py-1 bg-zinc-800 hover:bg-green-900/30 text-[10px] text-green-300 rounded border border-zinc-700"
                                     >
                                         {preset.name}
                                     </button>
                                 ))}
                             </div>
                             <button
-                                onClick={() => setEditingInstructionIndex(null)}
-                                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-medium"
+                                onClick={() => setEditingLibField(null)}
+                                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm font-medium"
                             >
                                 确定
                             </button>
@@ -3095,55 +4530,412 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                 </div>
             )}
 
-            {/* 保存预设 Modal */}
-            {showSavePreset && (
-                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowSavePreset(false)}>
-                    <div className="bg-zinc-900 border border-amber-600/50 rounded-xl p-4 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="text-amber-400 text-sm font-medium mb-3">保存预设</h3>
-                        <div className="mb-3">
-                            <label className="text-[10px] text-zinc-500 mb-1 block">预设名称</label>
-                            <input
-                                type="text"
-                                value={newPresetName}
-                                onChange={(e) => setNewPresetName(e.target.value)}
-                                className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-amber-500"
-                                placeholder="输入预设名称..."
-                                autoFocus
-                                onKeyDown={(e) => { if (e.key === 'Enter') confirmSavePreset(); }}
-                            />
-                        </div>
-                        <div className="mb-3">
-                            <label className="text-[10px] text-zinc-500 mb-1 block">指令内容预览</label>
-                            <div className="bg-zinc-950 border border-zinc-800 rounded p-2 text-xs text-zinc-400 max-h-24 overflow-y-auto">
-                                {instructions.find(i => i.trim()) || '无'}
+            {/* 文案库编辑器弹框 */}
+            {showLibraryEditor && (() => {
+                let activeLib = libraries.find(l => l.id === activeLibraryId);
+                if (!activeLib && libraries.length > 0) {
+                    activeLib = libraries[0];
+                    setActiveLibraryId(libraries[0].id);
+                }
+                if (!activeLib) return null;
+                const updateLib = (updates: Partial<CopywritingLibrary>) => {
+                    setLibraries(prev => prev.map(l => l.id === activeLibraryId ? { ...l, ...updates } : l));
+                };
+                const updateLibItem = (itemId: string, updates: Partial<LibraryItem>) => {
+                    setLibraries(prev => prev.map(l => l.id === activeLibraryId
+                        ? { ...l, items: l.items.map(i => i.id === itemId ? { ...i, ...updates } : i) }
+                        : l
+                    ));
+                };
+                const addLibItem = () => {
+                    setLibraries(prev => prev.map(l => l.id === activeLibraryId
+                        ? { ...l, items: [...l.items, { id: uuidv4(), content: '', weight: 5, tags: '', usedCount: 0 }] }
+                        : l
+                    ));
+                };
+                const removeLibItem = (itemId: string) => {
+                    setLibraries(prev => prev.map(l => l.id === activeLibraryId
+                        ? { ...l, items: l.items.filter(i => i.id !== itemId) }
+                        : l
+                    ));
+                };
+                const handleBatchImport = () => {
+                    const text = prompt('粘贴文案库内容（每行一条，可用 Tab 分隔权重和标签）\n格式：内容\\t权重\\t标签');
+                    if (!text) return;
+                    const newItems: LibraryItem[] = text.split('\n').filter(l => l.trim()).map(line => {
+                        const parts = line.split('\t');
+                        return {
+                            id: uuidv4(),
+                            content: parts[0]?.trim() || '',
+                            weight: parseInt(parts[1]) || 5,
+                            tags: parts[2]?.trim() || '',
+                            usedCount: 0
+                        };
+                    });
+                    if (newItems.length > 0) {
+                        setLibraries(prev => prev.map(l => l.id === activeLibraryId
+                            ? { ...l, items: [...l.items, ...newItems] }
+                            : l
+                        ));
+                        showCopyToast(`已导入 ${newItems.length} 条`);
+                    }
+                };
+                return (
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                        <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-4xl mx-4 shadow-2xl max-h-[85vh] flex flex-col">
+                            <div className="p-4 border-b border-zinc-800">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="text-green-400 font-medium flex items-center gap-2">
+                                        📚 编辑文案库
+                                    </div>
+                                    <button
+                                        onClick={() => setShowLibraryEditor(false)}
+                                        className="text-zinc-500 hover:text-zinc-300"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+                                {/* 多库切换标签 */}
+                                <div className="flex items-center gap-1 flex-wrap">
+                                    {libraries.map(lib => (
+                                        <button
+                                            key={lib.id}
+                                            onClick={() => setActiveLibraryId(lib.id)}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault();
+                                                setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, enabled: !l.enabled } : l));
+                                            }}
+                                            className={`px-2.5 py-1 text-xs rounded-lg transition-all flex items-center gap-1 ${lib.id === activeLibraryId
+                                                ? 'bg-green-600 text-white'
+                                                : lib.enabled
+                                                    ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700'
+                                                    : 'bg-zinc-800/50 text-zinc-600 hover:bg-zinc-700 border border-zinc-800 line-through'
+                                                }`}
+                                            title={`${lib.enabled ? '✅ 已启用' : '⬜ 已禁用'} | 右键切换`}
+                                        >
+                                            <span className={`w-2 h-2 rounded-full`} style={{ backgroundColor: lib.enabled ? lib.color : '#555' }} />
+                                            {lib.name} ({lib.items.length})
+                                        </button>
+                                    ))}
+                                    <button
+                                        onClick={() => {
+                                            const newLib: CopywritingLibrary = {
+                                                id: uuidv4(),
+                                                name: `新库 ${libraries.length + 1}`,
+                                                matchRule: '根据文案内容语义匹配最合适的条目',
+                                                maxRepeat: 3,
+                                                items: [],
+                                                enabled: true,
+                                                color: LIB_COLORS[libraries.length % LIB_COLORS.length]
+                                            };
+                                            setLibraries(prev => [...prev, newLib]);
+                                            setActiveLibraryId(newLib.id);
+                                        }}
+                                        className="px-2 py-1 text-xs text-green-400 hover:bg-green-900/20 rounded-lg border border-dashed border-green-700/50"
+                                    >
+                                        <Plus size={10} className="inline mr-0.5" /> 新建库
+                                    </button>
+                                    {libraries.length > 1 && (
+                                        <button
+                                            onClick={() => {
+                                                if (!confirm(`确定删除「${activeLib.name}」？`)) return;
+                                                const remaining = libraries.filter(l => l.id !== activeLibraryId);
+                                                setLibraries(remaining);
+                                                setActiveLibraryId(remaining[0].id);
+                                            }}
+                                            className="px-2 py-1 text-xs text-red-400 hover:bg-red-900/20 rounded-lg"
+                                        >
+                                            <Trash2 size={10} className="inline mr-0.5" /> 删除当前库
+                                        </button>
+                                    )}
+                                </div>
+                                {/* Google Sheets 导入 */}
+                                <div className="flex items-center gap-2 mt-2">
+                                    <input
+                                        type="text"
+                                        value={libSheetsUrl}
+                                        onChange={(e) => {
+                                            setLibSheetsUrl(e.target.value);
+                                            try { localStorage.setItem('copywriting_lib_sheetsUrl', e.target.value); } catch { }
+                                        }}
+                                        placeholder="粘贴 Google Sheets 链接..."
+                                        className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-green-500"
+                                    />
+                                    <button
+                                        onClick={async () => {
+                                            if (!libSheetsUrl.trim()) return;
+                                            setLibSheetsImporting(true);
+                                            try {
+                                                const imported = await importLibrariesFromSheets(libSheetsUrl);
+                                                setLibraries(imported);
+                                                setActiveLibraryId(imported[0].id);
+                                                showCopyToast(`✅ 导入成功: ${imported.length} 个库, 共 ${imported.reduce((s, l) => s + l.items.length, 0)} 条`);
+                                            } catch (error: any) {
+                                                alert(error.message || '导入失败');
+                                            } finally {
+                                                setLibSheetsImporting(false);
+                                            }
+                                        }}
+                                        disabled={libSheetsImporting || !libSheetsUrl.trim()}
+                                        className="px-3 py-1.5 text-xs bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white rounded flex items-center gap-1"
+                                    >
+                                        {libSheetsImporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                                        {libSheetsImporting ? '导入中...' : '从表格导入'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                                {/* 库基本设置 */}
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 mb-1 block">库名称</label>
+                                        <input
+                                            type="text"
+                                            value={activeLib.name}
+                                            onChange={(e) => updateLib({ name: e.target.value })}
+                                            className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-1.5 text-sm text-green-200 focus:outline-none focus:border-green-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 mb-1 block">单条最大使用次数</label>
+                                        <input
+                                            type="number"
+                                            value={activeLib.maxRepeat}
+                                            onChange={(e) => updateLib({ maxRepeat: parseInt(e.target.value) || 1 })}
+                                            min={1}
+                                            className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-green-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 mb-1 block">库条目数</label>
+                                        <div className="px-3 py-1.5 text-sm text-zinc-400 bg-zinc-950 border border-zinc-700 rounded">{activeLib.items.length} 条</div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-zinc-500 mb-1 block">匹配规则（告诉 AI 如何选择）</label>
+                                    <textarea
+                                        value={activeLib.matchRule}
+                                        onChange={(e) => updateLib({ matchRule: e.target.value })}
+                                        className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-green-500 resize-none"
+                                        rows={2}
+                                    />
+                                </div>
+
+                                {/* 库条目表格 */}
+                                <div className="border border-zinc-700 rounded-lg overflow-hidden">
+                                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-px bg-zinc-700">
+                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium">内容</div>
+                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-20 text-center">优先级</div>
+                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-28">标签</div>
+                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-14 text-center">已用</div>
+                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-10"></div>
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto">
+                                        {activeLib.items.map((item, idx) => (
+                                            <div key={item.id} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-px bg-zinc-700">
+                                                <div className="bg-zinc-900 px-1">
+                                                    <input
+                                                        type="text"
+                                                        value={item.content}
+                                                        onChange={(e) => updateLibItem(item.id, { content: e.target.value })}
+                                                        className="w-full bg-transparent border-none px-2 py-1 text-xs text-zinc-200 focus:outline-none"
+                                                        placeholder={`条目 ${idx + 1}`}
+                                                    />
+                                                </div>
+                                                <div className="bg-zinc-900 w-20">
+                                                    <select
+                                                        value={item.weight <= 3 ? '2' : item.weight <= 6 ? '5' : item.weight <= 8 ? '7' : '10'}
+                                                        onChange={(e) => updateLibItem(item.id, { weight: parseInt(e.target.value) })}
+                                                        className="w-full bg-transparent border-none px-1 py-1 text-xs text-zinc-200 focus:outline-none text-center appearance-none cursor-pointer"
+                                                    >
+                                                        <option value="2" className="bg-zinc-800">⚪ 低</option>
+                                                        <option value="5" className="bg-zinc-800">🟡 中</option>
+                                                        <option value="7" className="bg-zinc-800">🟠 高</option>
+                                                        <option value="10" className="bg-zinc-800">🔴 极高</option>
+                                                    </select>
+                                                </div>
+                                                <div className="bg-zinc-900 w-28">
+                                                    <input
+                                                        type="text"
+                                                        value={item.tags}
+                                                        onChange={(e) => updateLibItem(item.id, { tags: e.target.value })}
+                                                        className="w-full bg-transparent border-none px-2 py-1 text-xs text-zinc-200 focus:outline-none"
+                                                        placeholder="标签"
+                                                    />
+                                                </div>
+                                                <div className="bg-zinc-900 w-14 flex items-center justify-center gap-0.5">
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        max={99}
+                                                        value={item.usedCount}
+                                                        onChange={(e) => updateLibItem(item.id, { usedCount: Math.max(0, parseInt(e.target.value) || 0) })}
+                                                        className={`w-7 bg-transparent border-none text-xs text-center focus:outline-none focus:bg-zinc-800 rounded ${item.usedCount >= activeLib.maxRepeat ? 'text-red-400' : 'text-zinc-400'}`}
+                                                        title="点击编辑已用次数"
+                                                    />
+                                                    <span className="text-[9px] text-zinc-600">/{activeLib.maxRepeat}</span>
+                                                </div>
+                                                <div className="bg-zinc-900 w-10 flex items-center justify-center">
+                                                    <button onClick={() => removeLibItem(item.id)} className="text-zinc-600 hover:text-red-400">
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* 操作按钮 */}
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={addLibItem}
+                                        className="flex items-center gap-1 px-3 py-1 text-xs text-green-400 hover:bg-green-900/20 rounded border border-green-900/30"
+                                    >
+                                        <Plus size={12} /> 添加条目
+                                    </button>
+                                    <button
+                                        onClick={handleBatchImport}
+                                        className="flex items-center gap-1 px-3 py-1 text-xs text-sky-400 hover:bg-sky-900/20 rounded border border-sky-900/30"
+                                    >
+                                        <ClipboardCopy size={12} /> 批量导入
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (confirm('确定清空所有条目？')) {
+                                                updateLib({ items: [] });
+                                            }
+                                        }}
+                                        className="flex items-center gap-1 px-3 py-1 text-xs text-red-400 hover:bg-red-900/20 rounded border border-red-900/30"
+                                    >
+                                        <Trash2 size={12} /> 清空
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="p-4 border-t border-zinc-800 flex justify-end">
+                                <button
+                                    onClick={() => setShowLibraryEditor(false)}
+                                    className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm font-medium"
+                                >
+                                    完成
+                                </button>
                             </div>
                         </div>
-                        <div className="flex gap-2 justify-end">
-                            <button
-                                onClick={() => setShowSavePreset(false)}
-                                className="px-3 py-1.5 text-zinc-400 hover:text-zinc-200 text-sm"
-                            >
-                                取消
-                            </button>
-                            <button
-                                onClick={confirmSavePreset}
-                                disabled={!newPresetName.trim()}
-                                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-sm disabled:opacity-50"
-                            >
-                                保存
-                            </button>
+                    </div>
+                );
+            })()}
+
+            {/* 双击编辑拆分列弹框 */}
+            {
+                editingSplitColumnId !== null && (() => {
+                    const col = splitColumns.find(c => c.id === editingSplitColumnId);
+                    if (!col) return null;
+                    const colIdx = splitColumns.findIndex(c => c.id === editingSplitColumnId);
+                    return (
+                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                            <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-2xl mx-4 shadow-2xl">
+                                <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                                    <div className="text-orange-400 font-medium flex items-center gap-2">
+                                        ✏️ 编辑拆分列 {colIdx + 1}
+                                    </div>
+                                    <button
+                                        onClick={() => setEditingSplitColumnId(null)}
+                                        className="text-zinc-500 hover:text-zinc-300"
+                                    >
+                                        <X size={18} />
+                                    </button>
+                                </div>
+                                <div className="p-4 space-y-3">
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 mb-1 block">列名</label>
+                                        <input
+                                            type="text"
+                                            value={col.name}
+                                            onChange={(e) => updateSplitColumn(col.id, { name: e.target.value })}
+                                            placeholder="列名（如：钩子、关键词）"
+                                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-2 text-sm text-orange-200 focus:outline-none focus:border-orange-500 placeholder-zinc-600"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-zinc-500 mb-1 block">提取/分析要求</label>
+                                        <textarea
+                                            value={col.description}
+                                            onChange={(e) => updateSplitColumn(col.id, { description: e.target.value })}
+                                            placeholder="在此输入详细的提取或分析要求...\n例如：提取3-5个核心主题关键词，用逗号分隔。关注信仰主题词、情感属性词、行动号召词等。"
+                                            className="w-full h-48 bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-orange-500 placeholder-zinc-600 resize-none"
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div className="text-[10px] text-zinc-500">
+                                        提示：在这里可以详细描述该列的提取或分析要求。支持多行编辑，关闭弹框后自动保存。
+                                    </div>
+                                </div>
+                                <div className="p-4 border-t border-zinc-800 flex justify-end">
+                                    <button
+                                        onClick={() => setEditingSplitColumnId(null)}
+                                        className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-sm font-medium"
+                                    >
+                                        确定
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()
+            }
+
+            {/* 保存预设 Modal */}
+            {
+                showSavePreset && (
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowSavePreset(false)}>
+                        <div className="bg-zinc-900 border border-amber-600/50 rounded-xl p-4 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                            <h3 className="text-amber-400 text-sm font-medium mb-3">保存预设</h3>
+                            <div className="mb-3">
+                                <label className="text-[10px] text-zinc-500 mb-1 block">预设名称</label>
+                                <input
+                                    type="text"
+                                    value={newPresetName}
+                                    onChange={(e) => setNewPresetName(e.target.value)}
+                                    className="w-full bg-zinc-950 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-amber-500"
+                                    placeholder="输入预设名称..."
+                                    autoFocus
+                                    onKeyDown={(e) => { if (e.key === 'Enter') confirmSavePreset(); }}
+                                />
+                            </div>
+                            <div className="mb-3">
+                                <label className="text-[10px] text-zinc-500 mb-1 block">指令内容预览</label>
+                                <div className="bg-zinc-950 border border-zinc-800 rounded p-2 text-xs text-zinc-400 max-h-24 overflow-y-auto">
+                                    {instructions.find(i => i.trim()) || '无'}
+                                </div>
+                            </div>
+                            <div className="flex gap-2 justify-end">
+                                <button
+                                    onClick={() => setShowSavePreset(false)}
+                                    className="px-3 py-1.5 text-zinc-400 hover:text-zinc-200 text-sm"
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    onClick={confirmSavePreset}
+                                    disabled={!newPresetName.trim()}
+                                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-sm disabled:opacity-50"
+                                >
+                                    保存
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* 复制提示Toast */}
-            {copyToast && (
-                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-lg text-sm flex items-center gap-2 animate-pulse">
-                    <Check size={16} />
-                    {copyToast}
-                </div>
-            )}
+            {
+                copyToast && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-emerald-600 text-white rounded-lg shadow-lg text-sm flex items-center gap-2 animate-pulse">
+                        <Check size={16} />
+                        {copyToast}
+                    </div>
+                )
+            }
 
             {/* 预设管理器 */}
             <PresetManager
@@ -3168,6 +4960,6 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     showCopyToast(`已应用预设: ${preset.name}`);
                 }}
             />
-        </div>
+        </div >
     );
 }
