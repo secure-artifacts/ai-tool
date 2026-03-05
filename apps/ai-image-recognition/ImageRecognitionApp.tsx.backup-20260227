@@ -53,8 +53,6 @@ import {
     generateMultipleUniqueCombinationsAsync,
     AiDescribeImageFn,
     detectValueType,
-    extractSpreadsheetId,
-    scanMasterSheets,
 } from './services/randomLibraryService';
 import { QuickInnovationPanel } from './components/quick-innovation/QuickInnovationPanel';
 
@@ -324,7 +322,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const [quickViewMode, setQuickViewMode] = useState<'classic' | 'standalone'>(() => {
         try { return (localStorage.getItem('quick-view-mode') as 'classic' | 'standalone') || 'classic'; } catch { return 'classic'; }
     });
-    const [quickSyncingLibraries, setQuickSyncingLibraries] = useState(false); // 快捷模式同步状态
     // === 拆分元素模式 ===
     const DEFAULT_SPLIT_ELEMENTS = ['背景', '主体/人物', '手持物品', '服装（须含性别）', '光影/氛围', '风格/构图'];
     const OLD_SPLIT_ELEMENTS_V1 = ['背景', '主体/人物', '服装/配饰', '光影/氛围', '风格/构图']; // 旧版默认，用于迁移检测
@@ -647,8 +644,6 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         return [];
     });
     const [isGeneratingNoImage, setIsGeneratingNoImage] = useState(false);
-    const textCardsRef = useRef(textCards);
-    textCardsRef.current = textCards;
     const [showBulkImportModal, setShowBulkImportModal] = useState(false); // 批量导入弹窗
     const [bulkImportText, setBulkImportText] = useState(''); // 批量导入文本
     const [cardBatchSize, setCardBatchSize] = useState(() => {
@@ -1784,7 +1779,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     };
 
     const runNoImageBatchInnovation = async () => {
-        const cardsToProcess = textCardsRef.current.filter(card => card.topic.trim() && (card.status === 'idle' || card.status === 'error'));
+        const cardsToProcess = textCards.filter(card => card.topic.trim() && (card.status === 'idle' || card.status === 'error'));
         if (cardsToProcess.length === 0) {
             showToast('请至少输入一个主题');
             return;
@@ -4023,12 +4018,6 @@ ${transitionInstruction}
         ));
     }, [setImages]);
 
-    const toggleDescribeFirst = useCallback((id: string, value: boolean) => {
-        setImages(prev => prev.map(img =>
-            img.id === id ? { ...img, needDescribeFirst: value } : img
-        ));
-    }, [setImages]);
-
     // 更新卡片的参考图选择（维度名 → RefImage.id）
     const updateCardRefSelection = useCallback((cardId: string, dimName: string, refImageId: string | null) => {
         setImages(prev => prev.map(img => {
@@ -4807,15 +4796,6 @@ ${text}`;
         setState(prev => ({ ...prev, workMode: mode }));
     }, [setState]);
 
-    // 每次打开软件后首次进入页面时，清空一次“全局追加要求”输入框
-    const hasClearedPromptOnLaunchRef = useRef(false);
-    useEffect(() => {
-        if (!hasClearedPromptOnLaunchRef.current) {
-            setState(prev => (prev.prompt ? { ...prev, prompt: '' } : prev));
-            hasClearedPromptOnLaunchRef.current = true;
-        }
-    }, [setState]);
-
     // 构建拆分元素模式的 prompt
     const buildSplitPrompt = useCallback(() => {
         const elementsText = splitElements.map((e, i) => `${i + 1}. ${e}`).join('\n');
@@ -5483,8 +5463,8 @@ ${effectiveInstruction}
                         }, 3, 2000, onRotateApiKey);
                         conversationLog.push({ timestamp: Date.now(), prompt: noImgPrompt, response: innovationResult, label: '无图创新' });
                     }
-                } else if (needOriginalDesc || item.needDescribeFirst) {
-                    // 模式A：先获取原始描述，再基于描述创新（全局开关 或 卡片级开关）
+                } else if (needOriginalDesc) {
+                    // 模式A：先获取原始描述，再基于描述创新
                     // 第一步：使用固定的详细指令识别图片获取原始描述
                     const descPrompt = DEFAULT_ORIGINAL_DESC_PROMPT;
                     const descResponse = await retryWithBackoff(async () => {
@@ -7176,7 +7156,7 @@ ${itemEffectiveInstruction}
                                                     return (
                                                         <div className="mt-1.5">
                                                             <div className="flex flex-wrap items-center gap-1">
-                                                                <span className="text-[10px] text-zinc-500 mr-0.5" data-tip="全局覆盖：点击库名标签指定固定值或图片提取，替换对应维度的随机值">🎯 全局覆盖</span>
+                                                                <span className="text-[10px] text-zinc-500 mr-0.5" data-tip="点击库名标签指定固定值或图片提取，替换对应维度的随机值">🎯 覆盖</span>
                                                                 {enabledLibs.map(lib => {
                                                                     const override = quickOverrides[lib.name];
                                                                     const mode = override?.mode || 'text';
@@ -7936,78 +7916,15 @@ ${itemEffectiveInstruction}
                             randomLibraryConfig={randomLibraryConfig}
                             onRandomLibraryConfigChange={handleRandomLibraryConfigChange}
                             onOpenLibraryManager={() => setShowGlobalInnovationSettings(true)}
-                            onSyncLibraries={async () => {
+                            onSyncLibraries={() => {
+                                // 触发自动同步
                                 const url = randomLibraryConfig.sourceSpreadsheetUrl;
-                                if (!url) return;
-                                const spreadsheetId = extractSpreadsheetId(url);
-                                if (!spreadsheetId) return;
-
-                                setQuickSyncingLibraries(true);
-                                try {
-                                    // 获取当前使用的总库分页名列表
-                                    const currentSheets = new Set<string>();
-                                    randomLibraryConfig.libraries.forEach(lib => {
-                                        if (lib.sourceSheet) currentSheets.add(lib.sourceSheet);
-                                    });
-                                    const sheetsToRefresh = currentSheets.size > 0 ? Array.from(currentSheets) : [randomLibraryConfig.activeSourceSheet].filter(Boolean) as string[];
-
-                                    const refreshedSheets = await scanMasterSheets(spreadsheetId, sheetsToRefresh);
-                                    if (refreshedSheets.length === 0) {
-                                        console.log('[快捷同步] 未找到数据');
-                                        return;
-                                    }
-
-                                    // 构建刷新后的库映射
-                                    const refreshedMap = new Map<string, any>();
-                                    for (const masterSheet of refreshedSheets) {
-                                        for (const lib of masterSheet.libraries) {
-                                            const key = `${lib.sourceSheet || ''}::${lib.name}`;
-                                            refreshedMap.set(key, lib);
-                                        }
-                                    }
-
-                                    // 更新现有库：保留用户设置，只更新值
-                                    const updatedLibraries = randomLibraryConfig.libraries.map(existingLib => {
-                                        const key = `${existingLib.sourceSheet || ''}::${existingLib.name}`;
-                                        const refreshedLib = refreshedMap.get(key);
-                                        if (refreshedLib) {
-                                            refreshedMap.delete(key);
-                                            return {
-                                                ...existingLib,
-                                                values: refreshedLib.values,
-                                                valuesWithCategory: refreshedLib.valuesWithCategory,
-                                            };
-                                        }
-                                        return existingLib;
-                                    });
-
-                                    // 添加新发现的库
-                                    for (const [, lib] of refreshedMap) {
-                                        updatedLibraries.push(lib);
-                                    }
-
-                                    // 更新配套指令
-                                    const linkedInstructions: Record<string, string> = { ...randomLibraryConfig.linkedInstructions };
-                                    for (const masterSheet of refreshedSheets) {
-                                        if (masterSheet.linkedInstruction) {
-                                            linkedInstructions[masterSheet.sheetName] = masterSheet.linkedInstruction;
-                                        }
-                                    }
-
-                                    handleRandomLibraryConfigChange({
-                                        ...randomLibraryConfig,
-                                        libraries: updatedLibraries,
-                                        linkedInstructions,
-                                    });
-
-                                    console.log('[快捷同步] 完成，更新了', updatedLibraries.length, '个库');
-                                } catch (error) {
-                                    console.error('[快捷同步] 失败:', error);
-                                } finally {
-                                    setQuickSyncingLibraries(false);
+                                if (url) {
+                                    handleRandomLibraryConfigChange({ ...randomLibraryConfig, sourceSpreadsheetUrl: '' });
+                                    setTimeout(() => handleRandomLibraryConfigChange({ ...randomLibraryConfig, sourceSpreadsheetUrl: url }), 100);
                                 }
                             }}
-                            isSyncing={quickSyncingLibraries}
+                            isSyncing={false}
                             quickOverrides={quickOverrides}
                             onOverrideClick={(libName) => {
                                 if (editingOverrideLib === libName) {
@@ -8030,9 +7947,8 @@ ${itemEffectiveInstruction}
                                 if (noImageMode || images.length === 0) {
                                     // 无图模式：自动创建文字卡片并调用无图批量创新
                                     if (!noImageMode) setNoImageMode(true);
-                                    const topic = workMode === 'quick' ? '创新' : (prompt.trim() || '创新');
-                                    const currentCards = textCardsRef.current;
-                                    const existingCards = currentCards.filter(c => c.topic.trim());
+                                    const topic = prompt.trim() || '创新';
+                                    const existingCards = textCards.filter(c => c.topic.trim());
 
                                     if (existingCards.length === 0) {
                                         // 没有卡片：创建第一个（放最前面）
@@ -8048,7 +7964,7 @@ ${itemEffectiveInstruction}
                                         // 已有卡片：追加模式
                                         const doneCards = existingCards.filter(c => c.status === 'done');
                                         if (doneCards.length > 0) {
-                                            const appendTopic = workMode === 'quick' ? '创新' : (prompt.trim() || doneCards[0].topic);
+                                            const appendTopic = prompt.trim() || doneCards[0].topic;
                                             setTextCards(prev => [{
                                                 id: uuidv4(),
                                                 topic: appendTopic,
@@ -8089,7 +8005,6 @@ ${itemEffectiveInstruction}
                             onToggleNoImageMode={() => setNoImageMode(!noImageMode)}
                             textCards={textCards}
                             isGeneratingNoImage={isGeneratingNoImage}
-                            onClearTextCards={() => { setTextCards([]); setIsGeneratingNoImage(false); }}
                             onCopyEN={copyCreativeEN}
                             onCopyZH={copyCreativeZH}
                             onCopyAll={copyCreativeResults}
@@ -8715,7 +8630,6 @@ ${itemEffectiveInstruction}
                                         }
                                         onUpdateRefImageConfig={updateRefImageConfig}
                                         onToggleCardDimBinding={toggleCardDimBinding}
-                                        onToggleDescribeFirst={toggleDescribeFirst}
                                     />
                                 )}
                             </div>

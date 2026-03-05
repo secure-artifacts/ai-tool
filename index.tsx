@@ -13,7 +13,8 @@ import { AIToolsDirectoryApp } from '@/apps/ai-tools';
 import AIImageEditorApp from '@/apps/ai-image-editor/AIImageEditorApp';
 import { Layer, Tool as MagicTool } from './apps/ai-image-editor/types';
 import PromptToolApp from '@/apps/prompt-tool/PromptToolApp';
-import SheetMindApp from '@/apps/sheetmind/SheetMindApp';
+import SheetMindAppV2 from '@/apps/sheetmind/SheetMindAppV2';
+import SheetMindAppV1 from '@/apps/sheetmind/SheetMindApp';
 import AICopyDeduplicatorApp from '@/apps/ai-copy-deduplicator/AICopyDeduplicatorApp';
 import ProDedupApp from '@/apps/ai-copy-deduplicator/ProDedupApp';
 import CopySearchApp from '@/apps/copy-search/CopySearchApp';
@@ -7257,6 +7258,7 @@ const App = () => {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [useSheetMindV2, setUseSheetMindV2] = useState(() => localStorage.getItem('use_sheetmind_v2') !== 'false');
   const [showCloudSyncPanel, setShowCloudSyncPanel] = useState(false);
   const [emailSyncStatus, setEmailSyncStatus] = useState<SyncStatus>('idle');
   const [showAccountMenu, setShowAccountMenu] = useState(false);
@@ -9493,12 +9495,36 @@ const App = () => {
             />
           </div>
           {/* SheetMind stays mounted to preserve data state */}
-          <div className={`sheetmind-page-wrapper ${activeTool === 'sheetMind' ? 'visible' : 'hidden'}`} style={{ padding: 0, overflow: 'hidden', height: activeTool === 'sheetMind' ? '100%' : '0' }}>
-            <SheetMindApp
-              getAiInstance={getAiInstance}
-              state={sheetMindState}
-              setState={setSheetMindState}
-            />
+          <div className={`sheetmind-page-wrapper ${activeTool === 'sheetMind' ? 'visible' : 'hidden'}`} style={{ position: 'relative', padding: 0, overflow: 'hidden', height: activeTool === 'sheetMind' ? '100%' : '0' }}>
+            {/* Toggle UI button */}
+            {activeTool === 'sheetMind' && (
+              <div style={{ position: 'absolute', top: 12, right: 100, zIndex: 9999 }}>
+                <button
+                  onClick={() => {
+                    const nextVal = !useSheetMindV2;
+                    setUseSheetMindV2(nextVal);
+                    localStorage.setItem('use_sheetmind_v2', String(nextVal));
+                  }}
+                  className="px-2 py-1 text-[10px] bg-slate-800 text-white rounded opacity-50 hover:opacity-100 transition-opacity"
+                  title="切换新旧版本UI"
+                >
+                  {useSheetMindV2 ? '切换回老版UI' : '切换到紧凑新版'}
+                </button>
+              </div>
+            )}
+            {useSheetMindV2 ? (
+              <SheetMindAppV2
+                getAiInstance={getAiInstance}
+                state={sheetMindState}
+                setState={setSheetMindState}
+              />
+            ) : (
+              <SheetMindAppV1
+                getAiInstance={getAiInstance}
+                state={sheetMindState}
+                setState={setSheetMindState}
+              />
+            )}
           </div>
           {/* Copy Dedup stays mounted to preserve library state */}
           <div className={`copydedup-page-wrapper ${activeTool === 'copyDedup' ? 'visible' : 'hidden'}`} style={{ padding: '1rem', overflow: 'auto', height: activeTool === 'copyDedup' ? '100%' : '0' }}>

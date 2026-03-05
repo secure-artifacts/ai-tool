@@ -72,6 +72,8 @@ interface ResultsGridProps {
     onUpdateRefImageConfig?: (cardId: string, imageIndex: number, update: Partial<import('../types').RefImageConfig> | null) => void;
     // 卡片级维度绑定（从卡片自身图片提取）
     onToggleCardDimBinding?: (cardId: string, dimName: string) => void;
+    // 卡片级"先描述再创新"开关
+    onToggleDescribeFirst?: (cardId: string, value: boolean) => void;
 }
 
 
@@ -1655,6 +1657,7 @@ interface QuickInlineImageManagerProps {
     onUpdateRefImageConfig?: (cardId: string, imageIndex: number, update: Partial<import('../types').RefImageConfig> | null) => void;
     onRemoveFusionImage?: (imageId: string, fusionImageId: string) => void;
     onAddFusionImage?: (imageId: string, file: File) => void;
+    onToggleDescribeFirst?: (cardId: string, value: boolean) => void;
 }
 
 const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
@@ -1667,6 +1670,7 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
     onUpdateRefImageConfig,
     onRemoveFusionImage,
     onAddFusionImage,
+    onToggleDescribeFirst,
 }) => {
     const [promptModalImageIndex, setPromptModalImageIndex] = useState<number | null>(null);
     const [promptDraft, setPromptDraft] = useState('');
@@ -1739,6 +1743,19 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                     <span className="text-[9px]">✍️ 文字覆盖</span>
                     {isTextOverrideExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 </div>
+
+                {/* 先描述再创新 — 卡片级开关 */}
+                {onToggleDescribeFirst && (item.base64Data || item.imageUrl) && (
+                    <div
+                        className={`flex items-center gap-1 cursor-pointer select-none w-fit hover:opacity-80 transition-opacity mb-1 ${item.needDescribeFirst ? 'text-amber-400' : 'text-zinc-500'}`}
+                        onClick={(e) => { e.stopPropagation(); onToggleDescribeFirst(item.id, !item.needDescribeFirst); }}
+                    >
+                        <span className="text-[9px]">{item.needDescribeFirst ? '👁 先描述此图' : '👁 先描述此图'}</span>
+                        <span className={`w-6 h-3 rounded-full relative transition-colors ${item.needDescribeFirst ? 'bg-amber-500/60' : 'bg-zinc-700'}`}>
+                            <span className={`absolute top-0.5 w-2 h-2 rounded-full bg-white transition-all ${item.needDescribeFirst ? 'left-3.5' : 'left-0.5'}`} />
+                        </span>
+                    </div>
+                )}
 
                 {isTextOverrideExpanded && (
                     <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1 pr-1">
@@ -1895,7 +1912,7 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                                     ) : null;
                                 })()}
                             </div>
-                            <span className="text-[8px] text-zinc-600">{img.index === 0 ? `图${img.index + 1}` : `图${img.index + 1}`}</span>
+                            <span className="text-[8px] text-zinc-600">{`图${img.index + 1} · 当前图覆盖库`}</span>
                             {/* 多选维度标签 */}
                             <div className="flex flex-wrap gap-0.5">
                                 {enabledDimNames.map(d => {
@@ -2996,7 +3013,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     onUpdateCardTextOverride,
     allEnabledDimNames,
     onUpdateRefImageConfig,
-    onToggleCardDimBinding
+    onToggleCardDimBinding,
+    onToggleDescribeFirst
 }) => {
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en' | null>(null);
@@ -4120,6 +4138,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                                         onUpdateRefImageConfig={onUpdateRefImageConfig}
                                                                                         onRemoveFusionImage={onRemoveFusionImage}
                                                                                         onAddFusionImage={onAddFusionImage}
+                                                                                        onToggleDescribeFirst={onToggleDescribeFirst}
                                                                                     />
                                                                                 </div>
                                                                                 {hasQuickResult && (
@@ -4801,6 +4820,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         onUpdateRefImageConfig={onUpdateRefImageConfig}
                                                                         onRemoveFusionImage={onRemoveFusionImage}
                                                                         onAddFusionImage={onAddFusionImage}
+                                                                        onToggleDescribeFirst={onToggleDescribeFirst}
                                                                     />
                                                                 </div>
                                                                 {hasQuickResult && (

@@ -10,6 +10,7 @@ export enum ToolType {
   ClearChinese = 'CLEAR_CHINESE',  // 删除选中区域内的中文内容
   AddPromptPrefix = 'ADD_PROMPT_PREFIX',  // 给每个单元格添加 prompt-序号 前缀
   SmartSplit = 'SMART_SPLIT',  // 半智能拆分：优先换行 → 冒号 → 英文句号 → 关键词
+  MultiPanelPrompt = 'MULTI_PANEL_PROMPT',  // 多画面提示词：将文案自动生成多画面分割图格式
 }
 
 export interface Coordinate {

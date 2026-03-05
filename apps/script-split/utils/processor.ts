@@ -381,6 +381,42 @@ export const processGrid = (
         newGrid[idx1][sourceCol + 1] = prompt;
       }
     }
+    else if (tool === ToolType.MultiPanelPrompt) {
+      // MultiPanelPrompt: Collect all non-empty cells from leftmost column,
+      // generate a fixed-format multi-panel image prompt
+      const sourceCol = minC;
+      updatedCols.push(sourceCol + 1);
+
+      // Collect all non-empty rows in the source column
+      const panelDescriptions: { row: number; text: string }[] = [];
+      for (let r = minR; r <= maxR; r++) {
+        const val = newGrid[r]?.[sourceCol] || '';
+        if (val.trim()) {
+          panelDescriptions.push({ row: r, text: val.trim() });
+        }
+      }
+
+      if (panelDescriptions.length > 0) {
+        // Build the formatted prompt
+        const totalPanels = panelDescriptions.length;
+        const panelLines = panelDescriptions.map((p, i) =>
+          `画面${i + 1}：${p.text}`
+        );
+
+        const prompt =
+          `多画面分割图，下面是每个画面的细节描述：\n\n` +
+          panelLines.join('\n\n') +
+          `\n\n请根据上述描述，生成多画面图片`;
+
+        // Place the result in the first valid row's adjacent column
+        const targetRow = panelDescriptions[0].row;
+        while (newGrid[targetRow].length <= sourceCol + 1) newGrid[targetRow].push('');
+        newGrid[targetRow][sourceCol + 1] = prompt;
+
+        // Store panel count for status message
+        updatedCols.push(-4000 - totalPanels);
+      }
+    }
     else {
       // SplitThree / SplitTwo: Process EACH selected column that HAS CONTENT
       // 

@@ -13,7 +13,8 @@ import {
   CheckSquare,
   Hash,
   Zap,
-  Sparkles
+  Sparkles,
+  LayoutGrid
 } from 'lucide-react';
 import {
   processGrid,
@@ -289,12 +290,24 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
       // Parse stats from updatedCols
       let totalAdded = 0;
       for (const col of updatedCols) {
-        if (col <= -3000) {
+        if (col <= -3000 && col > -4000) {
           totalAdded = -(col + 3000);
         }
       }
       const prefixUsed = prefix || 'prompt';
       toolMsg = `已为 ${totalAdded} 个单元格添加 ${prefixUsed}- 前缀`;
+    } else if (tool === ToolType.MultiPanelPrompt) {
+      // Parse panel count from updatedCols
+      let panelCount = 0;
+      for (const col of updatedCols) {
+        if (col <= -4000) {
+          panelCount = -(col + 4000);
+        }
+      }
+      const colsStr = updatedCols.filter(c => c >= 0).map(c => colToLetter(c)).join(', ');
+      toolMsg = panelCount > 0
+        ? `已生成 ${panelCount} 画面分割图提示词，结果在列: ${colsStr}`
+        : `选区内没有找到内容`;
     } else {
       const colsStr = updatedCols.filter(c => c >= 0).map(c => colToLetter(c)).join(', ');
       const clearMsg = clearSource ? ' (已删除原文案)' : '';
@@ -539,6 +552,13 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 label="视频提示词"
                 tooltip="将选区内容统一格式化为视频提示词模板"
                 onClick={() => handleProcess(ToolType.VideoPrompts)}
+                disabled={!selection}
+              />
+              <ToolButton
+                icon={<LayoutGrid className="w-4 h-4" />}
+                label="多画面提示词"
+                tooltip="将每个单元格内容生成多画面分割图描述格式（画面1、画面2...）"
+                onClick={() => handleProcess(ToolType.MultiPanelPrompt)}
                 disabled={!selection}
               />
               <ToolButton

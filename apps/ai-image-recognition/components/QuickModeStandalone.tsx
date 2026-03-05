@@ -23,6 +23,7 @@ import {
     Play,
     Square,
     RotateCcw,
+    Trash2,
 } from 'lucide-react';
 import { CreativeResult, ImageItem } from '../types';
 import { RandomLibraryConfig } from '../services/randomLibraryService';
@@ -74,6 +75,7 @@ interface QuickModeStandaloneProps {
     // 无图模式文字卡片
     textCards?: Array<{ id: string; topic: string; results: string[]; resultsZh?: string[]; status: string; createdAt?: number; aiConversationLog?: Array<{ timestamp: number; prompt: string; response: string; label?: string }> }>;
     isGeneratingNoImage?: boolean;
+    onClearTextCards?: () => void;
 
     // 复制
     onCopyEN: () => void;
@@ -116,6 +118,7 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
     onToggleNoImageMode,
     textCards = [],
     isGeneratingNoImage = false,
+    onClearTextCards,
     onCopyEN,
     onCopyZH,
     onCopyAll,
@@ -575,7 +578,7 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                                 <span style={{ fontSize: '11px', color: '#71717a', fontWeight: 500 }}>
-                                    🎯 覆盖 {selectedImageId && <span style={{ color: '#3b82f6', fontSize: '10px' }}>(点击标签关联选中图片)</span>}
+                                    🎯 全局覆盖 {selectedImageId && <span style={{ color: '#3b82f6', fontSize: '10px' }}>(点击标签关联当前选中图)</span>}
                                 </span>
                                 {Object.keys(imageDimensionMap).length > 0 && (
                                     <button
@@ -1135,6 +1138,29 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {/* 清空全部按钮 */}
+                                    {textCards.length > 0 && onClearTextCards && (
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '2px' }}>
+                                            <button
+                                                onClick={onClearTextCards}
+                                                style={{
+                                                    padding: '3px 10px',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid rgba(239,68,68,0.2)',
+                                                    background: 'rgba(239,68,68,0.06)',
+                                                    color: '#f87171',
+                                                    fontSize: '10px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                }}
+                                                title="清空全部卡片"
+                                            >
+                                                <Trash2 size={10} /> 清空全部
+                                            </button>
+                                        </div>
+                                    )}
                                     {textCards.map((card) => (
                                         <div key={card.id} style={{
                                             borderRadius: '10px',
@@ -1152,7 +1178,7 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                                                 background: '#1c1c20',
                                             }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span style={{ fontSize: '11px', color: '#ec4899', fontWeight: 600 }}>主题：{card.topic}</span>
+                                                    <span style={{ fontSize: '11px', color: '#ec4899', fontWeight: 600 }}>#{textCards.indexOf(card) + 1}</span>
                                                     {card.createdAt && (
                                                         <span style={{ fontSize: '9px', color: '#52525b' }}>{new Date(card.createdAt).toLocaleTimeString()}</span>
                                                     )}

@@ -343,6 +343,7 @@ interface CopywritingLibrary {
     items: LibraryItem[];
     enabled: boolean;
     color: string;
+    group?: string; // 所属分页名（总库子库才有）
 }
 
 const LIB_COLORS = ['#4ade80', '#22d3ee', '#f472b6', '#fb923c', '#facc15', '#818cf8', '#c084fc', '#f87171'];
@@ -471,26 +472,63 @@ const importLibrariesFromSheets = async (url: string): Promise<CopywritingLibrar
                         allLibraries.push({
                             id: `gs_${Date.now()}_${allLibraries.length}`,
                             name: colName, matchRule: entry.matchRule || '语义匹配最合适的条目', maxRepeat: 3, items,
-                            enabled: true, color: LIB_COLORS[allLibraries.length % LIB_COLORS.length]
+                            enabled: true, color: LIB_COLORS[allLibraries.length % LIB_COLORS.length],
+                            group: entry.name
                         });
                     }
                 }
             } else {
-                // 独立分页模式：分页名 = 库名，A列 = 条目
+                // 独立分页模式：分页名 = 库名
+                const headers = parseCSVLine(lines[0]);
+                const hasMultiColumns = headers.length > 1 && headers.filter(h => h?.trim()).length > 1;
                 const items: LibraryItem[] = [];
-                for (let rowIdx = 0; rowIdx < lines.length; rowIdx++) {
-                    const row = parseCSVLine(lines[rowIdx]);
-                    const val = row[0]?.trim();
-                    if (!val) continue;
-                    // 跳过像表头的行（第一行如果看起来是标题就跳过）
-                    if (rowIdx === 0 && lines.length > 3 && val.length < 5 && /^[a-zA-Z\u4e00-\u9fff]+$/.test(val)) continue;
-                    items.push({ id: `gs_${entry.name}_0_${rowIdx}`, content: val, weight: 5, tags: '', usedCount: 0 });
+
+                if (hasMultiColumns) {
+                    // 多列模式：每列是一个分类，列名作为标签，合并到同一个库
+                    // 支持列名带优先级后缀：开心互动语(高) → tags=开心互动语, weight=7
+                    const parsePriority = (name: string): { tag: string; weight: number } => {
+                        const m = name.match(/^(.+?)\s*[（(](低|中|高|极高)[)）]\s*$/);
+                        if (m) {
+                            const w = m[2] === '低' ? 2 : m[2] === '中' ? 5 : m[2] === '高' ? 7 : 10;
+                            return { tag: m[1].trim(), weight: w };
+                        }
+                        return { tag: name, weight: 5 };
+                    };
+                    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+                        const colName = headers[colIdx]?.trim();
+                        if (!colName) continue;
+                        const { tag, weight } = parsePriority(colName);
+                        for (let rowIdx = 1; rowIdx < lines.length; rowIdx++) {
+                            const row = parseCSVLine(lines[rowIdx]);
+                            const val = row[colIdx]?.trim();
+                            if (!val) continue;
+                            items.push({
+                                id: `gs_${entry.name}_${colIdx}_${rowIdx}`,
+                                content: val,
+                                weight,
+                                tags: tag,
+                                usedCount: 0
+                            });
+                        }
+                    }
+                    console.log(`[importLibrariesFromSheets] 分页「${entry.name}」多列合并: ${headers.filter(h => h?.trim()).map(h => h?.trim()).join(', ')} → ${items.length} 条`);
+                } else {
+                    // 单列模式：A列 = 条目
+                    for (let rowIdx = 0; rowIdx < lines.length; rowIdx++) {
+                        const row = parseCSVLine(lines[rowIdx]);
+                        const val = row[0]?.trim();
+                        if (!val) continue;
+                        if (rowIdx === 0 && lines.length > 3 && val.length < 5 && /^[a-zA-Z\u4e00-\u9fff]+$/.test(val)) continue;
+                        items.push({ id: `gs_${entry.name}_0_${rowIdx}`, content: val, weight: 5, tags: '', usedCount: 0 });
+                    }
                 }
+
                 if (items.length > 0) {
                     allLibraries.push({
                         id: `gs_${Date.now()}_${allLibraries.length}`,
                         name: entry.name, matchRule: entry.matchRule || '语义匹配最合适的条目', maxRepeat: 3, items,
-                        enabled: true, color: LIB_COLORS[allLibraries.length % LIB_COLORS.length]
+                        enabled: true, color: LIB_COLORS[allLibraries.length % LIB_COLORS.length],
+                        group: entry.name
                     });
                 }
             }
@@ -500,7 +538,7 @@ const importLibrariesFromSheets = async (url: string): Promise<CopywritingLibrar
     if (allLibraries.length === 0) {
         throw new Error('未能从表格读取数据，请检查：\n1. 表格已开启"链接可查看"权限\n2. 每个分页 = 一个库（分页名=库名，A列=条目）');
     }
-    console.log(`[importLibrariesFromSheets] 共导入 ${allLibraries.length} 个库`);
+    console.log(`[importLibrariesFromSheets] 共导入 ${allLibraries.length} 个库:`, allLibraries.map(l => `${l.name} (group: ${l.group}, items: ${l.items.length})`));
     return allLibraries;
 };
 
@@ -691,8 +729,16 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
     const [showBatchSettings, setShowBatchSettings] = useState(false); // 显示批次设置
 
     // === 文案库模式状态 ===
+    const LIB_STORAGE_VERSION = 'v4'; // 升级时改版本号，自动清除旧缓存
     const [libraries, setLibraries] = useState<CopywritingLibrary[]>(() => {
         try {
+            const ver = localStorage.getItem('copywriting_lib_version');
+            if (ver !== LIB_STORAGE_VERSION) {
+                // 版本不匹配，清除旧数据，等待自动从 Sheets 刷新
+                localStorage.removeItem('copywriting_libraries');
+                localStorage.setItem('copywriting_lib_version', LIB_STORAGE_VERSION);
+                return [{ ...DEFAULT_LIBRARY, items: DEFAULT_LIBRARY.items.map(i => ({ ...i })) }];
+            }
             const saved = localStorage.getItem('copywriting_libraries');
             if (saved) return JSON.parse(saved);
         } catch { /* ignore */ }
@@ -702,6 +748,31 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
         try { return localStorage.getItem('copywriting_activeLibId') || 'default_lib'; } catch { return 'default_lib'; }
     });
     const [showLibraryEditor, setShowLibraryEditor] = useState(false);
+    const [activeEditorGroup, setActiveEditorGroup] = useState<string>(''); // 编辑器中当前选中的分页组
+    const [showBatchImportModal, setShowBatchImportModal] = useState(false);
+    const [batchImportText, setBatchImportText] = useState('');
+    const confirmBatchImport = () => {
+        if (!batchImportText.trim()) return;
+        const newItems: LibraryItem[] = batchImportText.split('\n').filter(l => l.trim()).map(line => {
+            const parts = line.split('\t');
+            return {
+                id: uuidv4(),
+                content: parts[0]?.trim() || '',
+                weight: parseInt(parts[1]) || 5,
+                tags: parts[2]?.trim() || '',
+                usedCount: 0
+            };
+        });
+        if (newItems.length > 0) {
+            setLibraries(prev => prev.map(l => l.id === activeLibraryId
+                ? { ...l, items: [...l.items, ...newItems] }
+                : l
+            ));
+            showCopyToast(`已导入 ${newItems.length} 条`);
+        }
+        setShowBatchImportModal(false);
+    };
+    const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
     const [libraryInstruction, setLibraryInstruction] = useState('根据文案内容选择合适的互动语，并替换/添加到文案末尾'); // 库模式的改写指令
     const [libraryExtraInstructions, setLibraryExtraInstructions] = useState<string[]>(() => {
         try {
@@ -1424,6 +1495,13 @@ ${numberedInputs}
             const ai = getAiInstance();
             const extraInsts = libraryExtraInstructions.filter(i => i.trim());
 
+            // 追踪本批次已选条目，避免重复选同一个
+            const recentlyUsedIds: string[] = [];
+            // 本地实时计数（解决 setLibraries 异步延迟问题）
+            const localUsedCounts = new Map<string, number>();
+            const getEffectiveUsedCount = (li: LibraryItem) => li.usedCount + (localUsedCounts.get(li.id) || 0);
+            const incrementLocalCount = (id: string) => localUsedCounts.set(id, (localUsedCounts.get(id) || 0) + 1);
+
             // 逐条处理，确保去重计数准确
             for (let idx = 0; idx < idleItems.length; idx++) {
                 if (stopRef.current) break;
@@ -1443,17 +1521,32 @@ ${numberedInputs}
                     // 构建多库候选列表
                     let allLibsPrompt = '';
                     let hasAvailable = false;
+                    // 大库压缩格式阈值：超过此数量用紧凑编号格式，节省token但保留全部候选
+                    const COMPACT_THRESHOLD = 200;
+
                     for (const lib of itemLibs) {
-                        const available = lib.items
-                            .filter(li => li.usedCount < lib.maxRepeat)
-                            .map(li => {
-                                const pl = li.weight <= 3 ? '低' : li.weight <= 6 ? '中' : li.weight <= 8 ? '高' : '极高';
-                                return `  [${li.id}] (优先级:${pl}, 剩余${lib.maxRepeat - li.usedCount}次) ${li.content}`;
-                            })
-                            .join('\n');
-                        if (available) {
-                            hasAvailable = true;
-                            allLibsPrompt += `\n【库: ${lib.name}】 ${lib.matchRule || '语义匹配最合适的条目'}\n${available}\n`;
+                        const available = lib.items.filter(li => getEffectiveUsedCount(li) < lib.maxRepeat);
+                        if (available.length === 0) continue;
+                        hasAvailable = true;
+
+                        if (available.length > COMPACT_THRESHOLD) {
+                            // 大库：紧凑编号格式，全部发给 AI 做语义匹配
+                            // 按优先级分组，高优先级标注
+                            const lines = available.map((li, idx) => {
+                                const prefix = li.weight >= 7 ? '★' : '';
+                                const tagStr = li.tags ? `[${li.tags}]` : '';
+                                return `${idx + 1}.${prefix}${tagStr} ${li.content}`;
+                            });
+                            allLibsPrompt += `\n【库: ${lib.name}】 ${lib.matchRule || '语义匹配最合适的条目'} (${available.length}条, ★=高优先)\n${lines.join('\n')}\n`;
+                        } else {
+                            // 小库：完整格式
+                            const candidateText = available
+                                .map(li => {
+                                    const pl = li.weight <= 3 ? '低' : li.weight <= 6 ? '中' : li.weight <= 8 ? '高' : '极高';
+                                    return `  [${li.id}] (优先级:${pl}, 剩余${lib.maxRepeat - getEffectiveUsedCount(li)}次) ${li.content}`;
+                                })
+                                .join('\n');
+                            allLibsPrompt += `\n【库: ${lib.name}】 ${lib.matchRule || '语义匹配最合适的条目'} (${available.length}条)\n${candidateText}\n`;
                         }
                     }
 
@@ -1466,6 +1559,12 @@ ${numberedInputs}
                     }
 
                     const libNames = itemLibs.map(l => l.name);
+                    // 构建每个库的可用条目列表（用于编号→条目映射）
+                    const libAvailableMap = new Map<string, LibraryItem[]>();
+                    for (const lib of itemLibs) {
+                        libAvailableMap.set(lib.id, lib.items.filter(li => getEffectiveUsedCount(li) < lib.maxRepeat));
+                    }
+
                     const systemPrompt = `你是一个专业的文案改写专家。
 
 【任务】
@@ -1476,10 +1575,12 @@ ${numberedInputs}
 【重要规则】
 - 必须保持原文语言！英文文案输出英文，中文文案输出中文，绝对不要翻译！
 - 只修改指令要求的部分，其余内容保持原样
+- 优先选择标★的高优先级条目，但语义匹配更重要
+- ⚠️ 每条文案必须选择不同的库条目！尽量多样化选择！${recentlyUsedIds.length > 0 ? `\n- 以下条目已被使用，请避免再选：${recentlyUsedIds.slice(-100).join(', ')}` : ''}
 
 【输出格式】
 严格按以下格式输出：
-${libNames.map(n => `SELECTED_${n}: [选中条目的ID]`).join('\n')}
+${libNames.map(n => `SELECTED_${n}: [选中条目的编号或ID]`).join('\n')}
 RESULT: [改写后的完整文案，保持原文语言]
 RESULT_ZH: [改写后文案的中文翻译]
 
@@ -1508,16 +1609,39 @@ ${allLibsPrompt}`;
                     if (resultMatch) {
                         const rewrittenText = resultMatch[1].trim();
 
-                        // 解析每个库的选中ID并更新计数
+                        // 解析每个库的选中条目并更新计数（支持编号和ID两种格式）
                         const matchedContents: string[] = [];
                         for (const lib of itemLibs) {
                             const selMatch = responseText.match(new RegExp(`SELECTED_${lib.name}:\\s*\\[?([^\\]\\n]+)\\]?`, 'i'));
-                            const selectedId = selMatch?.[1]?.trim() || '';
-                            if (selectedId) {
-                                const matchedItem = lib.items.find(li => li.id === selectedId);
-                                if (matchedItem) matchedContents.push(`${lib.name}: ${matchedItem.content}`);
+                            const selectedValue = selMatch?.[1]?.trim() || '';
+                            if (!selectedValue) continue;
+
+                            const available = libAvailableMap.get(lib.id) || [];
+                            let matchedItem: LibraryItem | undefined;
+
+                            // 1. 按编号匹配（大库紧凑格式: "42" 或 "42.★ xxx"）
+                            const numMatch = selectedValue.match(/^(\d+)/);
+                            if (numMatch) {
+                                const idx = parseInt(numMatch[1]) - 1;
+                                if (idx >= 0 && idx < available.length) {
+                                    matchedItem = available[idx];
+                                }
+                            }
+                            // 2. 按 ID 匹配（小库完整格式）
+                            if (!matchedItem) {
+                                matchedItem = lib.items.find(li => li.id === selectedValue);
+                            }
+                            // 3. 按内容模糊匹配（兜底）
+                            if (!matchedItem && selectedValue.length > 5) {
+                                matchedItem = available.find(li => selectedValue.includes(li.content.slice(0, 10)) || li.content.includes(selectedValue.slice(0, 10)));
+                            }
+
+                            if (matchedItem) {
+                                matchedContents.push(`${lib.name}: ${matchedItem.content}`);
+                                recentlyUsedIds.push(matchedItem.id);
+                                incrementLocalCount(matchedItem.id);
                                 setLibraries(prev => prev.map(l => l.id === lib.id
-                                    ? { ...l, items: l.items.map(li => li.id === selectedId ? { ...li, usedCount: li.usedCount + 1 } : li) }
+                                    ? { ...l, items: l.items.map(li => li.id === matchedItem!.id ? { ...li, usedCount: li.usedCount + 1 } : li) }
                                     : l
                                 ));
                             }
@@ -1847,6 +1971,43 @@ ${item.originalForeign}
 
     // --- Copy functions (无空行) ---
     const handleCopy = (type: 'foreign' | 'chinese' | 'both' | 'all') => {
+        // 库模式：结果存在 item.resultForeign / item.resultChinese，不在 instructionResults 里
+        if (mode === 'library') {
+            const successItems = items.filter(item => item.status === 'success' && item.resultForeign);
+            if (successItems.length === 0) return;
+
+            let headers: string[] = [];
+            let rows: string[] = [];
+
+            switch (type) {
+                case 'foreign':
+                    headers = ['改写结果'];
+                    rows = successItems.map(item => escapeForSheet(item.resultForeign || ''));
+                    break;
+                case 'chinese':
+                    headers = ['中文翻译'];
+                    rows = successItems.map(item => escapeForSheet(item.resultChinese || ''));
+                    break;
+                case 'both':
+                    headers = ['改写结果', '中文翻译'];
+                    rows = successItems.map(item => `${escapeForSheet(item.resultForeign || '')}\t${escapeForSheet(item.resultChinese || '')}`);
+                    break;
+                case 'all':
+                    headers = ['原文', '改写结果', '中文翻译', '匹配库条目'];
+                    rows = successItems.map(item =>
+                        `${escapeForSheet(item.originalForeign)}\t${escapeForSheet(item.resultForeign || '')}\t${escapeForSheet(item.resultChinese || '')}\t${escapeForSheet(item.libraryMatchedContent || '')}`
+                    );
+                    break;
+            }
+
+            const text = [headers.join('\t'), ...rows].join('\n');
+            navigator.clipboard.writeText(text);
+            setCopiedType(type);
+            showCopyToast(`已复制${successItems.length}条结果`);
+            setTimeout(() => setCopiedType(null), 2000);
+            return;
+        }
+
         // 包含所有有指令结果的项目（包括失败的），保持行对齐
         const allItems = items.filter(item => item.instructionResults && item.instructionResults.length > 0);
         if (allItems.length === 0) return;
@@ -2032,13 +2193,81 @@ ${item.originalForeign}
         }
     }, [pendingRetryStart, items]);
 
-    // --- Process single item (重试/单条处理) - 支持多指令 ---
+    // --- Process single item (重试/单条处理) - 支持多指令 + 库模式 ---
     const handleProcessSingleItem = async (item: CopywritingItem) => {
         setItems(prev => prev.map(i =>
             i.id === item.id ? { ...i, status: 'processing', instructionResults: [] } : i
         ));
 
         try {
+            // === 库模式：复用批量处理的库匹配逻辑 ===
+            if (mode === 'library') {
+                const enabledLibs = libraries.filter(l => l.enabled && l.items.length > 0);
+                if (enabledLibs.length === 0) throw new Error('请先启用至少一个有条目的库');
+                const ai = getAiInstance();
+                const extraInsts = libraryExtraInstructions.filter(i => i.trim());
+                const itemLibIds = item.selectedLibraryIds && item.selectedLibraryIds.length > 0
+                    ? item.selectedLibraryIds : enabledLibs.map(l => l.id);
+                const itemLibs = libraries.filter(l => itemLibIds.includes(l.id) && l.items.length > 0);
+                const COMPACT_THRESHOLD = 200;
+                let allLibsPrompt = '';
+                let hasAvailable = false;
+                const libAvailableMap = new Map<string, LibraryItem[]>();
+                for (const lib of itemLibs) {
+                    const available = lib.items.filter(li => li.usedCount < lib.maxRepeat);
+                    if (available.length === 0) continue;
+                    hasAvailable = true;
+                    libAvailableMap.set(lib.id, available);
+                    if (available.length > COMPACT_THRESHOLD) {
+                        const lines = available.map((li, idx) => {
+                            const prefix = li.weight >= 7 ? '★' : '';
+                            const tagStr = li.tags ? `[${li.tags}]` : '';
+                            return `${idx + 1}.${prefix}${tagStr} ${li.content}`;
+                        });
+                        allLibsPrompt += `\n【库: ${lib.name}】 ${lib.matchRule || '语义匹配最合适的条目'} (${available.length}条, ★=高优先)\n${lines.join('\n')}\n`;
+                    } else {
+                        const candidateText = available.map(li => {
+                            const pl = li.weight <= 3 ? '低' : li.weight <= 6 ? '中' : li.weight <= 8 ? '高' : '极高';
+                            return `  [${li.id}] (优先级:${pl}, 剩余${lib.maxRepeat - li.usedCount}次) ${li.content}`;
+                        }).join('\n');
+                        allLibsPrompt += `\n【库: ${lib.name}】 ${lib.matchRule || '语义匹配最合适的条目'} (${available.length}条)\n${candidateText}\n`;
+                    }
+                }
+                if (!hasAvailable) throw new Error('所有库条目全部已达使用上限');
+                const libNames = itemLibs.map(l => l.name);
+                const sysPrompt = `你是一个专业的文案改写专家。\n\n【任务】\n1. 分析原始文案内容\n2. 从每个候选库中各选择一个最匹配的条目\n3. 将选中的条目融入文案完成改写\n\n【重要规则】\n- 必须保持原文语言！\n- 只修改指令要求的部分，其余保持原样\n- 优先选择标★的条目，但语义匹配更重要\n${item.resultForeign ? `- ⚠️ 这是重试！请选择与上次不同的条目！上次用了: ${item.libraryMatchedContent || '未知'}` : ''}\n\n【输出格式】\n${libNames.map(n => `SELECTED_${n}: [选中条目的编号或ID]`).join('\n')}\nRESULT: [改写后的完整文案]\nRESULT_ZH: [中文翻译]`;
+                let userPrompt = `【原始文案】\n${item.originalForeign}\n${allLibsPrompt}`;
+                if (extraInsts.length > 0) userPrompt += `\n\n【额外要求】\n${extraInsts.map((inst, i) => `${i + 1}. ${inst}`).join('\n')}`;
+                const result = await ai.models.generateContent({ model: textModel, contents: { parts: [{ text: userPrompt }] }, config: { systemInstruction: sysPrompt } });
+                const responseText = result.text?.trim() || '';
+                const resultMatch = responseText.match(/RESULT:\s*(.+?)(?=\nRESULT_ZH:|$)/is);
+                const resultZhMatch = responseText.match(/RESULT_ZH:\s*([\s\S]+)/i);
+                if (resultMatch) {
+                    const rewrittenText = resultMatch[1].trim();
+                    const matchedContents: string[] = [];
+                    for (const lib of itemLibs) {
+                        const selMatch = responseText.match(new RegExp(`SELECTED_${lib.name}:\\s*\\[?([^\\]\\n]+)\\]?`, 'i'));
+                        const selectedValue = selMatch?.[1]?.trim() || '';
+                        if (!selectedValue) continue;
+                        const available = libAvailableMap.get(lib.id) || [];
+                        let matchedItem: LibraryItem | undefined;
+                        const numMatch = selectedValue.match(/^(\d+)/);
+                        if (numMatch) { const idx = parseInt(numMatch[1]) - 1; if (idx >= 0 && idx < available.length) matchedItem = available[idx]; }
+                        if (!matchedItem) matchedItem = lib.items.find(li => li.id === selectedValue);
+                        if (!matchedItem && selectedValue.length > 5) matchedItem = available.find(li => selectedValue.includes(li.content.slice(0, 10)) || li.content.includes(selectedValue.slice(0, 10)));
+                        if (matchedItem) {
+                            matchedContents.push(`${lib.name}: ${matchedItem.content}`);
+                            setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, items: l.items.map(li => li.id === matchedItem!.id ? { ...li, usedCount: li.usedCount + 1 } : li) } : l));
+                        }
+                    }
+                    setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'success' as const, resultForeign: rewrittenText, resultChinese: resultZhMatch?.[1]?.trim() || '', libraryMatchedContent: matchedContents.join(' | ') } : i));
+                } else {
+                    setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'error' as const, error: '解析失败: ' + responseText.slice(0, 100) } : i));
+                }
+                return;
+            }
+
+
             // 过滤有效指令
             const validInstructions = instructions.filter(inst => inst.trim());
             if (validInstructions.length === 0) {
@@ -2766,7 +2995,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
             {/* === 改写指令 + 输入文案 (同一行) === */}
             <div className="flex gap-3">
                 {/* 改写指令 (左侧 40%) */}
-                <div className="w-2/5 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+                <div className="w-[65%] bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                             <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : 'text-amber-400'} />
@@ -2839,8 +3068,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     <Library size={10} className="inline mr-0.5" /> 文案库
                                 </button>
                             </div>
-                            {/* 显示差异开关 - 仅标准模式 */}
-                            {mode === 'standard' && (
+                            {/* 显示差异开关 - 标准/库模式 */}
+                            {(mode === 'standard' || mode === 'library') && (
                                 <button
                                     onClick={() => setShowDiff(!showDiff)}
                                     className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full transition-all ${showDiff
@@ -3026,15 +3255,16 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                         </div>
                     ) : mode === 'library' ? (
                         <div className="space-y-2 max-h-60 overflow-y-auto overflow-x-hidden">
-                            {/* 当前活动库信息 */}
+                            {/* 当前文案库概览（简洁版，详细管理在编辑库弹窗中） */}
                             {(() => {
+                                const enabledLibs = libraries.filter(l => l.enabled);
                                 return (
                                     <div className="bg-zinc-950 border border-green-900/30 rounded-lg p-2">
-                                        <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center justify-between mb-1.5">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-green-400 text-xs font-medium">📚 文案库</span>
                                                 <span className="text-[10px] text-zinc-500">
-                                                    {libraries.filter(l => l.enabled).length}/{libraries.length} 个库启用 | 共 {libraries.reduce((s, l) => s + l.items.length, 0)} 条
+                                                    {enabledLibs.length}/{libraries.length} 启用
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-1">
@@ -3055,38 +3285,29 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                 </button>
                                             </div>
                                         </div>
-                                        {/* 每个库一行 */}
-                                        <div className="space-y-1 max-h-40 overflow-y-auto">
-                                            {libraries.map(lib => (
-                                                <div key={lib.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all ${lib.enabled ? 'bg-zinc-800/80' : 'bg-zinc-900/50 opacity-50'}`}>
-                                                    {/* 启用开关 */}
-                                                    <button
-                                                        onClick={() => setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, enabled: !l.enabled } : l))}
-                                                        className={`w-7 h-4 rounded-full relative transition-colors shrink-0 ${lib.enabled ? 'bg-green-600' : 'bg-zinc-700'}`}
-                                                    >
-                                                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${lib.enabled ? 'left-3.5' : 'left-0.5'}`} />
-                                                    </button>
-                                                    {/* 颜色标识 */}
+                                        {/* 已启用的库 + 可编辑指令 */}
+                                        <div className="space-y-1">
+                                            {enabledLibs.map(lib => (
+                                                <div key={lib.id} className="flex items-center gap-1.5 px-1.5 py-1 bg-zinc-800/60 rounded">
                                                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: lib.color }} />
-                                                    {/* 库名 + 数量 */}
-                                                    <span className={`text-[11px] font-medium shrink-0 ${lib.enabled ? 'text-zinc-200' : 'text-zinc-500 line-through'}`}>
-                                                        {lib.name}
-                                                    </span>
+                                                    <span className="text-[10px] text-zinc-300 font-medium shrink-0">{lib.name}</span>
                                                     <span className="text-[9px] text-zinc-600 shrink-0">
                                                         {lib.items.filter(i => i.usedCount < lib.maxRepeat).length}/{lib.items.length}
                                                     </span>
-                                                    {/* 使用指令（可编辑，双击放大） */}
                                                     <input
                                                         type="text"
                                                         value={lib.matchRule}
                                                         onChange={(e) => setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, matchRule: e.target.value } : l))}
                                                         onDoubleClick={() => setEditingLibField({ type: 'matchRule', libId: lib.id })}
-                                                        className="flex-1 bg-transparent border-none text-[10px] text-zinc-400 focus:text-zinc-200 focus:outline-none focus:bg-zinc-800/50 rounded px-1.5 truncate cursor-pointer"
-                                                        placeholder="如：选合适的互动语添加到文案末尾"
+                                                        className="flex-1 bg-transparent border-none text-[10px] text-zinc-500 focus:text-zinc-200 focus:outline-none focus:bg-zinc-900/50 rounded px-1 truncate cursor-pointer"
+                                                        placeholder="使用指令（双击放大）"
                                                         title="双击放大编辑"
                                                     />
                                                 </div>
                                             ))}
+                                            {enabledLibs.length === 0 && (
+                                                <span className="text-[10px] text-zinc-600 italic">无启用的库，点击"编辑库"添加</span>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -3271,8 +3492,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     )}
                 </div>
 
-                {/* 输入文案 (右侧 60%) */}
-                <div className="w-3/5 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+                {/* 输入文案 (右侧 45%) */}
+                <div className="w-[35%] bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                             <FileText size={14} className="text-emerald-400" />
@@ -3546,7 +3767,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'foreign' ? <Check size={12} /> : <Copy size={12} />}
-                                        {mode === "voice" ? '加标签' : '外文'}
+                                        {mode === "voice" ? '加标签' : mode === 'library' ? '改写结果' : '外文'}
                                     </button>
                                     <button
                                         onClick={() => handleCopy('chinese')}
@@ -3556,7 +3777,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'chinese' ? <Check size={12} /> : <Copy size={12} />}
-                                        {mode === "voice" ? '断句' : '中文'}
+                                        {mode === "voice" ? '断句' : mode === 'library' ? '中文翻译' : '中文'}
                                     </button>
                                     <button
                                         onClick={() => handleCopy('both')}
@@ -3566,7 +3787,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'both' ? <Check size={12} /> : <Copy size={12} />}
-                                        {mode === "voice" ? '标签+断句' : '结果两列'}
+                                        {mode === "voice" ? '标签+断句' : mode === 'library' ? '结果+翻译' : '结果两列'}
                                     </button>
                                     <button
                                         onClick={() => handleCopy('all')}
@@ -3576,7 +3797,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'all' ? <Check size={12} /> : <Copy size={12} />}
-                                        全部四列
+                                        {mode === 'library' ? '全部列' : '全部四列'}
                                     </button>
 
                                     {/* 按指令复制 - 当有多指令结果时显示 */}
@@ -4026,8 +4247,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                 )}
                                                                 {item.status === 'success' && (
                                                                     <div className={`text-sm ${mode === "voice" ? 'text-purple-100' : 'text-emerald-100'} whitespace-pre-wrap break-words`}>
-                                                                        {showDiff && mode === 'standard' && item.resultForeign
-                                                                            ? computeWordDiff(item.originalForeign, item.resultForeign).resultWithDiff
+                                                                        {showDiff && (mode === 'standard' || mode === 'library') && item.resultForeign
+                                                                            ? highlightDiff(item.originalForeign, item.resultForeign)
                                                                             : item.resultForeign
                                                                         }
                                                                     </div>
@@ -4140,7 +4361,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             <Settings2 size={14} />
                                         </button>
 
-                                        {/* 单条处理 (仅idle状态) */}
+                                        {/* 单条处理 (idle状态) */}
                                         {item.status === 'idle' && (
                                             <button
                                                 onClick={() => handleProcessSingleItem(item)}
@@ -4148,6 +4369,20 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                 data-tip="单条处理"
                                             >
                                                 <Play size={14} />
+                                            </button>
+                                        )}
+
+                                        {/* 重试 (success/error状态) */}
+                                        {(item.status === 'success' || item.status === 'error') && (
+                                            <button
+                                                onClick={() => handleProcessSingleItem(item)}
+                                                className={`p-1.5 rounded transition-colors tooltip-bottom ${mode === 'library'
+                                                    ? 'text-green-400 hover:bg-green-900/20'
+                                                    : 'text-amber-400 hover:bg-amber-900/20'
+                                                    }`}
+                                                data-tip={mode === 'library' ? '重新匹配' : '重试'}
+                                            >
+                                                <RotateCw size={14} />
                                             </button>
                                         )}
 
@@ -4560,26 +4795,10 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     ));
                 };
                 const handleBatchImport = () => {
-                    const text = prompt('粘贴文案库内容（每行一条，可用 Tab 分隔权重和标签）\n格式：内容\\t权重\\t标签');
-                    if (!text) return;
-                    const newItems: LibraryItem[] = text.split('\n').filter(l => l.trim()).map(line => {
-                        const parts = line.split('\t');
-                        return {
-                            id: uuidv4(),
-                            content: parts[0]?.trim() || '',
-                            weight: parseInt(parts[1]) || 5,
-                            tags: parts[2]?.trim() || '',
-                            usedCount: 0
-                        };
-                    });
-                    if (newItems.length > 0) {
-                        setLibraries(prev => prev.map(l => l.id === activeLibraryId
-                            ? { ...l, items: [...l.items, ...newItems] }
-                            : l
-                        ));
-                        showCopyToast(`已导入 ${newItems.length} 条`);
-                    }
+                    setBatchImportText('');
+                    setShowBatchImportModal(true);
                 };
+
                 return (
                     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
                         <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-4xl mx-4 shadow-2xl max-h-[85vh] flex flex-col">
@@ -4595,55 +4814,134 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         <X size={18} />
                                     </button>
                                 </div>
-                                {/* 多库切换标签 */}
-                                <div className="flex items-center gap-1 flex-wrap">
-                                    {libraries.map(lib => (
-                                        <button
-                                            key={lib.id}
-                                            onClick={() => setActiveLibraryId(lib.id)}
-                                            onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, enabled: !l.enabled } : l));
-                                            }}
-                                            className={`px-2.5 py-1 text-xs rounded-lg transition-all flex items-center gap-1 ${lib.id === activeLibraryId
-                                                ? 'bg-green-600 text-white'
-                                                : lib.enabled
-                                                    ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700'
-                                                    : 'bg-zinc-800/50 text-zinc-600 hover:bg-zinc-700 border border-zinc-800 line-through'
-                                                }`}
-                                            title={`${lib.enabled ? '✅ 已启用' : '⬜ 已禁用'} | 右键切换`}
-                                        >
-                                            <span className={`w-2 h-2 rounded-full`} style={{ backgroundColor: lib.enabled ? lib.color : '#555' }} />
-                                            {lib.name} ({lib.items.length})
-                                        </button>
-                                    ))}
-                                    <button
-                                        onClick={() => {
-                                            const newLib: CopywritingLibrary = {
-                                                id: uuidv4(),
-                                                name: `新库 ${libraries.length + 1}`,
-                                                matchRule: '根据文案内容语义匹配最合适的条目',
-                                                maxRepeat: 3,
-                                                items: [],
-                                                enabled: true,
-                                                color: LIB_COLORS[libraries.length % LIB_COLORS.length]
-                                            };
-                                            setLibraries(prev => [...prev, newLib]);
-                                            setActiveLibraryId(newLib.id);
-                                        }}
-                                        className="px-2 py-1 text-xs text-green-400 hover:bg-green-900/20 rounded-lg border border-dashed border-green-700/50"
-                                    >
-                                        <Plus size={10} className="inline mr-0.5" /> 新建库
-                                    </button>
+                                {/* 第一级：分页/总库 标签 */}
+                                {(() => {
+                                    // 构建分组
+                                    const groups: { group: string; libs: CopywritingLibrary[] }[] = [];
+                                    const seen = new Set<string>();
+                                    for (const lib of libraries) {
+                                        const g = lib.group || lib.name;
+                                        if (!seen.has(g)) {
+                                            seen.add(g);
+                                            groups.push({ group: g, libs: libraries.filter(l => (l.group || l.name) === g) });
+                                        }
+                                    }
+                                    // 确定当前选中的分组
+                                    const activeGroup = activeEditorGroup || (activeLib ? (activeLib.group || activeLib.name) : groups[0]?.group || '');
+                                    const currentGroupLibs = groups.find(g => g.group === activeGroup)?.libs || [];
+                                    const isMultiGroup = currentGroupLibs.length > 1 || (currentGroupLibs.length === 1 && currentGroupLibs[0].name !== activeGroup);
+
+                                    return (
+                                        <>
+                                            <div className="flex items-center gap-1 flex-wrap">
+                                                {groups.map(grp => {
+                                                    const isActive = grp.group === activeGroup;
+                                                    const totalItems = grp.libs.reduce((s, l) => s + l.items.length, 0);
+                                                    const allEnabled = grp.libs.every(l => l.enabled);
+                                                    const someEnabled = grp.libs.some(l => l.enabled);
+                                                    return (
+                                                        <button
+                                                            key={grp.group}
+                                                            onClick={() => {
+                                                                setActiveEditorGroup(grp.group);
+                                                                // 如果是单库分组，直接选中该库
+                                                                if (grp.libs.length === 1 && grp.libs[0].name === grp.group) {
+                                                                    setActiveLibraryId(grp.libs[0].id);
+                                                                } else if (grp.libs.length > 0) {
+                                                                    // 选中组内第一个库
+                                                                    const firstLib = grp.libs.find(l => l.id === activeLibraryId) || grp.libs[0];
+                                                                    setActiveLibraryId(firstLib.id);
+                                                                }
+                                                            }}
+                                                            onContextMenu={(e) => {
+                                                                e.preventDefault();
+                                                                // 右键切换整组启用/禁用
+                                                                const newEnabled = !allEnabled;
+                                                                setLibraries(prev => prev.map(l => {
+                                                                    if (grp.libs.some(gl => gl.id === l.id)) {
+                                                                        return { ...l, enabled: newEnabled };
+                                                                    }
+                                                                    return l;
+                                                                }));
+                                                            }}
+                                                            className={`px-2.5 py-1 text-xs rounded-lg transition-all flex items-center gap-1.5 ${isActive
+                                                                ? 'bg-green-600 text-white'
+                                                                : someEnabled
+                                                                    ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700'
+                                                                    : 'bg-zinc-800/40 text-zinc-500 hover:bg-zinc-700 border border-zinc-800'
+                                                                }`}
+                                                            title={`${allEnabled ? '全部启用' : someEnabled ? '部分启用' : '全部禁用'}｜右键切换`}
+                                                        >
+                                                            <span className={`w-2 h-2 rounded-full ${allEnabled ? '' : someEnabled ? 'opacity-50' : 'opacity-30'}`}
+                                                                style={{ backgroundColor: grp.libs[0]?.color || '#888' }} />
+                                                            {grp.group}
+                                                            <span className="text-[10px] opacity-60">({totalItems})</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                                <button
+                                                    onClick={() => {
+                                                        const newLib: CopywritingLibrary = {
+                                                            id: uuidv4(),
+                                                            name: `新库 ${libraries.length + 1}`,
+                                                            matchRule: '根据文案内容语义匹配最合适的条目',
+                                                            maxRepeat: 3,
+                                                            items: [],
+                                                            enabled: true,
+                                                            color: LIB_COLORS[libraries.length % LIB_COLORS.length]
+                                                        };
+                                                        setLibraries(prev => [...prev, newLib]);
+                                                        setActiveLibraryId(newLib.id);
+                                                        setActiveEditorGroup(newLib.name);
+                                                    }}
+                                                    className="px-2 py-1 text-[10px] text-green-400 hover:bg-green-900/20 rounded-lg border border-dashed border-green-800/40"
+                                                >
+                                                    + 新建
+                                                </button>
+                                            </div>
+                                            {/* 第二级：子库标签（仅总库模式下显示） */}
+                                            {isMultiGroup && (
+                                                <div className="flex items-center gap-1 flex-wrap mt-1 pl-2 border-l-2 border-green-800/30">
+                                                    {currentGroupLibs.map(lib => (
+                                                        <button
+                                                            key={lib.id}
+                                                            onClick={() => setActiveLibraryId(lib.id)}
+                                                            onContextMenu={(e) => {
+                                                                e.preventDefault();
+                                                                setLibraries(prev => prev.map(l => l.id === lib.id ? { ...l, enabled: !l.enabled } : l));
+                                                            }}
+                                                            className={`px-2 py-0.5 text-[11px] rounded transition-all flex items-center gap-1 ${lib.id === activeLibraryId
+                                                                ? 'bg-green-500/80 text-white'
+                                                                : lib.enabled
+                                                                    ? 'bg-zinc-800/80 text-zinc-300 hover:bg-zinc-700'
+                                                                    : 'bg-zinc-800/30 text-zinc-600 hover:bg-zinc-700 line-through opacity-50'
+                                                                }`}
+                                                            title={`${lib.enabled ? '✅ 已启用' : '⬜ 已禁用'}｜右键切换`}
+                                                        >
+                                                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: lib.enabled ? lib.color : '#555' }} />
+                                                            {lib.name} ({lib.items.length})
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                                {/* 操作按钮 */}
+                                <div className="flex items-center gap-2 mt-1">
                                     {libraries.length > 1 && (
                                         <button
                                             onClick={() => {
-                                                if (!confirm(`确定删除「${activeLib.name}」？`)) return;
-                                                const remaining = libraries.filter(l => l.id !== activeLibraryId);
-                                                setLibraries(remaining);
-                                                setActiveLibraryId(remaining[0].id);
+                                                setConfirmDialog({
+                                                    message: `确定删除「${activeLib.name}」？`,
+                                                    onConfirm: () => {
+                                                        const remaining = libraries.filter(l => l.id !== activeLibraryId);
+                                                        setLibraries(remaining);
+                                                        setActiveLibraryId(remaining[0].id);
+                                                    }
+                                                });
                                             }}
-                                            className="px-2 py-1 text-xs text-red-400 hover:bg-red-900/20 rounded-lg"
+                                            className="px-2 py-0.5 text-[10px] text-red-400/60 hover:text-red-400 hover:bg-red-900/20 rounded"
                                         >
                                             <Trash2 size={10} className="inline mr-0.5" /> 删除当前库
                                         </button>
@@ -4721,65 +5019,88 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     />
                                 </div>
 
-                                {/* 库条目表格 */}
+                                {/* 批量操作栏 */}
+                                {(() => {
+                                    // 收集标签
+                                    const allTags = Array.from(new Set(activeLib.items.map(i => i.tags).filter(Boolean)));
+                                    if (allTags.length === 0) return null;
+                                    return (
+                                        <div className="bg-zinc-800/50 rounded-lg px-3 py-2 space-y-1.5">
+                                            <div className="text-[10px] text-zinc-500 font-medium">按分类批量操作</div>
+                                            <div className="flex items-center gap-1 flex-wrap">
+                                                {allTags.map(tag => {
+                                                    const count = activeLib.items.filter(i => i.tags === tag).length;
+                                                    const avgWeight = Math.round(activeLib.items.filter(i => i.tags === tag).reduce((s, i) => s + i.weight, 0) / count);
+                                                    const priorityLabel = avgWeight <= 3 ? '⚪低' : avgWeight <= 6 ? '🟡中' : avgWeight <= 8 ? '🟠高' : '🔴极高';
+                                                    return (
+                                                        <div key={tag} className="flex items-center gap-1 bg-zinc-900 rounded px-2 py-1">
+                                                            <span className="text-[10px] text-zinc-300">{tag}</span>
+                                                            <span className="text-[9px] text-zinc-600">({count})</span>
+                                                            <select
+                                                                value={avgWeight <= 3 ? '2' : avgWeight <= 6 ? '5' : avgWeight <= 8 ? '7' : '10'}
+                                                                onChange={(e) => {
+                                                                    const newWeight = parseInt(e.target.value);
+                                                                    setLibraries(prev => prev.map(l => l.id === activeLibraryId
+                                                                        ? { ...l, items: l.items.map(i => i.tags === tag ? { ...i, weight: newWeight } : i) }
+                                                                        : l
+                                                                    ));
+                                                                }}
+                                                                className="bg-transparent border-none text-[10px] text-zinc-400 focus:outline-none cursor-pointer appearance-none"
+                                                                title="设置该分类所有条目的优先级"
+                                                            >
+                                                                <option value="2" className="bg-zinc-800">⚪ 低</option>
+                                                                <option value="5" className="bg-zinc-800">🟡 中</option>
+                                                                <option value="7" className="bg-zinc-800">🟠 高</option>
+                                                                <option value="10" className="bg-zinc-800">🔴 极高</option>
+                                                            </select>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {/* 库条目列表 */}
                                 <div className="border border-zinc-700 rounded-lg overflow-hidden">
-                                    <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-px bg-zinc-700">
-                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium">内容</div>
-                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-20 text-center">优先级</div>
-                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-28">标签</div>
-                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-14 text-center">已用</div>
-                                        <div className="bg-zinc-800 px-3 py-1.5 text-[10px] text-zinc-400 font-medium w-10"></div>
+                                    <div className="flex items-center bg-zinc-800 px-3 py-1.5 gap-2">
+                                        <span className="flex-1 text-[10px] text-zinc-400 font-medium">内容</span>
+                                        {activeLib.items.some(i => i.tags) && <span className="w-20 text-[10px] text-zinc-400 font-medium text-center">分类</span>}
+                                        <span className="w-16 text-[10px] text-zinc-400 font-medium text-center">优先级</span>
+                                        <span className="w-14 text-[10px] text-zinc-400 font-medium text-center">已用</span>
+                                        <span className="w-6"></span>
                                     </div>
                                     <div className="max-h-60 overflow-y-auto">
                                         {activeLib.items.map((item, idx) => (
-                                            <div key={item.id} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-px bg-zinc-700">
-                                                <div className="bg-zinc-900 px-1">
-                                                    <input
-                                                        type="text"
-                                                        value={item.content}
-                                                        onChange={(e) => updateLibItem(item.id, { content: e.target.value })}
-                                                        className="w-full bg-transparent border-none px-2 py-1 text-xs text-zinc-200 focus:outline-none"
-                                                        placeholder={`条目 ${idx + 1}`}
-                                                    />
-                                                </div>
-                                                <div className="bg-zinc-900 w-20">
-                                                    <select
-                                                        value={item.weight <= 3 ? '2' : item.weight <= 6 ? '5' : item.weight <= 8 ? '7' : '10'}
-                                                        onChange={(e) => updateLibItem(item.id, { weight: parseInt(e.target.value) })}
-                                                        className="w-full bg-transparent border-none px-1 py-1 text-xs text-zinc-200 focus:outline-none text-center appearance-none cursor-pointer"
-                                                    >
-                                                        <option value="2" className="bg-zinc-800">⚪ 低</option>
-                                                        <option value="5" className="bg-zinc-800">🟡 中</option>
-                                                        <option value="7" className="bg-zinc-800">🟠 高</option>
-                                                        <option value="10" className="bg-zinc-800">🔴 极高</option>
-                                                    </select>
-                                                </div>
-                                                <div className="bg-zinc-900 w-28">
-                                                    <input
-                                                        type="text"
-                                                        value={item.tags}
-                                                        onChange={(e) => updateLibItem(item.id, { tags: e.target.value })}
-                                                        className="w-full bg-transparent border-none px-2 py-1 text-xs text-zinc-200 focus:outline-none"
-                                                        placeholder="标签"
-                                                    />
-                                                </div>
-                                                <div className="bg-zinc-900 w-14 flex items-center justify-center gap-0.5">
-                                                    <input
-                                                        type="number"
-                                                        min={0}
-                                                        max={99}
-                                                        value={item.usedCount}
-                                                        onChange={(e) => updateLibItem(item.id, { usedCount: Math.max(0, parseInt(e.target.value) || 0) })}
-                                                        className={`w-7 bg-transparent border-none text-xs text-center focus:outline-none focus:bg-zinc-800 rounded ${item.usedCount >= activeLib.maxRepeat ? 'text-red-400' : 'text-zinc-400'}`}
-                                                        title="点击编辑已用次数"
-                                                    />
-                                                    <span className="text-[9px] text-zinc-600">/{activeLib.maxRepeat}</span>
-                                                </div>
-                                                <div className="bg-zinc-900 w-10 flex items-center justify-center">
-                                                    <button onClick={() => removeLibItem(item.id)} className="text-zinc-600 hover:text-red-400">
-                                                        <X size={12} />
-                                                    </button>
-                                                </div>
+                                            <div key={item.id} className="flex items-center px-1 py-0.5 gap-2 border-t border-zinc-800/50 hover:bg-zinc-800/30">
+                                                <input
+                                                    type="text"
+                                                    value={item.content}
+                                                    onChange={(e) => updateLibItem(item.id, { content: e.target.value })}
+                                                    className="flex-1 bg-transparent border-none px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:bg-zinc-800/50 rounded"
+                                                    placeholder={`条目 ${idx + 1}`}
+                                                />
+                                                {activeLib.items.some(i => i.tags) && (
+                                                    <span className="w-20 text-[9px] text-zinc-500 text-center truncate" title={item.tags}>
+                                                        {item.tags || '-'}
+                                                    </span>
+                                                )}
+                                                <select
+                                                    value={item.weight <= 3 ? '2' : item.weight <= 6 ? '5' : item.weight <= 8 ? '7' : '10'}
+                                                    onChange={(e) => updateLibItem(item.id, { weight: parseInt(e.target.value) })}
+                                                    className="w-16 bg-transparent border-none px-1 py-1 text-xs text-zinc-300 focus:outline-none text-center appearance-none cursor-pointer"
+                                                >
+                                                    <option value="2" className="bg-zinc-800">⚪ 低</option>
+                                                    <option value="5" className="bg-zinc-800">🟡 中</option>
+                                                    <option value="7" className="bg-zinc-800">🟠 高</option>
+                                                    <option value="10" className="bg-zinc-800">🔴 极高</option>
+                                                </select>
+                                                <span className={`w-14 text-center text-[10px] ${item.usedCount >= activeLib.maxRepeat ? 'text-red-400' : 'text-zinc-500'}`}>
+                                                    {item.usedCount}/{activeLib.maxRepeat}
+                                                </span>
+                                                <button onClick={() => removeLibItem(item.id)} className="w-6 text-zinc-600 hover:text-red-400 flex items-center justify-center">
+                                                    <X size={12} />
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
@@ -4801,9 +5122,10 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     </button>
                                     <button
                                         onClick={() => {
-                                            if (confirm('确定清空所有条目？')) {
-                                                updateLib({ items: [] });
-                                            }
+                                            setConfirmDialog({
+                                                message: '确定清空所有条目？',
+                                                onConfirm: () => updateLib({ items: [] })
+                                            });
                                         }}
                                         className="flex items-center gap-1 px-3 py-1 text-xs text-red-400 hover:bg-red-900/20 rounded border border-red-900/30"
                                     >
@@ -4823,6 +5145,91 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     </div>
                 );
             })()}
+
+            {/* 批量导入弹框 */}
+            {showBatchImportModal && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]" onClick={() => setShowBatchImportModal(false)}>
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-lg mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                            <div className="text-green-400 font-medium text-sm">📋 批量导入</div>
+                            <button onClick={() => setShowBatchImportModal(false)} className="text-zinc-500 hover:text-zinc-300">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            <div className="text-[11px] text-zinc-500">
+                                每行一条，可用 Tab 分隔权重和标签。格式：<span className="text-zinc-400">内容{'\t'}权重{'\t'}标签</span>
+                            </div>
+                            <textarea
+                                value={batchImportText}
+                                onChange={e => setBatchImportText(e.target.value)}
+                                placeholder={"粘贴文案库内容...\n例：Type Amen 🙏\t10\t互动\n例：Share this ❤️\t5\t分享"}
+                                className="w-full h-48 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-green-500 placeholder-zinc-600 resize-none font-mono"
+                                autoFocus
+                            />
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                const clip = await navigator.clipboard.readText();
+                                                if (clip) setBatchImportText(clip);
+                                            } catch { showCopyToast('无法读取剪贴板'); }
+                                        }}
+                                        className="px-3 py-1.5 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
+                                    >
+                                        📋 从剪贴板粘贴
+                                    </button>
+                                    <span className="text-[10px] text-zinc-600">
+                                        {batchImportText.trim() ? `${batchImportText.split('\n').filter(l => l.trim()).length} 条` : ''}
+                                    </span>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setShowBatchImportModal(false)}
+                                        className="px-4 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={confirmBatchImport}
+                                        disabled={!batchImportText.trim()}
+                                        className="px-4 py-1.5 text-sm bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded-lg font-medium transition-colors"
+                                    >
+                                        导入
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
+            {/* 确认对话框 */}
+            {confirmDialog && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70]" onClick={() => setConfirmDialog(null)}>
+                    <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+                        <div className="p-5">
+                            <div className="text-sm text-zinc-200 mb-5">{confirmDialog.message}</div>
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    onClick={() => setConfirmDialog(null)}
+                                    className="px-4 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+                                    className="px-4 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors"
+                                >
+                                    确定
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* 双击编辑拆分列弹框 */}
             {

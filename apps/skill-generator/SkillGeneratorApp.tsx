@@ -39,7 +39,31 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import type { GoogleGenAI } from '@google/genai';
+import { DEFAULT_PRESETS } from '@/apps/ai-image-recognition/types';
 import './SkillGenerator.css';
+
+// ========== Constants ==========
+// Default image describe prompt — extracted so it can be shown and edited by users
+const DEFAULT_IMAGE_DESCRIBE_PROMPT = `详细描述图片。给我完整的AI描述词，方便我直接给其他软件生成图片或者视频使用。
+你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。并且英文回复我。
+
+关键细节要求：你对每个提示词的描述必须详尽且高度细致。切勿简略。
+
+主体与场景：极其精确地描述所有主体、物体和角色。对于人物，详细说明其外貌、服装（面料、款式、颜色）、配饰、姿势、表情和动作。指定他们彼此之间以及与环境的空间关系。
+
+构图与风格：明确定义镜头类型（如"特写"、"全景"）、摄像机角度（如"低角度"、"荷兰式倾斜角"）以及整体艺术风格（如"超写实 3D 渲染"、"印象派油画"、"动漫关键视觉图"）。
+
+艺术元素：如果图像具有独特的艺术风格，你必须描述其具体特征。这包括笔触、线条、调色板和光影。
+
+环境：详细描述背景和前景，包括地点、时间、天气和特定的环境元素。
+
+你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。并且英文回复我。`;
+
+// Filter image-to-prompt presets from AI Image Recognition
+const IMAGE_PROMPT_PRESETS = DEFAULT_PRESETS.filter(p => ['1', '2', '6'].includes(p.id));
+
+// Default per-element prompt for advanced mode
+const DEFAULT_ELEMENT_PROMPT = '纯粹描述该元素本身的AI描述词，描述详尽，不混杂其他元素信息。';
 
 // ========== Types ==========
 interface UploadedImage {
@@ -463,8 +487,10 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     const [copiedOpalRandom, setCopiedOpalRandom] = useState(false);
     const [copiedOpalInstruction, setCopiedOpalInstruction] = useState(false);
     const [isValidating, setIsValidating] = useState(false);
-    // Chat dimension selector: 'all' or Set of selected column indices
-    const [chatSelectedDims, setChatSelectedDims] = useState<'all' | Set<number>>('all');
+    // Chat dimension selector: 'all', 'instruction-only', or Set of selected column indices
+    const [chatSelectedDims, setChatSelectedDims] = useState<'all' | 'instruction-only' | Set<number>>('all');
+    // Undo snapshot: stores the previous instruction + library before chat modifications
+    const [undoSnapshot, setUndoSnapshot] = useState<{ instruction: string; library: LibraryResult | null } | null>(null);
     const [validationReport, setValidationReport] = useState<{
         fixes: { dim: string; bad: string; fixed: string; reason: string }[];
         merges: { dims: string[]; mergedName: string; reason: string }[];
@@ -983,6 +1009,11 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     // === 图片自动识图 ===
     const [autoDescribeImages, setAutoDescribeImages] = useState(true);
     const [describingImages, setDescribingImages] = useState(false);
+    const [customImagePrompt, setCustomImagePrompt] = useState(DEFAULT_IMAGE_DESCRIBE_PROMPT);
+    const [showCustomImagePrompt, setShowCustomImagePrompt] = useState(false);
+    // Advanced mode: per-element custom prompts (element name → prompt text)
+    const [advancedElementPrompts, setAdvancedElementPrompts] = useState<Record<string, string>>({});
+    const [expandedElementPrompt, setExpandedElementPrompt] = useState<string | null>(null);
 
     const weightModeLabels: Record<WeightMode, string> = {
         '': '均匀分布',
@@ -3869,22 +3900,8 @@ ${dimensionCountRule}
                 setDescribingImages(true);
                 toast.info('正在识别参考图片，生成描述词...');
                 try {
-                    const describePrompt = [
-                        '详细描述图片。给我完整的AI描述词，方便我直接给其他软件生成图片或者视频使用。',
-                        '你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。并且英文回复我。',
-                        '',
-                        '关键细节要求：你对每个提示词的描述必须详尽且高度细致。切勿简略。',
-                        '',
-                        '主体与场景：极其精确地描述所有主体、物体和角色。对于人物，详细说明其外貌、服装（面料、款式、颜色）、配饰、姿势、表情和动作。指定他们彼此之间以及与环境的空间关系。',
-                        '',
-                        '构图与风格：明确定义镜头类型（如"特写"、"全景"）、摄像机角度（如"低角度"、"荷兰式倾斜角"）以及整体艺术风格（如"超写实 3D 渲染"、"印象派油画"、"动漫关键视觉图"）。',
-                        '',
-                        '艺术元素：如果图像具有独特的艺术风格，你必须描述其具体特征。这包括笔触、线条、调色板和光影。',
-                        '',
-                        '环境：详细描述背景和前景，包括地点、时间、天气和特定的环境元素。',
-                        '',
-                        '你只需要给我最终的AI描述词就行，不需要其他任何多余的内容。并且英文回复我。'
-                    ].join('\n');
+                    // Use the user-visible (and editable) image prompt directly
+                    const describePrompt = customImagePrompt.trim() || DEFAULT_IMAGE_DESCRIBE_PROMPT;
 
                     const imageSources = images.map(img => img.base64);
                     const combinedForDesc = await combineImagesToGrid(imageSources);
@@ -4172,8 +4189,11 @@ ${dimensionCountRule}
                 setAdvancedDescribingImages(true);
                 toast.info('正在按元素拆分分析图片...');
                 try {
-                    const elementsText = advancedElements.map((e, i) => `${i + 1}. ${e}`).join('\n');
-                    const splitPrompt = [
+                    const elementsText = advancedElements.map((e, i) => {
+                        const customP = advancedElementPrompts[e]?.trim();
+                        return `${i + 1}. ${e}${customP ? `（分析要求：${customP}）` : ''}`;
+                    }).join('\n');
+                    const splitPromptParts = [
                         '请分析图片，按以下元素分类分别描述。',
                         '',
                         '【元素分类】',
@@ -4191,10 +4211,14 @@ ${dimensionCountRule}
                         '',
                         '每张图片的格式如下：',
                         '---图片X---',
-                        ...advancedElements.map(e => `${e}：（纯粹描述该元素本身的AI描述词）`),
+                        ...advancedElements.map(e => {
+                            const customP = advancedElementPrompts[e]?.trim();
+                            return `${e}：（${customP || DEFAULT_ELEMENT_PROMPT}）`;
+                        }),
                         '',
                         '要求：描述详尽，中文回复，每个元素独立描述不混杂其他元素信息。',
-                    ].join('\n');
+                    ];
+                    const splitPrompt = splitPromptParts.join('\n');
 
                     const imageSources = images.map(img => img.base64);
                     const combinedForDesc = await combineImagesToGrid(imageSources);
@@ -4389,10 +4413,31 @@ ${dimensionCountRule}
             // Build user parts: text + optional images
             const userParts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
 
+            // === Save undo snapshot before any modifications ===
+            setUndoSnapshot({
+                instruction: baseInstruction,
+                library: libraryResult ? { headers: [...libraryResult.headers], rows: libraryResult.rows.map(r => [...r]) } : null
+            });
+
+            // === Smart detection: auto-switch to 'all' mode for structural operations ===
+            // When user selects specific dims but wants to delete/merge/add/rename dimensions,
+            // partial mode won't work — auto-switch to 'all' with a toast.
+            let forcedAll = false;
+            const isInstructionOnly = chatSelectedDims === 'instruction-only';
+            if (!isInstructionOnly && chatSelectedDims !== 'all' && (chatSelectedDims as Set<number>).size > 0 && msg) {
+                const structuralKeywords = /删除|删掉|去掉|移除|移除掉|合并|合成|融合|整合|归并|新增|添加|加一[列个]|增加.*维度|增加.*列|重命名|改名|rename|delete|remove|merge|combine/i;
+                if (structuralKeywords.test(msg)) {
+                    setChatSelectedDims('all');
+                    forcedAll = true;
+                    toast.info('🔄 检测到删除/合并/新增维度操作，已自动切换到「完整库+指令」模式');
+                }
+            }
+
             // === Build a fresh state snapshot in document format ===
             // This ensures the AI always sees the current state accurately,
             // regardless of what format its previous replies used.
-            const isPartialDims = chatSelectedDims !== 'all' && chatSelectedDims.size > 0 && libraryResult;
+            // Note: forcedAll overrides chatSelectedDims since setState is async
+            const isPartialDims = !forcedAll && !isInstructionOnly && typeof chatSelectedDims !== 'string' && chatSelectedDims.size > 0 && libraryResult;
             const selectedIndices = isPartialDims ? chatSelectedDims as Set<number> : null;
 
             // Format only selected dimensions for partial mode
@@ -4409,13 +4454,17 @@ ${dimensionCountRule}
                     .join('\n')
                 : formatLibraryAsFullText(libraryResult);
 
-            const dimScope = isPartialDims && selectedIndices
-                ? `\n⚠️ 本次只修改以下维度：${libraryResult!.headers.filter((_, i) => selectedIndices.has(i)).join('、')}。\n只输出这些维度的数据，不要输出其他维度。基础指令也不需要输出。\n\n===随机库数据===\n（只输出指定维度，输出修改后的完整值列表）\n【维度名】值1｜值2｜值3...`
-                : `\n\n===基础指令===\n（完整的最新版基础指令正文）\n\n===随机库数据===\n【维度名1】值1｜值2｜值3...\n【维度名2】值1｜值2｜值3...\n（继续...）`;
+            const dimScope = isInstructionOnly
+                ? `\n\n===基础指令===\n（完整的最新版基础指令正文）\n\n⚠️ 不要输出随机库数据，只输出修改后的完整基础指令。`
+                : isPartialDims && selectedIndices
+                    ? `\n⚠️ 本次只修改以下维度：${libraryResult!.headers.filter((_, i) => selectedIndices.has(i)).join('、')}。\n只输出这些维度的数据，不要输出其他维度。基础指令也不需要输出。\n\n===随机库数据===\n（只输出指定维度，输出修改后的完整值列表）\n【维度名】值1｜值2｜值3...`
+                    : `\n\n===基础指令===\n（完整的最新版基础指令正文）\n\n===随机库数据===\n【维度名1】值1｜值2｜值3...\n【维度名2】值1｜值2｜值3...\n（继续...）`;
 
-            const stateSnapshot = isPartialDims
-                ? `\n\n---\n以下是你需要修改的维度的当前数据：\n\n===随机库数据===\n${currentLibDoc}\n\n---\n⚠️ 输出格式要求（严格遵守，不要加 markdown 标题/加粗/表格）：${dimScope}\n\n⚠️ 值之间必须用全角竖线「｜」分隔，禁止用顿号「、」或逗号「，」分隔。\n根据用户要求修改后，输出该维度的完整值列表。`
-                : `\n\n---\n以下是当前完整配方的最新版快照（你必须在此基础上进行修改）：\n\n===基础指令===\n${baseInstruction || '（空）'}\n\n===随机库数据===\n${currentLibDoc}\n\n---\n⚠️ 输出格式要求（严格遵守，不要加 markdown 标题/加粗/表格）：${dimScope}\n\n⚠️ 值之间必须用全角竖线「｜」分隔，禁止用顿号「、」或逗号「，」分隔。\n【最小修改原则】只修改用户明确要求改动的部分，其余内容必须原封不动保留，禁止擅自重写、润色或重组未提及的段落。\n不要在 ===基础指令=== 或 ===随机库数据=== 标记前后加任何 markdown 标记（如 ### 或 **）。`;
+            const stateSnapshot = isInstructionOnly
+                ? `\n\n---\n以下是当前基础指令（你只需要修改这个，不要输出随机库）：\n\n===基础指令===\n${baseInstruction || '（空）'}\n\n---\n⚠️ 输出格式要求（严格遵守，不要加 markdown 标题/加粗/表格）：${dimScope}\n\n【最小修改原则】只修改用户明确要求改动的部分，其余内容必须原封不动保留。`
+                : isPartialDims
+                    ? `\n\n---\n以下是你需要修改的维度的当前数据：\n\n===随机库数据===\n${currentLibDoc}\n\n---\n⚠️ 输出格式要求（严格遵守，不要加 markdown 标题/加粗/表格）：${dimScope}\n\n⚠️ 值之间必须用全角竖线「｜」分隔，禁止用顿号「、」或逗号「，」分隔。\n根据用户要求修改后，输出该维度的完整值列表。`
+                    : `\n\n---\n以下是当前完整配方的最新版快照（你必须在此基础上进行修改）：\n\n===基础指令===\n${baseInstruction || '（空）'}\n\n===随机库数据===\n${currentLibDoc}\n\n---\n⚠️ 输出格式要求（严格遵守，不要加 markdown 标题/加粗/表格）：${dimScope}\n\n⚠️ 值之间必须用全角竖线「｜」分隔，禁止用顿号「、」或逗号「，」分隔。\n【最小修改原则】只修改用户明确要求改动的部分，其余内容必须原封不动保留，禁止擅自重写、润色或重组未提及的段落。\n不要在 ===基础指令=== 或 ===随机库数据=== 标记前后加任何 markdown 标记（如 ### 或 **）。`;
 
             // If images are attached, combine them into a grid and include
             let fullSentText = '';
@@ -4509,8 +4558,13 @@ ${dimensionCountRule}
                 parts: [{ text: normalizedModelReply }]
             });
 
-            if (!isPartialDims && instruction) setBaseInstruction(instruction);
-            if (library) setLibraryWithDiff(library);
+            if (isInstructionOnly) {
+                // Instruction-only mode: always update instruction, never touch library
+                if (instruction) setBaseInstruction(instruction);
+            } else {
+                if (!isPartialDims && instruction) setBaseInstruction(instruction);
+                if (library) setLibraryWithDiff(library);
+            }
             // Always save to history so chat records are preserved
             saveToHistory(instruction || baseInstruction, library || libraryResult);
 
@@ -5950,6 +6004,56 @@ ${historyText}
                                         </span>
                                         <span className="skill-gen-badge optional">推荐</span>
                                     </label>
+                                    <div style={{ marginBottom: '0.4rem' }}>
+                                        <button
+                                            type="button"
+                                            className="skill-gen-auto-describe-toggle"
+                                            style={{ cursor: 'pointer', fontSize: '0.75rem', gap: '0.3rem', padding: '0.15rem 0', border: 'none', background: 'none' }}
+                                            onClick={() => setShowCustomImagePrompt(!showCustomImagePrompt)}
+                                        >
+                                            <Edit2 size={12} />
+                                            <span style={{ color: customImagePrompt !== DEFAULT_IMAGE_DESCRIBE_PROMPT ? '#8b5cf6' : '#888' }}>
+                                                {customImagePrompt !== DEFAULT_IMAGE_DESCRIBE_PROMPT ? '✏️ 识图指令（已自定义）' : '✏️ 识图指令'}
+                                            </span>
+                                            {showCustomImagePrompt ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                        </button>
+                                        {showCustomImagePrompt && (
+                                            <>
+                                                {/* Preset quick-select buttons */}
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: '0.3rem', marginBottom: '0.3rem' }}>
+                                                    {IMAGE_PROMPT_PRESETS.map(preset => (
+                                                        <button
+                                                            key={preset.id}
+                                                            className="skill-gen-quick-btn"
+                                                            style={{
+                                                                fontSize: 10, padding: '2px 6px',
+                                                                background: customImagePrompt === preset.text ? 'rgba(139, 92, 246, 0.25)' : undefined,
+                                                                borderColor: customImagePrompt === preset.text ? 'rgba(139, 92, 246, 0.5)' : undefined,
+                                                            }}
+                                                            onClick={() => setCustomImagePrompt(preset.text)}
+                                                            title={preset.text.substring(0, 100) + '...'}
+                                                        >
+                                                            {preset.name}
+                                                        </button>
+                                                    ))}
+                                                    <button
+                                                        className="skill-gen-quick-btn"
+                                                        style={{ fontSize: 10, padding: '2px 6px' }}
+                                                        onClick={() => setCustomImagePrompt(DEFAULT_IMAGE_DESCRIBE_PROMPT)}
+                                                    >
+                                                        ↩ 恢复默认
+                                                    </button>
+                                                </div>
+                                                <textarea
+                                                    className="skill-gen-textarea"
+                                                    value={customImagePrompt}
+                                                    onChange={(e) => setCustomImagePrompt(e.target.value)}
+                                                    rows={6}
+                                                    style={{ fontSize: '0.75rem', lineHeight: '1.4' }}
+                                                />
+                                            </>
+                                        )}
+                                    </div>
                                     <div
                                         className="skill-gen-dropzone"
                                         onDrop={handleDrop}
@@ -6210,6 +6314,9 @@ ${historyText}
                                         <input type="checkbox" checked={true} disabled />
                                         <span>🔍 自动按元素拆分分析（高级模式始终开启）</span>
                                     </label>
+                                    <p className="skill-gen-hint" style={{ fontSize: '0.7rem', marginTop: 4 }}>
+                                        💡 每个元素的识图指令可在下方「库元素分类设定」中单独配置
+                                    </p>
                                     <div
                                         className="skill-gen-dropzone"
                                         onDrop={handleDrop}
@@ -6345,6 +6452,10 @@ ${historyText}
                             {showDimensions && (
                                 <div className="skill-gen-section-body">
                                     <p className="skill-gen-hint">指定画面元素分类，AI 会按这些分类拆分分析图片并生成库。可选择预设或自定义。</p>
+                                    <p className="skill-gen-hint" style={{ fontSize: '0.7rem', marginTop: 2 }}>
+                                        默认识图指令：<span style={{ color: '#8b5cf6' }}>「{DEFAULT_ELEMENT_PROMPT}」</span>
+                                        · 点击元素标签上的 ✏️ 可为每个元素单独自定义识图指令
+                                    </p>
 
                                     {/* 预设选择 */}
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -6365,11 +6476,31 @@ ${historyText}
                                         ))}
                                     </div>
 
-                                    {/* 当前元素标签 */}
+                                    {/* 当前元素标签 + 逐个指令编辑 */}
                                     <div className="skill-gen-dim-input-area" onClick={() => advancedElementInputRef.current?.focus()}>
                                         {advancedElements.map((el, i) => (
-                                            <span key={i} className="skill-gen-dim-tag">
-                                                {el}
+                                            <span
+                                                key={i}
+                                                className="skill-gen-dim-tag"
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    borderColor: expandedElementPrompt === el ? 'rgba(139, 92, 246, 0.6)' : undefined,
+                                                    background: expandedElementPrompt === el ? 'rgba(139, 92, 246, 0.15)' : undefined,
+                                                }}
+                                            >
+                                                <span onClick={(e) => { e.stopPropagation(); setExpandedElementPrompt(expandedElementPrompt === el ? null : el); }}>
+                                                    {el}
+                                                </span>
+                                                {advancedElementPrompts[el]?.trim() && (
+                                                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#8b5cf6', display: 'inline-block', marginLeft: 2 }} title="已自定义识图指令" />
+                                                )}
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setExpandedElementPrompt(expandedElementPrompt === el ? null : el); }}
+                                                    title="编辑该元素的识图指令"
+                                                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', opacity: 0.6 }}
+                                                >
+                                                    <Edit2 size={9} />
+                                                </button>
                                                 <button onClick={(e) => { e.stopPropagation(); setAdvancedElements(prev => prev.filter((_, j) => j !== i)); }}>
                                                     <X size={10} />
                                                 </button>
@@ -6406,10 +6537,48 @@ ${historyText}
                                             placeholder={advancedElements.length === 0 ? '输入元素分类名，按回车添加…' : '继续添加…'}
                                         />
                                     </div>
+
+                                    {/* 展开的元素指令编辑器 */}
+                                    {expandedElementPrompt && advancedElements.includes(expandedElementPrompt) && (
+                                        <div style={{ marginTop: 6, padding: '8px 10px', background: 'rgba(139, 92, 246, 0.05)', borderRadius: 8, border: '1px solid rgba(139, 92, 246, 0.15)' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#8b5cf6' }}>
+                                                    「{expandedElementPrompt}」的识图指令
+                                                </span>
+                                                {advancedElementPrompts[expandedElementPrompt]?.trim() && (
+                                                    <button
+                                                        className="skill-gen-quick-btn"
+                                                        style={{ fontSize: 10, padding: '1px 6px' }}
+                                                        onClick={() => setAdvancedElementPrompts(prev => {
+                                                            const next = { ...prev };
+                                                            delete next[expandedElementPrompt!];
+                                                            return next;
+                                                        })}
+                                                    >
+                                                        ↩ 恢复默认
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <textarea
+                                                className="skill-gen-textarea"
+                                                value={advancedElementPrompts[expandedElementPrompt] || ''}
+                                                onChange={(e) => setAdvancedElementPrompts(prev => ({ ...prev, [expandedElementPrompt!]: e.target.value }))}
+                                                placeholder={`默认指令：${DEFAULT_ELEMENT_PROMPT}\n\n可自定义，例如：\n• 重点描述颜色和材质\n• 用英文描述\n• 只关注轮廓和形状`}
+                                                rows={3}
+                                                style={{ fontSize: '0.75rem', lineHeight: '1.4' }}
+                                            />
+                                        </div>
+                                    )}
+
                                     {advancedElements.length > 0 && (
                                         <div className="skill-gen-dim-footer">
                                             共 {advancedElements.length} 个元素分类
-                                            <button onClick={() => { setAdvancedElements([]); setAdvancedElementInput(''); }}>全部清除</button>
+                                            {Object.keys(advancedElementPrompts).filter(k => advancedElements.includes(k) && advancedElementPrompts[k]?.trim()).length > 0 && (
+                                                <span style={{ color: '#8b5cf6', marginLeft: 8 }}>
+                                                    （{Object.keys(advancedElementPrompts).filter(k => advancedElements.includes(k) && advancedElementPrompts[k]?.trim()).length} 个已自定义指令）
+                                                </span>
+                                            )}
+                                            <button onClick={() => { setAdvancedElements([]); setAdvancedElementInput(''); setAdvancedElementPrompts({}); setExpandedElementPrompt(null); }}>全部清除</button>
                                         </div>
                                     )}
                                 </div>
@@ -6820,42 +6989,84 @@ ${historyText}
 
                                     {/* Dimension selector for targeted modifications */}
                                     {libraryResult && libraryResult.headers.length > 0 && (
-                                        <div className="skill-gen-dim-selector">
-                                            <span className="skill-gen-dim-selector-label">修改范围：</span>
-                                            <button
-                                                className={`skill-gen-dim-chip ${chatSelectedDims === 'all' ? 'active' : ''}`}
-                                                onClick={() => setChatSelectedDims('all')}
-                                            >
-                                                📦 完整库 + 指令
-                                            </button>
-                                            {libraryResult.headers.map((header, idx) => {
-                                                const isSelected = chatSelectedDims !== 'all' && chatSelectedDims.has(idx);
-                                                return (
-                                                    <button
-                                                        key={idx}
-                                                        className={`skill-gen-dim-chip ${isSelected ? 'active' : ''}`}
-                                                        onClick={() => {
-                                                            if (chatSelectedDims === 'all') {
-                                                                // Switch from 'all' to single selection
-                                                                setChatSelectedDims(new Set([idx]));
-                                                            } else {
-                                                                const next = new Set(chatSelectedDims);
-                                                                if (next.has(idx)) {
-                                                                    next.delete(idx);
-                                                                    if (next.size === 0) setChatSelectedDims('all');
-                                                                    else setChatSelectedDims(next);
+                                        <>
+                                            <div className="skill-gen-dim-selector">
+                                                <span className="skill-gen-dim-selector-label">修改范围：</span>
+                                                <button
+                                                    className={`skill-gen-dim-chip ${chatSelectedDims === 'all' ? 'active' : ''}`}
+                                                    onClick={() => setChatSelectedDims('all')}
+                                                >
+                                                    📦 完整库 + 指令
+                                                </button>
+                                                <button
+                                                    className={`skill-gen-dim-chip ${chatSelectedDims === 'instruction-only' ? 'active' : ''}`}
+                                                    onClick={() => setChatSelectedDims('instruction-only')}
+                                                >
+                                                    📝 只改指令
+                                                </button>
+                                                {libraryResult.headers.map((header, idx) => {
+                                                    const isSelected = typeof chatSelectedDims !== 'string' && chatSelectedDims.has(idx);
+                                                    return (
+                                                        <button
+                                                            key={idx}
+                                                            className={`skill-gen-dim-chip ${isSelected ? 'active' : ''}`}
+                                                            onClick={() => {
+                                                                if (typeof chatSelectedDims === 'string') {
+                                                                    // Switch from 'all' or 'instruction-only' to single selection
+                                                                    setChatSelectedDims(new Set([idx]));
                                                                 } else {
-                                                                    next.add(idx);
-                                                                    setChatSelectedDims(next);
+                                                                    const next = new Set(chatSelectedDims);
+                                                                    if (next.has(idx)) {
+                                                                        next.delete(idx);
+                                                                        if (next.size === 0) setChatSelectedDims('all');
+                                                                        else setChatSelectedDims(next);
+                                                                    } else {
+                                                                        next.add(idx);
+                                                                        setChatSelectedDims(next);
+                                                                    }
                                                                 }
+                                                            }}
+                                                        >
+                                                            {header}
+                                                        </button>
+                                                    );
+                                                })}
+                                                {undoSnapshot && (
+                                                    <button
+                                                        className="skill-gen-dim-chip"
+                                                        style={{ marginLeft: 'auto', color: '#e67e22', borderColor: '#e67e2255' }}
+                                                        onClick={() => {
+                                                            setBaseInstruction(undoSnapshot.instruction);
+                                                            if (undoSnapshot.library) setLibraryResult(undoSnapshot.library);
+                                                            setUndoSnapshot(null);
+                                                            // Also remove the last pair of messages from chat
+                                                            setChatHistory(prev => {
+                                                                const copy = [...prev];
+                                                                // Remove last model + last user message
+                                                                while (copy.length > 0 && copy[copy.length - 1].role === 'model') copy.pop();
+                                                                while (copy.length > 0 && copy[copy.length - 1].role === 'user') copy.pop();
+                                                                return copy;
+                                                            });
+                                                            // Also pop last two from conversation ref
+                                                            if (conversationRef.current.length >= 2) {
+                                                                conversationRef.current.splice(-2, 2);
                                                             }
+                                                            toast.success('↩ 已撤销上次对话修改');
                                                         }}
+                                                        title="撤销上一次对话对指令/随机库的修改"
                                                     >
-                                                        {header}
+                                                        <RotateCcw size={12} /> 撤销
                                                     </button>
-                                                );
-                                            })}
-                                        </div>
+                                                )}
+                                            </div>
+                                            {chatSelectedDims !== 'all' && (
+                                                <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '0.3rem', paddingLeft: '0.2rem' }}>
+                                                    {chatSelectedDims === 'instruction-only'
+                                                        ? '💡 只改指令模式：AI 只修改基础指令，不影响随机库'
+                                                        : '💡 选中维度 = 只改这些列的值。若需删除/合并/新增维度，会自动切为「完整库+指令」'}
+                                                </div>
+                                            )}
+                                        </>
                                     )}
 
                                     <div
@@ -9774,31 +9985,33 @@ ${historyText}
                 )
             }
             {/* 基础指令放大查看弹窗 */}
-            {showInstructionZoom && typeof document !== 'undefined' && createPortal(
-                <div className="skill-gen-tool-modal-overlay" onClick={() => setShowInstructionZoom(false)}>
-                    <div className="skill-gen-tool-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '860px', maxHeight: '88vh' }}>
-                        <div className="skill-gen-tool-modal-header">
-                            <div>
-                                <h3>📜 基础指令</h3>
-                                <p>双击打开放大编辑，点击遮罩或 × 关闭</p>
+            {
+                showInstructionZoom && typeof document !== 'undefined' && createPortal(
+                    <div className="skill-gen-tool-modal-overlay" onClick={() => setShowInstructionZoom(false)}>
+                        <div className="skill-gen-tool-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '860px', maxHeight: '88vh' }}>
+                            <div className="skill-gen-tool-modal-header">
+                                <div>
+                                    <h3>📜 基础指令</h3>
+                                    <p>双击打开放大编辑，点击遮罩或 × 关闭</p>
+                                </div>
+                                <button className="skill-gen-tool-modal-close" onClick={() => setShowInstructionZoom(false)}><X size={16} /></button>
                             </div>
-                            <button className="skill-gen-tool-modal-close" onClick={() => setShowInstructionZoom(false)}><X size={16} /></button>
+                            <div className="skill-gen-tool-modal-body" style={{ padding: 0, flex: 1 }}>
+                                <textarea
+                                    className="skill-gen-zoom-textarea"
+                                    value={baseInstruction}
+                                    onChange={(e) => {
+                                        setBaseInstruction(e.target.value);
+                                        if (manualRewritePreview) setManualRewritePreview(null);
+                                    }}
+                                    autoFocus
+                                />
+                            </div>
                         </div>
-                        <div className="skill-gen-tool-modal-body" style={{ padding: 0, flex: 1 }}>
-                            <textarea
-                                className="skill-gen-zoom-textarea"
-                                value={baseInstruction}
-                                onChange={(e) => {
-                                    setBaseInstruction(e.target.value);
-                                    if (manualRewritePreview) setManualRewritePreview(null);
-                                }}
-                                autoFocus
-                            />
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
+                    </div>,
+                    document.body
+                )
+            }
         </div >
     );
 };

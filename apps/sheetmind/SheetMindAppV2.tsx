@@ -8,7 +8,7 @@ import Dashboard, { GenericChart } from './components/Dashboard';
 import TransposePanel from './components/TransposePanel';
 import ColumnAlignPanel from './components/ColumnAlignPanel';
 import ImageFormulaPanel from './components/ImageFormulaPanel';
-import MediaGalleryPanel from './components/MediaGalleryPanel';
+import MediaGalleryPanel from './components/MediaGalleryPanelV2';
 import DataSourceManager, { addDataSource, loadDataSources, DataSource } from './components/DataSourceManager';
 import UnifiedSettingsPanel from './components/UnifiedSettingsPanel';
 import { SharedConfig, getDefaultSharedConfig } from './types/sharedConfig';
@@ -1293,7 +1293,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
             // Map pasted rows to use all columns
             const newRows = parsedData.rows.map(row => {
-                const newRow: Record<string, string | number | boolean> = {};
+                const newRow: Record<string, string | number | boolean | null> = {};
                 allColumns.forEach(col => {
                     // Use the value from pasted row if available, otherwise empty string
                     newRow[col] = row[col] !== undefined ? row[col] : '';
@@ -1527,358 +1527,402 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
     return (
         <div className="h-full w-full flex flex-col bg-slate-100 overflow-hidden sheetmind-app">
-            {/* Data Source Tabs Bar */}
-            {dataSourceTabs.length > 0 && (
-                <div className="bg-slate-700 px-4 flex items-center gap-1 shrink-0 overflow-x-auto" style={{ minHeight: '34px', scrollbarWidth: 'none' }}>
-                    <Database size={14} className="text-slate-400 shrink-0 mr-1" />
-                    {dataSourceTabs.map(dsTab => (
-                        <div
-                            key={dsTab.id}
-                            className={`group flex items-center gap-1 px-3 py-1 rounded-t-md text-xs font-medium cursor-pointer transition-all shrink-0 ${activeDataSourceTabId === dsTab.id
-                                ? 'bg-white text-slate-800 shadow-sm'
-                                : 'bg-slate-600 text-slate-300 hover:bg-slate-500 hover:text-white'
-                                }`}
-                        >
-                            {editingDsTabId === dsTab.id ? (
-                                <input
-                                    type="text"
-                                    defaultValue={dsTab.name}
-                                    autoFocus
-                                    className="text-xs font-medium w-24 px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-800 outline-none"
-                                    onBlur={(e) => {
-                                        if (editingDsTabId === dsTab.id) {
-                                            handleSaveDsTabName(dsTab.id, e.target.value);
-                                        }
-                                    }}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                            e.currentTarget.blur();
-                                        } else if (e.key === 'Escape') {
-                                            setEditingDsTabId(null);
-                                        }
-                                    }}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                            ) : (
-                                <button
-                                    onClick={() => switchDataSourceTab(dsTab.id)}
-                                    onDoubleClick={() => setEditingDsTabId(dsTab.id)}
-                                    className="max-w-[150px] truncate tooltip-bottom"
-                                    data-tip={dsTab.sourceUrl ? `${dsTab.name}\n${dsTab.sourceUrl}` : dsTab.name}
-                                >
-                                    {dsTab.name}
-                                </button>
-                            )}
-                            {dataSourceTabs.length > 1 && (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteDataSourceTab(dsTab.id);
-                                    }}
-                                    className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-300'
-                                        }`}
-                                >
-                                    <X size={10} />
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                    <button
-                        onClick={handleAddDataSourceTab}
-                        className="p-1 rounded hover:bg-slate-500 text-slate-400 hover:text-white transition-colors shrink-0 tooltip-bottom"
-                        data-tip="打开新数据源"
-                    >
-                        <Plus size={14} />
-                    </button>
-                    <button
-                        onClick={() => setShowDataSourceManager(true)}
-                        className="p-1 rounded hover:bg-slate-500 text-slate-400 hover:text-white transition-colors shrink-0 ml-1 tooltip-bottom"
-                        data-tip="数据源管理器"
-                    >
-                        <FolderOpen size={14} />
-                    </button>
-                </div>
-            )}
 
-            {/* Header */}
-            <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 shadow-sm z-50 relative">
-                <div className="flex items-center gap-3">
-                    <div className="bg-green-600 p-1.5 rounded-md shadow-sm">
-                        <Table className="text-white" size={20} />
+            {/* Unified Header */}
+            <header className="h-[42px] bg-white border-b border-slate-200 flex items-center shrink-0 shadow-sm z-50 relative overflow-visible pl-2">
+
+                {/* 1. App Logo (Always Visible) */}
+                <div className="flex items-center shrink-0 mr-2 border-r border-slate-200 pr-2 py-1">
+                    <div className="bg-green-600 p-0.5 rounded shadow-sm mr-1.5 flex items-center justify-center">
+                        <Table className="text-white" size={14} />
                     </div>
-                    <h1 className="font-bold text-lg text-slate-800 tracking-tight hidden sm:block">SheetMind <span className="font-normal text-slate-400">| 数据分析</span></h1>
+                    <h1 className="font-bold text-sm text-slate-700 tracking-tight hidden sm:block">SheetMind</h1>
                 </div>
 
-                {workbook && (
-                    <div className="flex items-center gap-2 md:gap-4 flex-1 justify-center md:justify-end">
-
-                        {/* View Switcher */}
-                        <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-                            <button
-                                onClick={() => setView('grid')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'grid' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <Table size={14} /> <span className="hidden sm:inline">网格</span>
-                            </button>
-                            <button
-                                onClick={() => setView('dashboard')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'dashboard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <BarChart4 size={14} /> <span className="hidden sm:inline">仪表盘</span>
-                            </button>
-                            <button
-                                onClick={() => setView('transpose')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'transpose' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <ArrowRightLeft size={14} /> <span className="hidden sm:inline">转置</span>
-                            </button>
-                            <button
-                                onClick={() => setView('gallery')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'gallery' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <Image size={14} /> <span className="hidden sm:inline">画廊</span>
-                            </button>
-                            <button
-                                onClick={() => setView('align')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'align' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <MoveVertical size={14} /> <span className="hidden sm:inline">对齐</span>
-                            </button>
-                            <button
-                                onClick={() => setView('image-formula')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'image-formula' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <Image size={14} /> <span className="hidden sm:inline">图片公式</span>
-                            </button>
-                        </div>
-
-                        {/* Unified Settings Button with Dropdown */}
-                        <div className="relative">
-                            <button
-                                onClick={() => setShowUnifiedSettings(!showUnifiedSettings)}
-                                className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors shadow-sm ${showUnifiedSettings
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white hover:from-indigo-600 hover:to-purple-600'
-                                    }`}
-                                data-tooltip="统一配置"
-                            >
-                                <Settings size={14} />
-                                <span className="hidden sm:inline">配置</span>
-                                <ChevronDown size={12} className={`transition-transform ${showUnifiedSettings ? 'rotate-180' : ''}`} />
-                            </button>
-
-                            {/* Dropdown Panel */}
-                            <UnifiedSettingsPanel
-                                isOpen={showUnifiedSettings}
-                                onClose={() => setShowUnifiedSettings(false)}
-                                config={activeConfig}
-                                onConfigChange={updateActiveConfig}
-                                data={(transposedDataForSettings || { columns: [], rows: [] }) as SheetData}
-                                transposedData={activeConfig.transposeData ? (transposedDataForSettings as SheetData | undefined) : undefined}
-                                mode={view === 'transpose' ? 'transpose' : view === 'gallery' ? 'gallery' : 'both'}
-                                dedupColumn={dedupColumn}
-                                onDedupColumnChange={setDedupColumn}
-                                dedupMode={dedupMode}
-                                onDedupModeChange={setDedupMode}
-                                duplicateStats={duplicateStats}
-                            />
-                        </div>
-
-                        <div className="h-6 w-px bg-slate-200 mx-2 hidden md:block"></div>
-
-                        {/* Sheet Selector with Multi-Sheet Support */}
-                        <div className="relative" onClick={(e) => e.stopPropagation()}>
-                            <button
-                                onClick={() => setSheetSelectorOpen(!sheetSelectorOpen)}
-                                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${isMultiSheetMode
-                                    ? 'bg-purple-50 border-purple-200 text-purple-700'
-                                    : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-white'
+                {/* 2. Data Source Tabs */}
+                {dataSourceTabs.length > 0 && (
+                    <div className="flex items-center gap-1 shrink-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] mr-2 max-w-[25%] border-r border-slate-200 pr-2">
+                        {dataSourceTabs.map(dsTab => (
+                            <div
+                                key={dsTab.id}
+                                className={`group relative flex items-center gap-1 px-3 py-1.5 min-w-[120px] max-w-[200px]  text-xs font-medium cursor-pointer transition-all shrink-0 border border-transparent ${activeDataSourceTabId === dsTab.id
+                                    ? 'bg-white text-slate-800 shadow-[0_-2px_4px_rgba(0,0,0,0.05)] border-slate-300 border-b-white z-10 '
+                                    : 'bg-transparent text-slate-500 hover:bg-slate-300 hover:text-slate-800'
                                     }`}
                             >
-                                {isParsingData && (
-                                    <Loader2 size={12} className="animate-spin text-blue-500" />
-                                )}
-                                {isMultiSheetMode ? (
-                                    <>
-                                        <Layers size={14} className="text-purple-500" />
-                                        <span className="max-w-[120px] truncate">合并 {selectedSheets.size} 个分页</span>
-                                    </>
+                                {editingDsTabId === dsTab.id ? (
+                                    <input
+                                        type="text"
+                                        defaultValue={dsTab.name}
+                                        autoFocus
+                                        className="text-xs font-medium w-full px-1 rounded border border-blue-400 bg-white text-slate-800 outline-none"
+                                        onBlur={(e) => {
+                                            if (editingDsTabId === dsTab.id) {
+                                                handleSaveDsTabName(dsTab.id, e.target.value);
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                e.currentTarget.blur();
+                                            } else if (e.key === 'Escape') {
+                                                setEditingDsTabId(null);
+                                            }
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
                                 ) : (
-                                    <>
-                                        <span className="max-w-[120px] truncate">{currentSheetName}</span>
-                                    </>
+                                    <button
+                                        onClick={() => switchDataSourceTab(dsTab.id)}
+                                        onDoubleClick={() => setEditingDsTabId(dsTab.id)}
+                                        className="flex-1 text-left truncate tooltip-bottom"
+                                        data-tip={dsTab.sourceUrl ? `${dsTab.name}\n${dsTab.sourceUrl}` : dsTab.name}
+                                    >
+                                        {dsTab.name}
+                                    </button>
                                 )}
-                                <ChevronDown size={14} className={`transition-transform ${sheetSelectorOpen ? 'rotate-180' : ''}`} />
+                                {dataSourceTabs.length > 1 && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteDataSourceTab(dsTab.id);
+                                        }}
+                                        className={`p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-400'
+                                            }`}
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                        <button
+                            onClick={handleAddDataSourceTab}
+                            className="p-1.5 ml-1  rounded-full hover:bg-slate-300 text-slate-500 hover:text-slate-700 transition-colors shrink-0 tooltip-bottom"
+                            data-tip="打开新数据源"
+                        >
+                            <Plus size={14} />
+                        </button>
+                        <button
+                            onClick={() => setShowDataSourceManager(true)}
+                            className="p-1.5 rounded-md hover:bg-slate-300 text-slate-500 hover:text-slate-700 transition-colors shrink-0 tooltip-bottom ml-1 "
+                            data-tip="数据源管理器"
+                        >
+                            <FolderOpen size={14} />
+                        </button>
+                        {data && (
+                            <button
+                                onClick={() => setShowAppendModal(true)}
+                                className="p-1.5 ml-1 text-slate-500 hover:text-purple-600 hover:bg-purple-100 rounded-md transition-colors flex items-center gap-1 text-xs tooltip-bottom shrink-0 border border-purple-200 bg-purple-50"
+                                data-tip="追加粘贴结构相同的数据"
+                            >
+                                <Plus size={14} />
+                                <span className="font-medium whitespace-nowrap">追加数据</span>
                             </button>
+                        )}
+                        {/* Add some space or flex-1 to push the rest */}
+                    </div>
+                )}
 
-                            {/* Sheet Selection Dropdown */}
-                            {sheetSelectorOpen && workbook && (
-                                <div
-                                    className="absolute top-full left-0 mt-1 w-64 bg-white rounded-lg shadow-xl border border-slate-200 z-50 max-h-80 overflow-hidden"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    {/* Merge Mode Toggle */}
-                                    <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
-                                        <label className="flex items-center justify-between cursor-pointer">
-                                            <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                                                <Layers size={12} />
-                                                合并多分页显示
-                                            </span>
-                                            <button
-                                                onClick={() => {
-                                                    setIsMultiSheetMode(!isMultiSheetMode);
-                                                    if (!isMultiSheetMode) {
-                                                        // Entering merge mode - select current sheet
-                                                        setSelectedSheets(new Set([currentSheetName]));
-                                                    }
-                                                }}
-                                                className={`relative w-9 h-5 rounded-full transition-colors ${isMultiSheetMode ? 'bg-purple-600' : 'bg-slate-300'}`}
-                                            >
-                                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${isMultiSheetMode ? 'left-4' : 'left-0.5'}`} />
-                                            </button>
-                                        </label>
-                                    </div>
+                {/* 3. Workbook Controls (Refresh, Reset, Address bar, Settings, Append) */}
+                {workbook ? (
 
-                                    {/* Sheet List */}
-                                    <div className="max-h-48 overflow-y-auto">
-                                        {workbook.SheetNames.map((name: string) => (
-                                            <button
-                                                key={name}
-                                                onClick={() => {
-                                                    if (isMultiSheetMode) {
-                                                        // Toggle selection
-                                                        const newSet = new Set(selectedSheets);
-                                                        if (newSet.has(name)) {
-                                                            newSet.delete(name);
-                                                        } else {
-                                                            newSet.add(name);
-                                                        }
-                                                        setSelectedSheets(newSet);
-                                                    } else {
-                                                        // Single select mode
-                                                        setCurrentSheetName(name);
-                                                        setSheetSelectorOpen(false);
-                                                    }
-                                                }}
-                                                className={`w-full px-3 py-2 text-left text-xs text-slate-700 flex items-center gap-2 hover:bg-slate-100 transition-colors ${isMultiSheetMode
-                                                    ? selectedSheets.has(name) ? 'bg-purple-50 text-purple-700' : ''
-                                                    : currentSheetName === name ? 'bg-blue-50 text-blue-700' : ''
-                                                    }`}
-                                            >
-                                                {isMultiSheetMode ? (
-                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${selectedSheets.has(name)
-                                                        ? 'bg-purple-500 border-purple-500 text-white'
-                                                        : 'border-slate-300'
-                                                        }`}>
-                                                        {selectedSheets.has(name) && <Check size={10} />}
-                                                    </div>
-                                                ) : (
-                                                    currentSheetName === name && <Check size={12} className="text-blue-500" />
-                                                )}
-                                                <span className="truncate flex-1">{name}</span>
-                                            </button>
-                                        ))}
-                                    </div>
+                    <div className="flex items-center gap-2 flex-1 max-w-full">
 
-                                    {/* Actions */}
-                                    {isMultiSheetMode && (
-                                        <div className="px-3 py-2 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
-                                            <span className="text-[10px] text-slate-400">
-                                                已选 {selectedSheets.size}/{workbook.SheetNames.length}
-                                            </span>
-                                            <div className="flex gap-1">
-                                                <button
-                                                    onClick={() => setSelectedSheets(new Set(workbook.SheetNames))}
-                                                    className="text-[10px] text-purple-600 hover:text-purple-700 px-1.5 py-0.5 rounded hover:bg-purple-100"
-                                                >
-                                                    全选
-                                                </button>
-                                                <button
-                                                    onClick={() => setSelectedSheets(new Set())}
-                                                    className="text-[10px] text-slate-500 hover:text-slate-700 px-1.5 py-0.5 rounded hover:bg-slate-100"
-                                                >
-                                                    清空
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                        {/* File Actions */}
-                        <div className="flex items-center gap-1">
-                            {/* Electron 本地缓存指示器 */}
-                            {isElectron() && (
-                                <span className="hidden lg:inline text-[11px] text-green-700 bg-green-50 px-2 py-1 rounded border border-green-200 flex items-center gap-1">
-                                    <HardDrive size={12} />
-                                    桌面版
-                                </span>
-                            )}
-                            {sourceUrl && lastRefreshedAt && (
-                                <span className="hidden lg:inline text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded border border-amber-200">
-                                    数据快照 {new Date(lastRefreshedAt).toLocaleString('zh-CN', {
-                                        month: 'numeric',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                    })}
-                                </span>
-                            )}
+                        {/* 刷新/导航按钮 */}
+                        <div className="flex items-center gap-0.5 pl-1 shrink-0">
                             {sourceUrl && (
                                 <button
                                     onClick={handleRefresh}
                                     disabled={isRefreshing}
-                                    className={`p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors flex items-center gap-1 text-xs ${isRefreshing ? 'animate-spin' : ''}`}
+                                    className={`p-1.5 text-slate-600 hover:bg-slate-100 rounded-full transition-colors tooltip-bottom ${isRefreshing ? 'animate-spin' : ''}`}
+                                    data-tip="刷新"
                                 >
                                     <RotateCw size={16} />
-                                    <span className="hidden sm:inline">刷新</span>
                                 </button>
                             )}
-                            <button
-                                onClick={() => setShowDataSourceManager(true)}
-                                className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors flex items-center gap-1 text-xs"
-                                data-tooltip="数据源管理"
-                            >
-                                <Database size={16} />
-                                <span className="hidden sm:inline">数据源</span>
-                            </button>
                             <button
                                 onClick={handleReset}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors flex items-center gap-1 text-xs"
+                                className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors tooltip-bottom"
+                                data-tip="关闭工作簿"
                             >
                                 <X size={16} />
-                                <span className="hidden sm:inline">关闭</span>
                             </button>
-                            {/* Append Data Button - only show when data is loaded */}
-                            {data && (
-                                <button
-                                    onClick={() => setShowAppendModal(true)}
-                                    className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-md transition-colors flex items-center gap-1 text-xs tooltip-bottom"
-                                    data-tip="追加粘贴数据到当前表格"
-                                >
-                                    <Plus size={16} />
-                                    <span className="hidden sm:inline">追加</span>
-                                </button>
-                            )}
                         </div>
 
-                        <div className="h-6 w-px bg-slate-200 mx-2 hidden md:block"></div>
+                        {/* Address Bar Equivalent (Sheet Selector & View Switcher) */}
+                        <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 focus-within:bg-white focus-within:shadow-[0_0_0_1px_#cbd5e1] rounded-full px-1.5 py-1 min-w-[300px] flex-1 max-w-4xl mx-2 transition-all border border-transparent">
 
-                        {/* Sidebar Toggle */}
-                        <button
-                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className={`p-1.5 rounded-md transition-colors flex items-center gap-2 ${isSidebarOpen ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
-                            data-tooltip={isSidebarOpen ? '关闭侧边栏' : '打开 AI 助手与报告'}
-                        >
-                            {isSidebarOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
-                            {!isSidebarOpen && snapshots.length > 0 && (
-                                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white absolute -top-1 -right-1 pointer-events-none">
-                                    {snapshots.length}
+                            {/* Sheet Selector (Domain part) */}
+                            <div className="relative border-r border-slate-300 pr-2 py-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                    onClick={() => setSheetSelectorOpen(!sheetSelectorOpen)}
+                                    className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-full transition-colors tooltip-bottom ${isMultiSheetMode
+                                        ? 'text-purple-700 bg-purple-100/50 hover:bg-purple-100'
+                                        : 'text-slate-700 hover:bg-slate-200'
+                                        }`}
+                                    data-tip="切换工作表"
+                                >
+                                    {isParsingData && (
+                                        <Loader2 size={12} className="animate-spin text-blue-500" />
+                                    )}
+                                    {isMultiSheetMode ? (
+                                        <>
+                                            <Layers size={14} className="text-purple-600" />
+                                            <span className="max-w-[100px] truncate">合并 {selectedSheets.size} 个</span>
+                                        </>
+
+                                    ) : (
+
+                                        <>
+                                            <span className="max-w-[150px] truncate">{currentSheetName}</span>
+                                        </>
+                                    )}
+                                </button>
+                                {/* Sheet Selection Dropdown */}
+                                {sheetSelectorOpen && (
+                                    <div
+                                        className="absolute top-10 left-0 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+                                            <label className="flex items-center justify-between cursor-pointer">
+                                                <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                                                    <Layers size={14} />
+                                                    合并多分页显示
+                                                </span>
+                                                <button
+                                                    onClick={() => {
+                                                        setIsMultiSheetMode(!isMultiSheetMode);
+                                                        if (!isMultiSheetMode) {
+                                                            setSelectedSheets(new Set([currentSheetName]));
+                                                        }
+                                                    }}
+                                                    className={`relative w-8 h-4 rounded-full transition-colors ${isMultiSheetMode ? 'bg-purple-600' : 'bg-slate-300'}`}
+                                                >
+                                                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${isMultiSheetMode ? 'left-4.5' : 'left-0.5'}`} />
+                                                </button>
+                                            </label>
+                                        </div>
+                                        <div className="max-h-48 overflow-y-auto py-1">
+                                            {workbook.SheetNames.map((name: string) => (
+                                                <button
+                                                    key={name}
+                                                    onClick={() => {
+                                                        if (isMultiSheetMode) {
+                                                            const newSet = new Set(selectedSheets);
+                                                            if (newSet.has(name)) newSet.delete(name); else newSet.add(name);
+                                                            setSelectedSheets(newSet);
+                                                        } else {
+                                                            setCurrentSheetName(name);
+                                                            setSheetSelectorOpen(false);
+                                                        }
+                                                    }}
+                                                    className={`w-full px-3 py-1.5 text-left text-xs flex items-center gap-2 hover:bg-slate-100 transition-colors ${isMultiSheetMode
+                                                        ? selectedSheets.has(name) ? 'bg-purple-50 text-purple-700' : 'text-slate-700'
+                                                        : currentSheetName === name ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+                                                        }`}
+                                                >
+                                                    {isMultiSheetMode ? (
+                                                        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${selectedSheets.has(name)
+                                                            ? 'bg-purple-500 border-purple-500 text-white'
+                                                            : 'border-slate-300'
+                                                            }`}>
+                                                            {selectedSheets.has(name) && <Check size={10} />}
+                                                        </div>
+                                                    ) : (
+                                                        currentSheetName === name && <Check size={12} className="text-blue-500" />
+                                                    )}
+                                                    <span className="truncate flex-1">{name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* View Switcher (Path part) */}
+                            <div className="flex items-center gap-0.5 px-2 py-0.5 flex-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                                <button
+                                    onClick={() => setView('grid')}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'grid' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip="网格视图"
+                                >
+                                    <Table size={14} /> <span className="hidden sm:inline">网格</span>
+                                </button>
+                                <button
+                                    onClick={() => setView('dashboard')}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'dashboard' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip="仪表盘"
+                                >
+                                    <BarChart4 size={14} /> <span className="hidden sm:inline">仪表盘</span>
+                                </button>
+                                <button
+                                    onClick={() => setView('transpose')}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'transpose' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip="转置视图"
+                                >
+                                    <ArrowRightLeft size={14} /> <span className="hidden sm:inline">转置</span>
+                                </button>
+                                <button
+                                    onClick={() => setView('gallery')}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'gallery' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip="媒体画廊"
+                                >
+                                    <Image size={14} /> <span className="hidden sm:inline">画廊</span>
+                                </button>
+                                <button
+                                    onClick={() => setView('align')}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'align' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip="对齐视图"
+                                >
+                                    <MoveVertical size={14} /> <span className="hidden md:inline">对齐</span>
+                                </button>
+                                <button
+                                    onClick={() => setView('image-formula')}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'image-formula' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip="图片公式生成器"
+                                >
+                                    <Image size={14} /> <span className="hidden md:inline">图片公式</span>
+                                </button>
+
+                                {/* Inner Gallery Tabs inline with view switcher */}
+                                {view === 'gallery' && (
+                                    <>
+                                        <div className="w-px h-4 bg-slate-300 mx-1 shrink-0"></div>
+                                        {galleryTabs.map(tab => (
+                                            <div
+                                                key={tab.id}
+                                                className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full border transition-all shrink-0 ${activeGalleryTabId === tab.id
+                                                    ? 'bg-blue-100 text-blue-700 border-blue-200'
+                                                    : 'bg-transparent text-slate-600 border-transparent hover:bg-slate-200/50'
+                                                    }`}
+                                            >
+                                                {editingTabId === tab.id ? (
+                                                    <input
+                                                        type="text"
+                                                        defaultValue={tab.name}
+                                                        autoFocus
+                                                        className="text-[11px] font-medium w-16 px-1 py-0 rounded border border-blue-300 bg-white text-slate-800 outline-none"
+                                                        onBlur={(e) => {
+                                                            if (editingTabId === tab.id) {
+                                                                handleSaveTabName(tab.id, e.target.value);
+                                                            }
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.currentTarget.blur();
+                                                            } else if (e.key === 'Escape') {
+                                                                setEditingTabId(null);
+                                                            }
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                ) : (
+                                                    <button
+                                                        onClick={() => switchGalleryTab(tab.id)}
+                                                        onDoubleClick={() => handleRenameGalleryTab(tab.id)}
+                                                        className="text-[11px] font-medium whitespace-nowrap tooltip-bottom"
+                                                        data-tip="双击重命名"
+                                                    >
+                                                        {tab.name}
+                                                    </button>
+                                                )}
+                                                {galleryTabs.length > 1 && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteGalleryTab(tab.id);
+                                                        }}
+                                                        className={`p-0.5 rounded-full ${activeGalleryTabId === tab.id ? 'hover:bg-blue-200 text-blue-500' : 'hover:bg-slate-300 text-slate-400'} tooltip-bottom`}
+                                                        data-tip="关闭标签页"
+                                                    >
+                                                        <X size={10} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                        <div className="flex items-center gap-0.5 shrink-0">
+                                            <button
+                                                onClick={handleDuplicateGalleryTab}
+                                                disabled={!activeGalleryTab}
+                                                className="p-1 text-slate-500 hover:bg-slate-200/50 rounded-full disabled:opacity-50 tooltip-bottom"
+                                                data-tip="复制配置"
+                                            >
+                                                <Copy size={12} />
+                                            </button>
+                                            <button
+                                                onClick={handleAddGalleryTab}
+                                                className="p-1 text-blue-600 hover:bg-blue-100 rounded-full tooltip-bottom"
+                                                data-tip="新建配置"
+                                            >
+                                                <Plus size={12} />
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Extension Icons (Right Side Actions) */}
+                        <div className="flex items-center gap-1 shrink-0 ml-auto pr-1">
+                            {/* Desktop mode indicator */}
+                            {isElectron() && (
+                                <span className="hidden lg:flex items-center gap-1 mr-1 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-200">
+                                    <HardDrive size={10} />
+                                    桌面
                                 </span>
                             )}
-                        </button>
 
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowUnifiedSettings(!showUnifiedSettings)}
+                                    className={`p-1.5 rounded-full transition-colors flex items-center tooltip-bottom ${showUnifiedSettings
+                                        ? 'bg-indigo-100 text-indigo-700 shadow-inner'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                    data-tip="全局配置"
+                                >
+                                    <Settings size={18} />
+                                </button>
+
+                                {/* Dropdown Panel */}
+                                <UnifiedSettingsPanel
+                                    isOpen={showUnifiedSettings}
+                                    onClose={() => setShowUnifiedSettings(false)}
+                                    config={activeConfig}
+                                    onConfigChange={updateActiveConfig}
+                                    data={(transposedDataForSettings || { columns: [], rows: [] }) as SheetData}
+                                    transposedData={activeConfig.transposeData ? (transposedDataForSettings as SheetData | undefined) : undefined}
+                                    mode={view === 'transpose' ? 'transpose' : view === 'gallery' ? 'gallery' : 'both'}
+                                    dedupColumn={dedupColumn}
+                                    onDedupColumnChange={setDedupColumn}
+                                    dedupMode={dedupMode}
+                                    onDedupModeChange={setDedupMode}
+                                    duplicateStats={duplicateStats}
+                                />
+                            </div>
+
+                            <button
+                                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                                className={`p-1.5 rounded-full transition-colors flex items-center relative tooltip-bottom ${isSidebarOpen ? 'bg-blue-100 text-blue-700 shadow-inner' : 'text-slate-600 hover:bg-slate-100'}`}
+                                data-tip={isSidebarOpen ? '关闭侧边助手' : '打开 AI 助手与报告'}
+                            >
+                                {isSidebarOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+                                {!isSidebarOpen && snapshots.length > 0 && (
+                                    <span className="flex h-3 w-3 items-center justify-center rounded-full bg-red-500 text-[8px] text-white absolute top-0 right-0 pointer-events-none ring-1 ring-white">
+                                        {snapshots.length}
+                                    </span>
+                                )}
+                            </button>
+                        </div>
                     </div>
+                ) : (
+                    <div className="flex items-center gap-3">
+                        <div className="bg-green-600 p-1.5 rounded-md shadow-sm">
+                            <Table className="text-white" size={20} />
+                        </div>
+                        <h1 className="font-bold text-lg text-slate-800 tracking-tight hidden sm:block">SheetMind <span className="font-normal text-slate-400">| 数据分析</span></h1>
+                    </div>
+
                 )}
             </header>
 
@@ -1964,82 +2008,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                             </div>
                         </div>
                     ) : (
-                        <div className="flex-1 p-4 lg:p-6 overflow-hidden flex flex-col min-w-0 relative">
-                            {/* Gallery tabs header */}
-                            <>
-                                <div className="flex items-center gap-2 mb-3">
-                                    <div className="flex items-center gap-1 overflow-x-auto pr-2">
-                                        {galleryTabs.map(tab => (
-                                            <div
-                                                key={tab.id}
-                                                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border transition-all ${activeGalleryTabId === tab.id
-                                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                                    : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                                                    }`}
-                                            >
-                                                {editingTabId === tab.id ? (
-                                                    <input
-                                                        type="text"
-                                                        defaultValue={tab.name}
-                                                        autoFocus
-                                                        className="text-xs font-medium w-20 px-1 py-0.5 rounded border border-indigo-300 bg-white text-slate-800 outline-none"
-                                                        onBlur={(e) => {
-                                                            // 只在还处于编辑状态时保存（避免 Enter 后的重复触发）
-                                                            if (editingTabId === tab.id) {
-                                                                handleSaveTabName(tab.id, e.target.value);
-                                                            }
-                                                        }}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') {
-                                                                e.currentTarget.blur(); // 触发 blur 来统一处理保存
-                                                            } else if (e.key === 'Escape') {
-                                                                setEditingTabId(null);
-                                                            }
-                                                        }}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                ) : (
-                                                    <button
-                                                        onClick={() => switchGalleryTab(tab.id)}
-                                                        onDoubleClick={() => handleRenameGalleryTab(tab.id)}
-                                                        className="text-xs font-medium whitespace-nowrap tooltip-bottom"
-                                                        data-tip="双击重命名"
-                                                    >
-                                                        {tab.name}
-                                                    </button>
-                                                )}
-                                                {galleryTabs.length > 1 && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDeleteGalleryTab(tab.id);
-                                                        }}
-                                                        className={`p-0.5 rounded ${activeGalleryTabId === tab.id ? 'hover:bg-white/20' : 'hover:bg-slate-100'} tooltip-bottom`}
-                                                        data-tip="关闭标签页"
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                    <div className="ml-auto flex items-center gap-1">
-                                        <button
-                                            onClick={handleDuplicateGalleryTab}
-                                            disabled={!activeGalleryTab}
-                                            className="px-2 py-1 text-xs text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50"
-                                        >
-                                            复制当前配置页
-                                        </button>
-                                        <button
-                                            onClick={handleAddGalleryTab}
-                                            className="px-2 py-1 text-xs text-white bg-indigo-600 rounded hover:bg-indigo-700"
-                                        >
-                                            新建配置页
-                                        </button>
-                                    </div>
-                                </div>
-                            </>
+                        <div className={`flex-1 overflow-hidden flex flex-col min-w-0 relative ${view === 'gallery' ? 'p-0' : 'p-4 lg:p-6'}`}>
                             {view === 'grid' && <DataGrid data={filteredData!} />}
                             {view === 'dashboard' && <Dashboard data={filteredData!} onAddSnapshot={handleAddSnapshot} />}
                             {view === 'transpose' && <TransposePanel data={(transposedDataForSettings!) as SheetData} sharedConfig={deferredSharedConfig} />}
