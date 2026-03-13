@@ -469,13 +469,15 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     }, [ensureCurrentDataSourceTab]);
 
     // Switch data source tab
-    const switchDataSourceTab = useCallback(async (tabId: string) => {
+    const switchDataSourceTab = useCallback(async (tabId: string, options?: { skipSave?: boolean }) => {
         if (tabId === activeDataSourceTabId) return;
         if (switchingDsRef.current) return;
         switchingDsRef.current = true;
 
         // Save current state
-        saveCurrentDsState();
+        if (!options?.skipSave) {
+            saveCurrentDsState();
+        }
 
         const targetTab = dataSourceTabs.find(t => t.id === tabId);
         if (!targetTab) {
@@ -546,7 +548,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         if (dataSourceTabs.length <= 1) return;
         const tab = dataSourceTabs.find(t => t.id === tabId);
         if (!tab) return;
-        if (!confirm(`关闭数据源 "${tab.name}"？`)) return;
 
         const nextTabs = dataSourceTabs.filter(t => t.id !== tabId);
         setDataSourceTabs(nextTabs);
@@ -555,7 +556,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             // Switch to another tab
             const nextTab = nextTabs[0];
             if (nextTab) {
-                switchDataSourceTab(nextTab.id);
+                void switchDataSourceTab(nextTab.id, { skipSave: true });
             }
         }
     }, [dataSourceTabs, activeDataSourceTabId, switchDataSourceTab]);
@@ -1527,9 +1528,12 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
     return (
         <div className="h-full w-full flex flex-col bg-slate-100 overflow-hidden sheetmind-app">
+            <div className="shrink-0 z-50 relative bg-white shadow-sm">
+                <div className="custom-scrollbar overflow-x-auto">
+                    <div className="w-full min-w-full">
             {/* Data Source Tabs Bar */}
             {dataSourceTabs.length > 0 && (
-                <div className="bg-slate-700 px-4 flex items-center gap-1 shrink-0 overflow-x-auto" style={{ minHeight: '34px', scrollbarWidth: 'none' }}>
+                <div className="bg-slate-700 px-4 flex w-full min-w-full items-center gap-1" style={{ minHeight: '34px' }}>
                     <Database size={14} className="text-slate-400 shrink-0 mr-1" />
                     {dataSourceTabs.map(dsTab => (
                         <div
@@ -1575,7 +1579,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                         e.stopPropagation();
                                         handleDeleteDataSourceTab(dsTab.id);
                                     }}
-                                    className={`p-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-300'
+                                    className={`p-0.5 rounded opacity-70 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-300'
                                         }`}
                                 >
                                     <X size={10} />
@@ -1601,7 +1605,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             )}
 
             {/* Header */}
-            <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 shrink-0 shadow-sm z-50 relative">
+            <div className="h-14 w-full min-w-full bg-white border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 relative">
                 <div className="flex items-center gap-3">
                     <div className="bg-green-600 p-1.5 rounded-md shadow-sm">
                         <Table className="text-white" size={20} />
@@ -1610,7 +1614,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 </div>
 
                 {workbook && (
-                    <div className="flex items-center gap-2 md:gap-4 flex-1 justify-center md:justify-end">
+                    <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-max justify-center md:justify-end">
 
                         {/* View Switcher */}
                         <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
@@ -1880,7 +1884,10 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
                     </div>
                 )}
-            </header>
+            </div>
+                    </div>
+                </div>
+            </div>
 
             {/* Main Content Area */}
             <div className="flex-1 flex overflow-hidden relative">

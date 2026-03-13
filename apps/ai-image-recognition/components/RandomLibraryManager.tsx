@@ -1474,7 +1474,7 @@ ${targetCountry}
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 classic-mode-scroll-skin">
             {/* 头部：总开关和导入导出 */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -4301,7 +4301,7 @@ ${aiCategoryOutputFormat === 1 ? `
 
             {/* Opal 画布文件解析弹窗 */}
             {showOpalImportModal && (
-                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => !opalParsing && !opalParseResult && setShowOpalImportModal(false)}>
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => { if (!opalParsing) { setShowOpalImportModal(false); setOpalParseResult(null); setOpalSelectedLibs(new Set()); } }}>
                     <div className="bg-zinc-900 rounded-2xl border border-zinc-700 w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
                         {/* 标题栏 */}
                         <div className="flex items-center justify-between p-4 border-b border-zinc-700">
@@ -4310,7 +4310,7 @@ ${aiCategoryOutputFormat === 1 ? `
                                 <h3 className="font-medium text-white">导入画布工作流</h3>
                                 <span className="text-xs text-zinc-500">AI 智能解析 Opal / AI Studio 配置文件</span>
                             </div>
-                            <button onClick={() => !opalParsing && setShowOpalImportModal(false)} className="p-1 text-zinc-400 hover:text-white">
+                            <button onClick={() => { if (!opalParsing) { setShowOpalImportModal(false); setOpalParseResult(null); setOpalSelectedLibs(new Set()); } }} className="p-1 text-zinc-400 hover:text-white">
                                 <X size={18} />
                             </button>
                         </div>

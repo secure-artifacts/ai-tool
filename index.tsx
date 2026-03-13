@@ -22,6 +22,7 @@ import { MindMapApp } from '@/apps/ai-mind-map';
 import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
 import SkillGeneratorApp from '@/apps/skill-generator/SkillGeneratorApp';
 import ImageSorterApp from '@/apps/image-sorter/ImageSorterApp';
+import RegionClassifierApp from '@/apps/region-classifier/RegionClassifierApp';
 import ImageTextExtractorApp from '@/apps/image-text-extractor/ImageTextExtractorApp';
 import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
 import GeminiChatApp from '@/apps/gemini-chat/GeminiChatApp';
@@ -183,6 +184,7 @@ const translations = {
     navApiImageGen: "API Image Gen",
     navSkillGenerator: "Template & Library Generator",
     navImageSorter: "Image Sorter",
+    navRegionClassifier: "Region Classifier",
     navImageTextExtractor: "Image Text Extractor",
     navTutorialHub: "Tutorial Hub",
     navGeminiChat: "Gemini Chat",
@@ -440,6 +442,7 @@ const translations = {
     navApiImageGen: "API 生图",
     navSkillGenerator: "模版指令+随机库生成器",
     navImageSorter: "图片智能分拣",
+    navRegionClassifier: "地区分类",
     navImageTextExtractor: "图片前景文字提取",
     navTutorialHub: "教程检索台",
     navGeminiChat: "Gemini 对话",
@@ -744,10 +747,30 @@ const ThemeContext = createContext({
 
 const INTERNAL_ADMIN_SHEET_ID = '1InDrlrypvb_5xwtNCmqYIUuWL5cm7YNbBaCvJuEY9D0';
 
+// 🚫 API 池轮换全局禁用标志 —— 防止旧版付费级 AIza Key 被误添加
+const API_POOL_FORCE_DISABLED = true;
+
+// 🔄 强制刷新版本号 —— 更新此值会让所有旧页面自动刷新
+const FORCE_RELOAD_VERSION = '2026-03-12-v1';
+(() => {
+  const lastVersion = localStorage.getItem('app_force_reload_version');
+  if (lastVersion !== FORCE_RELOAD_VERSION) {
+    localStorage.setItem('app_force_reload_version', FORCE_RELOAD_VERSION);
+    // 清除旧的 API 池设置
+    localStorage.removeItem('use_api_pool');
+    localStorage.removeItem('use_shared_api_pool');
+    if (lastVersion) {
+      // 只有之前有旧版本的用户才刷新，首次访问不刷新
+      window.location.reload();
+    }
+  }
+})();
+
 const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [manualApiKey, _setManualApiKey] = useState(() => localStorage.getItem('user_api_key') || '');
-  const [usePool, setUsePool] = useState(() => localStorage.getItem('use_api_pool') === 'true');
-  const [useSharedPool, setUseSharedPool] = useState(() => localStorage.getItem('use_shared_api_pool') === 'true');
+  // 🚫 API 池强制禁用
+  const [usePool, setUsePool] = useState(false);
+  const [useSharedPool, setUseSharedPool] = useState(false);
   const [poolConfig, _setPoolConfig] = useState<{ sheetId: string; sheetName?: string; userName: string } | null>(() => {
     const stored = localStorage.getItem('api_pool_config');
     return stored ? JSON.parse(stored) : null;
@@ -891,23 +914,30 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   const getCurrentApiKey = (): string => {
-    if (usePool && apiPool?.hasKeys()) {
-      try {
-        return apiPool.getCurrentKey();
-      } catch (error) {
-        console.error('[ApiProvider] 从API池获取密钥失败:', error);
-        // 降级到手动密钥
-      }
-    }
+    // 🚫 API 池轮换功能已暂停：防止旧版付费级 AIza Key 被误添加到轮换池中
+    // if (usePool && apiPool?.hasKeys()) {
+    //   try {
+    //     return apiPool.getCurrentKey();
+    //   } catch (error) {
+    //     console.error('[ApiProvider] 从API池获取密钥失败:', error);
+    //   }
+    // }
     return manualApiKey || process.env.API_KEY || '';
   };
 
   const getAiInstance = () => {
-    const keyToUse = getCurrentApiKey();
+    // 清理 API Key：去除空白和非 ASCII 字符（防止 Headers 报错）
+    const rawKey = getCurrentApiKey();
+    const keyToUse = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
     if (!keyToUse) {
       throw new Error('API key is not set.');
     }
-    return new GoogleGenAI({ apiKey: keyToUse });
+    // 🚫 拦截旧版 AIza 开头的 Gemini API Key（会导致银行卡扣费）
+    if (keyToUse.startsWith('AIza')) {
+      throw new Error('⚠️ 您当前使用的是旧版 AI Studio API Key（AIza 开头），该 Key 可能导致银行卡直接扣费。\n\n请联系本国技术员注册最新的 Vertex AI API Key 后再使用。');
+    }
+    // Vertex AI Key → 走 Vertex AI 端点
+    return new GoogleGenAI({ apiKey: keyToUse, vertexai: true });
   };
 
   // 自动轮换包装函数 - 当API调用失败时自动切换密钥
@@ -1084,21 +1114,20 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const isKeySet = !!getCurrentApiKey();
 
-  // 监听usePool变化，保存到localStorage
-  useEffect(() => {
-    localStorage.setItem('use_api_pool', usePool ? 'true' : 'false');
-  }, [usePool]);
+  // 🚫 API 池已全局禁用 —— 以下 useEffect 已停用
+  // useEffect(() => {
+  //   localStorage.setItem('use_api_pool', usePool ? 'true' : 'false');
+  // }, [usePool]);
 
-  useEffect(() => {
-    localStorage.setItem('use_shared_api_pool', useSharedPool ? 'true' : 'false');
-  }, [useSharedPool]);
+  // useEffect(() => {
+  //   localStorage.setItem('use_shared_api_pool', useSharedPool ? 'true' : 'false');
+  // }, [useSharedPool]);
 
-  // 初始化时加载API池（Firebase 优先，不需要 poolConfig）
-  useEffect(() => {
-    if (usePool && !apiPool) {
-      refreshApiPool();
-    }
-  }, [usePool]);
+  // useEffect(() => {
+  //   if (usePool && !apiPool) {
+  //     refreshApiPool();
+  //   }
+  // }, [usePool]);
 
   const apiPoolStatus = apiPool ? apiPool.getStatus() : null;
 
@@ -1106,7 +1135,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <ApiContext.Provider value={{
       apiKey: getCurrentApiKey(),
       setApiKey: setManualApiKey,
-      getAiInstance: getAiInstanceWithAutoRotate, // 使用自动轮换版本
+      getAiInstance: getAiInstanceWithAutoRotate,
       isKeySet,
       usePool,
       setUsePool,
@@ -1173,7 +1202,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -2774,7 +2803,7 @@ const DescInnovationTool: React.FC<{
             // console.log(`🤖 [Desc Tool] Using AI model: ${textModel}`);
             const response = await ai.models.generateContent({
               model: textModel,
-              contents: { parts: [{ text: `${promptTemplate}\n\n原始描述词：${entry.source.trim()}` }] },
+              contents: { role: 'user', parts: [{ text: `${promptTemplate}\n\n原始描述词：${entry.source.trim()}` }] },
             });
             const rawText = (response.text || '').trim();
             if (!rawText) {
@@ -4967,7 +4996,7 @@ const ImageStudioTool: React.FC<{
       const ai = getAiInstance();
       const response = await ai.models.generateContent({
         model: imageModel,
-        contents: { parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
+        contents: { role: 'user', parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
         config: { responseModalities: [Modality.IMAGE], imageSize: imageResolution } as any,
       });
 
@@ -5067,7 +5096,7 @@ const ImageStudioTool: React.FC<{
       // console.log(`🎨 [Image Studio] Using AI model: ${imageModel}, resolution: ${imageResolution}`);
       const response = await ai.models.generateContent({
         model: imageModel,
-        contents: { parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
+        contents: { role: 'user', parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
         config: { responseModalities: [Modality.IMAGE], imageSize: imageResolution } as any,
       });
 
@@ -5761,7 +5790,7 @@ const ImageStudioTool: React.FC<{
 const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
   const { apiKey, setApiKey, usePool, setUsePool, useSharedPool, setUseSharedPool, poolConfig, setPoolConfig, refreshApiPool, rotateApiKey, apiPoolStatus, poolError } = useApi();
-  const { user } = useAuth(); // 获取 Firebase 用户
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'manual' | 'pool'>(usePool ? 'pool' : 'manual');
   const [localKey, setLocalKey] = useState(apiKey);
 
@@ -7047,6 +7076,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   apiImageGen: 'auto_awesome',
   skillGenerator: 'psychology',
   imageSorter: 'category',
+  regionClassifier: 'public',
   imageTextExtractor: 'text_fields',
   tutorialHub: 'school',
   geminiChat: 'chat',
@@ -7074,10 +7104,11 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
   { tool: 'geminiChat', labelKey: 'navGeminiChat' },
   { tool: 'imageSorter', labelKey: 'navImageSorter' },
+  { tool: 'regionClassifier', labelKey: 'navRegionClassifier' },
 ];
 
-// 2025年12月 Gemini API 规范模型选项
 const TEXT_MODEL_OPTIONS = [
+  { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (最新)' },
   { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview' },
   { value: 'gemini-3-pro-preview', label: 'gemini-3-pro-preview' },
 ];
@@ -7268,6 +7299,12 @@ const App = () => {
   const [isTutorialSurveyDone, setIsTutorialSurveyDone] = useState(() => isTutorialSurveyCompleted(TUTORIAL_SURVEY_KEY));
   const [showUpdateNotice, setShowUpdateNotice] = useState(false);
   const [showHelpCenter, setShowHelpCenter] = useState(false);
+  const [showApiKeyBillingWarning, setShowApiKeyBillingWarning] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('api_key_billing_warning_dismissed_v1') !== 'true';
+    }
+    return false;
+  });
   const [proDedupSubTab, setProDedupSubTab] = useState<'dedup' | 'copySearch'>('dedup');
   const [hideToolbar, setHideToolbar] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -7416,9 +7453,9 @@ const App = () => {
   // 模型迁移映射 - 旧模型 -> 新模型
   const migrateModel = (model: string, isImage: boolean): string => {
     const TEXT_MIGRATION: Record<string, string> = {
-      'gemini-2.5-flash': 'gemini-3-flash-preview',
-      'gemini-pro': 'gemini-3-flash-preview',
-      'gemini-1.5-flash': 'gemini-3-flash-preview',
+      'gemini-2.5-flash': 'gemini-3.1-flash-lite-preview',
+      'gemini-pro': 'gemini-3.1-flash-lite-preview',
+      'gemini-1.5-flash': 'gemini-3.1-flash-lite-preview',
       'gemini-1.5-pro': 'gemini-3-pro-preview',
     };
     const IMAGE_MIGRATION: Record<string, string> = {
@@ -7429,17 +7466,17 @@ const App = () => {
   };
 
   const [textModel, setTextModel] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'gemini-3-flash-preview';
+    if (typeof window === 'undefined') return 'gemini-3.1-flash-lite-preview';
     try {
       const saved = localStorage.getItem('app_text_model');
-      if (!saved) return 'gemini-3-flash-preview';
+      if (!saved) return 'gemini-3.1-flash-lite-preview';
       const migrated = migrateModel(saved, false);
       if (migrated !== saved) {
         localStorage.setItem('app_text_model', migrated);
       }
       return migrated;
     } catch {
-      return 'gemini-3-flash-preview';
+      return 'gemini-3.1-flash-lite-preview';
     }
   });
 
@@ -8285,6 +8322,7 @@ const App = () => {
             theme={theme}
             toggleTheme={toggleTheme}
             textModel={textModel}
+            imageModel={imageModel}
             state={smartTranslateState}
             setState={setSmartTranslateState}
           />
@@ -8608,6 +8646,105 @@ const App = () => {
           onClose={() => setShowUpdateNotice(false)}
           language={language}
         />
+      )}
+
+      {/* API Key 计费警告 */}
+      {showApiKeyBillingWarning && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99999,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+          overflowY: 'auto', padding: '24px 0',
+        }}>
+          <div style={{
+            width: '520px', maxWidth: '92vw',
+            maxHeight: 'calc(100vh - 48px)',
+            overflowY: 'auto',
+            background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+            border: '1px solid rgba(255,180,0,0.4)',
+            borderRadius: '16px',
+            padding: '32px',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(255,180,0,0.1)',
+            color: '#fff',
+            margin: 'auto 0',
+          }}>
+            {/* 警告图标 */}
+            <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+              <span style={{ fontSize: '48px' }}>⚠️</span>
+            </div>
+            {/* 标题 */}
+            <h2 style={{
+              textAlign: 'center', margin: '0 0 20px 0',
+              fontSize: '20px', fontWeight: 700,
+              color: '#ffb400',
+              letterSpacing: '0.5px',
+            }}>
+              重要通知：API Key 计费变更
+            </h2>
+            {/* 正文 */}
+            <div style={{
+              background: 'rgba(255,180,0,0.08)',
+              border: '1px solid rgba(255,180,0,0.2)',
+              borderRadius: '10px',
+              padding: '18px',
+              lineHeight: 1.8,
+              fontSize: '14px',
+              color: '#e0e0e0',
+            }}>
+              <p style={{ margin: '0 0 12px 0' }}>
+                由于 <strong style={{ color: '#ff6b6b' }}>谷歌使用条款的变更</strong>，通过 AI Studio 注册的 $300 试用额度 API Key，
+                <strong style={{ color: '#ff6b6b' }}>可能导致直接从银行卡扣款</strong>。
+              </p>
+              <p style={{ margin: '0 0 12px 0' }}>
+                为保障大家的资金安全，请尽快按照最新方式注册使用 
+                <strong style={{ color: '#4ecdc4' }}> Vertex AI 限定的 API Key</strong>，
+                该 Key 严格限定在免费额度范围内，不会产生额外扣费。
+              </p>
+              <p style={{ margin: '0 0 14px 0', padding: '10px 14px', background: 'rgba(255,80,80,0.12)', border: '1px solid rgba(255,80,80,0.3)', borderRadius: '8px', color: '#ff8a8a', fontWeight: 600 }}>
+                🚫 请注册使用最新的 Vertex AI API Key 后再使用本工具包。旧版 Key 已被禁止在网站版和软件版中使用。
+              </p>
+              <p style={{ margin: '0 0 12px 0', padding: '8px 14px', background: 'rgba(255,180,0,0.08)', border: '1px solid rgba(255,180,0,0.25)', borderRadius: '8px', color: '#e8b84d', fontSize: '13px' }}>
+                ⏸️ 为避免误将旧版付费级 API Key 添加到轮换池中，<strong>API 池轮换功能已暂停使用</strong>。
+              </p>
+              <p style={{ margin: '0 0 12px 0', color: '#aaa' }}>
+                📞 如需协助，请联系<strong style={{ color: '#fff' }}>本国技术员</strong>进行注册或修改。
+              </p>
+              <div style={{ margin: '0', color: '#888', fontSize: '13px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '10px', lineHeight: 1.7 }}>
+                <p style={{ margin: '0 0 6px 0' }}>
+                  💡 备注：如果您使用的是 <strong style={{ color: '#aaa' }}>AI Studio 版本</strong>（非网站和软件版本），则无需提供 Key，可正常使用。每天有免费限额，限额用完后更换邮箱打开即可继续使用。
+                </p>
+                <p style={{ margin: '0' }}>
+                  🔗 AI Studio 版本地址：<a href="https://aistudio.google.com/apps/drive/1-sEKjY-VGi-kyKe_UXbUXEhbNRknxRBf?fullscreenApplet=true&showPreview=true&showAssistant=true" target="_blank" rel="noopener noreferrer" style={{ color: '#4ecdc4', textDecoration: 'underline' }}>点击打开 AI Studio 版本</a>
+                </p>
+              </div>
+            </div>
+            {/* 按钮 */}
+            <div style={{ textAlign: 'center', marginTop: '24px' }}>
+              <button
+                onClick={() => {
+                  setShowApiKeyBillingWarning(false);
+                  localStorage.setItem('api_key_billing_warning_dismissed_v1', 'true');
+                }}
+                style={{
+                  padding: '10px 40px',
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  color: '#1a1a2e',
+                  background: 'linear-gradient(135deg, #ffb400, #ff8c00)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 4px 15px rgba(255,180,0,0.3)',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(255,180,0,0.5)'; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(255,180,0,0.3)'; }}
+              >
+                我已知晓
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Header 切换按钮 - 可隐藏 */}
@@ -9498,17 +9635,18 @@ const App = () => {
           <div className={`sheetmind-page-wrapper ${activeTool === 'sheetMind' ? 'visible' : 'hidden'}`} style={{ position: 'relative', padding: 0, overflow: 'hidden', height: activeTool === 'sheetMind' ? '100%' : '0' }}>
             {/* Toggle UI button */}
             {activeTool === 'sheetMind' && (
-              <div style={{ position: 'absolute', top: 12, right: 100, zIndex: 9999 }}>
+              <div style={{ position: 'absolute', right: 14, bottom: 14, zIndex: 9999 }}>
                 <button
                   onClick={() => {
                     const nextVal = !useSheetMindV2;
                     setUseSheetMindV2(nextVal);
                     localStorage.setItem('use_sheetmind_v2', String(nextVal));
                   }}
-                  className="px-2 py-1 text-[10px] bg-slate-800 text-white rounded opacity-50 hover:opacity-100 transition-opacity"
+                  className="group flex items-center gap-2 pl-2.5 pr-3 py-2 rounded-full border border-slate-300/70 bg-white/95 backdrop-blur text-slate-700 shadow-md hover:shadow-lg hover:border-slate-400 transition-all"
                   title="切换新旧版本UI"
                 >
-                  {useSheetMindV2 ? '切换回老版UI' : '切换到紧凑新版'}
+                  <span className={`inline-block w-2 h-2 rounded-full ${useSheetMindV2 ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                  <span className="text-[11px] font-medium whitespace-nowrap">{useSheetMindV2 ? '切回老版 UI' : '切到新版 UI'}</span>
                 </button>
               </div>
             )}
@@ -9582,7 +9720,7 @@ const App = () => {
             <ApiImageGenApp />
           </div>
           {/* 模版指令+随机库生成器 */}
-          <div className={`skill-gen-wrapper ${activeTool === 'skillGenerator' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'skillGenerator' ? '100%' : '0' }}>
+          <div className={`skill-gen-wrapper ${activeTool === 'skillGenerator' ? 'visible' : 'hidden'}`} style={{ overflowY: 'auto', overflowX: 'hidden', height: activeTool === 'skillGenerator' ? '100%' : '0' }}>
             <SkillGeneratorApp getAiInstance={getAiInstance} />
           </div>
           {/* 图片前景文字提取器 */}
@@ -9596,6 +9734,10 @@ const App = () => {
           {/* 图片智能分拣 */}
           <div className={`image-sorter-wrapper ${activeTool === 'imageSorter' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'imageSorter' ? '100%' : '0', display: activeTool === 'imageSorter' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
             <ImageSorterApp getAiInstance={getAiInstance} />
+          </div>
+          {/* 地区分类工具 */}
+          <div className={`region-classifier-wrapper ${activeTool === 'regionClassifier' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'regionClassifier' ? '100%' : '0', display: activeTool === 'regionClassifier' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
+            <RegionClassifierApp getAiInstance={getAiInstance} />
           </div>
           {/* Gemini Chat - 完整多轮对话 */}
           <div className={`gemini-chat-wrapper ${activeTool === 'geminiChat' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'geminiChat' ? '100%' : '0', display: activeTool === 'geminiChat' ? 'flex' : 'none' }}>

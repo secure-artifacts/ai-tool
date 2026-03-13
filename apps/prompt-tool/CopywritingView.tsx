@@ -45,7 +45,8 @@ import {
     Lightbulb,
     Scissors,
     Columns,
-    Library
+    Library,
+    Share2
 } from 'lucide-react';
 import { PresetManager, CopywritingPreset as PresetType } from './PresetManager';
 import {
@@ -127,6 +128,7 @@ interface CopywritingPreset {
 interface CopywritingViewProps {
     getAiInstance: () => GoogleGenAI;
     textModel: string;
+    promptTabId?: string;
 }
 
 // --- 辅助函数：为表格单元格格式化文本 ---
@@ -180,6 +182,7 @@ function highlightDiff(original: string, modified: string): React.ReactNode {
 const STORAGE_KEY = 'copywriting_view_state_v1';
 const PRESETS_DOC_PATH = 'copywriting_presets';
 const DEFAULT_INSTRUCTION = '我需要你给我每个文案的标题添加一个时间或者修改过期时间，可以修改为2026年一月';
+const DEFAULT_LIBRARY_INSTRUCTION = '根据文案内容选择合适的互动语，并替换/添加到文案末尾';
 const DEFAULT_SYSTEM_INSTRUCTION = `你是一个专业的文案编辑和翻译专家。
 
 【核心原则】
@@ -324,7 +327,41 @@ const VOICE_MODE_DEFAULT_INSTRUCTION = `根据这个文案帮我加一些情感�
 2. 断句结果 - 根据标签合理断行，用于字幕显示（不带标签）`;
 
 // === 分类模式 ===
-type CopywritingMode = 'standard' | 'voice' | 'classify' | 'split' | 'library';
+type CopywritingMode = 'standard' | 'voice' | 'classify' | 'split' | 'library' | 'social-media';
+
+type CopywritingModeDraft = {
+    instruction: string;
+    instructions: string[];
+    splitColumns?: SplitColumn[];
+    libraryInstruction?: string;
+};
+
+type CopywritingModeDrafts = Record<CopywritingMode, CopywritingModeDraft>;
+
+type CopywritingViewSnapshot = {
+    items: CopywritingItem[];
+    bulkInput: string;
+    instruction: string;
+    instructions: string[];
+    selectedPresetId: string | null;
+    systemInstruction: string;
+    allCollapsed: boolean;
+    mode: CopywritingMode;
+    voiceModeSystemInstruction: string;
+    classifyModeSystemInstruction: string;
+    splitModeSystemInstruction: string;
+    socialMediaModeSystemInstruction?: string;
+    socialMediaOutputSections?: SocialMediaOutputSection[];
+    socialMediaResultCount?: number;
+    splitColumns: SplitColumn[];
+    keywordFreqMap: Record<string, number>;
+    keywordStatsColumnId: string | null;
+    keywordStatsTotalItems: number;
+    showDiff: boolean;
+    batchSize: number;
+    libraryInstruction: string;
+    modeDrafts: CopywritingModeDrafts;
+};
 
 // === 文案库模式 ===
 interface LibraryItem {
@@ -604,6 +641,39 @@ const SPLIT_COLUMN_PRESETS: { id: string; name: string; columns: SplitColumn[] }
             { id: 'summary', name: '一句话总结', description: '用一句话概括文案的核心内容和表达意图' },
         ]
     },
+    {
+        id: 'title_classify_0308',
+        name: '🏷️ 标题分类0308',
+        columns: [
+            {
+                id: 'title_category', name: '标题分类', description: `请你根据标题进行对标题分类，每个标题一个类别，返回的结果只要单独的分类就行，不要其他多余的内容。请使用下面的分类：
+
+奇迹发生
+立即生效//一切就会生效//立即起作用//立即看到结果
+上帝希望你XX
+奉耶稣的名
+上帝知道你需要
+魔鬼希望你跳过
+孩子祝福
+孩子攻击
+孩子-咒语打破
+敌人无法接近孩子//敌人无法伤害孩子
+消除孩子咒诅
+保护孩子未来
+黑暗消失
+地狱颤抖
+魔鬼退后/魔鬼害怕//撒旦最害怕/魔鬼退缩
+打破邪恶咒诅//打破咒诅
+邪恶逃离
+取消撒旦计划
+对抗邪恶
+天堂移动
+天使行动
+圣灵保护家
+宣告
+咒诅离开你的家` },
+        ]
+    },
 ];
 
 const CLASSIFY_MODE_SYSTEM_INSTRUCTION = `你是一个专业的文案分类专家。
@@ -625,6 +695,161 @@ const CLASSIFY_MODE_DEFAULT_INSTRUCTION = `请按以下类别分类：
 - 其他
 
 只输出类别名称，不需要其他内容。`;
+
+// === 自媒体改写模式 ===
+const SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION = `你是一名专门为"基督信仰类短视频账号"服务的文案改写助手。
+
+你的任务不是照搬原稿、简单润色或摘要，而是：
+- 提炼牧师讲道或原始文案的核心真理
+- 彻底重写为适合短视频平台传播的原创口播文案
+- 保留主题、立场、属灵方向不变
+- 在表达上更口语化、更有情绪牵引力、更适合欧美基督徒受众
+- 避免版权风险，不能出现雷同式翻版
+
+服务平台：抖音、Instagram Reels、YouTube Shorts、TikTok
+内容场景：基督教福音类口播、祷告文案、经文劝勉、警醒提醒、见证类转述、教义分辨类短视频
+
+一、硬性命令——版权规避（最高优先级）
+绝对不能做"换几个词"的翻版。
+禁止：保留原稿大部分句式、保留推进逻辑不变、保留核心比喻不变、保留节奏和转折方式不变、让人一听就知道是某个牧师原讲稿的"改词版"。
+必须：只保留"真理核心"→ 重建结构 → 重写句式 → 重写比喻 → 重写情绪推进方式 → 重写结尾收束方式 → 用新的表达讲同一个真理。
+原则：保留思想，不保留原表达。
+
+二、声音与表达风格
+文案必须像一个真实的人在镜头前说话，而不是牧师在讲台上讲道。
+声音画像：一个 45 岁女性——成熟、稳重、温和、有力量，像经历过一些事情之后的提醒，像姐妹之间、朋友之间、过来人的提醒。可以有警告，但不能靠吓人驱动。语气自然，有生活感，有真实感。
+禁止：官方化、套话化、宗教文件腔、"我们我们"的集体说教口吻、说教式高位压人、年轻网感过重、太像短视频博主喊话、过度夸张表演。
+
+三、文案总风格要求
+关键词：真诚、稳重、温暖、清醒、有属灵重量、生活化、口语化、不空泛、不油腻、不表演化、不中国式鸡汤、不高高在上。
+输出感觉——像：一个有属灵经历的中年基督徒女性，在镜头前平静但有力量地说，不是在演讲而是在提醒，不是喊口号而是在点醒人。
+
+四、文化语境——欧美基督徒
+所有内容同时输出英文和中文两个版本，叙事逻辑和生活例子要贴合欧美受众（尤其欧美白人基督徒）。
+优先痛点：婚姻冷淡/离婚/出轨后创伤、单身很久找不到合适的人、社交孤独/朋友疏远、被误解/被背叛/被议论、升职失败/被裁员/职业倦怠、房贷学贷经济压力、焦虑抑郁自我怀疑、年龄焦虑/外貌焦虑/成就焦虑、孩子叛逆/家庭关系疏远、人在人群里却很孤单、看起来一切都好里面却很空、在教会外活得像另一个人。
+不推荐：太中国化的人情社会表达、过于贫困叙事、不符合欧美生活经验的家庭语言、"未雨绸缪""控制欲"等中文化词汇、过于第三世界式"生存危机"表达。
+
+五、圣经真理准确
+经文必须准确，不能误用，不能写出不符合圣经神学逻辑的话。
+引经要自然嵌入，不要突兀堆砌。可用："耶稣说……""圣经在……里提醒我们……""正如……所说……"
+
+六、开头钩子规则
+所有文案都要有强钩子开头，前 3 秒必须抓住人。
+8 类钩子：
+1. 后果式：你如果继续这样下去，迟早会…… / 你以为这没什么，但它正在毁掉…… / 如果你忽略这一点，代价会很大
+2. 否定句：别再…… / 千万不要…… / 不要以为…… / 不是……而是……
+3. 反差式：你以为……其实…… / 看起来……其实…… / 很多人以为……但圣经不是这样说的
+4. 扎心式：你真正的问题不是…… / 你以为你是在…… / 其实你不是太忙，你是……
+5. 提问式：你有没有发现…… / 你有没有想过…… / 为什么这么多人…… / 如果今天耶稣回来，你准备好了吗？
+6. 精准点名：如果你最近…… / 如果你正在经历…… / 如果你正处在…… / 这是给那个……
+7. 悬念式：有一句经文，魔鬼最怕你记住 / 有一种基督徒状态，非常危险 / 有件事，很多人从来没想明白
+8. 反问式：如果你真的属于神，你还怕什么？ / 你嘴上说信主，可生活像谁？ / 如果这都不算警告，那什么才算？
+
+七、标题写作规则
+默认给 40 个标题。其中 3-5 个标题要模仿原始牧师文案标题的技巧和主题意思。
+标题必须结合多种钩子技巧，不要同质化。
+标题基本要求：有冲击力、有情绪、有悬念、有辨识度、避免太长、尽量适合封面、优先短句、不要全是同一套路。
+23 类标题技巧：提问式、惊人事实式、直击痛点式、挑战常规式、幽默反差式、故事式、画面描述式、揭秘式、情感共鸣式、对比式、悬念式、反问式、指令式、名人/热点借势式、紧迫感式、好奇心驱动式、个性化点名式、情景模拟式、反转式、情绪驱动式、破第四面墙式、恐惧/警告式、利他收益。
+标题示例方向：为什么…… / 别再…… / 你以为……其实…… / 圣经警告…… / 有一种…… / 如果你还在…… / 这不是…… / 留意，这很危险 / 真正的问题不是…… / 神最在意的不是……
+
+八、内容改写规则
+- 改写不是摘要。不是把原文缩短，而是：提炼核心 → 重新组织 → 重写表达 → 更适合口播。
+- 保留主题，不保留原结构。可以先从结果/痛点/经文/生活画面讲起。
+- 如果原文有比喻，必须优先换比喻。不能原文用"父母回家抓到偷吃饼干"你只是改成"爸妈发现你"。要换成完全不同但更贴切的欧美生活画面：办公室里老板突然进来、航班登机口关闭前、婚姻里的冷淡、教练检查训练状态、房屋地基、手机没电、GPS 重新规划路线。
+- 多用生活化表达：真实生活感、能被画面想象出来的句子、短句、适合字幕显示。
+
+九、结尾规则
+不是每条都要祷告结尾，根据主题决定：
+适合祷告结尾：代祷类、祝福类、医治类、保护类、家庭类祷告、为孩子/丈夫/父母的祷告。
+适合警示/反问/互动结尾：罪与悔改、真假信仰、圣经警告、属灵冷淡、末世提醒、圣洁生活、假冒为善、自我检视。
+结尾应具备：收束力度、属灵重量、若主题需要可加入警告后果、自然引导互动。
+常用结尾方式：
+- 反问：所以问题是…… / 今天你愿不愿意…… / 如果主今天来，你准备好了吗？
+- 警告：嘴上的信仰救不了你 / 继续这样下去，结局不会轻 / 圣经不是在建议，而是在警告
+- 行动呼召：今天就回转 / 不要等明天 / 趁今天还有机会
+- 互动：如果你愿意，请写下"阿们" / 如果这句话提醒了你，留一句…… / 把这段话发给那个需要的人
+
+十、自动模板选择
+根据内容类型自动选择：
+模板 A——劝勉/警醒类：强钩子开头 → 指出问题根源 → 经文支持 → 解释危险 → 提醒后果 → 给出出路 → 结尾互动
+模板 B——真假信仰类：强反差开头 → 指出常见误解 → 圣经纠正 → 举生活里的真实状态 → 扎心提醒 → 结尾警告+回转呼召
+模板 C——安慰鼓励类：钩子开头（不是偶然、你需要听见） → 点出对方处境 → 经文安慰 → 生活类比 → 把"等待/延迟/痛苦"重写为"预备/保护/塑造" → 平稳有力结尾
+模板 D——祷告类：钩子开头 → 一句衔接语"如果你愿意，就跟我一起祷告" → 祷告正文 → 温柔互动结尾（留言阿们/分享给谁/收藏每天祷告）
+
+十一、绝对禁忌
+永远不要：做雷同翻版、用年轻网红喊话腔、用"我们我们"集体说教腔、把中文式宗教套话直接堆上去、过度制造恐惧、经文用错、写得像 sermon transcript、所有视频都强行祷告结尾、所有标题都一个套路。
+永远不要在输出中加入：镜头指示（如"镜头平视""缓缓转身"）、表演提示（如"眼神坚定""轻声说"）、括号备注、导演批注、任何非文案本身的标注。输出必须是干净的、直接可以用来录音的纯文案文字。
+永远要：保持原创重写、口播感、欧美化、圣经准确、情绪真实、语言自然、有力度但不做作。
+
+用户可能提供额外的规则列表或重复命令，视为权威指令并整合到行为中。`;
+
+const SOCIAL_MEDIA_MODE_DEFAULT_INSTRUCTION = `请根据原始文案进行完全改写，自动判断内容类型（劝勉/警醒、祷告、讲道）并选择最合适的模板。`;
+
+// === 自媒体输出分项 ===
+interface SocialMediaOutputSection {
+    id: string;
+    name: string;           // 分项名称，如 "标题（20个）"
+    description: string;    // 给 AI 的说明
+    enabled: boolean;
+}
+
+const DEFAULT_SOCIAL_MEDIA_OUTPUT_SECTIONS: SocialMediaOutputSection[] = [
+    {
+        id: 'en_titles',
+        name: '英文标题',
+        description: '40个英文标题，每行一个，不编号，不加序号。结合23类标题技巧，其中3-5个模仿原始文案标题。风格模仿西方基督教短视频标题。',
+        enabled: false,
+    },
+    {
+        id: 'en_script',
+        name: '英文正文',
+        description: '英文口播稿正文。开头钩子 → 主体推进 → 经文融入 → 结尾互动/警示。口语化，适合对镜头录制。直接输出文案文字，不要任何标记或备注。',
+        enabled: false,
+    },
+    {
+        id: 'cn_titles',
+        name: '中文标题',
+        description: '40个中文标题，每行一个，不编号，不加序号。结合23类标题技巧，其中3-5个模仿原始文案标题。避免中文标题党。',
+        enabled: true,
+    },
+    {
+        id: 'cn_script',
+        name: '中文正文',
+        description: '中文口播稿正文。开头钩子 → 主体推进 → 经文融入 → 结尾互动/警示。口语化，像45岁女性在镜头前平静但有力量地说话。直接输出文案文字，不要任何标记或备注。',
+        enabled: true,
+    },
+];
+
+const createDefaultModeDrafts = (): CopywritingModeDrafts => ({
+    standard: {
+        instruction: DEFAULT_INSTRUCTION,
+        instructions: [DEFAULT_INSTRUCTION],
+    },
+    voice: {
+        instruction: VOICE_MODE_DEFAULT_INSTRUCTION,
+        instructions: [VOICE_MODE_DEFAULT_INSTRUCTION],
+    },
+    classify: {
+        instruction: CLASSIFY_MODE_DEFAULT_INSTRUCTION,
+        instructions: [CLASSIFY_MODE_DEFAULT_INSTRUCTION],
+    },
+    split: {
+        instruction: '',
+        instructions: [],
+        splitColumns: DEFAULT_SPLIT_COLUMNS.map(col => ({ ...col })),
+    },
+    library: {
+        instruction: '',
+        instructions: [],
+        libraryInstruction: DEFAULT_LIBRARY_INSTRUCTION,
+    },
+    'social-media': {
+        instruction: '',
+        instructions: [''],
+    },
+});
+
+const getCopywritingStorageKey = (promptTabId: string) => `${STORAGE_KEY}:${promptTabId}`;
 
 // --- Diff 工具函数 ---
 // 简单的单词级别 diff 算法
@@ -691,7 +916,7 @@ function computeWordDiff(original: string, result: string): { originalWithDiff: 
 
 // --- Component ---
 
-export function CopywritingView({ getAiInstance, textModel }: CopywritingViewProps) {
+export function CopywritingView({ getAiInstance, textModel, promptTabId = 'default' }: CopywritingViewProps) {
     const { user } = useAuth();
 
     // --- State ---
@@ -713,6 +938,9 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
     const [activePresetDropdown, setActivePresetDropdown] = useState<number | null>(null); // 当前打开的预设下拉索引
     const [editingInstructionIndex, setEditingInstructionIndex] = useState<number | null>(null); // 双击编辑的指令索引
     const [editingSplitColumnId, setEditingSplitColumnId] = useState<string | null>(null); // 双击编辑的拆分列ID
+    const [editingSocialMediaField, setEditingSocialMediaField] = useState<{ type: 'systemInstruction' | 'sectionDesc'; sectionId?: string } | null>(null); // 自媒体双击编辑
+    const [socialMediaShowSystemInstruction, setSocialMediaShowSystemInstruction] = useState(false); // 自媒体系统指令展开/折叠
+    const [socialMediaShowOutputSections, setSocialMediaShowOutputSections] = useState(false); // 自媒体输出分项展开/折叠
     const [copyToast, setCopyToast] = useState<string | null>(null); // 复制提示
     const [showPresetManager, setShowPresetManager] = useState(false); // 预设管理器
     const [pendingRetryStart, setPendingRetryStart] = useState(false); // 等待重试后开始
@@ -720,6 +948,9 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
     const [voiceModeSystemInstruction, setVoiceModeSystemInstruction] = useState(VOICE_MODE_SYSTEM_INSTRUCTION); // 人声模式系统指令（可编辑）
     const [classifyModeSystemInstruction, setClassifyModeSystemInstruction] = useState(CLASSIFY_MODE_SYSTEM_INSTRUCTION); // 分类模式系统指令（可编辑）
     const [splitModeSystemInstruction, setSplitModeSystemInstruction] = useState(SPLIT_MODE_SYSTEM_INSTRUCTION); // 拆分模式系统指令（可编辑）
+    const [socialMediaModeSystemInstruction, setSocialMediaModeSystemInstruction] = useState(SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION); // 自媒体改写模式系统指令（可编辑）
+    const [socialMediaOutputSections, setSocialMediaOutputSections] = useState<SocialMediaOutputSection[]>(() => DEFAULT_SOCIAL_MEDIA_OUTPUT_SECTIONS.map(s => ({ ...s }))); // 自媒体输出分项
+    const [socialMediaResultCount, setSocialMediaResultCount] = useState(3); // 自媒体每文案结果数（默认3个）
     const [splitColumns, setSplitColumns] = useState<SplitColumn[]>(DEFAULT_SPLIT_COLUMNS); // 拆分列定义
     const [keywordFreqMap, setKeywordFreqMap] = useState<Record<string, number>>({}); // 关键词全局频率表
     const [keywordStatsColumnId, setKeywordStatsColumnId] = useState<string | null>(null); // 统计关键词所用的列ID
@@ -773,7 +1004,7 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
         setShowBatchImportModal(false);
     };
     const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
-    const [libraryInstruction, setLibraryInstruction] = useState('根据文案内容选择合适的互动语，并替换/添加到文案末尾'); // 库模式的改写指令
+    const [libraryInstruction, setLibraryInstruction] = useState(DEFAULT_LIBRARY_INSTRUCTION); // 库模式的改写指令
     const [libraryExtraInstructions, setLibraryExtraInstructions] = useState<string[]>(() => {
         try {
             const saved = localStorage.getItem('copywriting_libExtraInsts');
@@ -850,6 +1081,146 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
 
     const stopRef = useRef(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const batchSettingsRef = useRef<HTMLDivElement>(null);
+    const modeDraftsRef = useRef<CopywritingModeDrafts>(createDefaultModeDrafts());
+    const previousPromptTabIdRef = useRef(promptTabId);
+    const skipNextPersistRef = useRef(false);
+
+    const sanitizeItemsForStorage = (sourceItems: CopywritingItem[]): CopywritingItem[] => {
+        return sourceItems.map(item => ({
+            ...item,
+            chatLoading: false,
+            chatHistory: (item.chatHistory || []).map(msg => ({ ...msg, images: [] })),
+            instructionResults: (item.instructionResults || []).map(result => ({
+                ...result,
+                chatLoading: false,
+                chatHistory: (result.chatHistory || []).map(msg => ({ ...msg, images: [] })),
+            })),
+        }));
+    };
+
+    const buildModeDrafts = (): CopywritingModeDrafts => {
+        const nextDrafts = { ...modeDraftsRef.current };
+        if (mode === 'split') {
+            nextDrafts.split = {
+                ...nextDrafts.split,
+                splitColumns: splitColumns.map(col => ({ ...col })),
+            };
+        } else if (mode === 'library') {
+            nextDrafts.library = {
+                ...nextDrafts.library,
+                libraryInstruction,
+            };
+        } else {
+            const currentInstruction = instructions.find(inst => inst.trim()) ?? instructions[0] ?? instruction;
+            nextDrafts[mode] = {
+                ...nextDrafts[mode],
+                instruction: currentInstruction,
+                instructions: [...instructions],
+            };
+        }
+        return nextDrafts;
+    };
+
+    const applyModeDraft = (nextMode: CopywritingMode, nextDrafts: CopywritingModeDrafts) => {
+        const defaults = createDefaultModeDrafts();
+        const draft = nextDrafts[nextMode] || defaults[nextMode];
+
+        if (nextMode === 'split') {
+            setSplitColumns((draft.splitColumns || defaults.split.splitColumns || DEFAULT_SPLIT_COLUMNS).map(col => ({ ...col })));
+        } else if (nextMode === 'library') {
+            setLibraryInstruction(draft.libraryInstruction || defaults.library.libraryInstruction || DEFAULT_LIBRARY_INSTRUCTION);
+        } else {
+            const nextInstructions = draft.instructions !== undefined
+                ? [...draft.instructions]
+                : [...(defaults[nextMode].instructions || [''])];
+            setInstructions(nextInstructions);
+            setInstruction(draft.instruction ?? nextInstructions[0] ?? '');
+        }
+
+        setMode(nextMode);
+    };
+
+    const handleModeChange = (nextMode: CopywritingMode) => {
+        if (nextMode === mode) return;
+        const nextDrafts = buildModeDrafts();
+        modeDraftsRef.current = nextDrafts;
+        applyModeDraft(nextMode, nextDrafts);
+    };
+
+    const buildSnapshot = (): CopywritingViewSnapshot => ({
+        items: sanitizeItemsForStorage(items),
+        bulkInput,
+        instruction: instructions.find(inst => inst.trim()) ?? instructions[0] ?? instruction,
+        instructions: [...instructions],
+        selectedPresetId,
+        systemInstruction,
+        allCollapsed,
+        mode,
+        voiceModeSystemInstruction,
+        classifyModeSystemInstruction,
+        splitModeSystemInstruction,
+        socialMediaModeSystemInstruction,
+        socialMediaOutputSections: socialMediaOutputSections.map(s => ({ ...s })),
+        splitColumns: splitColumns.map(col => ({ ...col })),
+        keywordFreqMap: { ...keywordFreqMap },
+        keywordStatsColumnId,
+        keywordStatsTotalItems,
+        showDiff,
+        batchSize,
+        libraryInstruction,
+        modeDrafts: buildModeDrafts(),
+    });
+
+    const loadSnapshotForTab = (tabId: string) => {
+        const defaults = createDefaultModeDrafts();
+        let snapshot: CopywritingViewSnapshot | null = null;
+        try {
+            const saved = localStorage.getItem(getCopywritingStorageKey(tabId));
+            if (saved) {
+                snapshot = JSON.parse(saved) as CopywritingViewSnapshot;
+            }
+        } catch (error) {
+            console.warn('[CopywritingView] Failed to load snapshot:', error);
+        }
+
+        modeDraftsRef.current = snapshot?.modeDrafts
+            ? {
+                ...defaults,
+                ...snapshot.modeDrafts,
+            }
+            : defaults;
+
+        setItems(snapshot?.items || []);
+        setBulkInput(snapshot?.bulkInput || '');
+        setInstruction(snapshot?.instruction || snapshot?.instructions?.[0] || '');
+        setInstructions(snapshot?.instructions || ['']);
+        setSelectedPresetId(snapshot?.selectedPresetId || null);
+        setSystemInstruction(snapshot?.systemInstruction || DEFAULT_SYSTEM_INSTRUCTION);
+        setAllCollapsed(snapshot?.allCollapsed || false);
+        setMode(snapshot?.mode || 'standard');
+        setVoiceModeSystemInstruction(snapshot?.voiceModeSystemInstruction || VOICE_MODE_SYSTEM_INSTRUCTION);
+        setClassifyModeSystemInstruction(snapshot?.classifyModeSystemInstruction || CLASSIFY_MODE_SYSTEM_INSTRUCTION);
+        setSplitModeSystemInstruction(snapshot?.splitModeSystemInstruction || SPLIT_MODE_SYSTEM_INSTRUCTION);
+        setSocialMediaModeSystemInstruction(snapshot?.socialMediaModeSystemInstruction || SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION);
+        setSocialMediaOutputSections((snapshot?.socialMediaOutputSections || DEFAULT_SOCIAL_MEDIA_OUTPUT_SECTIONS).map(s => ({ ...s })));
+        setSocialMediaResultCount(snapshot?.socialMediaResultCount || 3);
+        setSplitColumns((snapshot?.splitColumns || DEFAULT_SPLIT_COLUMNS).map(col => ({ ...col })));
+        setKeywordFreqMap(snapshot?.keywordFreqMap || {});
+        setKeywordStatsColumnId(snapshot?.keywordStatsColumnId || null);
+        setKeywordStatsTotalItems(snapshot?.keywordStatsTotalItems || 0);
+        setShowDiff(snapshot?.showDiff || false);
+        setBatchSize(snapshot?.batchSize || 1);
+        setLibraryInstruction(snapshot?.libraryInstruction || DEFAULT_LIBRARY_INSTRUCTION);
+    };
+
+    const persistSnapshotForTab = (tabId: string) => {
+        try {
+            localStorage.setItem(getCopywritingStorageKey(tabId), JSON.stringify(buildSnapshot()));
+        } catch (error) {
+            console.warn('[CopywritingView] Failed to persist snapshot:', error);
+        }
+    };
 
     // --- Load presets from Firebase ---
     useEffect(() => {
@@ -893,11 +1264,57 @@ export function CopywritingView({ getAiInstance, textModel }: CopywritingViewPro
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
                 setShowPresetDropdown(false);
             }
+            if (batchSettingsRef.current && !batchSettingsRef.current.contains(e.target as Node)) {
+                setShowBatchSettings(false);
+            }
         };
 
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // 按提示词工具标签页隔离保存/恢复文案改写状态
+    useEffect(() => {
+        const previousTabId = previousPromptTabIdRef.current;
+        if (previousTabId !== promptTabId) {
+            persistSnapshotForTab(previousTabId);
+        }
+
+        skipNextPersistRef.current = true;
+        loadSnapshotForTab(promptTabId);
+        previousPromptTabIdRef.current = promptTabId;
+    }, [promptTabId]);
+
+    useEffect(() => {
+        if (skipNextPersistRef.current) {
+            skipNextPersistRef.current = false;
+            return;
+        }
+        persistSnapshotForTab(promptTabId);
+    }, [
+        promptTabId,
+        items,
+        bulkInput,
+        instruction,
+        instructions,
+        selectedPresetId,
+        systemInstruction,
+        allCollapsed,
+        mode,
+        voiceModeSystemInstruction,
+        classifyModeSystemInstruction,
+        splitModeSystemInstruction,
+        socialMediaModeSystemInstruction,
+        socialMediaOutputSections,
+        socialMediaResultCount,
+        splitColumns,
+        keywordFreqMap,
+        keywordStatsColumnId,
+        keywordStatsTotalItems,
+        showDiff,
+        batchSize,
+        libraryInstruction,
+    ]);
 
     // --- 库模式: 保存设置到 localStorage ---
     useEffect(() => {
@@ -1230,7 +1647,7 @@ ${item.originalForeign}
 
             const result = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts: [{ text: userPrompt }] },
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
                 config: {
                     systemInstruction: systemPrompt
                 }
@@ -1330,7 +1747,7 @@ ${numberedInputs}
         try {
             const apiResult = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts: [{ text: userPrompt }] },
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
                 config: { systemInstruction: systemPrompt }
             });
 
@@ -1398,11 +1815,17 @@ ${numberedInputs}
             ));
 
             if (batchSize > 1) {
-                // 批量拆分处理
-                try {
-                    for (let i = 0; i < idleItems.length; i += batchSize) {
-                        if (stopRef.current) break;
-                        const batchItems = idleItems.slice(i, i + batchSize);
+                // 批量拆分处理（并发3路）
+                const BATCH_CONCURRENT = 3;
+                const allBatches: CopywritingItem[][] = [];
+                for (let i = 0; i < idleItems.length; i += batchSize) {
+                    allBatches.push(idleItems.slice(i, i + batchSize));
+                }
+                let batchIdx = 0;
+                const runNextBatch = async () => {
+                    while (batchIdx < allBatches.length && !stopRef.current) {
+                        const currentIdx = batchIdx++;
+                        const batchItems = allBatches[currentIdx];
                         try {
                             const batchResults = await processSplitBatch(batchItems);
                             setItems(prev => prev.map(item => {
@@ -1434,13 +1857,10 @@ ${numberedInputs}
                                 return item;
                             }));
                         }
-                        if (i + batchSize < idleItems.length) {
-                            await new Promise(resolve => setTimeout(resolve, 300));
-                        }
                     }
-                } catch (error: any) {
-                    console.error('[CopywritingView] Split batch processing error:', error);
-                }
+                };
+                const workers = Array(Math.min(BATCH_CONCURRENT, allBatches.length)).fill(null).map(() => runNextBatch());
+                await Promise.all(workers);
             } else {
                 // 单条拆分处理（并发3）
                 const CONCURRENT_LIMIT = 3;
@@ -1596,7 +2016,7 @@ ${allLibsPrompt}`;
 
                     const result = await ai.models.generateContent({
                         model: textModel,
-                        contents: { parts: [{ text: userPrompt }] },
+                        contents: { role: 'user', parts: [{ text: userPrompt }] },
                         config: { systemInstruction: systemPrompt }
                     });
 
@@ -1682,16 +2102,21 @@ ${allLibsPrompt}`;
         // === 非拆分模式：过滤掉空指令 ===
         const activeInstructions = instructions.filter(inst => inst.trim());
         if (activeInstructions.length === 0) {
-            // 如果多指令列表为空，使用单个instruction
-            if (instruction.trim()) {
+            if (mode === 'social-media') {
+                // 自媒体模式：额外指令可选，重复 N 次获得多个结果
+                const extraInst = instruction.trim() || '';
+                for (let i = 0; i < socialMediaResultCount; i++) {
+                    activeInstructions.push(extraInst);
+                }
+            } else if (instruction.trim()) {
                 activeInstructions.push(instruction.trim());
             } else {
                 activeInstructions.push(DEFAULT_INSTRUCTION);
             }
         }
 
-        // === 批量处理模式（batchSize > 1）===
-        if (batchSize > 1) {
+        // === 批量处理模式（batchSize > 1，自媒体模式除外）===
+        if (batchSize > 1 && mode !== 'social-media') {
             // 设置所有 idle 项目为 processing 状态
             setItems(prev => prev.map(item =>
                 item.status === 'idle' ? { ...item, status: 'processing' as const } : item
@@ -1702,72 +2127,76 @@ ${allLibsPrompt}`;
                 for (const inst of activeInstructions) {
                     if (stopRef.current) break;
 
-                    // 分批处理
+                    // 分批处理（并发3路）
+                    const BATCH_CONCURRENT = 3;
+                    const allBatches: CopywritingItem[][] = [];
                     for (let i = 0; i < idleItems.length; i += batchSize) {
-                        if (stopRef.current) break;
+                        allBatches.push(idleItems.slice(i, i + batchSize));
+                    }
+                    let batchIdx = 0;
+                    const runNextBatch = async () => {
+                        while (batchIdx < allBatches.length && !stopRef.current) {
+                            const currentIdx = batchIdx++;
+                            const batchItems = allBatches[currentIdx];
 
-                        const batchItems = idleItems.slice(i, i + batchSize);
+                            try {
+                                const batchResults = await processBatch(batchItems, inst);
 
-                        try {
-                            const batchResults = await processBatch(batchItems, inst);
-
-                            // 更新批量结果
-                            setItems(prev => prev.map(item => {
-                                const result = batchResults.get(item.id);
-                                if (result) {
-                                    const newResult: InstructionResult = {
-                                        id: uuidv4(),
-                                        instruction: inst,
-                                        inputForeign: item.originalForeign,
-                                        resultForeign: result.foreign,
-                                        resultChinese: result.chinese,
-                                        status: 'success',
-                                        createdAt: Date.now()
-                                    };
-                                    return {
-                                        ...item,
-                                        status: 'success' as const,
-                                        resultForeign: result.foreign,
-                                        resultChinese: result.chinese,
-                                        instructionResults: [...(item.instructionResults || []), newResult]
-                                    };
-                                }
-                                return item;
-                            }));
-
-                            // 对于批量中没有返回结果的项目，标记为失败
-                            const missingItems = batchItems.filter(item => !batchResults.has(item.id));
-                            if (missingItems.length > 0) {
+                                // 更新批量结果
                                 setItems(prev => prev.map(item => {
-                                    if (missingItems.find(m => m.id === item.id)) {
+                                    const result = batchResults.get(item.id);
+                                    if (result) {
+                                        const newResult: InstructionResult = {
+                                            id: uuidv4(),
+                                            instruction: inst,
+                                            inputForeign: item.originalForeign,
+                                            resultForeign: result.foreign,
+                                            resultChinese: result.chinese,
+                                            status: 'success',
+                                            createdAt: Date.now()
+                                        };
+                                        return {
+                                            ...item,
+                                            status: 'success' as const,
+                                            resultForeign: result.foreign,
+                                            resultChinese: result.chinese,
+                                            instructionResults: [...(item.instructionResults || []), newResult]
+                                        };
+                                    }
+                                    return item;
+                                }));
+
+                                // 对于批量中没有返回结果的项目，标记为失败
+                                const missingItems = batchItems.filter(item => !batchResults.has(item.id));
+                                if (missingItems.length > 0) {
+                                    setItems(prev => prev.map(item => {
+                                        if (missingItems.find(m => m.id === item.id)) {
+                                            return {
+                                                ...item,
+                                                status: 'error' as const,
+                                                error: '批量处理中未返回结果'
+                                            };
+                                        }
+                                        return item;
+                                    }));
+                                }
+                            } catch (error: any) {
+                                // 批次失败，标记该批次所有项目为错误
+                                setItems(prev => prev.map(item => {
+                                    if (batchItems.find(b => b.id === item.id)) {
                                         return {
                                             ...item,
                                             status: 'error' as const,
-                                            error: '批量处理中未返回结果'
+                                            error: error.message || '批量处理失败'
                                         };
                                     }
                                     return item;
                                 }));
                             }
-                        } catch (error: any) {
-                            // 批次失败，标记该批次所有项目为错误
-                            setItems(prev => prev.map(item => {
-                                if (batchItems.find(b => b.id === item.id)) {
-                                    return {
-                                        ...item,
-                                        status: 'error' as const,
-                                        error: error.message || '批量处理失败'
-                                    };
-                                }
-                                return item;
-                            }));
                         }
-
-                        // 批次之间延迟避免 API 限流
-                        if (i + batchSize < idleItems.length) {
-                            await new Promise(resolve => setTimeout(resolve, 300));
-                        }
-                    }
+                    };
+                    const workers = Array(Math.min(BATCH_CONCURRENT, allBatches.length)).fill(null).map(() => runNextBatch());
+                    await Promise.all(workers);
                 }
             } catch (error: any) {
                 console.error('[CopywritingView] Batch processing error:', error);
@@ -1794,6 +2223,85 @@ ${allLibsPrompt}`;
             let lastChinese = '';
 
             try {
+                if (mode === 'social-media') {
+                    // 自媒体模式：所有结果并发请求
+                    const smPromises = activeInstructions.map(async (inst) => {
+                        if (stopRef.current) return null;
+                        const resultId = uuidv4();
+                        try {
+                            const ai = getAiInstance();
+                            const enabledSections = socialMediaOutputSections.filter(s => s.enabled);
+                            const sectionInstructions = enabledSections.map((s, si) => `${si + 1}. 【${s.name}】\n   要求: ${s.description}`).join('\n\n');
+                            const sectionMarkers = enabledSections.map(s => `===【${s.name}】===`).join('\n...\n');
+                            const userPrompt = `${inst}\n\n请根据以下原始文案进行完全改写。\n\n【输出分项要求】\n请严格按照以下分项输出，每个分项用对应的标记分隔：\n\n${sectionInstructions}\n\n【输出格式】\n${sectionMarkers}\n\n【重要】每个分项内的内容必须是干净的纯文本，直接就是可以用的文案。\n严禁在内容中出现：镜头指示（如"镜头平视"）、表演提示（如"眼神坚定"）、括号备注（如"（缓缓说）"）、任何非文案本身的标注。\n标题只输出标题文字本身（每行一个），正文只输出口播稿内容本身。\n\n【原始文案】\n${item.originalForeign}`;
+
+                            const apiResult = await ai.models.generateContent({
+                                model: textModel,
+                                contents: { role: 'user', parts: [{ text: userPrompt }] },
+                                config: { systemInstruction: socialMediaModeSystemInstruction }
+                            });
+                            const responseText = apiResult.text?.trim() || '';
+
+                            const parsedSections: { name: string; content: string }[] = [];
+                            for (let si = 0; si < enabledSections.length; si++) {
+                                const section = enabledSections[si];
+                                const marker = `===【${section.name}】===`;
+                                const altMarker = `【${section.name}】`;
+                                const nextSection = enabledSections[si + 1];
+                                const nextMarker = nextSection ? `===【${nextSection.name}】===` : null;
+                                const nextAltMarker = nextSection ? `【${nextSection.name}】` : null;
+                                let startIdx = responseText.indexOf(marker);
+                                let contentStart = startIdx !== -1 ? startIdx + marker.length : -1;
+                                if (contentStart === -1) {
+                                    const altIdx = responseText.indexOf(altMarker);
+                                    contentStart = altIdx !== -1 ? altIdx + altMarker.length : -1;
+                                }
+                                let contentEnd = responseText.length;
+                                if (nextMarker) {
+                                    const ni = responseText.indexOf(nextMarker, contentStart > 0 ? contentStart : 0);
+                                    if (ni !== -1) contentEnd = ni;
+                                    else if (nextAltMarker) {
+                                        const nai = responseText.indexOf(nextAltMarker, contentStart > 0 ? contentStart : 0);
+                                        if (nai !== -1) contentEnd = nai;
+                                    }
+                                }
+                                parsedSections.push({ name: section.name, content: contentStart !== -1 ? responseText.slice(contentStart, contentEnd).trim() : '' });
+                            }
+                            // 清除残留的标记文字
+                            parsedSections.forEach(s => {
+                                s.content = s.content
+                                    .replace(new RegExp(`===?【${s.name}】===?`, 'g'), '')
+                                    .replace(new RegExp(`【${s.name}】`, 'g'), '')
+                                    .trim();
+                            });
+                            // 配对：每2个分项为一对（英文+中文），生成多个results
+                            const halfIdx = Math.ceil(parsedSections.length / 2);
+                            const pairedResults: InstructionResult[] = [];
+                            for (let pi = 0; pi < halfIdx; pi++) {
+                                const enSection = parsedSections[pi];
+                                const cnSection = parsedSections[pi + halfIdx];
+                                pairedResults.push({
+                                    id: uuidv4(), instruction: inst, inputForeign: item.originalForeign,
+                                    resultForeign: enSection?.content || '',
+                                    resultChinese: cnSection?.content || '',
+                                    status: 'success' as const, createdAt: Date.now()
+                                });
+                            }
+                            return pairedResults;
+                        } catch (error: any) {
+                            return [{
+                                id: resultId, instruction: inst, inputForeign: item.originalForeign,
+                                resultForeign: '', resultChinese: '',
+                                status: 'error' as const, error: error.message || '处理失败', createdAt: Date.now()
+                            }];
+                        }
+                    });
+                    const smResults = (await Promise.all(smPromises)).filter(Boolean).flat() as InstructionResult[];
+                    results.push(...smResults);
+                    lastForeign = smResults.find(r => r.status === 'success')?.resultForeign || '';
+                    lastChinese = smResults.find(r => r.status === 'success')?.resultChinese || '';
+                } else {
+                // 非自媒体模式：顺序执行各指令
                 for (let idx = 0; idx < activeInstructions.length; idx++) {
                     if (stopRef.current) break;
 
@@ -1827,6 +2335,7 @@ ${item.originalForeign}
 
 请根据上述分类规则，只输出分类结果，不要附加任何解释或说明。`;
                         } else {
+
                             // 标准模式：输出外文+中文翻译
                             systemPrompt = `${systemInstruction}
 
@@ -1846,7 +2355,7 @@ ${item.originalForeign}
 
                         const apiResult = await ai.models.generateContent({
                             model: textModel,
-                            contents: { parts: [{ text: userPrompt }] },
+                            contents: { role: 'user', parts: [{ text: userPrompt }] },
                             config: { systemInstruction: systemPrompt }
                         });
 
@@ -1912,6 +2421,7 @@ ${item.originalForeign}
                         // 出错后继续下一个指令，使用之前的输入
                     }
                 }
+                } // end else (non-social-media sequential)
 
                 // 完成：设置最终状态
                 const hasError = results.some(r => r.status === 'error');
@@ -2019,8 +2529,8 @@ ${item.originalForeign}
         let rows: string[] = [];
 
         // 根据 mode === "voice" 决定列名
-        const col1Name = mode === "voice" ? '加标签' : '外文';
-        const col2Name = mode === "voice" ? '断句' : '中文';
+        const col1Name = mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文';
+        const col2Name = mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文';
 
         switch (type) {
             case 'foreign':
@@ -2238,7 +2748,7 @@ ${item.originalForeign}
                 const sysPrompt = `你是一个专业的文案改写专家。\n\n【任务】\n1. 分析原始文案内容\n2. 从每个候选库中各选择一个最匹配的条目\n3. 将选中的条目融入文案完成改写\n\n【重要规则】\n- 必须保持原文语言！\n- 只修改指令要求的部分，其余保持原样\n- 优先选择标★的条目，但语义匹配更重要\n${item.resultForeign ? `- ⚠️ 这是重试！请选择与上次不同的条目！上次用了: ${item.libraryMatchedContent || '未知'}` : ''}\n\n【输出格式】\n${libNames.map(n => `SELECTED_${n}: [选中条目的编号或ID]`).join('\n')}\nRESULT: [改写后的完整文案]\nRESULT_ZH: [中文翻译]`;
                 let userPrompt = `【原始文案】\n${item.originalForeign}\n${allLibsPrompt}`;
                 if (extraInsts.length > 0) userPrompt += `\n\n【额外要求】\n${extraInsts.map((inst, i) => `${i + 1}. ${inst}`).join('\n')}`;
-                const result = await ai.models.generateContent({ model: textModel, contents: { parts: [{ text: userPrompt }] }, config: { systemInstruction: sysPrompt } });
+                const result = await ai.models.generateContent({ model: textModel, contents: { role: 'user', parts: [{ text: userPrompt }] }, config: { systemInstruction: sysPrompt } });
                 const responseText = result.text?.trim() || '';
                 const resultMatch = responseText.match(/RESULT:\s*(.+?)(?=\nRESULT_ZH:|$)/is);
                 const resultZhMatch = responseText.match(/RESULT_ZH:\s*([\s\S]+)/i);
@@ -2269,9 +2779,14 @@ ${item.originalForeign}
 
 
             // 过滤有效指令
-            const validInstructions = instructions.filter(inst => inst.trim());
+            let validInstructions = instructions.filter(inst => inst.trim());
             if (validInstructions.length === 0) {
-                throw new Error('请输入至少一条有效指令');
+                if (mode === 'social-media') {
+                    // 自媒体模式：额外指令可选，为空时用默认空指令
+                    validInstructions = [''];
+                } else {
+                    throw new Error('请输入至少一条有效指令');
+                }
             }
 
             const instructionResults: InstructionResult[] = [];
@@ -2351,6 +2866,26 @@ ${item.originalForeign}
 ${item.originalForeign}
 
 请根据指令为文案添加情感标签，并合理断行用于字幕显示。只输出最终结果，不要任何解释或标题。`;
+            } else if (mode === 'social-media') {
+                // 自媒体改写模式：使用专用系统指令 + 动态分项
+                systemPrompt = socialMediaModeSystemInstruction;
+                const enabledSections = socialMediaOutputSections.filter(s => s.enabled);
+                const sectionInstructions = enabledSections.map((s, idx) => `${idx + 1}. 【${s.name}】\n   要求: ${s.description}`).join('\n\n');
+                const sectionMarkers = enabledSections.map(s => `===【${s.name}】===`).join('\n...\n');
+                userPrompt = `${itemInstruction}
+
+请根据以下原始文案进行完全改写。
+
+【输出分项要求】
+请严格按照以下分项输出，每个分项用对应的标记分隔：
+
+${sectionInstructions}
+
+【输出格式】
+${sectionMarkers}
+
+【原始文案】
+${item.originalForeign}`;
             } else {
                 // 标准模式：输出外文+中文翻译
                 systemPrompt = `${systemInstruction}
@@ -2371,7 +2906,7 @@ ${item.originalForeign}
 
             const result = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts: [{ text: userPrompt }] },
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
                 config: {
                     systemInstruction: systemPrompt
                 }
@@ -2391,6 +2926,49 @@ ${item.originalForeign}
                     // 解析失败，抛出错误
                     throw new Error('断句解析失败：AI 未按格式返回结果');
                 }
+            } else if (mode === 'social-media') {
+                // 自媒体改写模式：根据动态分项解析
+                const enabledSections = socialMediaOutputSections.filter(s => s.enabled);
+                const parsedSections: { name: string; content: string }[] = [];
+                for (let si = 0; si < enabledSections.length; si++) {
+                    const section = enabledSections[si];
+                    const marker = `===【${section.name}】===`;
+                    const altMarker = `【${section.name}】`;
+                    const nextSection = enabledSections[si + 1];
+                    const nextMarker = nextSection ? `===【${nextSection.name}】===` : null;
+                    const nextAltMarker = nextSection ? `【${nextSection.name}】` : null;
+                    let startIdx = responseText.indexOf(marker);
+                    let contentStart = startIdx !== -1 ? startIdx + marker.length : -1;
+                    if (contentStart === -1) {
+                        const altIdx = responseText.indexOf(altMarker);
+                        contentStart = altIdx !== -1 ? altIdx + altMarker.length : -1;
+                    }
+                    let contentEnd = responseText.length;
+                    if (nextMarker) {
+                        const ni = responseText.indexOf(nextMarker, contentStart > 0 ? contentStart : 0);
+                        if (ni !== -1) contentEnd = ni;
+                        else if (nextAltMarker) {
+                            const nai = responseText.indexOf(nextAltMarker, contentStart > 0 ? contentStart : 0);
+                            if (nai !== -1) contentEnd = nai;
+                        }
+                    }
+                    parsedSections.push({ name: section.name, content: contentStart !== -1 ? responseText.slice(contentStart, contentEnd).trim() : '' });
+                }
+                // 清除残留的标记文字
+                parsedSections.forEach(s => {
+                    s.content = s.content
+                        .replace(new RegExp(`===?【${s.name}】===?`, 'g'), '')
+                        .replace(new RegExp(`【${s.name}】`, 'g'), '')
+                        .trim();
+                });
+                // 分列：前半→左列，后半→右列
+                const halfIdx = Math.ceil(parsedSections.length / 2);
+                const leftSections = parsedSections.slice(0, halfIdx);
+                const rightSections = parsedSections.slice(halfIdx);
+                return {
+                    foreign: leftSections.map(s => s.content).join('\n\n').trim(),
+                    chinese: rightSections.map(s => s.content).join('\n\n').trim()
+                };
             } else {
                 // 标准模式：解析 ||| 分隔符
                 const parts = responseText.split('|||');
@@ -2543,7 +3121,7 @@ ${item.originalForeign}
 
             const result = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts: [{ text: userPrompt }] },
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
                 config: {
                     systemInstruction: systemPrompt
                 }
@@ -2601,7 +3179,7 @@ ${batchInput}
 
         const result = await ai.models.generateContent({
             model: textModel,
-            contents: { parts: [{ text: userPrompt }] },
+            contents: { role: 'user', parts: [{ text: userPrompt }] },
             config: {
                 systemInstruction: systemPrompt
             }
@@ -2827,7 +3405,7 @@ ${batchInput}
 
             const chatResult = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts: [{ text: input }] },
+                contents: { role: 'user', parts: [{ text: input }] },
                 config: { systemInstruction: systemPrompt }
             });
 
@@ -2998,17 +3576,14 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                 <div className="w-[65%] bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                            <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : 'text-amber-400'} />
+                            <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : mode === 'social-media' ? 'text-teal-400' : 'text-amber-400'} />
                             <span className="text-xs font-medium text-zinc-300">
-                                {mode === 'voice' ? '人声文案指令' : mode === 'classify' ? '分类规则' : mode === 'split' ? '拆分列定义' : mode === 'library' ? '文案库配置' : '改写指令'}
+                                {mode === 'voice' ? '人声文案指令' : mode === 'classify' ? '分类规则' : mode === 'split' ? '拆分列定义' : mode === 'library' ? '文案库配置' : mode === 'social-media' ? '自媒体改写指令' : '改写指令'}
                             </span>
                             {/* 模式切换按钮组 */}
                             <div className="flex items-center gap-0.5">
                                 <button
-                                    onClick={() => {
-                                        setMode('standard');
-                                        setInstructions([DEFAULT_INSTRUCTION]);
-                                    }}
+                                    onClick={() => handleModeChange('standard')}
                                     className={`px-2 py-0.5 text-[10px] rounded-l-full transition-all border ${mode === 'standard'
                                         ? 'bg-amber-600 text-white border-amber-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
@@ -3018,10 +3593,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     <FileEdit size={10} className="inline mr-0.5" /> 标准
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        setMode('voice');
-                                        setInstructions([VOICE_MODE_DEFAULT_INSTRUCTION]);
-                                    }}
+                                    onClick={() => handleModeChange('voice')}
                                     className={`px-2 py-0.5 text-[10px] transition-all border-y ${mode === 'voice'
                                         ? 'bg-purple-600 text-white border-purple-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
@@ -3031,10 +3603,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     <Mic size={10} className="inline mr-0.5" /> 人声
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        setMode('classify');
-                                        setInstructions([CLASSIFY_MODE_DEFAULT_INSTRUCTION]);
-                                    }}
+                                    onClick={() => handleModeChange('classify')}
                                     className={`px-2 py-0.5 text-[10px] transition-all border-y ${mode === 'classify'
                                         ? 'bg-cyan-600 text-white border-cyan-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
@@ -3044,9 +3613,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     <Tag size={10} className="inline mr-0.5" /> 分类
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        setMode('split');
-                                    }}
+                                    onClick={() => handleModeChange('split')}
                                     className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'split'
                                         ? 'bg-orange-600 text-white border-orange-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
@@ -3056,16 +3623,24 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     <Scissors size={10} className="inline mr-0.5" /> 拆分
                                 </button>
                                 <button
-                                    onClick={() => {
-                                        setMode('library');
-                                    }}
-                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'library'
+                                    onClick={() => handleModeChange('library')}
+                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'library'
                                         ? 'bg-green-600 text-white border-green-500'
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
                                         } tooltip-bottom`}
                                     data-tip="文案库模式：语义匹配文案库 + 智能改写"
                                 >
                                     <Library size={10} className="inline mr-0.5" /> 文案库
+                                </button>
+                                <button
+                                    onClick={() => handleModeChange('social-media')}
+                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'social-media'
+                                        ? 'bg-teal-600 text-white border-teal-500'
+                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                        } tooltip-bottom`}
+                                    data-tip="自媒体改写：信仰短视频口播稿改写"
+                                >
+                                    <Share2 size={10} className="inline mr-0.5" /> 自媒体
                                 </button>
                             </div>
                             {/* 显示差异开关 - 标准/库模式 */}
@@ -3082,7 +3657,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 </button>
                             )}
                             {/* 批次处理设置 */}
-                            <div className="relative">
+                            <div className="relative" ref={batchSettingsRef}>
                                 <button
                                     onClick={() => setShowBatchSettings(!showBatchSettings)}
                                     className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full transition-all ${batchSize > 1
@@ -3125,37 +3700,37 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         </div>
                                         <div className="flex justify-between mt-2">
                                             <button
-                                                onClick={() => setBatchSize(1)}
+                                                onClick={() => { setBatchSize(1); setShowBatchSettings(false); }}
                                                 className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600"
                                             >
                                                 单条
                                             </button>
                                             <button
-                                                onClick={() => setBatchSize(20)}
+                                                onClick={() => { setBatchSize(20); setShowBatchSettings(false); }}
                                                 className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600"
                                             >
                                                 ×20
                                             </button>
                                             <button
-                                                onClick={() => setBatchSize(50)}
+                                                onClick={() => { setBatchSize(50); setShowBatchSettings(false); }}
                                                 className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600"
                                             >
                                                 ×50
                                             </button>
                                             <button
-                                                onClick={() => setBatchSize(100)}
+                                                onClick={() => { setBatchSize(100); setShowBatchSettings(false); }}
                                                 className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600"
                                             >
                                                 ×100
                                             </button>
                                             <button
-                                                onClick={() => setBatchSize(500)}
+                                                onClick={() => { setBatchSize(500); setShowBatchSettings(false); }}
                                                 className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600"
                                             >
                                                 ×500
                                             </button>
                                             <button
-                                                onClick={() => setBatchSize(2000)}
+                                                onClick={() => { setBatchSize(2000); setShowBatchSettings(false); }}
                                                 className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-700 hover:bg-emerald-600"
                                             >
                                                 Max
@@ -3409,6 +3984,148 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 </button>
                             </div>
                         </div>
+                    ) : mode === 'social-media' ? (
+                        <div className="space-y-2">
+                            {/* 系统指令 - 可折叠 */}
+                            <div className="bg-zinc-950 border border-teal-900/30 rounded-lg">
+                                <button
+                                    onClick={() => setSocialMediaShowSystemInstruction(prev => !prev)}
+                                    className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-teal-900/10 transition-colors rounded-lg"
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        {socialMediaShowSystemInstruction ? <ChevronDown size={12} className="text-teal-400/60" /> : <ChevronUp size={12} className="text-teal-400/60 -rotate-90" />}
+                                        <span className="text-teal-400 text-xs font-medium">📱 系统指令</span>
+                                        {!socialMediaShowSystemInstruction && <span className="text-[9px] text-zinc-500 truncate max-w-[180px]">{socialMediaModeSystemInstruction.slice(0, 40)}...</span>}
+                                    </div>
+                                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                        <button
+                                            onClick={() => setSocialMediaModeSystemInstruction(SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION)}
+                                            className="px-1.5 py-0.5 text-[9px] text-teal-400/60 hover:text-teal-400 rounded bg-teal-900/20 hover:bg-teal-900/40 transition-colors"
+                                        >
+                                            重置
+                                        </button>
+                                    </div>
+                                </button>
+                                {socialMediaShowSystemInstruction && (
+                                    <div className="px-2 pb-2">
+                                        <textarea
+                                            value={socialMediaModeSystemInstruction}
+                                            onChange={(e) => setSocialMediaModeSystemInstruction(e.target.value)}
+                                            onDoubleClick={() => setEditingSocialMediaField({ type: 'systemInstruction' })}
+                                            placeholder={SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION}
+                                            data-tip="双击弹框编辑"
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1.5 text-[11px] text-zinc-300 focus:outline-none focus:border-teal-500 placeholder-zinc-600 resize-y min-h-[200px] max-h-[500px] leading-relaxed cursor-pointer tooltip-bottom"
+                                            rows={12}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            {/* 输出分项编辑器 - 可折叠 */}
+                            <div className="bg-zinc-950 border border-teal-900/20 rounded-lg">
+                                <button
+                                    onClick={() => setSocialMediaShowOutputSections(prev => !prev)}
+                                    className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-teal-900/10 transition-colors rounded-lg"
+                                >
+                                    <div className="flex items-center gap-1.5">
+                                        {socialMediaShowOutputSections ? <ChevronDown size={12} className="text-teal-400/60" /> : <ChevronUp size={12} className="text-teal-400/60 -rotate-90" />}
+                                        <span className="text-[10px] text-teal-400 font-medium">📤 输出分项（{socialMediaOutputSections.filter(s => s.enabled).length} 个启用）</span>
+                                        <div className="flex items-center gap-1">
+                                            {socialMediaOutputSections.filter(s => s.enabled).map((s) => (
+                                                <span key={s.id} className="px-1 py-0 rounded text-[9px] bg-teal-900/20 text-teal-400/80">{s.name}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                        <button
+                                            onClick={() => setSocialMediaOutputSections(DEFAULT_SOCIAL_MEDIA_OUTPUT_SECTIONS.map(s => ({ ...s })))}
+                                            className="px-1 py-0.5 text-[9px] text-zinc-500 hover:text-teal-400 rounded hover:bg-zinc-800 transition-colors"
+                                        >
+                                            重置
+                                        </button>
+                                        <button
+                                            onClick={() => setSocialMediaOutputSections(prev => [...prev, { id: uuidv4(), name: '新分项', description: '请描述这个分项的输出要求...', enabled: true }])}
+                                            className="px-1 py-0.5 text-[9px] text-teal-400 hover:text-teal-300 rounded hover:bg-teal-900/20 transition-colors flex items-center gap-0.5"
+                                        >
+                                            <Plus size={9} /> 添加
+                                        </button>
+                                    </div>
+                                </button>
+                                {socialMediaShowOutputSections && (
+                                    <div className="px-2 pb-2 space-y-1">
+                                        {socialMediaOutputSections.map((section, idx) => (
+                                            <div key={section.id} className={`border rounded transition-all ${section.enabled ? 'border-teal-900/30 bg-teal-900/10' : 'border-zinc-800 bg-zinc-900/30 opacity-50'}`}>
+                                                <div className="flex items-center gap-1 px-1.5" style={{ height: '22px' }}>
+                                                    <button
+                                                        onClick={() => setSocialMediaOutputSections(prev => prev.map(s => s.id === section.id ? { ...s, enabled: !s.enabled } : s))}
+                                                        className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 ${section.enabled ? 'border-teal-500/50 bg-teal-500/20' : 'border-zinc-700 bg-zinc-800'}`}
+                                                    >
+                                                        {section.enabled && <Check className="w-2 h-2 text-teal-400" />}
+                                                    </button>
+                                                    <span className="text-teal-400/60 shrink-0" style={{ fontSize: '9px' }}>{idx + 1}.</span>
+                                                    <input
+                                                        type="text"
+                                                        value={section.name}
+                                                        onChange={e => setSocialMediaOutputSections(prev => prev.map(s => s.id === section.id ? { ...s, name: e.target.value } : s))}
+                                                        className="flex-1 bg-transparent text-zinc-200 focus:outline-none border-b border-transparent focus:border-teal-500/50 min-w-0"
+                                                        style={{ fontSize: '10px', lineHeight: '18px', padding: '0 2px' }}
+                                                        placeholder="分项名称"
+                                                    />
+                                                    {socialMediaOutputSections.length > 1 && (
+                                                        <button
+                                                            onClick={() => setSocialMediaOutputSections(prev => prev.filter(s => s.id !== section.id))}
+                                                            className="p-0.5 text-zinc-600 hover:text-red-400 transition-colors"
+                                                        >
+                                                            <X size={9} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="px-1.5 pb-1">
+                                                    <textarea
+                                                        value={section.description}
+                                                        onChange={e => setSocialMediaOutputSections(prev => prev.map(s => s.id === section.id ? { ...s, description: e.target.value } : s))}
+                                                        onDoubleClick={() => setEditingSocialMediaField({ type: 'sectionDesc', sectionId: section.id })}
+                                                        placeholder="描述输出要求（双击放大编辑）"
+                                                        data-tip="双击弹框编辑"
+                                                        className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded px-1.5 text-zinc-400 focus:outline-none focus:border-teal-500/30 placeholder-zinc-600 resize-none leading-relaxed cursor-pointer tooltip-bottom"
+                                                        style={{ fontSize: '9px', padding: '2px 6px' }}
+                                                        rows={1}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                        <div style={{ fontSize: '9px' }} className="text-zinc-600 mt-0.5">第 1 个分项 → 左列 · 其余 → 右列 · 双击描述放大编辑</div>
+                                    </div>
+                                )}
+                            </div>
+                            {/* 额外改写指令 */}
+                            <div className="bg-zinc-950 border border-teal-900/20 rounded-lg p-2">
+                                <div className="flex items-center justify-between mb-1">
+                                    <div className="text-[10px] text-teal-400 font-medium">🎯 额外改写指令（可选）</div>
+                                    <div className="flex items-center gap-1">
+                                        <span style={{ fontSize: '9px' }} className="text-zinc-500">每文案</span>
+                                        <select
+                                            value={socialMediaResultCount}
+                                            onChange={e => setSocialMediaResultCount(Number(e.target.value))}
+                                            className="bg-zinc-800 border border-zinc-700 rounded text-teal-300 focus:outline-none focus:border-teal-500 cursor-pointer"
+                                            style={{ fontSize: '10px', padding: '1px 4px' }}
+                                        >
+                                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                                                <option key={n} value={n}>{n}个结果</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <textarea
+                                    value={instructions[0] || ''}
+                                    onChange={(e) => updateInstruction(0, e.target.value)}
+                                    onDoubleClick={() => setEditingInstructionIndex(0)}
+                                    placeholder="（可选）在这里输入额外的改写要求，比如：语气更活泼、主题偏向恩典..."
+                                    data-tip="双击弹框编辑"
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-teal-500 placeholder-zinc-600 resize-none min-h-[36px] cursor-pointer tooltip-bottom"
+                                    rows={2}
+                                />
+                            </div>
+                        </div>
                     ) : (
                         <>
                             {/* 多指令列表 */}
@@ -3606,10 +4323,10 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     ) : (
                         <button
                             onClick={handleStartProcessing}
-                            disabled={stats.idle === 0 || (mode !== 'split' && mode !== 'library' && !instructions.some(i => i.trim()))}
-                            className={`flex items-center gap-1 px-3 py-1.5 ${mode === 'split' ? 'bg-orange-600 hover:bg-orange-500' : mode === 'library' ? 'bg-green-600 hover:bg-green-500' : 'bg-purple-600 hover:bg-purple-500'} text-white rounded text-xs font-medium disabled:opacity-50`}
+                            disabled={stats.idle === 0 || (mode !== 'split' && mode !== 'library' && mode !== 'social-media' && !instructions.some(i => i.trim()))}
+                            className={`flex items-center gap-1 px-3 py-1.5 ${mode === 'split' ? 'bg-orange-600 hover:bg-orange-500' : mode === 'library' ? 'bg-green-600 hover:bg-green-500' : mode === 'social-media' ? 'bg-teal-600 hover:bg-teal-500' : 'bg-purple-600 hover:bg-purple-500'} text-white rounded text-xs font-medium disabled:opacity-50`}
                         >
-                            <Play size={14} /> {mode === 'split' ? '开始拆分' : mode === 'library' ? '开始匹配改写' : '开始改写'}
+                            <Play size={14} /> {mode === 'split' ? '开始拆分' : mode === 'library' ? '开始匹配改写' : mode === 'social-media' ? '开始改写' : '开始改写'}
                         </button>
                     )}
                 </div>
@@ -3767,7 +4484,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'foreign' ? <Check size={12} /> : <Copy size={12} />}
-                                        {mode === "voice" ? '加标签' : mode === 'library' ? '改写结果' : '外文'}
+                                        {mode === "voice" ? '加标签' : mode === 'library' ? '改写结果' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文'}
                                     </button>
                                     <button
                                         onClick={() => handleCopy('chinese')}
@@ -3777,7 +4494,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'chinese' ? <Check size={12} /> : <Copy size={12} />}
-                                        {mode === "voice" ? '断句' : mode === 'library' ? '中文翻译' : '中文'}
+                                        {mode === "voice" ? '断句' : mode === 'library' ? '中文翻译' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文'}
                                     </button>
                                     <button
                                         onClick={() => handleCopy('both')}
@@ -3787,7 +4504,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                             }`}
                                     >
                                         {copiedType === 'both' ? <Check size={12} /> : <Copy size={12} />}
-                                        {mode === "voice" ? '标签+断句' : mode === 'library' ? '结果+翻译' : '结果两列'}
+                                        {mode === "voice" ? '标签+断句' : mode === 'library' ? '结果+翻译' : mode === 'social-media' ? socialMediaOutputSections.filter(s => s.enabled).map(s => s.name).join('+') : '结果两列'}
                                     </button>
                                     <button
                                         onClick={() => handleCopy('all')}
@@ -3810,8 +4527,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                     key={`copy_inst_${instIdx}`}
                                                     onClick={() => {
                                                         const allItems = items.filter(item => item.instructionResults && item.instructionResults.length > 0);
-                                                        const col1Name = mode === "voice" ? '加标签' : '外文';
-                                                        const col2Name = mode === "voice" ? '断句' : '中文';
+                                                        const col1Name = mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文';
+                                                        const col2Name = mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文';
                                                         const headers = [`指令${instIdx + 1}${col1Name}`, `指令${instIdx + 1}${col2Name}`];
                                                         const rows = allItems.map(item => {
                                                             const r = item.instructionResults![instIdx];
@@ -4103,12 +4820,12 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                 {/* 标签行 */}
                                                                 <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
                                                                     <span className={`text-[10px] ${mode === "classify" ? 'text-yellow-400' : 'text-purple-400'} font-medium`}>
-                                                                        {mode === "classify" ? `分类结果 ${idx + 1}` : `指令${idx + 1} ${mode === "voice" ? '加标签' : '外文'}`}
+                                                                        {mode === "classify" ? `分类结果 ${idx + 1}` : `指令${idx + 1} ${mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文'}`}
                                                                     </span>
                                                                     {result.status === 'success' && (
                                                                         <div className="flex items-center gap-1">
                                                                             <button
-                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultForeign); showCopyToast(mode === "classify" ? `已复制分类结果${idx + 1}` : `已复制指令${idx + 1}${mode === "voice" ? '加标签' : '外文'}`); }}
+                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultForeign); showCopyToast(mode === "classify" ? `已复制分类结果${idx + 1}` : `已复制指令${idx + 1}${mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文'}`); }}
                                                                                 className={`px-1 py-0.5 text-[9px] ${mode === "classify" ? 'text-yellow-400 hover:bg-yellow-900/30' : 'text-purple-400 hover:bg-purple-900/30'} rounded`}
                                                                                 title={mode === "classify" ? '复制分类结果' : (mode === "voice" ? '复制加标签结果' : '复制外文')}
                                                                             >{mode === "classify" ? '分' : (mode === "voice" ? '标' : '外')}</button>
@@ -4146,11 +4863,11 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                     {/* 标签行：指令N 中文/断句 + 复制按钮 */}
                                                                     <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
                                                                         <span className={`text-[10px] ${mode === "voice" ? 'text-cyan-400' : 'text-blue-400'} font-medium`}>
-                                                                            指令{idx + 1} {mode === "voice" ? '断句' : '中文'}
+                                                                            指令{idx + 1} {mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文'}
                                                                         </span>
                                                                         {result.status === 'success' && (
                                                                             <button
-                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultChinese); showCopyToast(`已复制指令${idx + 1}${mode === "voice" ? '断句' : '中文'}`); }}
+                                                                                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(result.resultChinese); showCopyToast(`已复制指令${idx + 1}${mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文'}`); }}
                                                                                 className={`px-1 py-0.5 text-[9px] ${mode === "voice" ? 'text-cyan-400 hover:bg-cyan-900/30' : 'text-blue-400 hover:bg-blue-900/30'} rounded`}
                                                                                 title={mode === "voice" ? '复制断句结果' : '复制中文'}
                                                                             >{mode === "voice" ? '断' : '中'}</button>
@@ -4286,7 +5003,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         const results = item.instructionResults!;
-                                                        const col1Name = mode === "voice" ? '加标签' : '外文';
+                                                        const col1Name = mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文';
                                                         const headers = results.map((_, i) => `指令${i + 1}${col1Name}`);
                                                         const values = results.map(r => r.status === 'success' ? escapeForSheet(r.resultForeign) : '');
                                                         navigator.clipboard.writeText(`${headers.join('\t')}\n${values.join('\t')}`);
@@ -4300,7 +5017,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         const results = item.instructionResults!;
-                                                        const col2Name = mode === "voice" ? '断句' : '中文';
+                                                        const col2Name = mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文';
                                                         const headers = results.map((_, i) => `指令${i + 1}${col2Name}`);
                                                         const values = results.map(r => r.status === 'success' ? escapeForSheet(r.resultChinese) : '');
                                                         navigator.clipboard.writeText(`${headers.join('\t')}\n${values.join('\t')}`);
@@ -4314,8 +5031,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         const results = item.instructionResults!;
-                                                        const col1Name = mode === "voice" ? '加标签' : '外文';
-                                                        const col2Name = mode === "voice" ? '断句' : '中文';
+                                                        const col1Name = mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文';
+                                                        const col2Name = mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文';
                                                         const headers = results.flatMap((_, i) => [`指令${i + 1}${col1Name}`, `指令${i + 1}${col2Name}`]);
                                                         const values = results.flatMap(r => r.status === 'success' ? [escapeForSheet(r.resultForeign), escapeForSheet(r.resultChinese)] : ['', '']);
                                                         navigator.clipboard.writeText(`${headers.join('\t')}\n${values.join('\t')}`);
@@ -4329,8 +5046,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         const results = item.instructionResults!;
-                                                        const col1Name = mode === "voice" ? '加标签' : '外文';
-                                                        const col2Name = mode === "voice" ? '断句' : '中文';
+                                                        const col1Name = mode === "voice" ? '加标签' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled)[0]?.name || '分项1') : '外文';
+                                                        const col2Name = mode === "voice" ? '断句' : mode === 'social-media' ? (socialMediaOutputSections.filter(s => s.enabled).slice(1).map(s => s.name).join('+') || '分项2') : '中文';
                                                         const headers = [mode === "voice" ? '原文' : '原始外文', mode === "voice" ? '原中文' : '原始中文', ...results.flatMap((_, i) => [`指令${i + 1}${col1Name}`, `指令${i + 1}${col2Name}`])];
                                                         const values = [escapeForSheet(item.originalForeign), escapeForSheet(item.originalChinese || ''), ...results.flatMap(r => r.status === 'success' ? [escapeForSheet(r.resultForeign), escapeForSheet(r.resultChinese)] : ['', ''])];
                                                         navigator.clipboard.writeText(`${headers.join('\t')}\n${values.join('\t')}`);
@@ -4515,14 +5232,16 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         ? '以下是人声文案模式的 Prompt 结构（专为 ElevenLabs 配音优化）：'
                                         : mode === "classify"
                                             ? '以下是分类模式的 Prompt 结构（只输出分类结果，无需翻译）：'
-                                            : '以下是发送给 AI 的完整 Prompt 结构（如果修改结果不满意可以修改这里的指令）：'
+                                            : mode === 'social-media'
+                                                ? '以下是自媒体改写模式的 Prompt 结构（信仰短视频口播稿改写）：'
+                                                : '以下是发送给 AI 的完整 Prompt 结构（如果修改结果不满意可以修改这里的指令）：'
                                     }
                                 </p>
 
                                 {/* 系统指令 - 可编辑 */}
-                                <div className={`bg-black/30 p-4 rounded-lg border ${mode === "voice" ? 'border-purple-900/30' : mode === "classify" ? 'border-cyan-900/30' : 'border-blue-900/30'}`}>
-                                    <div className={`${mode === "voice" ? 'text-purple-400' : mode === "classify" ? 'text-cyan-400' : 'text-blue-400'} font-medium mb-2 text-sm flex items-center gap-2`}>
-                                        {mode === "voice" ? '🎙️ 人声文案系统指令' : mode === "classify" ? '🏷️ 分类模式系统指令' : '📝 系统固定默认指令'}
+                                <div className={`bg-black/30 p-4 rounded-lg border ${mode === "voice" ? 'border-purple-900/30' : mode === "classify" ? 'border-cyan-900/30' : mode === 'social-media' ? 'border-teal-900/30' : 'border-blue-900/30'}`}>
+                                    <div className={`${mode === "voice" ? 'text-purple-400' : mode === "classify" ? 'text-cyan-400' : mode === 'social-media' ? 'text-teal-400' : 'text-blue-400'} font-medium mb-2 text-sm flex items-center gap-2`}>
+                                        {mode === "voice" ? '🎙️ 人声文案系统指令' : mode === "classify" ? '🏷️ 分类模式系统指令' : mode === 'social-media' ? '📱 自媒体改写系统指令' : '📝 系统固定默认指令'}
                                         <span className="text-zinc-500 text-xs font-normal">（可直接编辑）</span>
                                         {mode === "voice" && (
                                             <button
@@ -4540,20 +5259,30 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                 重置默认
                                             </button>
                                         )}
+                                        {mode === 'social-media' && (
+                                            <button
+                                                onClick={() => setSocialMediaModeSystemInstruction(SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION)}
+                                                className="text-[10px] text-teal-400/60 hover:text-teal-400 px-1.5 py-0.5 rounded bg-teal-900/20 hover:bg-teal-900/40 transition-colors"
+                                            >
+                                                重置默认
+                                            </button>
+                                        )}
                                     </div>
                                     <textarea
-                                        value={mode === "voice" ? voiceModeSystemInstruction : mode === "classify" ? classifyModeSystemInstruction : systemInstruction}
+                                        value={mode === "voice" ? voiceModeSystemInstruction : mode === "classify" ? classifyModeSystemInstruction : mode === 'social-media' ? socialMediaModeSystemInstruction : systemInstruction}
                                         onChange={(e) => {
                                             if (mode === "voice") {
                                                 setVoiceModeSystemInstruction(e.target.value);
                                             } else if (mode === "classify") {
                                                 setClassifyModeSystemInstruction(e.target.value);
+                                            } else if (mode === 'social-media') {
+                                                setSocialMediaModeSystemInstruction(e.target.value);
                                             } else {
                                                 setSystemInstruction(e.target.value);
                                             }
                                         }}
-                                        placeholder={mode === "voice" ? VOICE_MODE_SYSTEM_INSTRUCTION : mode === "classify" ? CLASSIFY_MODE_SYSTEM_INSTRUCTION : DEFAULT_SYSTEM_INSTRUCTION}
-                                        className={`w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-300 focus:outline-none resize-none h-48 placeholder-zinc-600 ${mode === "voice" ? 'focus:border-purple-500' : mode === "classify" ? 'focus:border-cyan-500' : 'focus:border-blue-500'}`}
+                                        placeholder={mode === "voice" ? VOICE_MODE_SYSTEM_INSTRUCTION : mode === "classify" ? CLASSIFY_MODE_SYSTEM_INSTRUCTION : mode === 'social-media' ? SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION : DEFAULT_SYSTEM_INSTRUCTION}
+                                        className={`w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-300 focus:outline-none resize-none h-48 placeholder-zinc-600 ${mode === "voice" ? 'focus:border-purple-500' : mode === "classify" ? 'focus:border-cyan-500' : mode === 'social-media' ? 'focus:border-teal-500' : 'focus:border-blue-500'}`}
                                     />
                                 </div>
 
@@ -4683,6 +5412,69 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                     </div>
                 )
             }
+
+            {/* 自媒体模式双击编辑弹窗 */}
+            {editingSocialMediaField !== null && (() => {
+                const isSystemInstruction = editingSocialMediaField.type === 'systemInstruction';
+                const editingSection = editingSocialMediaField.sectionId
+                    ? socialMediaOutputSections.find(s => s.id === editingSocialMediaField.sectionId)
+                    : null;
+                return (
+                    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                        <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-3xl mx-4 shadow-2xl flex flex-col max-h-[85vh]">
+                            <div className="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
+                                <div className="text-teal-400 font-medium flex items-center gap-2">
+                                    ✏️ {isSystemInstruction ? '编辑自媒体系统指令' : `编辑分项描述 - ${editingSection?.name || ''}`}
+                                </div>
+                                <button
+                                    onClick={() => setEditingSocialMediaField(null)}
+                                    className="text-zinc-500 hover:text-zinc-300"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+                            <div className="p-4 flex-1 overflow-auto">
+                                <textarea
+                                    value={isSystemInstruction ? socialMediaModeSystemInstruction : (editingSection?.description || '')}
+                                    onChange={(e) => {
+                                        if (isSystemInstruction) {
+                                            setSocialMediaModeSystemInstruction(e.target.value);
+                                        } else if (editingSocialMediaField.sectionId) {
+                                            setSocialMediaOutputSections(prev => prev.map(s =>
+                                                s.id === editingSocialMediaField.sectionId ? { ...s, description: e.target.value } : s
+                                            ));
+                                        }
+                                    }}
+                                    placeholder={isSystemInstruction ? '输入系统指令...' : '描述这个分项的输出要求...'}
+                                    className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-4 py-3 text-sm text-zinc-200 focus:outline-none focus:border-teal-500 placeholder-zinc-600 resize-none leading-relaxed"
+                                    style={{ minHeight: isSystemInstruction ? '400px' : '200px' }}
+                                    autoFocus
+                                />
+                                <div className="mt-3 text-[10px] text-zinc-500">
+                                    {isSystemInstruction ? '提示：这是发送给 AI 的系统指令，定义了改写风格和规则。' : '提示：描述 AI 在这个分项中应该输出什么内容。'}
+                                </div>
+                            </div>
+                            <div className="p-4 border-t border-zinc-800 flex justify-between shrink-0">
+                                {isSystemInstruction && (
+                                    <button
+                                        onClick={() => setSocialMediaModeSystemInstruction(SOCIAL_MEDIA_MODE_SYSTEM_INSTRUCTION)}
+                                        className="px-3 py-1.5 text-xs text-zinc-500 hover:text-teal-400 rounded border border-zinc-700 hover:border-teal-700 transition-colors"
+                                    >
+                                        重置默认
+                                    </button>
+                                )}
+                                {!isSystemInstruction && <div />}
+                                <button
+                                    onClick={() => setEditingSocialMediaField(null)}
+                                    className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium"
+                                >
+                                    确定
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* 库模式双击编辑弹窗 */}
             {editingLibField !== null && (

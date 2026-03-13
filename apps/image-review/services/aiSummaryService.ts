@@ -10,7 +10,11 @@ const getAiInstance = () => {
     if (!keyToUse) {
         throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
     }
-    return new GoogleGenAI({ apiKey: keyToUse });
+    if (keyToUse.startsWith('AIza')) {
+        throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
+    }
+    const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
+    return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
 };
 
 /**
@@ -116,7 +120,7 @@ ${allFeedback}
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: prompt,
         });
 
@@ -200,7 +204,7 @@ Respond with ONLY the English translation, nothing else.`;
 
     try {
         const translateResponse = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: translatePrompt,
         });
         const englishTranslation = translateResponse.text?.trim() || '';
@@ -214,7 +218,7 @@ ${englishTranslation}
 Respond with ONLY the Chinese translation, nothing else.`;
 
         const backTranslateResponse = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: backTranslatePrompt,
         });
         const backTranslation = backTranslateResponse.text?.trim() || '';
@@ -230,7 +234,7 @@ The tone may differ (the back-translation might be softer), but the main points 
 Respond with ONLY "true" if the core meaning is preserved, or "false" if the meaning is significantly different.`;
 
         const accuracyResponse = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: accuracyPrompt,
         });
         const isAccurate = accuracyResponse.text?.trim().toLowerCase() === 'true';

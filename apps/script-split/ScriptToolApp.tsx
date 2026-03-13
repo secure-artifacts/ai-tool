@@ -14,7 +14,8 @@ import {
   Hash,
   Zap,
   Sparkles,
-  LayoutGrid
+  LayoutGrid,
+  Eraser
 } from 'lucide-react';
 import {
   processGrid,
@@ -122,7 +123,7 @@ ${textsJson}
 Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash',
+          model: 'gemini-3.1-flash-lite-preview',
           contents: prompt,
         });
 
@@ -308,6 +309,16 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
       toolMsg = panelCount > 0
         ? `已生成 ${panelCount} 画面分割图提示词，结果在列: ${colsStr}`
         : `选区内没有找到内容`;
+    } else if (tool === ToolType.CleanTails) {
+      let cleanedCount = 0;
+      for (const col of updatedCols) {
+        if (col <= -5000 && col > -6000) {
+          cleanedCount = -(col + 5000);
+        }
+      }
+      toolMsg = cleanedCount > 0
+        ? `已清理 ${cleanedCount} 个单元格的尾部标签/水印`
+        : `选区内没有发现需要清理的尾部标签/水印`;
     } else {
       const colsStr = updatedCols.filter(c => c >= 0).map(c => colToLetter(c)).join(', ');
       const clearMsg = clearSource ? ' (已删除原文案)' : '';
@@ -559,6 +570,13 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 label="多画面提示词"
                 tooltip="将每个单元格内容生成多画面分割图描述格式（画面1、画面2...）"
                 onClick={() => handleProcess(ToolType.MultiPanelPrompt)}
+                disabled={!selection}
+              />
+              <ToolButton
+                icon={<Eraser className="w-4 h-4" />}
+                label="清理尾部"
+                tooltip="自动清理结尾的 @某人 标签或 Veo 等水印单词"
+                onClick={() => handleProcess(ToolType.CleanTails)}
                 disabled={!selection}
               />
               <ToolButton

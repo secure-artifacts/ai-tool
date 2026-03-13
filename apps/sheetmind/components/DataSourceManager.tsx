@@ -88,11 +88,31 @@ export const addDataSource = (source: Omit<DataSource, 'id' | 'addedAt'>): DataS
     return newSource;
 };
 
+const buildUniqueLocalSourceName = (sources: DataSource[], baseName: string): string => {
+    const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matcher = new RegExp(`^${escaped}(?:\\s*\\((\\d+)\\))?$`);
+    const taken = sources
+        .map(s => s.name)
+        .map(name => name.match(matcher))
+        .filter(Boolean) as RegExpMatchArray[];
+
+    if (taken.length === 0) return baseName;
+
+    const maxIdx = taken.reduce((max, m) => {
+        const idx = Number(m[1] || '1');
+        return Number.isFinite(idx) ? Math.max(max, idx) : max;
+    }, 1);
+
+    return `${baseName} (${maxIdx + 1})`;
+};
+
 export const addLocalDataSource = (source: Omit<DataSource, 'id' | 'addedAt' | 'url'> & { url?: string }): DataSource => {
     const sources = loadDataSources();
     const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const uniqueName = buildUniqueLocalSourceName(sources, source.name);
     const newSource: DataSource = {
         ...source,
+        name: uniqueName,
         id,
         url: source.url || `${LOCAL_SOURCE_PREFIX}${id}`,
         addedAt: Date.now(),

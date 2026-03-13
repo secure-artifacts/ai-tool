@@ -50,10 +50,10 @@ interface ImageSorterAppProps {
 const DEFAULT_BATCH_SIZE = 20; // align closer to AI 图片识别批次体验
 const BATCH_SIZE_OPTIONS = [10, 20, 30, 50];
 const MODEL_OPTIONS = [
-    { value: 'gemini-2.0-flash', label: '2.0 Flash' },
+    { value: 'gemini-3.1-flash-lite-preview', label: '3.1 Flash Lite (最新)' },
     { value: 'gemini-3-flash-preview', label: '3.0 Flash' },
 ];
-const DEFAULT_MODEL = 'gemini-2.0-flash';
+const DEFAULT_MODEL = 'gemini-3.1-flash-lite-preview';
 const BATCH_CONCURRENCY = 3; // concurrent AI classification requests
 const MAX_IMAGE_DIM = 512; // resize for faster processing
 

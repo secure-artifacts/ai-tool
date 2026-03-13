@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../../contexts/AuthContext';
@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import { DirectChatView } from './DirectChatView';
 import { CopywritingView } from './CopywritingView';
+
 import {
     appendToSheet,
     getSheetsSyncConfig
@@ -1075,7 +1076,7 @@ Please respond as a helpful editor: adjust the draft based on the user request a
 
             const result = await ai.models.generateContent({
                 model: currentModel,
-                contents: { parts }
+                contents: { role: 'user', parts }
             });
 
             const responseText = result.text || 'No response';
@@ -1198,7 +1199,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
             const result = await ai.models.generateContent({
                 model: currentModel,
-                contents: { parts }
+                contents: { role: 'user', parts }
             });
 
             const responseText = result.text || 'No response';
@@ -1386,41 +1387,45 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
     // --- Main Handlers ---
 
-    const handleAddEntries = (mode: 'batch' | 'single' = 'batch') => {
-        const raw = state.bulkInput.trim();
-        if (!raw) return;
-
+    const handleAddEntries = (mode: 'batch' | 'single' = 'batch', directLines?: string[]) => {
         let lines: string[] = [];
 
-        if (mode === 'single') {
-            lines = [raw];
+        if (directLines && directLines.length > 0) {
+            lines = directLines;
         } else {
-            const input = state.bulkInput;
-            let current = '';
-            let inQuote = false;
+            const raw = state.bulkInput.trim();
+            if (!raw) return;
 
-            for (let i = 0; i < input.length; i++) {
-                const char = input[i];
-                const nextChar = input[i + 1];
+            if (mode === 'single') {
+                lines = [raw];
+            } else {
+                const input = state.bulkInput;
+                let current = '';
+                let inQuote = false;
 
-                if (char === '"') {
-                    if (inQuote && nextChar === '"') {
-                        current += '"';
-                        i++;
+                for (let i = 0; i < input.length; i++) {
+                    const char = input[i];
+                    const nextChar = input[i + 1];
+
+                    if (char === '"') {
+                        if (inQuote && nextChar === '"') {
+                            current += '"';
+                            i++;
+                        } else {
+                            inQuote = !inQuote;
+                        }
+                    } else if (!inQuote && (char === '\t' || char === '\n' || char === '\r')) {
+                        if (current.trim()) {
+                            lines.push(current.trim());
+                        }
+                        current = '';
                     } else {
-                        inQuote = !inQuote;
+                        current += char;
                     }
-                } else if (!inQuote && (char === '\t' || char === '\n' || char === '\r')) {
-                    if (current.trim()) {
-                        lines.push(current.trim());
-                    }
-                    current = '';
-                } else {
-                    current += char;
                 }
-            }
-            if (current.trim()) {
-                lines.push(current.trim());
+                if (current.trim()) {
+                    lines.push(current.trim());
+                }
             }
         }
 
@@ -1445,7 +1450,9 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
             entries: [...prev.entries, ...newEntries],
             bulkInput: ''
         }));
-        setExpandedEntryIds(prev => [...prev, ...newEntries.map(e => e.id)]);
+        if (newEntries.length <= 50) {
+            setExpandedEntryIds(prev => [...prev, ...newEntries.map(e => e.id)]);
+        }
     };
 
     const handleClearEntries = () => {
@@ -1606,7 +1613,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                     const result = await retryOnEmpty(
                         () => ai.models.generateContent({
                             model: currentModel,
-                            contents: { parts: [{ text: prompt }] }
+                            contents: { role: 'user', parts: [{ text: prompt }] }
                         }),
                         (res) => !res.text?.trim(),
                         3,  // 最多重试 3 次
@@ -1731,7 +1738,20 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
         }
     };
 
-    const hasOutputs = state.entries.some(e => e.outputs.length > 0);
+    // 缓存昂贵的统计计算，避免每次渲染都遍历全部 entries
+    const entryStats = useMemo(() => {
+        const total = state.entries.length;
+        let idle = 0, processing = 0, success = 0, error = 0, hasOut = false;
+        for (const e of state.entries) {
+            if (e.status === 'idle') idle++;
+            else if (e.status === 'processing') processing++;
+            else if (e.status === 'success') success++;
+            else if (e.status === 'error') error++;
+            if (!hasOut && e.outputs.length > 0) hasOut = true;
+        }
+        return { total, idle, processing, success, error, pending: idle + processing, hasOutputs: hasOut };
+    }, [state.entries]);
+    const hasOutputs = entryStats.hasOutputs;
 
     // 使用函数来获取 activeTab，避免 TypeScript 类型缩窄导致的虚假比较警告
     // 函数调用的返回值不会被 TypeScript 缩窄
@@ -1921,7 +1941,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
                 {promptTabBar}
 
-                <CopywritingView getAiInstance={getAiInstance} textModel={currentModel} />
+                <CopywritingView getAiInstance={getAiInstance} textModel={currentModel} promptTabId={state.activePromptTabId} />
             </div>
         );
     }
@@ -2162,9 +2182,37 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             </div>
                                             <textarea
                                                 className="h-20 w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-200 focus:outline-none focus:border-purple-500 resize-none custom-scrollbar placeholder-zinc-700 leading-snug pb-9"
-                                                placeholder="输入提示词，按回车..."
+                                                placeholder="粘贴即自动添加（支持万级单元格）"
                                                 value={state.bulkInput}
                                                 onChange={(e) => setState(prev => ({ ...prev, bulkInput: e.target.value }))}
+                                                onPaste={(e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+                                                    const plain = e.clipboardData.getData('text/plain');
+                                                    const lineCount = (plain.match(/\n/g) || []).length + 1;
+                                                    if (lineCount > 50) {
+                                                        e.preventDefault();
+                                                        const lines: string[] = [];
+                                                        let current = '';
+                                                        let inQuote = false;
+                                                        for (let i = 0; i < plain.length; i++) {
+                                                            const char = plain[i];
+                                                            const nextChar = plain[i + 1];
+                                                            if (char === '"') {
+                                                                if (inQuote && nextChar === '"') { current += '"'; i++; }
+                                                                else { inQuote = !inQuote; }
+                                                            } else if (!inQuote && (char === '\t' || char === '\n' || char === '\r')) {
+                                                                if (current.trim()) lines.push(current.trim());
+                                                                current = '';
+                                                                if (char === '\r' && nextChar === '\n') i++;
+                                                            } else {
+                                                                current += char;
+                                                            }
+                                                        }
+                                                        if (current.trim()) lines.push(current.trim());
+                                                        if (lines.length > 0) {
+                                                            requestAnimationFrame(() => handleAddEntries('batch', lines));
+                                                        }
+                                                    }
+                                                }}
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleAddEntries('batch');
                                                 }}
@@ -2232,11 +2280,11 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             </button>
                                             <button
                                                 onClick={handleRetryAllFailed}
-                                                disabled={state.isProcessing || state.entries.filter(e => e.status === 'error').length === 0}
+                                                disabled={state.isProcessing || entryStats.error === 0}
                                                 className="py-1.5 bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 hover:text-amber-300 border border-amber-500/20 rounded-lg text-[0.625rem] transition-colors flex items-center justify-center gap-1 disabled:opacity-30 tooltip-bottom"
                                                 data-tip="重试所有失败的任务"
                                             >
-                                                <RotateCw size={12} /> 重试失败 ({state.entries.filter(e => e.status === 'error').length})
+                                                <RotateCw size={12} /> 重试失败 ({entryStats.error})
                                             </button>
                                             <button
                                                 onClick={handleClearEntries}
@@ -2346,19 +2394,19 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors cursor-default">
                                                 <span className="text-[0.6875rem] font-medium">待处理</span>
                                                 <span className="text-xs font-bold text-amber-300 font-mono">
-                                                    {state.entries.filter(e => e.status === 'idle' || e.status === 'processing').length}
+                                                    {entryStats.pending}
                                                 </span>
                                             </div>
                                             <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-default">
                                                 <span className="text-[0.6875rem] font-medium">成功</span>
                                                 <span className="text-xs font-bold text-emerald-300 font-mono">
-                                                    {state.entries.filter(e => e.status === 'success').length}
+                                                    {entryStats.success}
                                                 </span>
                                             </div>
                                             <div className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors cursor-default">
                                                 <span className="text-[0.6875rem] font-medium">失败</span>
                                                 <span className="text-xs font-bold text-red-300 font-mono">
-                                                    {state.entries.filter(e => e.status === 'error').length}
+                                                    {entryStats.error}
                                                 </span>
                                             </div>
                                         </div>
@@ -2373,7 +2421,11 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                         <p>列表为空，请在上方添加提示词</p>
                                     </div>
                                 ) : (
-                                    state.entries.map((entry, idx) => {
+                                    state.entries.slice(
+                                        parseInt(sessionStorage.getItem('pt_page') || '0') * 100,
+                                        (parseInt(sessionStorage.getItem('pt_page') || '0') + 1) * 100
+                                    ).map((entry, pageIdx) => {
+                                        const idx = parseInt(sessionStorage.getItem('pt_page') || '0') * 100 + pageIdx;
                                         const taskViewMode = getViewMode(entry.id);
 
                                         return (
@@ -2943,6 +2995,21 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                         )
                                     })
                                 )}
+                                {state.entries.length > 100 && (() => {
+                                    const PT_PS = 100;
+                                    const curP = parseInt(sessionStorage.getItem('pt_page') || '0');
+                                    const totP = Math.ceil(state.entries.length / PT_PS);
+                                    const doPage = (p: number) => { sessionStorage.setItem('pt_page', String(p)); setState(prev => ({ ...prev })); };
+                                    return (
+                                        <div className="flex items-center justify-center gap-2 py-3 mt-3 bg-zinc-900/50 rounded-lg border border-zinc-800">
+                                            <button onClick={() => doPage(0)} disabled={curP === 0} className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 disabled:opacity-30">首页</button>
+                                            <button onClick={() => doPage(Math.max(0, curP - 1))} disabled={curP === 0} className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 disabled:opacity-30">←</button>
+                                            <span className="text-xs text-zinc-400">{curP + 1}/{totP} （{curP * PT_PS + 1}-{Math.min((curP + 1) * PT_PS, state.entries.length)}/{state.entries.length}条）</span>
+                                            <button onClick={() => doPage(Math.min(totP - 1, curP + 1))} disabled={curP >= totP - 1} className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 disabled:opacity-30">→</button>
+                                            <button onClick={() => doPage(totP - 1)} disabled={curP >= totP - 1} className="px-2 py-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700 disabled:opacity-30">末页</button>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </div>
                     </div>

@@ -76,7 +76,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     getAiInstance,
     t,
     templateBuilderState,
-    textModel = 'gemini-2.0-flash',
+    textModel = 'gemini-3.1-flash-lite-preview',
 }) => {
     // ========== State ==========
 
@@ -717,7 +717,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
             const response = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts },
+                contents: { role: 'user', parts },
                 config: {
                     systemInstruction,
                     responseMimeType: "application/json",
@@ -793,7 +793,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
                         const response = await ai.models.generateContent({
                             model: textModel,
-                            contents: { parts },
+                            contents: { role: 'user', parts },
                             config: {
                                 systemInstruction,
                                 responseMimeType: "application/json",
@@ -832,7 +832,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
                 const response = await ai.models.generateContent({
                     model: textModel,
-                    contents: { parts },
+                    contents: { role: 'user', parts },
                     config: {
                         systemInstruction,
                         responseMimeType: "application/json",
@@ -899,7 +899,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
             const response = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts },
+                contents: { role: 'user', parts },
                 config: {
                     systemInstruction,
                     responseMimeType: "application/json"
@@ -941,7 +941,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
 
             const response = await ai.models.generateContent({
                 model: textModel,
-                contents: { parts: contextParts },
+                contents: { role: 'user', parts: contextParts },
                 config: { responseMimeType: "application/json" }
             });
 

@@ -119,6 +119,10 @@ export interface ImageItem {
     refImageConfigs?: RefImageConfig[];
     // 卡片级"先描述再创新"开关：覆盖全局 needOriginalDesc
     needDescribeFirst?: boolean;
+    // 卡片级描述预设ID：覆盖全局 originalDescPresetId（'1'|'2'|'6' 或 'custom'）
+    describePresetId?: string;
+    // 卡片级自定义描述提示词（当 describePresetId === 'custom' 时使用）
+    describeCustomPrompt?: string;
     // AI 对话记录：记录发送给 AI 的完整 prompt 和 AI 的回复
     aiConversationLog?: Array<{
         timestamp: number;
@@ -169,6 +173,7 @@ export interface RecognitionTab {
     needOriginalDesc?: boolean;
     batchAdvancedMode?: boolean;
     originalDescPresetId?: string;
+    originalDescCustomPrompt?: string; // 全局自定义描述提示词
     pureReplyMode?: boolean;
 }
 
@@ -197,6 +202,7 @@ export interface ImageRecognitionState {
     needOriginalDesc?: boolean; // 创新模式：是否需要先获取原始描述词（开启则两步流程，关闭则直接创新）
     batchAdvancedMode?: boolean; // 创新模式：高级模式合并调用（true=将所有随机组合合并为一次API调用）
     originalDescPresetId?: string; // 创新模式：用于获取原始描述的预设ID（默认使用 ai提示词-1）
+    originalDescCustomPrompt?: string; // 创新模式：全局自定义描述提示词（当 originalDescPresetId === 'custom' 时使用）
 }
 
 // 默认预设 - 用于首次加载或 localStorage 为空时

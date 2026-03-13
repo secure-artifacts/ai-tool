@@ -216,7 +216,7 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = ({
                     display: flex;
                     align-items: center;
                     gap: 8px;
-                    height: 36px;
+                    height: 32px;
                     padding: 0 12px;
                     background: rgba(255, 255, 255, 0.05);
                     border: 1px solid rgba(255, 255, 255, 0.1);

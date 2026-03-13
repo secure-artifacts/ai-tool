@@ -192,7 +192,7 @@ ${userGoal}
 规则：最多3步，直接做，不废话。只返回JSON。`;
 
             const data = await service['requestGemini']({
-                contents: [{ parts: [{ text: prompt }] }],
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: { temperature: 0.5, maxOutputTokens: 4096 },
             });
 

@@ -118,35 +118,58 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
         setShowLinkModal(false);
     };
 
+    const [showDropdown, setShowDropdown] = useState(false);
+    const dropdownRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setShowDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
     return (
         <>
             {/* 紧凑按钮组 */}
-            <div className="flex flex-wrap items-center gap-2">
-                <button
-                    onClick={triggerFileSelect}
-                    className={`flex items-center justify-center gap-2 tooltip-bottom ${compact ? 'w-8 h-8 p-0' : 'px-3 py-2'} bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-medium transition-colors`}
-                    data-tip="选择本地图片文件"
-                >
-                    <Upload size={16} />
-                    {!compact && "上传文件"}
-                </button>
+            <div className={`flex items-start gap-2 ${compact ? 'items-center' : ''}`} ref={dropdownRef}>
+                <div className="relative">
+                    <button
+                        onClick={() => setShowDropdown(!showDropdown)}
+                        className={`flex items-center justify-center gap-1.5 tooltip-bottom ${compact ? 'w-8 h-8 p-0' : 'px-3 py-1.5'} bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50 rounded-lg text-xs font-medium transition-colors h-8`}
+                        data-tip="添加图片"
+                    >
+                        <ImagePlus size={16} />
+                        {!compact && "添加图片"}
+                    </button>
 
-                <button
-                    onClick={() => setShowLinkModal(true)}
-                    className={`flex items-center justify-center gap-2 tooltip-bottom ${compact ? 'w-8 h-8 p-0' : 'px-3 py-2'} bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 rounded-lg text-xs font-medium transition-colors`}
-                    data-tip="粘贴图片链接或公式"
-                >
-                    <LinkIcon size={16} />
-                    {!compact && "添加链接"}
-                </button>
+                    {showDropdown && (
+                        <div className="absolute top-full mt-2 left-0 p-2 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-xl z-50 flex flex-col gap-2 min-w-[140px]">
+                            <button
+                                onClick={() => { setShowDropdown(false); triggerFileSelect(); }}
+                                className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-lg text-xs font-medium transition-colors text-left"
+                            >
+                                <Upload size={14} className="text-emerald-400" /> 上传本地图片
+                            </button>
+                            <button
+                                onClick={() => { setShowDropdown(false); setShowLinkModal(true); }}
+                                className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-lg text-xs font-medium transition-colors text-left"
+                            >
+                                <LinkIcon size={14} className="text-blue-400" /> 粘贴链接/公式
+                            </button>
+                            <div className="border-t border-zinc-800 my-0.5"></div>
+                            <div className="text-[10px] text-zinc-500 px-2 pb-1 text-center">
+                                也支持直接拖拽/粘贴图片
+                            </div>
+                        </div>
+                    )}
+                </div>
 
-                {extraContent}
-
-                {!compact && (
-                    <div className="text-[0.625rem] text-zinc-600 ml-1">
-                        拖拽/粘贴图片或表格
-                    </div>
-                )}
+                <div className="flex relative items-center h-8">
+                    {extraContent}
+                </div>
             </div>
 
             {/* 全屏拖拽覆盖层 */}

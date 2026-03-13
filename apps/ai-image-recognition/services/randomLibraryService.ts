@@ -808,8 +808,12 @@ const parseCSVLine = (line: string): string[] => {
             if (inQuotes && line[i + 1] === '"') {
                 current += '"';
                 i++; // 跳过转义的引号
+            } else if (inQuotes) {
+                inQuotes = false;
+            } else if (current === '') {
+                inQuotes = true;
             } else {
-                inQuotes = !inQuotes;
+                current += char;
             }
         } else if (char === ',' && !inQuotes) {
             result.push(current.trim());

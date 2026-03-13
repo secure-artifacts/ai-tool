@@ -93,7 +93,79 @@ const PRESET_COLORS = [
     '#74c0fc', '#91a7ff', '#e599f7', '#faa2c1', '#c0eb75',
 ];
 
-// ===== 解析粘贴数据（Google Sheets / Excel 标准 TSV 格式） =====
+// ===== 中文检测 =====
+/** 判断文本是否主要为中文（CJK 字符占比 > 20%） */
+function isMostlyChinese(text: string): boolean {
+    if (!text.trim()) return false;
+    const cjkMatches = text.match(/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g);
+    const cjkCount = cjkMatches ? cjkMatches.length : 0;
+    // 去掉空格和标点后的总字符数
+    const meaningful = text.replace(/[\s\p{P}]/gu, '');
+    if (meaningful.length === 0) return false;
+    return cjkCount / meaningful.length > 0.2;
+}
+
+// ===== 解析 HTML 表格数据（Google Sheets / Excel 粘贴优先使用） =====
+// Google Sheets 复制时剪贴板同时包含 text/html 和 text/plain
+// HTML 格式中每个单元格由 <td> 标签明确界定，完美解决换行问题
+function parseHtmlTable(html: string): { headers: string[]; rows: string[][] } | null {
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const table = doc.querySelector('table');
+        if (!table) return null;
+
+        const allRows: string[][] = [];
+        const trs = table.querySelectorAll('tr');
+        if (trs.length === 0) return null;
+
+        trs.forEach(tr => {
+            const row: string[] = [];
+            tr.querySelectorAll('td, th').forEach(cell => {
+                // 获取单元格文本，保留内部换行
+                // 将 <br> 转为换行，然后取 textContent
+                const clone = cell.cloneNode(true) as HTMLElement;
+                clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+                // Google Sheets 用 <p> 包裹多行内容
+                clone.querySelectorAll('p').forEach((p, idx) => {
+                    if (idx > 0) p.insertBefore(document.createTextNode('\n'), p.firstChild);
+                });
+                const text = (clone.textContent || '').trim();
+                row.push(text);
+            });
+            if (row.length > 0 && row.some(c => c !== '')) {
+                allRows.push(row);
+            }
+        });
+
+        if (allRows.length === 0) return null;
+
+        // 补齐列数
+        const maxCols = Math.max(...allRows.map(r => r.length));
+        const padRow = (row: string[]) => {
+            while (row.length < maxCols) row.push('');
+            return row;
+        };
+
+        // 判断表头
+        const firstLine = allRows[0];
+        const isHeader = firstLine.every(c => c.length < 100 && !/^\d+$/.test(c));
+
+        if (isHeader && allRows.length > 1) {
+            const headers = padRow(firstLine);
+            const rows = allRows.slice(1).map(padRow).filter(r => r.some(c => c.trim()));
+            return { headers, rows };
+        } else {
+            const headers = Array.from({ length: maxCols }, (_, i) => `列${i + 1}`);
+            const rows = allRows.map(padRow).filter(r => r.some(c => c.trim()));
+            return { headers, rows };
+        }
+    } catch {
+        return null;
+    }
+}
+
+// ===== 解析粘贴数据（Google Sheets / Excel 标准 TSV 格式，HTML 不可用时的后备） =====
 // Google Sheets 复制出来的 TSV：
 //   - 单元格内含换行时，整个格子用双引号包裹
 //   - 格子内的引号转义为 ""
@@ -211,6 +283,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
     // 表格状态
     const [table, setTable] = useState<TableState>({ headers: [], rows: [], noteColumnVisible: true });
     const [pasteInput, setPasteInput] = useState('');
+    const [pasteHtml, setPasteHtml] = useState(''); // 保存 HTML 剪贴板数据
     const [showPasteArea, setShowPasteArea] = useState(true);
 
     // 搜索项
@@ -227,6 +300,10 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
     const [globalProgress, setGlobalProgress] = useState('');
     const [expandedModal, setExpandedModal] = useState<ExpandedModalState | null>(null);
     const [expandedDraft, setExpandedDraft] = useState('');
+
+    // 分页（避免大数据量卡死）
+    const PAGE_SIZE = 500;
+    const [currentPage, setCurrentPage] = useState(0);
 
     // AI 搜索状态
     const [aiSearchQuery, setAiSearchQuery] = useState('');
@@ -248,18 +325,29 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
 
     // ===== 粘贴数据 =====
     const handlePaste = useCallback(() => {
-        if (!pasteInput.trim()) return;
-        const { headers, rows: rawRows } = parseTableData(pasteInput);
-        if (headers.length === 0) return;
+        if (!pasteInput.trim() && !pasteHtml.trim()) return;
 
-        const rows: CellData[][] = rawRows.map(row =>
+        // 优先使用 HTML 解析（Google Sheets 粘贴时完美保留单元格边界）
+        let parsed: { headers: string[]; rows: string[][] } | null = null;
+        if (pasteHtml.trim()) {
+            parsed = parseHtmlTable(pasteHtml);
+        }
+        // HTML 解析失败或无 HTML 数据时，回退到 TSV 解析
+        if (!parsed || parsed.headers.length === 0) {
+            parsed = parseTableData(pasteInput);
+        }
+        if (!parsed || parsed.headers.length === 0) return;
+
+        const rows: CellData[][] = parsed.rows.map(row =>
             row.map(val => ({ value: val, highlights: [], note: '' }))
         );
-        setTable({ headers, rows, noteColumnVisible: true });
+        setTable({ headers: parsed.headers, rows, noteColumnVisible: true });
         setShowPasteArea(false);
         setPasteInput('');
+        setPasteHtml('');
+        setCurrentPage(0);
         shingleCache.current.clear();
-    }, [pasteInput]);
+    }, [pasteInput, pasteHtml]);
 
     // ===== 搜索项管理 =====
     const addQuery = () => {
@@ -1376,6 +1464,39 @@ If no matches: []`;
                                     style={btnStyle('#27272a')} data-tip="重新导入表格数据">
                                     <Upload size={14} /> 重新粘贴
                                 </button>
+                                {table.headers.length >= 2 && (
+                                    <button onClick={() => {
+                                        // 自动整理列顺序：英文→列1，中文→列2
+                                        setTable(prev => {
+                                            let swapCount = 0;
+                                            let totalChecked = 0;
+                                            const newRows = prev.rows.map(row => {
+                                                if (row.length < 2) return row;
+                                                const col0 = row[0].value.trim();
+                                                const col1 = row[1].value.trim();
+                                                if (!col0 && !col1) return row;
+                                                totalChecked++;
+                                                // 如果第一列是中文、第二列不是中文 → 交换
+                                                const col0IsChinese = isMostlyChinese(col0);
+                                                const col1IsChinese = isMostlyChinese(col1);
+                                                if (col0IsChinese && !col1IsChinese && col1) {
+                                                    swapCount++;
+                                                    const newRow = [...row];
+                                                    newRow[0] = { ...row[1] };
+                                                    newRow[1] = { ...row[0] };
+                                                    return newRow;
+                                                }
+                                                return row;
+                                            });
+                                            setGlobalProgress(`✅ 列顺序整理完成：${swapCount}/${totalChecked} 行已交换（英文→列1，中文→列2）`);
+                                            setTimeout(() => setGlobalProgress(''), 3000);
+                                            shingleCache.current.clear();
+                                            return { ...prev, rows: newRows };
+                                        });
+                                    }} style={btnStyle('#1e40af')} data-tip="自动检测中英文，确保英文在第一列、中文在第二列">
+                                        <Columns size={14} /> 整理列顺序
+                                    </button>
+                                )}
                                 <button onClick={() => setTable(prev => ({ ...prev, noteColumnVisible: !prev.noteColumnVisible }))}
                                     style={btnStyle('#27272a')}
                                     data-tip={table.noteColumnVisible ? '隐藏备注列' : '显示备注列'}
@@ -1411,6 +1532,7 @@ If no matches: []`;
                                     setTable({ headers: [], rows: [], noteColumnVisible: false });
                                     setShowPasteArea(true);
                                     setPasteInput('');
+                                    setPasteHtml('');
                                     shingleCache.current.clear();
                                 }} style={btnStyle('#450a0a')} data-tip="清空所有搜索项和导入数据">
                                     <Trash2 size={14} /> 清空全部
@@ -1451,8 +1573,12 @@ If no matches: []`;
                             onPaste={e => {
                                 e.preventDefault();
                                 const text = e.clipboardData.getData('text/plain');
+                                const html = e.clipboardData.getData('text/html');
                                 if (text) {
                                     setPasteInput(text);
+                                }
+                                if (html) {
+                                    setPasteHtml(html);
                                 }
                             }}
                         />
@@ -2135,84 +2261,127 @@ If no matches: []`;
                                 </tr>
                             </thead>
                             <tbody>
-                                {table.rows.map((row, ri) => {
-                                    const isFocused = focusedMatchIdx >= 0 && matchedRowIndices[focusedMatchIdx] === ri;
-                                    return (
-                                        <tr key={ri} data-row-idx={ri} style={{
-                                            borderBottom: '1px solid #1f1f23',
-                                            outline: isFocused ? '2px solid #fbbf24' : 'none',
-                                            outlineOffset: '-1px',
-                                            transition: 'outline 0.2s',
-                                        }}>
-                                            <td style={{ ...tdStyle, color: '#52525b', fontSize: '11px', textAlign: 'center', minWidth: '40px' }}>
-                                                {ri + 1}
-                                            </td>
-                                            {row.map((cell, ci) => {
-                                                const highlight = cell.highlights[0];
-                                                const bg = highlight ? highlight.color + '33' : 'transparent';
-                                                const borderLeft = highlight ? `3px solid ${highlight.color}` : '0';
-                                                return (
-                                                    <td key={ci} style={{
-                                                        ...tdStyle,
-                                                        background: bg,
-                                                        borderLeft,
-                                                        position: 'relative',
-                                                    }}>
-                                                        <div style={{ maxHeight: '80px', overflow: 'auto', lineHeight: '1.5' }}>
-                                                            {cell.value}
-                                                        </div>
-                                                        {cell.highlights.length > 0 && (
+                                {(() => {
+                                    const totalPages = Math.ceil(table.rows.length / PAGE_SIZE);
+                                    const startIdx = currentPage * PAGE_SIZE;
+                                    const endIdx = Math.min(startIdx + PAGE_SIZE, table.rows.length);
+                                    const visibleRows = table.rows.slice(startIdx, endIdx);
+                                    return visibleRows.map((row, pageRowIdx) => {
+                                        const ri = startIdx + pageRowIdx;
+                                        const isFocused = focusedMatchIdx >= 0 && matchedRowIndices[focusedMatchIdx] === ri;
+                                        return (
+                                            <tr key={ri} data-row-idx={ri} style={{
+                                                borderBottom: '1px solid #1f1f23',
+                                                outline: isFocused ? '2px solid #fbbf24' : 'none',
+                                                outlineOffset: '-1px',
+                                                transition: 'outline 0.2s',
+                                            }}>
+                                                <td style={{ ...tdStyle, color: '#52525b', fontSize: '11px', textAlign: 'center', minWidth: '40px' }}>
+                                                    {ri + 1}
+                                                </td>
+                                                {row.map((cell, ci) => {
+                                                    const highlight = cell.highlights[0];
+                                                    const bg = highlight ? highlight.color + '33' : 'transparent';
+                                                    const borderLeft = highlight ? `3px solid ${highlight.color}` : '0';
+                                                    return (
+                                                        <td key={ci} style={{
+                                                            ...tdStyle,
+                                                            background: bg,
+                                                            borderLeft,
+                                                            position: 'relative',
+                                                        }}>
+                                                            <div style={{ maxHeight: '80px', overflow: 'auto', lineHeight: '1.5' }}>
+                                                                {cell.value}
+                                                            </div>
+                                                            {cell.highlights.length > 0 && (
+                                                                <div style={{
+                                                                    display: 'flex', gap: '3px', marginTop: '4px', flexWrap: 'wrap',
+                                                                }}>
+                                                                    {cell.highlights.map((h, hi) => (
+                                                                        <span key={hi} title={`🔍 ${h.queryText} (${h.similarity}%)`} style={{
+                                                                            fontSize: '10px', padding: '1px 6px',
+                                                                            borderRadius: '8px', background: h.color + '44',
+                                                                            color: h.color, fontWeight: 600,
+                                                                        }}>
+                                                                            {h.similarity}%
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    );
+                                                })}
+                                                {table.noteColumnVisible && (
+                                                    <td style={{ ...tdStyle, minWidth: '200px' }}>
+                                                        <input
+                                                            type="text"
+                                                            value={getRowManualNote(row)}
+                                                            onChange={e => {
+                                                                updateRowNote(ri, e.target.value);
+                                                            }}
+                                                            onDoubleClick={() => {
+                                                                const notes = getRowManualNote(row);
+                                                                openNoteEditor(ri, notes);
+                                                            }}
+                                                            style={{
+                                                                width: '100%', background: 'transparent', border: 'none',
+                                                                color: '#fbbf24', fontSize: '12px', outline: 'none',
+                                                                padding: '2px',
+                                                            }}
+                                                            placeholder="添加备注..."
+                                                        />
+                                                        {getRowMatchSummary(row) && (
                                                             <div style={{
-                                                                display: 'flex', gap: '3px', marginTop: '4px', flexWrap: 'wrap',
+                                                                marginTop: '4px',
+                                                                fontSize: '11px',
+                                                                lineHeight: 1.5,
+                                                                color: '#93c5fd',
                                                             }}>
-                                                                {cell.highlights.map((h, hi) => (
-                                                                    <span key={hi} title={`🔍 ${h.queryText} (${h.similarity}%)`} style={{
-                                                                        fontSize: '10px', padding: '1px 6px',
-                                                                        borderRadius: '8px', background: h.color + '44',
-                                                                        color: h.color, fontWeight: 600,
-                                                                    }}>
-                                                                        {h.similarity}%
-                                                                    </span>
-                                                                ))}
+                                                                {getRowMatchSummary(row)}
                                                             </div>
                                                         )}
                                                     </td>
-                                                );
-                                            })}
-                                            {table.noteColumnVisible && (
-                                                <td style={{ ...tdStyle, minWidth: '200px' }}>
-                                                    <input
-                                                        type="text"
-                                                        value={getRowManualNote(row)}
-                                                        onChange={e => {
-                                                            updateRowNote(ri, e.target.value);
-                                                        }}
-                                                        onDoubleClick={() => {
-                                                            const notes = getRowManualNote(row);
-                                                            openNoteEditor(ri, notes);
-                                                        }}
-                                                        style={{
-                                                            width: '100%', background: 'transparent', border: 'none',
-                                                            color: '#fbbf24', fontSize: '12px', outline: 'none',
-                                                            padding: '2px',
-                                                        }}
-                                                        placeholder="添加备注..."
-                                                    />
-                                                    {getRowMatchSummary(row) && (
-                                                        <div style={{
-                                                            marginTop: '4px',
-                                                            fontSize: '11px',
-                                                            lineHeight: 1.5,
-                                                            color: '#93c5fd',
-                                                        }}>
-                                                            {getRowMatchSummary(row)}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                            )}
-                                        </tr>
-                                    );
-                                })}
+                                                )}
+                                            </tr>
+                                        );
+                                    });
+                                })()}
+                                {/* 分页控件 */}
+                                {table.rows.length > PAGE_SIZE && (
+                                    <tr>
+                                        <td colSpan={table.headers.length + (table.noteColumnVisible ? 2 : 1)} style={{
+                                            padding: '12px', textAlign: 'center',
+                                            background: '#0a0a0c', borderTop: '1px solid #27272a',
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                <button
+                                                    onClick={() => setCurrentPage(0)}
+                                                    disabled={currentPage === 0}
+                                                    style={{ padding: '4px 10px', background: currentPage === 0 ? '#1f1f23' : '#27272a', color: currentPage === 0 ? '#52525b' : '#e4e4e7', border: '1px solid #3f3f46', borderRadius: '4px', cursor: currentPage === 0 ? 'default' : 'pointer', fontSize: '12px' }}
+                                                >首页</button>
+                                                <button
+                                                    onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                                                    disabled={currentPage === 0}
+                                                    style={{ padding: '4px 10px', background: currentPage === 0 ? '#1f1f23' : '#27272a', color: currentPage === 0 ? '#52525b' : '#e4e4e7', border: '1px solid #3f3f46', borderRadius: '4px', cursor: currentPage === 0 ? 'default' : 'pointer', fontSize: '12px' }}
+                                                >← 上一页</button>
+                                                <span style={{ color: '#a1a1aa', fontSize: '12px' }}>
+                                                    第 {currentPage + 1} / {Math.ceil(table.rows.length / PAGE_SIZE)} 页
+                                                    （显示 {currentPage * PAGE_SIZE + 1}-{Math.min((currentPage + 1) * PAGE_SIZE, table.rows.length)} / {table.rows.length} 行）
+                                                </span>
+                                                <button
+                                                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(table.rows.length / PAGE_SIZE) - 1, p + 1))}
+                                                    disabled={currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1}
+                                                    style={{ padding: '4px 10px', background: currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1 ? '#1f1f23' : '#27272a', color: currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1 ? '#52525b' : '#e4e4e7', border: '1px solid #3f3f46', borderRadius: '4px', cursor: currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1 ? 'default' : 'pointer', fontSize: '12px' }}
+                                                >下一页 →</button>
+                                                <button
+                                                    onClick={() => setCurrentPage(Math.ceil(table.rows.length / PAGE_SIZE) - 1)}
+                                                    disabled={currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1}
+                                                    style={{ padding: '4px 10px', background: currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1 ? '#1f1f23' : '#27272a', color: currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1 ? '#52525b' : '#e4e4e7', border: '1px solid #3f3f46', borderRadius: '4px', cursor: currentPage >= Math.ceil(table.rows.length / PAGE_SIZE) - 1 ? 'default' : 'pointer', fontSize: '12px' }}
+                                                >末页</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>

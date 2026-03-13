@@ -151,7 +151,7 @@ interface SkillGenWorkspace {
     judgeAppendKeywords: string;
     judgePriorityRules: { id: string; keyword: string; replaceCount: number }[];
     // Sub-tab
-    activeTab: 'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo';
+    activeTab: 'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo' | 'canvas';
 }
 
 let _wsCounter = 0;
@@ -197,7 +197,7 @@ const createWorkspace = (name: string): SkillGenWorkspace => ({
         { id: 'pr1', keyword: '图片风格', replaceCount: 0 },
         { id: 'pr2', keyword: '背景风景', replaceCount: 0 },
     ],
-    activeTab: 'ai',
+    activeTab: 'ai' as const,
 });
 
 const loadInitialWorkspaces = () => {
@@ -550,7 +550,7 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
     }, [highlightedCells]);
 
     // === 模式切换 ===
-    const [activeTab, setActiveTab] = useState<'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo'>(initialWsData.activeWs.activeTab || 'ai');
+    const [activeTab, setActiveTab] = useState<'ai' | 'ai-advanced' | 'manual' | 'extend' | 'localize' | 'classify' | 'codegen' | 'combo' | 'canvas'>(initialWsData.activeWs.activeTab || 'ai');
 
     // === 高级生成状态 ===
     const [advancedElements, setAdvancedElements] = useState<string[]>(initialWsData.activeWs.advancedElements || ADVANCED_ELEMENT_PRESETS[0].elements);
@@ -613,6 +613,473 @@ const SkillGeneratorApp: React.FC<SkillGeneratorAppProps> = ({ getAiInstance }) 
         dimensions: Record<string, string[]>;
     } | null>(null);
     const refineFileInputRef = useRef<HTMLInputElement>(null);
+
+    // === 画布解析器 ===
+    type CanvasNodeTag = 'instruction' | 'library' | 'ignore';
+    interface CanvasNode {
+        id: string;
+        path: string;
+        text: string;
+        length: number;
+        preview: string;
+        tag: CanvasNodeTag;
+    }
+    const [canvasNodes, setCanvasNodes] = useState<CanvasNode[]>([]);
+    const [canvasFileName, setCanvasFileName] = useState('');
+    const [canvasTitle, setCanvasTitle] = useState('');
+    const canvasFileInputRef = useRef<HTMLInputElement>(null);
+    const [canvasApplied, setCanvasApplied] = useState(false);
+    const [canvasZoomNode, setCanvasZoomNode] = useState<CanvasNode | null>(null);
+    const [canvasInstructionInput, setCanvasInstructionInput] = useState('');
+    const [canvasLibraryInput, setCanvasLibraryInput] = useState('');
+    const resetCanvasImport = useCallback(() => {
+        setCanvasNodes([]);
+        setCanvasFileName('');
+        setCanvasTitle('');
+        setCanvasZoomNode(null);
+        setCanvasApplied(false);
+    }, []);
+
+    // 递归提取 JSON 中所有文本节点
+    const extractCanvasTexts = useCallback((obj: any, path = '', results: { path: string; text: string; length: number }[] = []): { path: string; text: string; length: number }[] => {
+        if (obj === null || obj === undefined) return results;
+        if (typeof obj === 'string') {
+            if (obj.length > 10) {
+                results.push({ path, text: obj, length: obj.length });
+            }
+            return results;
+        }
+        if (Array.isArray(obj)) {
+            obj.forEach((item, index) => extractCanvasTexts(item, `${path}[${index}]`, results));
+            return results;
+        }
+        if (typeof obj === 'object') {
+            for (const key of Object.keys(obj)) {
+                extractCanvasTexts(obj[key], path ? `${path}.${key}` : key, results);
+            }
+            return results;
+        }
+        return results;
+    }, []);
+
+    // 智能解析文件内容（支持JSON / JSONL / 纯文本）
+    const smartParseCanvasFile = useCallback((fileContent: string): { data: any; rawText?: string } => {
+        // 策略 1：标准 JSON
+        try { return { data: JSON.parse(fileContent) }; } catch { /* continue */ }
+        // 策略 2：JSONL
+        const lines = fileContent.split('\n').filter(l => l.trim());
+        const jsonObjects: any[] = [];
+        for (const line of lines) {
+            try { jsonObjects.push(JSON.parse(line.trim())); } catch { /* skip */ }
+        }
+        if (jsonObjects.length > 0) {
+            return { data: jsonObjects.length === 1 ? jsonObjects[0] : { _merged: true, objects: jsonObjects } };
+        }
+        // 策略 3：提取 JSON 片段
+        const jsonFragments: any[] = [];
+        const regex = /[\[{][\s\S]*?[\]}]/g;
+        let match;
+        while ((match = regex.exec(fileContent)) !== null) {
+            try {
+                const parsed = JSON.parse(match[0]);
+                if (typeof parsed === 'object' && parsed !== null) jsonFragments.push(parsed);
+            } catch { /* skip */ }
+        }
+        if (jsonFragments.length > 0) {
+            return { data: jsonFragments.length === 1 ? jsonFragments[0] : { _merged: true, objects: jsonFragments } };
+        }
+        // 策略 4：纯文本
+        return { data: { _rawText: true, content: fileContent }, rawText: fileContent };
+    }, []);
+
+    const [canvasClassifying, setCanvasClassifying] = useState(false);
+    const [canvasClassifyStage, setCanvasClassifyStage] = useState<'classify' | 'format' | ''>('');
+    const [canvasDiffRaw, setCanvasDiffRaw] = useState('');
+    const [canvasDiffFormatted, setCanvasDiffFormatted] = useState('');
+    const [canvasDiffSummary, setCanvasDiffSummary] = useState('');
+    const [canvasFilterTag, setCanvasFilterTag] = useState<'all' | 'instruction' | 'library' | 'ignore'>('all');
+
+    // AI 智能分类画布节点
+    const classifyCanvasNodesWithAI = useCallback(async (nodes: CanvasNode[]) => {
+        const ai = getAiInstance();
+        if (!ai || nodes.length === 0) return;
+
+        setCanvasClassifying(true);
+            setCanvasClassifyStage('classify');
+        try {
+            // 构建完整文本列表
+            const nodeTexts = nodes.map((n, i) => {
+                return `=== 片段 [${i}] (${n.length}字, path: ${n.path}) ===\n${n.text}\n=== 片段 [${i}] 结束 ===`;
+            }).join('\n\n');
+
+            const prompt = `你是一位专业的内容分析师。以下是从一个画布/工作流文件中提取出的 ${nodes.length} 个文本片段。
+
+请对每个片段分类，判断属于以下三类之一：
+- **instruction**：指令/规则/系统提示（如角色设定、提示词模板、生成要求、规则约束、输出格式、工作流说明等）
+- **library**：素材库/随机库（如一组备选项、词库列表、场景描述列表、可随机替换的内容集合）
+- **ignore**：无用内容（如元数据、配置信息、空白占位、纯标题/标签名等无实质内容的短文本）
+
+对于 library 类型，额外提供 dimensions 对象：key=维度名称，value=该维度下所有可选值数组。
+
+判断原则：
+1. 含有指令、规则、提示词 → instruction
+2. 一组可选择/随机使用的列表 → library
+3. 只有真正无价值的碎片 → ignore（宁可归 instruction 也不随意 ignore）
+4. 较长文本（>50字）几乎不应该 ignore
+5. 如果不确定，一律归 instruction，绝不忽略有内容的片段
+
+⚠️ 重要：你只做分类，不要修改任何节点的原始内容！
+
+文本片段：
+${nodeTexts}
+
+请严格返回 JSON 格式（不要有任何其他文字）：
+{
+  "results": [
+    { "index": 0, "tag": "instruction" },
+    { "index": 1, "tag": "library", "dimensions": { "场景": ["海边日落", "森林小径"], "风格": ["写实", "梦幻"] } },
+    { "index": 2, "tag": "ignore" }
+  ]
+}
+
+注意：
+- results 数组长度必须等于 ${nodes.length}，每个片段都必须有对应结果！
+- 不要跳过任何片段，index 从 0 到 ${nodes.length - 1} 全部覆盖
+- tag 为 "library" 时提供 "dimensions" 字段
+- 不要返回 cleaned 或任何修改后的文本`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-3.1-flash-lite-preview',
+                contents: prompt,
+                config: {
+                    temperature: 0.1,
+                }
+            });
+
+            const resultText = extractResponseText(response);
+            const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const aiResult = JSON.parse(jsonMatch[0]) as {
+                    results: Array<{ index: number; tag: string; cleaned?: string; dimensions?: Record<string, string[]> }>;
+                };
+                // 放宽匹配：即使 AI 少返回了也用已有结果（用 index 字段匹配，而非假设顺序一致）
+                if (Array.isArray(aiResult.results) && aiResult.results.length > 0) {
+                    // 按 index 建立映射
+                    const resultMap = new Map<number, typeof aiResult.results[0]>();
+                    aiResult.results.forEach(r => resultMap.set(r.index, r));
+
+                    // 统计覆盖率
+                    const covered = aiResult.results.length;
+                    const total = nodes.length;
+                    if (covered < total) {
+                        console.warn(`[CanvasParser] AI only returned ${covered}/${total} results, unmatched nodes default to instruction`);
+                    }
+
+                    setCanvasNodes(prev => prev.map((node, i) => {
+                        const r = resultMap.get(i);
+                        if (!r) {
+                            // AI 遗漏的节点：如果有实质内容就归为 instruction，否则 ignore
+                            const hasContent = node.text.trim().length > 50;
+                            return { ...node, tag: (hasContent ? 'instruction' : 'ignore') as CanvasNodeTag };
+                        }
+                        const aiTag = r.tag;
+                        if (aiTag === 'instruction' || aiTag === 'library' || aiTag === 'ignore') {
+                            // 只改标签，不碰原文内容
+                            return { ...node, tag: aiTag as CanvasNodeTag };
+                        }
+                        return node;
+                    }));
+
+                    // 指令 → 填入指令输入框（始终使用原始文本）
+                    const instructionTexts: string[] = [];
+                    aiResult.results.forEach((r, i) => {
+                        if (r.tag === 'instruction') {
+                            const txt = nodes[i]?.text.trim();
+                            if (txt) instructionTexts.push(txt);
+                        }
+                    });
+                    if (instructionTexts.length > 0) setCanvasInstructionInput(instructionTexts.join('\n\n'));
+
+                    // 库 → 合并 dimensions 生成 LibraryResult 表格
+                    const allDims: Record<string, string[]> = {};
+                    aiResult.results.forEach((r) => {
+                        if (r.tag === 'library' && r.dimensions) {
+                            for (const [dim, vals] of Object.entries(r.dimensions)) {
+                                if (!allDims[dim]) allDims[dim] = [];
+                                for (const v of vals) {
+                                    const t = v.trim();
+                                    if (t && !allDims[dim].includes(t)) allDims[dim].push(t);
+                                }
+                            }
+                        }
+                    });
+                    const dimNames = Object.keys(allDims);
+                    if (dimNames.length > 0) {
+                        const maxRows = Math.max(...dimNames.map(d => allDims[d].length));
+                        const rows: string[][] = [];
+                        for (let r = 0; r < maxRows; r++) {
+                            rows.push(dimNames.map(h => allDims[h][r] || ''));
+                        }
+                        setLibraryResult({ headers: dimNames, rows });
+                        const libTexts = aiResult.results
+                            .filter(r => r.tag === 'library')
+                            .map(r => nodes[r.index]?.text.trim()).filter(Boolean);
+                        if (libTexts.length > 0) setCanvasLibraryInput(libTexts.join('\n\n'));
+                    }
+
+                    const stats = aiResult.results.reduce((acc, r) => {
+                        acc[r.tag] = (acc[r.tag] || 0) + 1;
+                        return acc;
+                    }, {} as Record<string, number>);
+                    const libInfo = dimNames.length > 0 ? ` | 库已解析 ${dimNames.length} 维度` : '';
+                    toast.success(`AI 分类完成！指令 ${stats.instruction || 0} / 库 ${stats.library || 0} / 忽略 ${stats.ignore || 0}${libInfo}`);
+
+                    // === 自动完成最终转化：规范化指令 ===
+                    const rawInstruction = instructionTexts.join('\n\n');
+                    if (rawInstruction) {
+                        // 先清空旧数据，确保彻底覆盖
+                        setBaseInstruction('');
+                        setLibraryResult(null);
+                        setGenerateDone(false);
+
+                        const finalLib = dimNames.length > 0 ? { headers: dimNames, rows: Array.from({ length: Math.max(...dimNames.map(d => allDims[d].length)) }, (_, r) => dimNames.map(h => allDims[h][r] || '')) } : null;
+                        // 如果有库就设置，没有就保持 null（已在上面清空）
+                        if (finalLib) setLibraryResult(finalLib);
+
+                        // 第2步：用 AI 将原始指令规范化为标准 Skill 框架格式
+                        setCanvasClassifyStage('format');
+                        toast.success('分类完成，正在规范化基础指令...');
+                        try {
+                            const skillFramework = `【角色与目标】定义要产出什么类型的描述词
+【输入变量】接收系统提供的元素信息
+【生成流程】自然描述草拟 -> 硬约束补充 -> 合并为最终描述词
+【输出要求】默认只输出 1 条最终描述词正文
+【质量自检】完整性/一致性/禁用项检查`;
+
+                            const libDimsInfo = dimNames.length > 0
+                                ? `\n\n已解析出的随机库维度：${dimNames.join('、')}`
+                                : '';
+
+                            const formatPrompt = `你是一个专业的 Skill 指令优化专家。请将以下从画布文件中提取的原始指令内容，重新组织为标准的「基础指令（Skill）」格式。
+
+【原始指令内容】
+${rawInstruction}
+${libDimsInfo}
+
+【目标格式要求】
+请按以下框架模块重新组织指令，每个模块缺一不可：
+
+${skillFramework}
+
+【规范化规则】
+1. **最大程度保留原始内容的语义和措辞**，不要改写用户原有的风格描述和要求
+2. 将原始内容合理分配到上述各模块中
+3. 如果原始内容已经有类似模块结构，直接保留并规范化标题即可
+4. 指令中不要提到"随机库"，应该说"根据系统提供的元素信息"
+5. 使用第二人称"你"来指示 AI
+6. 在指令末尾，附上一个「描述词结构模板」，用 {维度名} 花括号标注可变部分，其余为固定文字
+7. 不要生成随机库数据，只输出基础指令
+
+【⚠️ 最重要：零遗漏原则】
+- 原始指令中的每一条规则、要求、约束、格式说明都必须出现在规范化后的指令中！
+- 逐条检查原始内容，确保没有遗漏任何一行有意义的指令
+- 如果不确定某条规则属于哪个模块，宁可放在【输出要求】或【质量自检】中，也不要删掉
+- 绝对禁止删除、省略、合并掉任何原始规则
+
+【🗑️ 需要移除的内容（由软件自动控制）】
+以下类型的内容应该主动移除，因为软件会在外层自动处理：
+- **输出数量/多版本**：任何指定生成多少个/条/段/版本/方案的指令都要移除！
+  例如："输出3段""生成5个结果""必须生成3个不同的版本""提供N种方案""写出N个不同的"等
+  ⚠️ 如果该句子还包含有用的创作要求（如"使用不同的水彩工艺"），请保留创作要求部分，仅去掉数量要求，改写为"每次生成时变化XXX"
+- **输出格式包装**：如"不包含任何解释性文字""只输出结果不要说明"等（软件自动提取纯文本）
+- **随机库数据**：不要把随机库的值写进指令里
+在 changeSummary 中说明移除了哪些以及原因（软件自动控制）
+
+请返回 JSON 格式（不要有其他文字）：
+{
+  "instruction": "规范化后的完整基础指令文本",
+  "changeSummary": "改写说明，用中文逐条列出：\\n- 【结构调整】哪些内容被移到了哪个模块\\n- 【保留内容】哪些原始内容被完整保留\\n- 【新增内容】补充了哪些模块或信息\\n- 【措辞修改】哪些表述被改写及原因\\n- 【删除内容】如无删除请写"无任何删除""
+}`;
+
+
+                            const formatResponse = await ai.models.generateContent({
+                                model: 'gemini-3.1-flash-lite-preview',
+                                contents: formatPrompt,
+                                config: { temperature: 0.2 }
+                            });
+
+                            const formatResultText = extractResponseText(formatResponse).trim();
+                            const formatJsonMatch = formatResultText.match(/\{[\s\S]*\}/);
+                            let formattedInstruction = '';
+                            let changeSummary = '';
+                            if (formatJsonMatch) {
+                                try {
+                                    const parsed = JSON.parse(formatJsonMatch[0]) as { instruction?: string; changeSummary?: string };
+                                    formattedInstruction = (parsed.instruction || '').trim();
+                                    changeSummary = (parsed.changeSummary || '').trim();
+                                } catch {
+                                    // JSON 解析失败，尝试把整个文本当作指令
+                                    formattedInstruction = formatResultText;
+                                }
+                            } else {
+                                formattedInstruction = formatResultText;
+                            }
+
+                            if (formattedInstruction && formattedInstruction.length > 50) {
+                                setBaseInstruction(formattedInstruction);
+                                setGenerateDone(true);
+                                setCanvasApplied(true);
+                                setChatHistory([]);
+                                conversationRef.current = [];
+                                setTimeout(() => saveToHistory(formattedInstruction, finalLib), 100);
+                                // 保存对比数据（不跳转）
+                                setCanvasDiffRaw(rawInstruction);
+                                setCanvasDiffFormatted(formattedInstruction);
+                                setCanvasDiffSummary(changeSummary);
+                                toast.success('✨ 转化完成！请查看下方的指令对比');
+                            } else {
+                                // 规范化失败，用原始文本
+                                setBaseInstruction(rawInstruction);
+                                setGenerateDone(true);
+                                setCanvasApplied(true);
+                                setTimeout(() => saveToHistory(rawInstruction, finalLib), 100);
+                                setCanvasDiffRaw(rawInstruction);
+                                setCanvasDiffFormatted('');
+                                toast.success('✨ 已完成转化（指令未规范化，请手动调整）');
+                            }
+                        } catch (formatErr: any) {
+                            console.warn('[CanvasParser] Instruction formatting failed:', formatErr.message);
+                            setBaseInstruction(rawInstruction);
+                            setGenerateDone(true);
+                            setCanvasApplied(true);
+                            setTimeout(() => saveToHistory(rawInstruction, finalLib), 100);
+                            setCanvasDiffRaw(rawInstruction);
+                            setCanvasDiffFormatted('');
+                            toast.success('✨ 已完成转化（规范化失败，使用原始指令）');
+                        }
+                    }
+                } else {
+                    console.warn('[CanvasParser] AI classification count mismatch', aiResult.results?.length, nodes.length);
+                    toast.error('AI 分类结果数量不匹配，使用默认规则');
+                }
+            }
+        } catch (err: any) {
+            console.warn('[CanvasParser] AI classification failed, keeping heuristic results:', err.message);
+            toast.error('AI 分类失败，使用默认规则');
+        } finally {
+            setCanvasClassifying(false);
+        }
+    }, [getAiInstance, toast]);
+
+    // 上传画布文件
+    const handleCanvasFileUpload = useCallback(async (file: File) => {
+        try {
+            const text = await file.text();
+            const { data, rawText } = smartParseCanvasFile(text);
+            if (!data) {
+                toast.error('文件内容为空');
+                return;
+            }
+            const title = data.title || data.name || file.name.replace(/\.[^.]+$/, '');
+            setCanvasTitle(title);
+            setCanvasFileName(file.name);
+            setCanvasDiffRaw('');
+            setCanvasDiffFormatted('');
+            setCanvasDiffSummary('');
+            // 清空旧的生成结果，防止新文件没有库时旧数据残留
+            setLibraryResult(null);
+            setBaseInstruction('');
+            setGenerateDone(false);
+
+            // 提取所有文本节点
+            const allTexts = extractCanvasTexts(data);
+            if (allTexts.length === 0 && rawText) {
+                // 纯文本模式：把整段文本作为一个节点
+                allTexts.push({ path: 'content', text: rawText, length: rawText.length });
+            }
+
+            // 去重（前200字相同视为重复）
+            const seen = new Set<string>();
+            const unique = allTexts.filter(t => {
+                const key = t.text.substring(0, 500);
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            // 按长度降序排列
+            unique.sort((a, b) => b.length - a.length);
+
+            // 转换为 CanvasNode，先用启发式规则快速分配默认标签
+            const nodes: CanvasNode[] = unique.map((t, i) => {
+                const preview = t.text.substring(0, 150).replace(/\n/g, ' ↵ ');
+                // 短文本 → ignore，其余默认 instruction（等 AI 重新分类）
+                const isShort = t.length < 80;
+                const tag: CanvasNodeTag = isShort ? 'ignore' : 'instruction';
+
+                return {
+                    id: `cn-${i}`,
+                    path: t.path,
+                    text: t.text,
+                    length: t.length,
+                    preview,
+                    tag,
+                };
+            });
+
+            setCanvasNodes(nodes);
+            setCanvasApplied(false);
+            toast.success(`解析完成！发现 ${nodes.length} 个文本节点，正在 AI 分类...`);
+
+            // 防止加载后页面滚动到底部导致提示栏被覆盖
+            requestAnimationFrame(() => {
+                const app = document.querySelector('.skill-gen-app');
+                if (app) app.scrollTop = 0;
+            });
+
+            // 后台用 AI 重新分类
+            classifyCanvasNodesWithAI(nodes);
+        } catch (err: any) {
+            console.error('[CanvasParser] Error:', err);
+            toast.error(`解析失败: ${err.message || '未知错误'}`);
+        }
+    }, [extractCanvasTexts, smartParseCanvasFile, toast, classifyCanvasNodesWithAI]);
+
+    // 应用画布解析结果 → 填入 AI 生成 tab
+    const applyCanvasResult = useCallback(() => {
+        const parts: string[] = [];
+
+        // 来源 1：粘贴的指令输入
+        if (canvasInstructionInput.trim()) {
+            parts.push('【指令内容】\n' + canvasInstructionInput.trim());
+        }
+
+        // 来源 2：粘贴的库输入
+        if (canvasLibraryInput.trim()) {
+            parts.push('【库素材】\n' + canvasLibraryInput.trim());
+        }
+
+        // 来源 3：文件解析的节点（非忽略）
+        for (const node of canvasNodes) {
+            if (node.tag === 'ignore') continue;
+            const label = node.tag === 'instruction' ? '【指令】' : '【库素材】';
+            parts.push(`${label}\n${node.text}`);
+        }
+
+        if (parts.length === 0) {
+            toast.error('没有可应用的内容（请粘贴指令或上传画布文件）');
+            return;
+        }
+
+        // 追加到 roughRules（常规要求及硬性规则）
+        const newContent = parts.join('\n\n---\n\n');
+        setRoughRules(prev => prev ? prev + '\n\n---\n\n' + newContent : newContent);
+        setShowRules(true);
+
+        setCanvasApplied(true);
+        setGenerateDone(false);
+        toast.success(`已填入「常规要求及硬性规则」→ 切到【生成】tab 点击生成`);
+    }, [canvasNodes, canvasInstructionInput, canvasLibraryInput, toast]);
 
     // === 随机代码生成器 ===
     interface RandomCodeEntry {
@@ -1988,7 +2455,7 @@ ${localizeTargetCountry}
 4. 不要输出表格格式，严格使用【维度名】值1、值2... 格式`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
+                model: 'gemini-3.1-flash-lite-preview',
                 contents: prompt,
             });
             let result = response.text ?? '';
@@ -2204,7 +2671,7 @@ ${smartClassifyOutputFormat === 1 ? `
         try {
             if (smartClassifyOutputFormat === 3) {
                 const response = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash',
+                    model: 'gemini-3.1-flash-lite-preview',
                     contents: format3Prompt,
                 });
                 const responseText = response.text ?? '';
@@ -2240,7 +2707,7 @@ ${smartClassifyOutputFormat === 1 ? `
                 setSmartClassifyResult([newHeaders.join('\t'), ...newRows.map(r => r.join('\t'))].join('\n'));
             } else {
                 const response = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash',
+                    model: 'gemini-3.1-flash-lite-preview',
                     contents: format12Prompt,
                 });
                 // Strip markdown code fences and normalize === markers
@@ -2914,7 +3381,7 @@ ${dimRule}
 ${buildUserDataBlock('基础指令', instructionText)}`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
@@ -3131,7 +3598,7 @@ ${newSampleBlock}
 - 只输出 JSON，不要有任何解释`;
 
             // 带重试和降级
-            const modelsToTry = ['gemini-3-pro-preview', 'gemini-2.0-flash'];
+            const modelsToTry = ['gemini-3-pro-preview', 'gemini-3.1-flash-lite-preview'];
             let text = '';
             let succeeded = false;
 
@@ -4854,7 +5321,7 @@ ${baseInstruction}`;
 
                 try {
                     const verifyResponse = await ai.models.generateContent({
-                        model: 'gemini-2.0-flash',
+                        model: 'gemini-3.1-flash-lite-preview',
                         contents: verifyPrompt,
                         config: {
                             responseMimeType: 'application/json',
@@ -5404,7 +5871,7 @@ ${extendPrompt.trim() || '保持和现有库同风格，优先可直接用于生
         setExtendGenerating(true);
         try {
             const response = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
+                model: 'gemini-3.1-flash-lite-preview',
                 contents: prompt,
             });
             const text = response.text ?? '';
@@ -5482,7 +5949,7 @@ ${relatedDimensions || '（暂无）'}
 4. 值尽量简洁（2-12字）且可直接用于生图/生视频描述词`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
+                model: 'gemini-3.1-flash-lite-preview',
                 contents: prompt,
             });
             const text = response.text ?? '';
@@ -5612,7 +6079,7 @@ ${historyText}
 3) 尽量多样化，避免重复`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
+                model: 'gemini-3.1-flash-lite-preview',
                 contents: prompt,
             });
             const resultText = response.text ?? '';
@@ -5700,6 +6167,10 @@ ${historyText}
         setExtendAIModalPrompt('');
         setExtendAIModalCount(10);
         setExtendAIModalGenerating(false);
+        setCanvasNodes([]);
+        setCanvasFileName('');
+        setCanvasTitle('');
+        setCanvasApplied(false);
     };
 
     const extendCurrentValues = getDimensionValues(extendTargetDimension);
@@ -5708,30 +6179,158 @@ ${historyText}
     // ========== Render ==========
     return (
         <div className="skill-gen-app">
-            {/* Header */}
-            <div className="skill-gen-header">
-                <div className="skill-gen-header-left">
-                    <div className="skill-gen-icon">
-                        <Wand2 size={24} />
+            <div className="skill-gen-topbar">
+                <div className="skill-gen-topbar-brand">
+                    <div className="skill-gen-icon skill-gen-icon-compact">
+                        <Wand2 size={15} />
                     </div>
-                    <div>
-                        <h1>模版指令 + 随机库生成器（支持导出到OPAL）</h1>
-                        <p className="skill-gen-subtitle">提供参考图片、成品描述词、常规要求及硬性规则，AI 交叉分析生成可使用的随机库和描述指令。支持高级元素拆分模式。</p>
+                    <div className="skill-gen-topbar-title-wrap">
+                        <h1 className="skill-gen-topbar-title">模版指令 + 随机库生成器</h1>
+                        <p className="skill-gen-topbar-subtitle">支持导出到 OPAL</p>
                     </div>
                 </div>
-                <div className="skill-gen-header-actions">
+
+                <div className="skill-gen-topbar-main">
+                    <div className="skill-gen-workspace-bar skill-gen-workspace-bar-inline">
+                        {workspaces.map((ws) => {
+                            const isActive = ws.id === activeWorkspaceId;
+                            const isEditing = editingWsId === ws.id;
+                            return (
+                                <div
+                                    key={ws.id}
+                                    className={`skill-gen-ws-tab ${isActive ? 'active' : ''}`}
+                                    onClick={() => !isEditing && handleWsSwitch(ws.id)}
+                                >
+                                    {isEditing ? (
+                                        <div className="skill-gen-ws-edit">
+                                            <input
+                                                ref={wsEditInputRef}
+                                                type="text"
+                                                value={editingWsName}
+                                                onChange={(e) => setEditingWsName(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') { handleWsRename(ws.id, editingWsName); setEditingWsId(null); }
+                                                    if (e.key === 'Escape') setEditingWsId(null);
+                                                }}
+                                                onBlur={() => { handleWsRename(ws.id, editingWsName); setEditingWsId(null); }}
+                                                onClick={(e) => e.stopPropagation()}
+                                            />
+                                            <button onClick={(e) => { e.stopPropagation(); handleWsRename(ws.id, editingWsName); setEditingWsId(null); }}>
+                                                <Check size={12} />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="skill-gen-ws-name" title={ws.name}>{ws.name}</span>
+                                            <div className="skill-gen-ws-actions">
+                                                <button onClick={(e) => { e.stopPropagation(); setEditingWsId(ws.id); setEditingWsName(ws.name); setTimeout(() => wsEditInputRef.current?.focus(), 50); }} title="重命名">
+                                                    <Edit2 size={11} />
+                                                </button>
+                                                {workspaces.length > 1 && (
+                                                    <button onClick={(e) => { e.stopPropagation(); handleWsRemove(ws.id); }} title="关闭" className="skill-gen-ws-close">
+                                                        <X size={11} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        <button className="skill-gen-ws-add" onClick={handleWsAdd} title="新建工作区">
+                            <Plus size={16} />
+                        </button>
+                    </div>
+
+                    <div className="skill-gen-tab-bar skill-gen-tab-bar-inline">
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'ai' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('ai')}
+                        >
+                            <Sparkles size={14} />
+                            生成
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'ai-advanced' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('ai-advanced')}
+                        >
+                            🔬 AI 高级生成
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'manual' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('manual')}
+                        >
+                            <FileText size={14} />
+                            优化
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'extend' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('extend')}
+                        >
+                            🧩 AI 扩展类型
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'localize' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('localize')}
+                        >
+                            🌍 本地化
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'classify' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('classify')}
+                        >
+                            🏷️ 智能分类
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'codegen' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('codegen')}
+                        >
+                            🎲 代码生成
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'combo' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('combo')}
+                        >
+                            🎰 组合生成
+                        </button>
+                        <button
+                            className={`skill-gen-tab-item ${activeTab === 'canvas' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('canvas')}
+                        >
+                            🗂️ 画布解析
+                        </button>
+
+                        {(activeTab === 'ai' || activeTab === 'ai-advanced' || activeTab === 'manual') && (
+                            <button
+                                type="button"
+                                className="skill-gen-tab-settings-btn"
+                                onClick={() => setShowPreset(true)}
+                            >
+                                <Settings size={14} />
+                                {PROMPT_PRESETS[promptPreset].label}
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                <div className="skill-gen-header-actions skill-gen-header-actions-inline">
                     <button
                         className="skill-gen-notes-btn"
                         onClick={() => setShowFeatureNotes(true)}
                         title="查看功能说明"
+                        aria-label="查看功能说明"
                     >
                         <Sparkles size={14} />
-                        功能说明
                     </button>
                     <div style={{ position: 'relative' }}>
-                        <button className="skill-gen-history-btn" onClick={() => setShowHistory(!showHistory)}>
+                        <button
+                            className="skill-gen-history-btn"
+                            onClick={() => setShowHistory(!showHistory)}
+                            title="查看历史记录"
+                            aria-label="查看历史记录"
+                        >
                             <History size={14} />
-                            历史记录{history.length > 0 ? ` (${history.length})` : ''}
+                            {history.length > 0 && <span className="skill-gen-icon-badge">{history.length}</span>}
                         </button>
                         {showHistory && (
                             <div className="skill-gen-history-panel">
@@ -5789,125 +6388,7 @@ ${historyText}
                 </div>
             </div>
 
-            {/* ===== 工作区标签栏 ===== */}
-            <div className="skill-gen-workspace-bar">
-                {workspaces.map((ws) => {
-                    const isActive = ws.id === activeWorkspaceId;
-                    const isEditing = editingWsId === ws.id;
-                    return (
-                        <div
-                            key={ws.id}
-                            className={`skill-gen-ws-tab ${isActive ? 'active' : ''}`}
-                            onClick={() => !isEditing && handleWsSwitch(ws.id)}
-                        >
-                            {isEditing ? (
-                                <div className="skill-gen-ws-edit">
-                                    <input
-                                        ref={wsEditInputRef}
-                                        type="text"
-                                        value={editingWsName}
-                                        onChange={(e) => setEditingWsName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') { handleWsRename(ws.id, editingWsName); setEditingWsId(null); }
-                                            if (e.key === 'Escape') setEditingWsId(null);
-                                        }}
-                                        onBlur={() => { handleWsRename(ws.id, editingWsName); setEditingWsId(null); }}
-                                        onClick={(e) => e.stopPropagation()}
-                                    />
-                                    <button onClick={(e) => { e.stopPropagation(); handleWsRename(ws.id, editingWsName); setEditingWsId(null); }}>
-                                        <Check size={12} />
-                                    </button>
-                                </div>
-                            ) : (
-                                <>
-                                    <span className="skill-gen-ws-name" title={ws.name}>{ws.name}</span>
-                                    <div className="skill-gen-ws-actions">
-                                        <button onClick={(e) => { e.stopPropagation(); setEditingWsId(ws.id); setEditingWsName(ws.name); setTimeout(() => wsEditInputRef.current?.focus(), 50); }} title="重命名">
-                                            <Edit2 size={11} />
-                                        </button>
-                                        {workspaces.length > 1 && (
-                                            <button onClick={(e) => { e.stopPropagation(); handleWsRemove(ws.id); }} title="关闭" className="skill-gen-ws-close">
-                                                <X size={11} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    );
-                })}
-                <button className="skill-gen-ws-add" onClick={handleWsAdd} title="新建工作区">
-                    <Plus size={16} />
-                </button>
-            </div>
-
             <div className="skill-gen-body">
-                {/* 顶部标签页 */}
-                <div className="skill-gen-tab-bar">
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'ai' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('ai')}
-                    >
-                        <Sparkles size={14} />
-                        生成
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'ai-advanced' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('ai-advanced')}
-                    >
-                        🔬 AI 高级生成
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'manual' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('manual')}
-                    >
-                        <FileText size={14} />
-                        优化
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'extend' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('extend')}
-                    >
-                        🧩 AI 扩展类型
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'localize' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('localize')}
-                    >
-                        🌍 本地化
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'classify' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('classify')}
-                    >
-                        🏷️ 智能分类
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'codegen' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('codegen')}
-                    >
-                        🎲 代码生成
-                    </button>
-                    <button
-                        className={`skill-gen-tab-item ${activeTab === 'combo' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('combo')}
-                    >
-                        🎰 组合生成
-                    </button>
-
-                    {/* 全局平台设置 — 右侧按钮 */}
-                    {(activeTab === 'ai' || activeTab === 'ai-advanced' || activeTab === 'manual') && (
-                        <button
-                            type="button"
-                            className="skill-gen-tab-settings-btn"
-                            onClick={() => setShowPreset(true)}
-                        >
-                            <Settings size={14} />
-                            {PROMPT_PRESETS[promptPreset].label}
-                        </button>
-                    )}
-                </div>
-
                 {/* 全局平台设置弹框 */}
                 {showPreset && typeof document !== 'undefined' && createPortal(
                     <div className="skill-gen-tool-modal-overlay" onClick={() => setShowPreset(false)}>
@@ -9228,8 +9709,6 @@ ${historyText}
                 )}
 
 
-            </div>
-
 
             {/* AI智能生成库值弹窗（独立小功能） */}
             {
@@ -9387,6 +9866,593 @@ ${historyText}
                     document.body
                 )
             }
+
+            {/* Tab: 画布解析 */}
+            {activeTab === 'canvas' && (
+                <div className="skill-gen-tab-content skill-gen-canvas-tab-content">
+
+                    {/* AI 分类进度遮罩 */}
+                    {canvasClassifying && (
+                        <div style={{
+                            position: 'fixed',
+                            inset: 0,
+                            zIndex: 9999,
+                            background: 'rgba(0,0,0,0.7)',
+                            backdropFilter: 'blur(8px)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '1.5rem',
+                        }}>
+                            <Loader2 size={48} className="spin" style={{ color: '#a78bfa' }} />
+                            <div style={{ color: '#e4e4e7', fontSize: '1.3rem', fontWeight: 600 }}>
+                                {canvasClassifyStage === 'classify' ? 'AI 智能分类中...' : '正在规范化基础指令...'}
+                            </div>
+                            <div style={{
+                                color: '#a1a1aa',
+                                fontSize: '0.85rem',
+                                textAlign: 'center',
+                                lineHeight: 2.2,
+                                maxWidth: 380,
+                            }}>
+                                <div style={{ color: canvasClassifyStage === 'classify' ? '#a78bfa' : '#4ade80', fontWeight: canvasClassifyStage === 'classify' ? 600 : 400 }}>
+                                    {canvasClassifyStage !== 'classify' ? '✅' : '⏳'} 第1步：分类 {canvasNodes.length} 个片段 + 清洗 + 解析库
+                                </div>
+                                <div style={{ color: canvasClassifyStage === 'format' ? '#a78bfa' : '#71717a', fontWeight: canvasClassifyStage === 'format' ? 600 : 400 }}>
+                                    {canvasClassifyStage === 'format' ? '⏳' : '⏸️'} 第2步：规范化指令为标准 Skill 框架格式
+                                </div>
+                                <div style={{ color: '#71717a' }}>
+                                    ⏸️ 第3步：自动生成「基础指令 + 随机库」
+                                </div>
+                                <div style={{ marginTop: 12, color: '#71717a', fontSize: '0.75rem' }}>
+                                    完成后将自动跳转到编辑结果页面
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* ===== 辅助：画布文件上传（放在最上方，确保始终可见） ===== */}
+                    <div className="skill-gen-section" style={{ overflow: 'visible' }}>
+                        <div className="skill-gen-section-body skill-gen-canvas-upload-body">
+                            <input
+                                ref={canvasFileInputRef}
+                                type="file"
+                                accept="*"
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleCanvasFileUpload(file);
+                                    e.target.value = '';
+                                }}
+                            />
+                            {!canvasFileName ? (
+                                <div
+                                    className="skill-gen-dropzone canvas-upload-dropzone"
+                                    onClick={() => canvasFileInputRef.current?.click()}
+                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const file = e.dataTransfer.files?.[0];
+                                        if (file) handleCanvasFileUpload(file);
+                                    }}
+                                >
+                                    <Upload size={18} />
+                                    <span>上传 Opal / AI Studio 画布文件自动解析</span>
+                                    <span className="canvas-upload-subhint">导入后会自动折叠成紧凑文件条，避免继续占空间</span>
+                                </div>
+                            ) : (
+                                <div className="canvas-upload-toolbar">
+                                    <div className="canvas-file-info">
+                                        <div className="canvas-file-main">
+                                            <span className="canvas-file-name">📄 {canvasFileName}</span>
+                                            {canvasTitle && <span className="canvas-file-title">「{canvasTitle}」</span>}
+                                        </div>
+                                        <span className="canvas-file-count">{canvasNodes.length} 个节点</span>
+                                    </div>
+                                    <div className="canvas-upload-actions">
+                                        <button className="canvas-bulk-btn" onClick={() => canvasFileInputRef.current?.click()}>
+                                            <Upload size={13} /> 重新选择
+                                        </button>
+                                        <button className="canvas-bulk-btn" onClick={resetCanvasImport}>
+                                            <Trash2 size={13} /> 清空文件
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* ===== 输入区域：指令 + 库 ===== */}
+                    <div className="canvas-input-grid">
+                        {/* 指令输入 */}
+                        <div className="skill-gen-section canvas-input-section">
+                            <div className="canvas-input-label">
+                                <span>📝 指令内容</span>
+                                <span className="canvas-input-badge required">必填</span>
+                                {canvasInstructionInput.trim() && <span className="canvas-input-badge count">{canvasInstructionInput.trim().split('\n').filter(l => l.trim()).length} 行</span>}
+                            </div>
+                            <textarea
+                                className="skill-gen-textarea canvas-paste-area"
+                                value={canvasInstructionInput}
+                                onChange={(e) => setCanvasInstructionInput(e.target.value)}
+                                placeholder={"粘贴所有指令/规则内容\n\n例如：\n你是一个专业的文案创作者...\n风格要求：清新、自然...\n输出格式：..."}
+                                rows={8}
+                            />
+                        </div>
+
+                        {/* 库输入 */}
+                        <div className="skill-gen-section canvas-input-section">
+                            <div className="canvas-input-label">
+                                <span>📚 库素材</span>
+                                <span className="canvas-input-badge optional">可选</span>
+                                {canvasLibraryInput.trim() && <span className="canvas-input-badge count">{canvasLibraryInput.trim().split('\n').filter(l => l.trim()).length} 行</span>}
+                            </div>
+                            <textarea
+                                className="skill-gen-textarea canvas-paste-area"
+                                value={canvasLibraryInput}
+                                onChange={(e) => setCanvasLibraryInput(e.target.value)}
+                                placeholder={"有明确的库素材就贴这里（可选）\n没有的话，AI 会从指令内容中自动提取\n\n例如：\n阳光明媚的草地\n古老的石桥\n繁忙的街头..."}
+                                rows={8}
+                            />
+                        </div>
+                    </div>
+
+                    {/* 应用按钮区 */}
+                    <div className="canvas-action-bar">
+                        <div className="canvas-action-left">
+                            <span style={{ fontSize: '0.72rem', color: '#71717a' }}>
+                                {canvasLibraryInput.trim()
+                                    ? '指令 + 库分别填入 → AI 分析归纳'
+                                    : '仅有指令 → AI 将自动从中提取库'}
+                            </span>
+                        </div>
+                        <div className="canvas-action-right">
+                            {canvasApplied && (
+                                <button className="canvas-done-btn" onClick={() => setActiveTab('ai')}>
+                                    <Check size={14} /> 已填入 → 去生成
+                                </button>
+                            )}
+                            <button
+                                className="canvas-apply-btn"
+                                onClick={applyCanvasResult}
+                                disabled={!canvasInstructionInput.trim() && !canvasLibraryInput.trim() && canvasNodes.filter(n => n.tag !== 'ignore').length === 0}
+                            >
+                                <Sparkles size={16} /> 填入「硬性规则」并生成
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* ===== 指令对比视图 ===== */}
+                    {canvasDiffRaw && (() => {
+                        // 简单行级 diff：标记新增/删除行
+                        const rawLines = canvasDiffRaw.split('\n');
+                        const fmtLines = (canvasDiffFormatted || '').split('\n');
+                        const rawSet = new Set(rawLines.map(l => l.trim()).filter(Boolean));
+                        const fmtSet = new Set(fmtLines.map(l => l.trim()).filter(Boolean));
+
+                        return (
+                        <div className="skill-gen-section" style={{ overflow: 'visible' }}>
+                            <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#e4e4e7' }}>
+                                    📋 指令对比 —— 原始 vs 规范化
+                                </span>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    {canvasDiffFormatted && (
+                                        <button
+                                            style={{ fontSize: '0.72rem', padding: '4px 12px', borderRadius: 6, border: '1px solid rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', cursor: 'pointer' }}
+                                            onClick={() => {
+                                                setBaseInstruction(canvasDiffRaw);
+                                                toast.success('已切换为原始指令');
+                                            }}
+                                        >
+                                            使用原始版本
+                                        </button>
+                                    )}
+                                    <button
+                                        style={{ fontSize: '0.72rem', padding: '4px 12px', borderRadius: 6, border: 'none', background: '#a78bfa', color: '#fff', cursor: 'pointer' }}
+                                        onClick={() => setActiveTab('manual')}
+                                    >
+                                        去编辑结果 →
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* AI 改写说明 */}
+                            {canvasDiffSummary && (
+                                <div style={{
+                                    padding: '12px 16px',
+                                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                    background: 'rgba(167,139,250,0.05)',
+                                }}>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#a78bfa', marginBottom: 8 }}>
+                                        🤖 AI 改写说明
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', lineHeight: 1.9, color: '#d4d4d8' }}>
+                                        {canvasDiffSummary.split('\n').map((line, i) => {
+                                            const trimmed = line.trim();
+                                            if (!trimmed) return null;
+                                            // 高亮标签
+                                            const tagMatch = trimmed.match(/^-?\s*【(.+?)】(.*)$/);
+                                            if (tagMatch) {
+                                                const tagColors: Record<string, string> = {
+                                                    '结构调整': '#60a5fa',
+                                                    '保留内容': '#4ade80',
+                                                    '新增内容': '#fbbf24',
+                                                    '措辞修改': '#fb923c',
+                                                    '删除内容': '#f87171',
+                                                };
+                                                const tagColor = tagColors[tagMatch[1]] || '#a1a1aa';
+                                                return (
+                                                    <div key={i} style={{ marginBottom: 2 }}>
+                                                        <span style={{ color: tagColor, fontWeight: 600 }}>【{tagMatch[1]}】</span>
+                                                        <span>{tagMatch[2]}</span>
+                                                    </div>
+                                                );
+                                            }
+                                            return <div key={i}>{trimmed}</div>;
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+                                {/* 左：原始（高亮被删除的行） */}
+                                <div style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                                    <div style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.08)', fontSize: '0.72rem', color: '#f87171', fontWeight: 600 }}>
+                                        🔴 原始指令（清洗后）
+                                    </div>
+                                    <div style={{
+                                        padding: '4px 0',
+                                        margin: 0,
+                                        fontSize: '0.72rem',
+                                        lineHeight: 1.7,
+                                        maxHeight: 400,
+                                        overflow: 'auto',
+                                        background: 'rgba(0,0,0,0.2)',
+                                    }}>
+                                        {rawLines.map((line, i) => {
+                                            const trimmed = line.trim();
+                                            const isDeleted = trimmed && !fmtSet.has(trimmed);
+                                            return (
+                                                <div key={i} style={{
+                                                    padding: '1px 12px',
+                                                    background: isDeleted ? 'rgba(239,68,68,0.12)' : 'transparent',
+                                                    color: isDeleted ? '#fca5a5' : '#a1a1aa',
+                                                    borderLeft: isDeleted ? '3px solid #ef4444' : '3px solid transparent',
+                                                    wordBreak: 'break-word',
+                                                }}>
+                                                    {line || '\u00A0'}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                {/* 右：规范化（高亮新增的行） */}
+                                <div>
+                                    <div style={{ padding: '8px 12px', background: 'rgba(74,222,128,0.08)', fontSize: '0.72rem', color: '#4ade80', fontWeight: 600 }}>
+                                        🟢 规范化指令（Skill 框架格式）
+                                    </div>
+                                    <div style={{
+                                        padding: '4px 0',
+                                        margin: 0,
+                                        fontSize: '0.72rem',
+                                        lineHeight: 1.7,
+                                        maxHeight: 400,
+                                        overflow: 'auto',
+                                        background: 'rgba(0,0,0,0.2)',
+                                    }}>
+                                        {canvasDiffFormatted ? fmtLines.map((line, i) => {
+                                            const trimmed = line.trim();
+                                            const isAdded = trimmed && !rawSet.has(trimmed);
+                                            return (
+                                                <div key={i} style={{
+                                                    padding: '1px 12px',
+                                                    background: isAdded ? 'rgba(74,222,128,0.12)' : 'transparent',
+                                                    color: isAdded ? '#86efac' : '#a1a1aa',
+                                                    borderLeft: isAdded ? '3px solid #22c55e' : '3px solid transparent',
+                                                    wordBreak: 'break-word',
+                                                }}>
+                                                    {line || '\u00A0'}
+                                                </div>
+                                            );
+                                        }) : (
+                                            <div style={{ padding: '12px', color: '#71717a' }}>（规范化未生成，使用原始指令）</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            {/* 库信息摘要 */}
+                            {libraryResult && libraryResult.headers.length > 0 && (
+                                <div style={{ padding: '8px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '0.72rem', color: '#a1a1aa' }}>
+                                    📊 随机库已解析：{libraryResult.headers.length} 个维度（{libraryResult.headers.join('、')}），共 {libraryResult.rows.length} 行
+                                </div>
+                            )}
+                        </div>
+                        );
+                    })()}
+
+                    {/* ===== 文件解析节点列表 ===== */}
+                    {canvasNodes.length > 0 && (
+                        <div className="skill-gen-section" style={{ overflow: 'visible' }}>
+                            {/* 统计栏 */}
+                            <div className="canvas-stats-bar">
+                                <div className="canvas-stats-counts">
+                                    {canvasClassifying && (
+                                        <span style={{ color: '#a78bfa', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                            <Loader2 size={13} className="spin" /> AI 分类中...
+                                        </span>
+                                    )}
+                                    <span
+                                        className="stat-instruction"
+                                        style={{ cursor: 'pointer', opacity: canvasFilterTag === 'all' || canvasFilterTag === 'instruction' ? 1 : 0.4, outline: canvasFilterTag === 'instruction' ? '1px solid #a78bfa' : 'none', borderRadius: 4, padding: '2px 6px' }}
+                                        onClick={() => setCanvasFilterTag(prev => prev === 'instruction' ? 'all' : 'instruction')}
+                                    >📝 指令: {canvasNodes.filter(n => n.tag === 'instruction').length}</span>
+                                    <span
+                                        className="stat-library"
+                                        style={{ cursor: 'pointer', opacity: canvasFilterTag === 'all' || canvasFilterTag === 'library' ? 1 : 0.4, outline: canvasFilterTag === 'library' ? '1px solid #22c55e' : 'none', borderRadius: 4, padding: '2px 6px' }}
+                                        onClick={() => setCanvasFilterTag(prev => prev === 'library' ? 'all' : 'library')}
+                                    >📚 库: {canvasNodes.filter(n => n.tag === 'library').length}</span>
+                                    <span
+                                        className="stat-ignore"
+                                        style={{ cursor: 'pointer', opacity: canvasFilterTag === 'all' || canvasFilterTag === 'ignore' ? 1 : 0.4, outline: canvasFilterTag === 'ignore' ? '1px solid #71717a' : 'none', borderRadius: 4, padding: '2px 6px' }}
+                                        onClick={() => setCanvasFilterTag(prev => prev === 'ignore' ? 'all' : 'ignore')}
+                                    >🚫 忽略: {canvasNodes.filter(n => n.tag === 'ignore').length}</span>
+                                    {canvasFilterTag !== 'all' && (
+                                        <span
+                                            style={{ cursor: 'pointer', fontSize: '0.68rem', color: '#71717a', marginLeft: 4 }}
+                                            onClick={() => setCanvasFilterTag('all')}
+                                        >✕ 清除筛选</span>
+                                    )}
+                                </div>
+                                <div className="canvas-stats-actions">
+                                    {canvasApplied && (
+                                        <button
+                                            className="canvas-bulk-btn"
+                                            style={{ color: '#fbbf24', borderColor: 'rgba(251,191,36,0.3)' }}
+                                            disabled={canvasClassifying}
+                                            onClick={async () => {
+                                                // 根据当前节点分类重新生成
+                                                const instrTexts = canvasNodes.filter(n => n.tag === 'instruction').map(n => n.text.trim()).filter(Boolean);
+                                                const libTexts = canvasNodes.filter(n => n.tag === 'library').map(n => n.text.trim()).filter(Boolean);
+                                                if (instrTexts.length === 0) {
+                                                    toast.error('没有指令类型的节点，无法生成');
+                                                    return;
+                                                }
+                                                const rawInstr = instrTexts.join('\n\n');
+                                                // 清空旧数据
+                                                setBaseInstruction('');
+                                                setLibraryResult(null);
+                                                setGenerateDone(false);
+                                                setCanvasDiffRaw('');
+                                                setCanvasDiffFormatted('');
+                                                setCanvasDiffSummary('');
+                                                // 重新分类（但不用AI分类节点，直接用当前标签）
+                                                setCanvasClassifying(true);
+                                                setCanvasClassifyStage('format');
+                                                try {
+                                                    const ai = getAiInstance();
+                                                    if (!ai) throw new Error('AI not available');
+
+                                                    // 处理库
+                                                    let finalLib: { headers: string[]; rows: string[][] } | null = null;
+                                                    if (libTexts.length > 0) {
+                                                        // 简单解析库维度
+                                                        const allDims: Record<string, string[]> = {};
+                                                        libTexts.forEach(txt => {
+                                                            const lines = txt.split('\n');
+                                                            lines.forEach(line => {
+                                                                const m = line.match(/^【(.+?)】(.+)$/);
+                                                                if (m) {
+                                                                    const dimName = m[1].trim();
+                                                                    const vals = m[2].split(/[｜|]/).map(v => v.trim()).filter(Boolean);
+                                                                    if (!allDims[dimName]) allDims[dimName] = [];
+                                                                    allDims[dimName].push(...vals);
+                                                                }
+                                                            });
+                                                        });
+                                                        const dimNames = Object.keys(allDims);
+                                                        if (dimNames.length > 0) {
+                                                            const maxRows = Math.max(...dimNames.map(d => allDims[d].length));
+                                                            finalLib = {
+                                                                headers: dimNames,
+                                                                rows: Array.from({ length: maxRows }, (_, r) => dimNames.map(h => allDims[h][r] || ''))
+                                                            };
+                                                        }
+                                                    }
+                                                    if (finalLib) setLibraryResult(finalLib);
+
+                                                    // AI 规范化指令
+                                                    const skillFramework = `【角色与目标】定义要产出什么类型的描述词\n【输入变量】接收系统提供的元素信息\n【生成流程】自然描述草拟 -> 硬约束补充 -> 合并为最终描述词\n【输出要求】默认只输出 1 条最终描述词正文\n【质量自检】完整性/一致性/禁用项检查`;
+                                                    const dimNames = finalLib ? finalLib.headers : [];
+                                                    const libDimsInfo = dimNames.length > 0 ? `\n\n已解析出的随机库维度：${dimNames.join('、')}` : '';
+
+                                                    const formatPrompt = `你是一个专业的 Skill 指令优化专家。请将以下从画布文件中提取的原始指令内容，重新组织为标准的「基础指令（Skill）」格式。\n\n【原始指令内容】\n${rawInstr}\n${libDimsInfo}\n\n【目标格式要求】\n请按以下框架模块重新组织指令，每个模块缺一不可：\n\n${skillFramework}\n\n【规范化规则】\n1. **最大程度保留原始内容的语义和措辞**，不要改写用户原有的风格描述和要求\n2. 将原始内容合理分配到上述各模块中\n3. 如果原始内容已经有类似模块结构，直接保留并规范化标题即可\n4. 指令中不要提到"随机库"，应该说"根据系统提供的元素信息"\n5. 使用第二人称"你"来指示 AI\n6. 在指令末尾，附上一个「描述词结构模板」，用 {维度名} 花括号标注可变部分，其余为固定文字\n7. 不要生成随机库数据，只输出基础指令\n8. 禁止删减原始指令中有价值的规则和要求\n\n请返回 JSON 格式（不要有其他文字）：\n{\n  "instruction": "规范化后的完整基础指令文本",\n  "changeSummary": "改写说明，用中文逐条列出：\\n- 【结构调整】哪些内容被移到了哪个模块\\n- 【保留内容】哪些原始内容被完整保留\\n- 【新增内容】补充了哪些模块或信息\\n- 【措辞修改】哪些表述被改写及原因\\n- 【删除内容】哪些内容被移除及原因（如有）"\n}`;
+
+                                                    const formatResponse = await ai.models.generateContent({
+                                                        model: 'gemini-3.1-flash-lite-preview',
+                                                        contents: formatPrompt,
+                                                        config: { temperature: 0.2 }
+                                                    });
+
+                                                    const formatResultText = extractResponseText(formatResponse).trim();
+                                                    const formatJsonMatch = formatResultText.match(/\{[\s\S]*\}/);
+                                                    let formattedInstruction = '';
+                                                    let changeSummary = '';
+                                                    if (formatJsonMatch) {
+                                                        try {
+                                                            const parsed = JSON.parse(formatJsonMatch[0]) as { instruction?: string; changeSummary?: string };
+                                                            formattedInstruction = (parsed.instruction || '').trim();
+                                                            changeSummary = (parsed.changeSummary || '').trim();
+                                                        } catch { formattedInstruction = formatResultText; }
+                                                    } else {
+                                                        formattedInstruction = formatResultText;
+                                                    }
+
+                                                    if (formattedInstruction && formattedInstruction.length > 50) {
+                                                        setBaseInstruction(formattedInstruction);
+                                                        setGenerateDone(true);
+                                                        setCanvasApplied(true);
+                                                        setCanvasDiffRaw(rawInstr);
+                                                        setCanvasDiffFormatted(formattedInstruction);
+                                                        setCanvasDiffSummary(changeSummary);
+                                                        setTimeout(() => saveToHistory(formattedInstruction, finalLib), 100);
+                                                        toast.success('✨ 已根据当前分类重新生成！');
+                                                    } else {
+                                                        setBaseInstruction(rawInstr);
+                                                        setGenerateDone(true);
+                                                        setCanvasApplied(true);
+                                                        setCanvasDiffRaw(rawInstr);
+                                                        setCanvasDiffFormatted('');
+                                                        toast.success('✨ 已重新生成（规范化未成功）');
+                                                    }
+                                                } catch (err: any) {
+                                                    console.error('[CanvasParser] Re-generate failed:', err);
+                                                    toast.error(`重新生成失败: ${err.message}`);
+                                                } finally {
+                                                    setCanvasClassifying(false);
+                                                    setCanvasClassifyStage('');
+                                                }
+                                            }}
+                                        >
+                                            🔄 重新生成
+                                        </button>
+                                    )}
+                                    <button className="canvas-bulk-btn" onClick={() => {
+                                        setCanvasNodes(prev => prev.map(n => ({ ...n, tag: 'ignore' as CanvasNodeTag })));
+                                        setCanvasInstructionInput('');
+                                        setCanvasLibraryInput('');
+                                    }}>全部忽略</button>
+                                    <button className="canvas-bulk-btn" onClick={() => {
+                                        setCanvasNodes(prev => prev.map(n => ({ ...n, tag: 'instruction' as CanvasNodeTag })));
+                                        setCanvasInstructionInput(canvasNodes.map(n => n.text.trim()).filter(Boolean).join('\n\n'));
+                                        setCanvasLibraryInput('');
+                                    }}>全设指令</button>
+                                    <button className="canvas-bulk-btn" onClick={() => {
+                                        setCanvasNodes(prev => prev.map(n => ({ ...n, tag: 'library' as CanvasNodeTag })));
+                                        setCanvasLibraryInput(canvasNodes.map(n => n.text.trim()).filter(Boolean).join('\n\n'));
+                                        setCanvasInstructionInput('');
+                                    }}>全设库</button>
+                                </div>
+                            </div>
+
+                            {/* 节点卡片列表 */}
+                            <div className="canvas-node-list">
+                                {canvasNodes.filter(n => canvasFilterTag === 'all' || n.tag === canvasFilterTag).map((node, idx) => (
+                                    <div
+                                        key={node.id}
+                                        className="canvas-node-card"
+                                        data-tag={node.tag}
+                                        onDoubleClick={() => setCanvasZoomNode(node)}
+                                    >
+                                        <div className="canvas-node-header">
+                                            <div className="canvas-node-meta">
+                                                <span className="node-index">#{idx + 1}</span>
+                                                <span className="node-path" title={node.path}>{node.path}</span>
+                                                <span className="node-size">{node.length > 1000 ? `${(node.length / 1000).toFixed(1)}K` : node.length} 字</span>
+                                            </div>
+                                            <div className="canvas-node-actions">
+                                                <button
+                                                    className="canvas-expand-btn"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setCanvasZoomNode(node);
+                                                    }}
+                                                    title="放大编辑"
+                                                >
+                                                    <Eye size={14} />
+                                                    放大
+                                                </button>
+                                                <div className="canvas-tag-group">
+                                                    {([
+                                                        { value: 'instruction' as CanvasNodeTag, label: '📝 指令', cssClass: 'active-instruction' },
+                                                        { value: 'library' as CanvasNodeTag, label: '📚 库', cssClass: 'active-library' },
+                                                        { value: 'ignore' as CanvasNodeTag, label: '🚫 忽略', cssClass: 'active-ignore' },
+                                                    ] as const).map(opt => (
+                                                        <button
+                                                            key={opt.value}
+                                                            className={`canvas-tag-btn ${node.tag === opt.value ? opt.cssClass : ''}`}
+                                                            onClick={() => {
+                                                                const oldTag = node.tag;
+                                                                const newTag = opt.value;
+                                                                if (oldTag === newTag) return; // 已经是这个标签了，不重复操作
+                                                                // 更新节点标签
+                                                                setCanvasNodes(prev => prev.map(n => n.id === node.id ? { ...n, tag: newTag } : n));
+                                                                const txt = node.text.trim();
+                                                                if (!txt) return;
+                                                                // 从旧的输入框移除（如果之前被填入过）
+                                                                if (oldTag === 'instruction') {
+                                                                    setCanvasInstructionInput(prev => {
+                                                                        const lines = prev.split('\n').filter(l => l.trim() !== '' || prev.indexOf(l) === 0);
+                                                                        // 移除这段文本
+                                                                        return prev.replace(txt, '').replace(/\n{3,}/g, '\n\n').trim();
+                                                                    });
+                                                                } else if (oldTag === 'library') {
+                                                                    setCanvasLibraryInput(prev => prev.replace(txt, '').replace(/\n{3,}/g, '\n\n').trim());
+                                                                }
+                                                                // 追加到新的输入框
+                                                                if (newTag === 'instruction') {
+                                                                    setCanvasInstructionInput(prev => prev.trim() ? prev.trim() + '\n\n' + txt : txt);
+                                                                } else if (newTag === 'library') {
+                                                                    setCanvasLibraryInput(prev => prev.trim() ? prev.trim() + '\n\n' + txt : txt);
+                                                                }
+                                                                // 忽略不填入任何输入框
+                                                            }}
+                                                        >
+                                                            {opt.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {/* 可编辑内容区 */}
+                                        <textarea
+                                            className="canvas-node-preview"
+                                            value={node.text}
+                                            onChange={(e) => {
+                                                const newText = e.target.value;
+                                                setCanvasNodes(prev => prev.map(n => n.id === node.id ? { ...n, text: newText, length: newText.length } : n));
+                                            }}
+                                            onDoubleClick={() => setCanvasZoomNode(node)}
+                                            rows={node.tag === 'ignore' ? 3 : Math.min(12, Math.max(5, node.text.split('\n').length))}
+                                            placeholder="编辑节点内容..."
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 双击放大查看弹窗 */}
+                    {canvasZoomNode && typeof document !== 'undefined' && createPortal(
+                        <div className="canvas-zoom-overlay" onClick={() => setCanvasZoomNode(null)}>
+                            <div className="canvas-zoom-modal" onClick={e => e.stopPropagation()}>
+                                <div className="canvas-zoom-header">
+                                    <h4>📄 节点编辑 — {canvasZoomNode.path} ({canvasZoomNode.length} 字)</h4>
+                                    <div className="canvas-zoom-actions">
+                                        <button className="canvas-bulk-btn" onClick={() => { navigator.clipboard.writeText(canvasZoomNode.text); toast.success('已复制'); }}>📋 复制</button>
+                                        <button className="canvas-zoom-close" onClick={() => setCanvasZoomNode(null)}><X size={16} /></button>
+                                    </div>
+                                </div>
+                                <textarea
+                                    className="canvas-zoom-editor"
+                                    value={canvasZoomNode.text}
+                                    onChange={(e) => {
+                                        const newText = e.target.value;
+                                        const updatedNode = { ...canvasZoomNode, text: newText, length: newText.length };
+                                        setCanvasZoomNode(updatedNode);
+                                        setCanvasNodes(prev => prev.map(n => n.id === canvasZoomNode.id ? updatedNode : n));
+                                    }}
+                                    placeholder="编辑节点内容..."
+                                />
+                            </div>
+                        </div>,
+                        document.body
+                    )}
+                </div>
+            )}
+
+            </div>
 
             {/* 指令转库弹窗 */}
             {

@@ -8,7 +8,7 @@ export type ModelMode = 'fast' | 'high_logic' | 'image_edit' | 'image_gen';
 
 // 模型配置
 export const MODEL_ROUTES: Record<ModelMode, string> = {
-    fast: 'gemini-3-flash-preview',           // 默认文本/代码任务
+    fast: 'gemini-3.1-flash-lite-preview',           // 默认文本/代码任务
     high_logic: 'gemini-3-pro-preview',       // 复杂逻辑/长文本分析
     image_edit: 'gemini-2.5-flash-image',     // 图片编辑/对话改图
     image_gen: 'imagen-4.0-generate-001',     // 高画质创作/写字

@@ -6222,6 +6222,36 @@ body.eye-care .prompt-tab-btn:hover {
   display: none !important;
 }
 
+/* 模版指令 + 随机库生成器：外层容器滚动条统一 */
+.skill-gen-wrapper {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.55) transparent;
+}
+
+.skill-gen-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.skill-gen-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.skill-gen-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.skill-gen-wrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.7);
+}
+
+.skill-gen-wrapper::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ============================================
    Pro Deduplication Module Styles
    ============================================ */
@@ -7442,6 +7472,110 @@ body.eye-care .prompt-tab-btn:hover {
 .similar-item-chinese {
   font-size: 0.7rem;
   color: var(--text-muted-color);
+}
+
+/* 快捷模式独立视图：细滚动条与分割线样式 */
+.quick-standalone-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.55) transparent;
+}
+
+.quick-standalone-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.quick-standalone-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.quick-standalone-scroll::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.quick-standalone-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.7);
+}
+
+.quick-standalone-resizer {
+  transition: background-color 0.15s ease;
+}
+
+.quick-standalone-resizer:hover {
+  background: #121217 !important;
+}
+
+.quick-standalone-resizer:hover > div {
+  background: #3f3f46 !important;
+}
+
+/* AI 图片识别经典模式：统一纵向/横向滚动条 */
+.classic-mode-scroll-skin,
+.classic-mode-scroll-skin * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.55) transparent;
+}
+
+.classic-mode-scroll-skin::-webkit-scrollbar,
+.classic-mode-scroll-skin *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.classic-mode-scroll-skin::-webkit-scrollbar-track,
+.classic-mode-scroll-skin *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.classic-mode-scroll-skin::-webkit-scrollbar-thumb,
+.classic-mode-scroll-skin *::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.classic-mode-scroll-skin::-webkit-scrollbar-thumb:hover,
+.classic-mode-scroll-skin *::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.7);
+}
+
+.classic-mode-scroll-skin::-webkit-scrollbar-corner,
+.classic-mode-scroll-skin *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 通用滚动条皮肤：供 custom-scrollbar 类复用 */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.55) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.45);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.7);
+}
+
+.custom-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .similar-item-badge {

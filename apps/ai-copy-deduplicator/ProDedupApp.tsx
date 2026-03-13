@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { appendToSheet, getSheetsSyncConfig } from '@/services/sheetsSyncService';
 import { dedupEngine, TextItem, DedupResult, DuplicateGroup } from './services/minHashEngine';
-import { parseInputText } from './services/similarityService';
+import { parseInputText, parseInputFromHtml } from './services/similarityService';
 import {
     SheetLibraryService,
     getSheetLibraryService,
@@ -242,6 +242,10 @@ export function ProDedupApp() {
     // GAS 部署指南弹窗
     const [showGasGuide, setShowGasGuide] = useState(false);
 
+    // HTML 剪贴板数据（用于 Google Sheets 粘贴优化）
+    const [checkPasteHtml, setCheckPasteHtml] = useState('');
+    const [searchPasteHtml, setSearchPasteHtml] = useState('');
+
     // 相似文案弹框状态
     const [similarModal, setSimilarModal] = useState<{
         queryText: string;
@@ -340,9 +344,15 @@ export function ProDedupApp() {
         }
     }, []);
 
-    // 解析输入 - 使用和 AI 查重相同的解析函数
-    const parseInput = (text: string): TextItem[] => {
-        const parsed = parseInputText(text);
+    // 解析输入 - 优先使用 HTML 解析（Google Sheets 粘贴时完美保留单元格边界）
+    const parseInput = (text: string, html?: string): TextItem[] => {
+        let parsed: ReturnType<typeof parseInputText> | null = null;
+        if (html?.trim()) {
+            parsed = parseInputFromHtml(html);
+        }
+        if (!parsed || parsed.length === 0) {
+            parsed = parseInputText(text);
+        }
         return parsed.map(item => ({
             id: uuidv4(),
             text: item.foreign,
@@ -361,7 +371,9 @@ export function ProDedupApp() {
 
         setTimeout(() => {
             try {
-                const items = parseInput(state.inputText);
+                const items = parseInput(state.inputText, checkPasteHtml);
+                // 清空 HTML 缓存
+                setCheckPasteHtml('');
 
                 if (items.length === 0) {
                     showToast('没有解析到有效文案');
@@ -396,8 +408,16 @@ export function ProDedupApp() {
 
         setTimeout(() => {
             try {
-                // 使用和查重相同的解析函数（支持从 Google Sheets 粘贴）
-                const parsed = parseInputText(state.searchQuery);
+                // 优先使用 HTML 解析
+                let parsed: ReturnType<typeof parseInputText> | null = null;
+                if (searchPasteHtml.trim()) {
+                    parsed = parseInputFromHtml(searchPasteHtml);
+                }
+                if (!parsed || parsed.length === 0) {
+                    parsed = parseInputText(state.searchQuery);
+                }
+                // 清空 HTML 缓存
+                setSearchPasteHtml('');
 
                 // 过滤空的
                 const validParsed = parsed.filter(item => item.foreign.length > 0);
@@ -1753,6 +1773,10 @@ export function ProDedupApp() {
                                     placeholder="粘贴文案（每行一条 或 从表格复制）"
                                     value={state.inputText}
                                     onChange={(e) => updateState({ inputText: e.target.value })}
+                                    onPaste={(e) => {
+                                        const html = e.clipboardData.getData('text/html');
+                                        if (html) setCheckPasteHtml(html);
+                                    }}
                                     disabled={state.isProcessing}
                                     rows={1}
                                 />
@@ -1785,6 +1809,10 @@ export function ProDedupApp() {
                                     placeholder="输入一条文案，从库中搜索相似的"
                                     value={state.searchQuery}
                                     onChange={(e) => updateState({ searchQuery: e.target.value })}
+                                    onPaste={(e) => {
+                                        const html = e.clipboardData.getData('text/html');
+                                        if (html) setSearchPasteHtml(html);
+                                    }}
                                     disabled={state.isProcessing}
                                     rows={1}
                                     onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSearch())}

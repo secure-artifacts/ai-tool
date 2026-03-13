@@ -263,6 +263,7 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
             const response = await ai.models.generateContent({
                 model,
                 contents: {
+                    role: 'user',
                     parts: [
                         {
                             inlineData: {

@@ -31,12 +31,12 @@ interface BilingualResult {
 }
 
 const MODEL_OPTIONS = [
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash（推荐，速度快）' },
+    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite（最新，默认）' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（稳定）' },
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（最新）' },
+    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（快速）' },
 ];
 
-const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInstance, textModel = 'gemini-2.0-flash' }) => {
+const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInstance, textModel = 'gemini-3.1-flash-lite-preview' }) => {
     const toast = useToast();
     const [images, setImages] = useState<ImageItem[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);

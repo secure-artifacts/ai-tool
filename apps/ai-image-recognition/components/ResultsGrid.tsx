@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
-import { ImageItem, Preset, ChatMessage, InnovationItem, CreativeResult, WorkMode } from '../types';
+import { ImageItem, Preset, ChatMessage, InnovationItem, CreativeResult, WorkMode, DEFAULT_PRESETS } from '../types';
 import { RefImage, getDefaultExtractPrompt } from '../services/randomLibraryService';
 import { convertBlobToBase64 } from '../utils';
 import { Copy, Loader2, AlertCircle, ExternalLink, FileImage, Trash2, RotateCw, Check, Link, Image as ImageIcon, FileCode, MessageCircle, Send, ChevronDown, ChevronRight, ChevronUp, X, Paperclip, Plus, Minus, Sparkles, ArrowLeftRight, Share2, Settings, Maximize2, Play, Eye } from 'lucide-react';
@@ -64,6 +64,7 @@ interface ResultsGridProps {
     // 卡片级覆盖个数
     overrideDimNames?: string[]; // 所有开启了覆盖的维度名
     globalOverrideCounts?: Record<string, number>; // 全局覆盖个数
+    globalOverrideModes?: Record<string, string>; // 全局覆盖模式 (text/image/queue-image)
     onUpdateCardOverrideCount?: (cardId: string, dimName: string, count: number | null) => void;
     // 卡片级文字覆盖
     onUpdateCardTextOverride?: (cardId: string, dimName: string, value: string | null) => void;
@@ -72,8 +73,12 @@ interface ResultsGridProps {
     onUpdateRefImageConfig?: (cardId: string, imageIndex: number, update: Partial<import('../types').RefImageConfig> | null) => void;
     // 卡片级维度绑定（从卡片自身图片提取）
     onToggleCardDimBinding?: (cardId: string, dimName: string) => void;
-    // 卡片级"先描述再创新"开关
+    // 卡片级"先用AI详细描述全图"开关
     onToggleDescribeFirst?: (cardId: string, value: boolean) => void;
+    // 卡片级描述预设ID
+    onSetDescribePresetId?: (cardId: string, presetId: string) => void;
+    // 卡片级自定义描述指令
+    onSetDescribeCustomPrompt?: (cardId: string, customPrompt: string) => void;
 }
 
 
@@ -1081,7 +1086,7 @@ interface ConversationLogModalProps {
     onClose: () => void;
 }
 
-const ConversationLogModal: React.FC<ConversationLogModalProps> = ({ item, onClose }) => {
+export const ConversationLogModal: React.FC<ConversationLogModalProps> = ({ item, onClose }) => {
     const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
     const [copiedAll, setCopiedAll] = useState(false);
 
@@ -1193,7 +1198,7 @@ const ConversationLogModal: React.FC<ConversationLogModalProps> = ({ item, onClo
                                         <span className="text-[9px] text-zinc-600">({entry.prompt.length} 字符)</span>
                                         {entry.imageSource && (
                                             <span className="text-[9px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-                                                📷 {entry.imageSource === 'main' ? '主图' : entry.imageSource.startsWith('fusion:') ? `融合图${parseInt(entry.imageSource.split(':')[1]) + 1}` : entry.imageSource.startsWith('ref:') ? `参考图(${entry.imageSource.split(':')[1]})` : entry.imageSource}
+                                                📷 {entry.imageSource === 'main' ? '图 1' : entry.imageSource.startsWith('fusion:') ? `图 ${parseInt(entry.imageSource.split(':')[1]) + 2}` : entry.imageSource.startsWith('ref:') ? `图(${entry.imageSource.split(':')[1]})` : entry.imageSource}
                                             </span>
                                         )}
                                     </div>
@@ -1646,11 +1651,25 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
 // 使用 React.memo 优化：防止其他图片变化时重新渲染
 const MemoizedChatPanel = memo(ChatPanel);
 const QUICK_IMAGE_APPEND_DIM = '__append__';
+const QUICK_IMAGE_DESCRIBE_DIM = '__describe__';
+const DESCRIBE_PRESET_OPTIONS: Array<{ id: string; label: string }> = [
+    { id: '1', label: '图片转为AI提示词-1（识别原始图片风格）' },
+    { id: '2', label: '图片转为AI提示词-2（统一转为摄影真实风格）' },
+    { id: '6', label: '图片转为AI提示词-3（精准复刻）' },
+    { id: 'custom', label: '✏️ 自定义描述指令' },
+];
 
+// 根据预设ID获取描述指令文本（从 DEFAULT_PRESETS 读取）
+const getDescribePromptByPresetIdLocal = (presetId: string, customPrompt?: string): string => {
+    if (presetId === 'custom' && customPrompt?.trim()) return customPrompt.trim();
+    const preset = DEFAULT_PRESETS.find(p => p.id === presetId);
+    return preset?.text || DEFAULT_PRESETS[0].text;
+};
 interface QuickInlineImageManagerProps {
     item: ImageItem;
     allEnabledDimNames?: string[];
     globalOverrideCounts?: Record<string, number>;
+    globalOverrideModes?: Record<string, string>; // 全局覆盖模式
     onUpdateCardOverrideCount?: (cardId: string, dimName: string, count: number | null) => void;
     onUpdateCardTextOverride?: (cardId: string, dimName: string, value: string | null) => void;
     onUpdateCustomPrompt?: (id: string, value: string) => void;
@@ -1658,12 +1677,15 @@ interface QuickInlineImageManagerProps {
     onRemoveFusionImage?: (imageId: string, fusionImageId: string) => void;
     onAddFusionImage?: (imageId: string, file: File) => void;
     onToggleDescribeFirst?: (cardId: string, value: boolean) => void;
+    onSetDescribePresetId?: (cardId: string, presetId: string) => void;
+    onSetDescribeCustomPrompt?: (cardId: string, customPrompt: string) => void;
 }
 
 const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
     item,
     allEnabledDimNames,
     globalOverrideCounts,
+    globalOverrideModes,
     onUpdateCardOverrideCount,
     onUpdateCardTextOverride,
     onUpdateCustomPrompt,
@@ -1671,17 +1693,31 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
     onRemoveFusionImage,
     onAddFusionImage,
     onToggleDescribeFirst,
+    onSetDescribePresetId,
+    onSetDescribeCustomPrompt,
 }) => {
     const [promptModalImageIndex, setPromptModalImageIndex] = useState<number | null>(null);
+    const [expandedEdit, setExpandedEdit] = useState<{ title: string; value: string; onChange: (val: string) => void } | null>(null);
     const [promptDraft, setPromptDraft] = useState('');
     const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
     const [textOverrideModal, setTextOverrideModal] = useState<{ kind: 'append' | 'dim'; dimName?: string } | null>(null);
     const [textOverrideDraft, setTextOverrideDraft] = useState('');
     const textOverrideTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-    const [isTextOverrideExpanded, setIsTextOverrideExpanded] = useState(false);
+    const [isTextOverrideExpanded, setIsTextOverrideExpanded] = useState(() => {
+        // 如果卡片已有覆盖值，默认展开
+        const hasTextOverrides = item.overrideTextOverrides && Object.values(item.overrideTextOverrides).some(v => v?.trim());
+        const hasCountOverrides = item.overrideCountOverrides && Object.keys(item.overrideCountOverrides).length > 0;
+        return !!(hasTextOverrides || hasCountOverrides);
+    });
+    // 如果卡片覆盖值出现（如从独立模式切过来），自动展开
+    useEffect(() => {
+        const hasText = item.overrideTextOverrides && Object.values(item.overrideTextOverrides).some(v => v?.trim());
+        const hasCount = item.overrideCountOverrides && Object.keys(item.overrideCountOverrides).length > 0;
+        if (hasText || hasCount) setIsTextOverrideExpanded(true);
+    }, [item.overrideTextOverrides, item.overrideCountOverrides]);
     const enabledDimNames = allEnabledDimNames || [];
     const cfgs = item.refImageConfigs || [];
-    const usedDims = new Set(cfgs.map(c => c.dimName).filter(d => !!d && d !== QUICK_IMAGE_APPEND_DIM));
+    const usedDims = new Set(cfgs.map(c => c.dimName).filter(d => !!d && d !== QUICK_IMAGE_APPEND_DIM && d !== QUICK_IMAGE_DESCRIBE_DIM));
     const allImgs: Array<{ index: number; url: string }> = [];
     if (item.imageUrl || item.base64Data) allImgs.push({ index: 0, url: item.imageUrl || '' });
     item.fusionImages?.forEach((fi, i) => allImgs.push({ index: i + 1, url: fi.imageUrl || '' }));
@@ -1692,7 +1728,7 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
 
     useEffect(() => {
         if (promptModalImageIndex === null || !activePromptCfg?.dimName) return;
-        const initialValue = activePromptCfg.dimName === QUICK_IMAGE_APPEND_DIM
+        const initialValue = (activePromptCfg.dimName === QUICK_IMAGE_APPEND_DIM || activePromptCfg.dimName === QUICK_IMAGE_DESCRIBE_DIM)
             ? (activePromptCfg.extractPrompt || '')
             : (activePromptCfg.extractPrompt ?? getDefaultExtractPrompt(activePromptCfg.dimName));
         setPromptDraft(initialValue);
@@ -1735,27 +1771,14 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
     const renderTextOverrideRow = () => {
         if (!showInlineOverridePane) return null;
         return (
-            <div className="w-full min-w-0">
+            <div className="w-full min-w-0 mt-1">
                 <div
-                    className="flex items-center gap-1 cursor-pointer select-none text-cyan-400 w-fit hover:opacity-80 transition-opacity mb-1"
+                    className="flex items-center gap-1 cursor-pointer select-none text-zinc-400 w-fit hover:text-zinc-200 transition-colors mb-2 bg-zinc-800/50 px-2 py-1 rounded border border-zinc-700/50"
                     onClick={(e) => { e.stopPropagation(); setIsTextOverrideExpanded(!isTextOverrideExpanded); }}
                 >
-                    <span className="text-[9px]">✍️ 文字覆盖</span>
-                    {isTextOverrideExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                    {isTextOverrideExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    <span className="text-[10px] font-medium">✍️ 手动指定文字覆盖 (若无需AI识图，可直接指定固定词语)</span>
                 </div>
-
-                {/* 先描述再创新 — 卡片级开关 */}
-                {onToggleDescribeFirst && (item.base64Data || item.imageUrl) && (
-                    <div
-                        className={`flex items-center gap-1 cursor-pointer select-none w-fit hover:opacity-80 transition-opacity mb-1 ${item.needDescribeFirst ? 'text-amber-400' : 'text-zinc-500'}`}
-                        onClick={(e) => { e.stopPropagation(); onToggleDescribeFirst(item.id, !item.needDescribeFirst); }}
-                    >
-                        <span className="text-[9px]">{item.needDescribeFirst ? '👁 先描述此图' : '👁 先描述此图'}</span>
-                        <span className={`w-6 h-3 rounded-full relative transition-colors ${item.needDescribeFirst ? 'bg-amber-500/60' : 'bg-zinc-700'}`}>
-                            <span className={`absolute top-0.5 w-2 h-2 rounded-full bg-white transition-all ${item.needDescribeFirst ? 'left-3.5' : 'left-0.5'}`} />
-                        </span>
-                    </div>
-                )}
 
                 {isTextOverrideExpanded && (
                     <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1 pr-1">
@@ -1788,26 +1811,34 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                             const cardCount = item.overrideCountOverrides?.[dimName];
                             const effectiveCount = cardCount !== undefined ? cardCount : globalCount;
                             const isCustomCount = cardCount !== undefined;
+                            const dimMode = globalOverrideModes?.[dimName];
+                            const isImageMode = dimMode === 'image' || dimMode === 'queue-image';
                             return (
-                                <div key={dimName} className="min-w-[168px] max-w-[168px] rounded border border-zinc-700/50 bg-zinc-900/50 p-1.5 flex flex-col gap-1">
-                                    <span className={`text-[9px] ${val.trim() ? 'text-cyan-300' : 'text-zinc-500'}`}>{dimName}</span>
-                                    <input
-                                        type="text"
-                                        value={val}
-                                        onChange={e => {
-                                            e.stopPropagation();
-                                            onUpdateCardTextOverride?.(item.id, dimName, e.target.value || null);
-                                        }}
-                                        onMouseDown={e => e.stopPropagation()}
-                                        onDoubleClick={e => {
-                                            e.stopPropagation();
-                                            setPromptModalImageIndex(null);
-                                            setTextOverrideModal({ kind: 'dim', dimName });
-                                        }}
-                                        placeholder="覆盖词"
-                                        className="h-6 px-1.5 bg-zinc-800 border border-zinc-700/50 rounded text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50"
-                                        title="双击弹框编辑"
-                                    />
+                                <div key={dimName} className={`min-w-[168px] max-w-[168px] rounded border p-1.5 flex flex-col gap-1 ${isImageMode ? 'border-amber-800/30 bg-amber-950/10 opacity-60' : 'border-zinc-700/50 bg-zinc-900/50'}`}>
+                                    <span className={`text-[9px] ${isImageMode ? 'text-amber-400/70' : val.trim() ? 'text-cyan-300' : 'text-zinc-500'}`}>{dimName}</span>
+                                    {isImageMode ? (
+                                        <div className="h-6 px-1.5 bg-zinc-800/50 border border-zinc-700/30 rounded text-[9px] text-amber-400/60 flex items-center" title="已在全局覆盖设置了图片提取模式">
+                                            📷 已设为{dimMode === 'queue-image' ? '逐图' : '图片'}提取
+                                        </div>
+                                    ) : (
+                                        <input
+                                            type="text"
+                                            value={val}
+                                            onChange={e => {
+                                                e.stopPropagation();
+                                                onUpdateCardTextOverride?.(item.id, dimName, e.target.value || null);
+                                            }}
+                                            onMouseDown={e => e.stopPropagation()}
+                                            onDoubleClick={e => {
+                                                e.stopPropagation();
+                                                setPromptModalImageIndex(null);
+                                                setTextOverrideModal({ kind: 'dim', dimName });
+                                            }}
+                                            placeholder="覆盖词"
+                                            className="h-6 px-1.5 bg-zinc-800 border border-zinc-700/50 rounded text-[10px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-cyan-500/50"
+                                            title="双击弹框编辑"
+                                        />
+                                    )}
                                     <div className="flex items-center justify-center gap-1">
                                         <button
                                             onClick={e => {
@@ -1868,7 +1899,7 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                         <Plus size={12} />
                         添加图
                     </button>
-                    <span className="text-[9px] text-zinc-600">空卡片：先添加主图</span>
+                    <span className="text-[9px] text-zinc-600">空卡片：先添加图片</span>
                     <input
                         id={quickFusionInputId}
                         type="file"
@@ -1886,132 +1917,208 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
         }
 
         return (
-            <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1">
+            <div className="flex gap-3 overflow-x-auto overflow-y-visible pb-2 w-full">
                 {allImgs.map(img => {
-                    const cfg = cfgs.find(c => c.imageIndex === img.index);
+                    // Configs specifically for THIS image
+                    const imgCfgs = cfgs.filter(c => c.imageIndex === img.index && c.dimName);
+
                     return (
-                        <div key={img.index} className="flex flex-col gap-1 min-w-[128px] max-w-[128px]">
-                            <div className="relative group/ref-img">
-                                <div className="w-[128px] h-20 rounded overflow-hidden border border-zinc-700/50 bg-zinc-800 shrink-0 flex items-center justify-center p-0.5">
+                        <div key={img.index} className="flex flex-col gap-2 w-[460px] shrink-0 bg-zinc-900/60 border border-zinc-700/60 rounded-xl p-3 shadow-sm">
+                            {/* Row 1: Image & Dimension Toggles */}
+                            <div className="flex gap-3">
+                                <div className="relative group/ref-img w-28 h-28 shrink-0 rounded-lg overflow-hidden border border-zinc-700/50 bg-zinc-800 flex items-center justify-center p-0.5">
                                     {img.url && <img src={img.url} alt="" className="w-full h-full object-contain" />}
-                                </div>
-                                {img.url && (
-                                    <div className="pointer-events-none absolute left-0 top-0 z-40 hidden -translate-y-[105%] group-hover/ref-img:block">
-                                        <div className="rounded-md border border-cyan-500/40 bg-zinc-950/95 p-1 shadow-2xl">
-                                            <img src={img.url} alt="" className="max-w-[360px] max-h-[240px] w-auto h-auto object-contain rounded" />
+                                    {img.url && (
+                                        <div className="pointer-events-none absolute left-0 top-0 z-40 hidden -translate-y-[105%] group-hover/ref-img:block">
+                                            <div className="rounded-md border border-zinc-600 bg-zinc-950/95 p-1 shadow-2xl">
+                                                <img src={img.url} alt="" className="max-w-[400px] max-h-[300px] w-auto h-auto object-contain rounded" />
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                {img.index > 0 && onRemoveFusionImage && (() => {
-                                    const fi = item.fusionImages?.[img.index - 1];
-                                    return fi ? (
+                                    )}
+                                    {img.index > 0 && onRemoveFusionImage && (() => {
+                                        const fi = item.fusionImages?.[img.index - 1];
+                                        return fi ? (
+                                            <button
+                                                onClick={e => { e.stopPropagation(); onRemoveFusionImage(item.id, fi.id); }}
+                                                className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-red-500/90 hover:bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/ref-img:opacity-100 transition-opacity text-xs shadow-sm backdrop-blur-sm"
+                                            >✕</button>
+                                        ) : null;
+                                    })()}
+                                </div>
+
+                                <div className="flex flex-col gap-2 flex-1 min-w-0">
+                                    <span className="text-[11px] font-medium text-purple-300 flex items-center gap-1">
+                                        <FileImage size={12} /> 图 {img.index + 1} · 点击字典让 AI 为该图提取特征：
+                                    </span>
+                                    <div className="flex flex-wrap gap-1">
+                                        {enabledDimNames.map(d => {
+                                            const isBound = !!imgCfgs.find(c => c.dimName === d);
+                                            return (
+                                                <button
+                                                    key={d}
+                                                    onClick={e => {
+                                                        e.stopPropagation();
+                                                        if (isBound) {
+                                                            onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${d}` } as any);
+                                                        } else {
+                                                            onUpdateRefImageConfig?.(item.id, img.index, { dimName: d, extractPrompt: getDefaultExtractPrompt(d) });
+                                                        }
+                                                    }}
+                                                    onMouseDown={e => e.stopPropagation()}
+                                                    className={`px-1.5 py-0.5 rounded text-[10px] border transition-all ${isBound
+                                                        ? 'bg-purple-600/30 text-purple-200 border-purple-500/50 shadow-inner'
+                                                        : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/60 hover:text-zinc-300 hover:border-zinc-500 hover:bg-zinc-700/50'
+                                                        }`}
+                                                    title={isBound ? `取消「${d}」` : `从此图提取「${d}」`}
+                                                >
+                                                    {isBound && <Check size={8} className="inline mr-0.5" />}{d}
+                                                </button>
+                                            );
+                                        })}
+                                        {/* 描述全图选项 */}
                                         <button
-                                            onClick={e => { e.stopPropagation(); onRemoveFusionImage(item.id, fi.id); }}
-                                            className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 hover:bg-red-400 text-white rounded-full flex items-center justify-center opacity-0 group-hover/ref-img:opacity-100 transition-opacity text-[8px]"
-                                        >✕</button>
-                                    ) : null;
-                                })()}
-                            </div>
-                            <span className="text-[8px] text-zinc-600">{`图${img.index + 1} · 当前图覆盖库`}</span>
-                            {/* 多选维度标签 */}
-                            <div className="flex flex-wrap gap-0.5">
-                                {enabledDimNames.map(d => {
-                                    const dimCfg = cfgs.find(c => c.imageIndex === img.index && c.dimName === d);
-                                    const isBound = !!dimCfg;
-                                    return (
-                                        <button
-                                            key={d}
                                             onClick={e => {
                                                 e.stopPropagation();
+                                                const isBound = !!imgCfgs.find(c => c.dimName === QUICK_IMAGE_DESCRIBE_DIM);
                                                 if (isBound) {
-                                                    // 取消绑定：只删除该维度
-                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${d}` } as any);
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${QUICK_IMAGE_DESCRIBE_DIM}` } as any);
                                                 } else {
-                                                    // 添加绑定
-                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: d, extractPrompt: getDefaultExtractPrompt(d) });
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: QUICK_IMAGE_DESCRIBE_DIM, extractPrompt: '' });
                                                 }
                                             }}
                                             onMouseDown={e => e.stopPropagation()}
-                                            className={`px-1.5 py-px rounded text-[8px] border transition-all ${isBound
-                                                ? 'bg-purple-800/50 text-purple-200 border-purple-500/60'
-                                                : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/40 hover:text-zinc-300 hover:border-zinc-500'
+                                            className={`px-1.5 py-0.5 rounded text-[10px] border transition-all ${imgCfgs.find(c => c.dimName === QUICK_IMAGE_DESCRIBE_DIM)
+                                                ? 'bg-amber-600/30 text-amber-200 border-amber-500/50 shadow-inner'
+                                                : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/60 hover:text-zinc-300 hover:border-zinc-500 hover:bg-zinc-700/50'
                                                 }`}
-                                            title={isBound ? `取消「${d}」` : `从此图提取「${d}」`}
                                         >
-                                            {isBound ? '✓' : ''}{d}
+                                            {imgCfgs.find(c => c.dimName === QUICK_IMAGE_DESCRIBE_DIM) && <Check size={8} className="inline mr-0.5" />}先用AI"详细描述全图"
                                         </button>
-                                    );
-                                })}
-                                {/* 追加内容选项 */}
-                                <button
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        const appendCfg = cfgs.find(c => c.imageIndex === img.index && c.dimName === QUICK_IMAGE_APPEND_DIM);
-                                        if (appendCfg) {
-                                            onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${QUICK_IMAGE_APPEND_DIM}` } as any);
-                                        } else {
-                                            onUpdateRefImageConfig?.(item.id, img.index, { dimName: QUICK_IMAGE_APPEND_DIM, extractPrompt: '' });
-                                        }
-                                    }}
-                                    onMouseDown={e => e.stopPropagation()}
-                                    className={`px-1.5 py-px rounded text-[8px] border transition-all ${cfgs.find(c => c.imageIndex === img.index && c.dimName === QUICK_IMAGE_APPEND_DIM)
-                                        ? 'bg-cyan-800/50 text-cyan-200 border-cyan-500/60'
-                                        : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/40 hover:text-zinc-300 hover:border-zinc-500'
-                                        }`}
-                                    title="追加内容"
-                                >
-                                    {cfgs.find(c => c.imageIndex === img.index && c.dimName === QUICK_IMAGE_APPEND_DIM) ? '✓' : ''}📝追加
-                                </button>
-                            </div>
-                            {/* 已选维度的提取指令和个数 */}
-                            {cfgs.filter(c => c.imageIndex === img.index && c.dimName).map(selCfg => (
-                                <div key={selCfg.dimName} className="flex flex-col gap-0.5 border-l-2 border-purple-500/40 pl-1">
-                                    <span className="text-[8px] text-purple-300 font-medium">{selCfg.dimName === QUICK_IMAGE_APPEND_DIM ? '📝 追加' : selCfg.dimName}</span>
-                                    <input
-                                        type="text"
-                                        placeholder={selCfg.dimName === QUICK_IMAGE_APPEND_DIM
-                                            ? `追加内容`
-                                            : `提取指令`}
-                                        value={selCfg.dimName === QUICK_IMAGE_APPEND_DIM
-                                            ? (selCfg.extractPrompt || '')
-                                            : (selCfg.extractPrompt ?? getDefaultExtractPrompt(selCfg.dimName))}
-                                        onChange={e => { e.stopPropagation(); onUpdateRefImageConfig?.(item.id, img.index, { dimName: selCfg.dimName, extractPrompt: e.target.value }); }}
-                                        onMouseDown={e => e.stopPropagation()}
-                                        onDoubleClick={e => {
-                                            e.stopPropagation();
-                                            setPromptModalImageIndex(img.index);
-                                        }}
-                                        className="h-6 text-[9px] leading-tight bg-zinc-800 border border-zinc-700/50 rounded px-1 py-0.5 text-zinc-300 placeholder-zinc-500 w-full"
-                                        title={`${selCfg.dimName} 提取指令，双击放大编辑`}
-                                    />
-                                    {selCfg.dimName !== QUICK_IMAGE_APPEND_DIM && (
-                                        <div className="flex items-center justify-center gap-1">
-                                            <button
-                                                onClick={e => {
-                                                    e.stopPropagation();
-                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: selCfg.dimName, overrideCount: Math.max(0, (selCfg.overrideCount ?? 0) - 1) });
-                                                }}
-                                                onMouseDown={e => e.stopPropagation()}
-                                                className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
-                                            >-</button>
-                                            <span className="text-[9px] text-amber-300 min-w-[14px] text-center">{(selCfg.overrideCount ?? 0) === 0 ? '全' : selCfg.overrideCount}</span>
-                                            <button
-                                                onClick={e => {
-                                                    e.stopPropagation();
-                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: selCfg.dimName, overrideCount: (selCfg.overrideCount ?? 0) + 1 });
-                                                }}
-                                                onMouseDown={e => e.stopPropagation()}
-                                                className="w-4 h-4 rounded bg-zinc-800 border border-zinc-600/50 text-amber-400 hover:bg-zinc-700 text-[9px] flex items-center justify-center"
-                                            >+</button>
-                                        </div>
-                                    )}
+                                        {/* 追加内容选项 */}
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                const isBound = !!imgCfgs.find(c => c.dimName === QUICK_IMAGE_APPEND_DIM);
+                                                if (isBound) {
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: `__remove__${QUICK_IMAGE_APPEND_DIM}` } as any);
+                                                } else {
+                                                    onUpdateRefImageConfig?.(item.id, img.index, { dimName: QUICK_IMAGE_APPEND_DIM, extractPrompt: '' });
+                                                }
+                                            }}
+                                            onMouseDown={e => e.stopPropagation()}
+                                            className={`px-1.5 py-0.5 rounded text-[10px] border transition-all ${imgCfgs.find(c => c.dimName === QUICK_IMAGE_APPEND_DIM)
+                                                ? 'bg-blue-600/30 text-blue-200 border-blue-500/50 shadow-inner'
+                                                : 'bg-zinc-800/60 text-zinc-500 border-zinc-700/60 hover:text-zinc-300 hover:border-zinc-500 hover:bg-zinc-700/50'
+                                                }`}
+                                        >
+                                            {imgCfgs.find(c => c.dimName === QUICK_IMAGE_APPEND_DIM) && <Check size={8} className="inline mr-0.5" />}📝追加描述
+                                        </button>
+                                    </div>
                                 </div>
-                            ))}
+                            </div>
+
+                            {/* Row 2: Extraction Params (Local to this Image) */}
+                            {imgCfgs.length > 0 && (
+                                <div className="flex flex-col gap-2 pt-3 mt-1 border-t border-zinc-700/60">
+                                    <div className="text-[11px] font-medium text-zinc-400 mb-0.5 flex items-center gap-1.5">
+                                        <Sparkles size={14} className="text-purple-400" /> 告诉 AI 看图时具体要提取什么 (识别提取指令)：
+                                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        {imgCfgs.map(selCfg => {
+                                            const isAppend = selCfg.dimName === QUICK_IMAGE_APPEND_DIM;
+                                            const isDescribe = selCfg.dimName === QUICK_IMAGE_DESCRIBE_DIM;
+                                            const dimMode = (!isAppend && !isDescribe) ? globalOverrideModes?.[selCfg.dimName!] : undefined;
+                                            const isTextMode = dimMode === 'text' || (!dimMode && !!(item.overrideTextOverrides?.[selCfg.dimName!]?.trim()));
+                                            const hasTextOverride = !isAppend && !isDescribe && isTextMode && !!(item.overrideTextOverrides?.[selCfg.dimName!]?.trim());
+                                            return (
+                                                <div key={selCfg.dimName} className={`flex flex-col gap-2 bg-zinc-950/80 rounded border p-2.5 ${hasTextOverride ? 'border-cyan-800/30 opacity-60' : 'border-purple-800/30'}`}>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-semibold text-purple-200 flex items-center gap-1.5">
+                                                            👉 {isDescribe ? '🔍 先用AI"详细描述全图"并作为基础上下文（可自定义描述指令）' : isAppend ? '追加该图的内容到末尾' : `提取【${selCfg.dimName}】的细节设定`}
+                                                        </span>
+                                                        {!isAppend && !isDescribe && (
+                                                            <div className="flex items-center gap-2 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
+                                                                <span className="text-[10px] text-zinc-500">该维度覆盖的创新结果的个数：</span>
+                                                                <div className="flex items-center justify-center gap-1">
+                                                                    <button
+                                                                        onClick={e => {
+                                                                            e.stopPropagation();
+                                                                            onUpdateRefImageConfig?.(item.id, selCfg.imageIndex, { dimName: selCfg.dimName, overrideCount: Math.max(0, (selCfg.overrideCount ?? 0) - 1) });
+                                                                        }}
+                                                                        onMouseDown={e => e.stopPropagation()}
+                                                                        className="w-4 h-4 rounded bg-zinc-800 text-amber-400 hover:bg-zinc-700 text-[10px] flex items-center justify-center transition-colors"
+                                                                    >-</button>
+                                                                    <span className="text-[10px] text-amber-300 min-w-[16px] text-center font-bold">{(selCfg.overrideCount ?? 0) === 0 ? '全' : selCfg.overrideCount}</span>
+                                                                    <button
+                                                                        onClick={e => {
+                                                                            e.stopPropagation();
+                                                                            onUpdateRefImageConfig?.(item.id, selCfg.imageIndex, { dimName: selCfg.dimName, overrideCount: (selCfg.overrideCount ?? 0) + 1 });
+                                                                        }}
+                                                                        onMouseDown={e => e.stopPropagation()}
+                                                                        className="w-4 h-4 rounded bg-zinc-800 text-amber-400 hover:bg-zinc-700 text-[10px] flex items-center justify-center transition-colors"
+                                                                    >+</button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {hasTextOverride ? (
+                                                        <div className="h-8 px-2.5 bg-zinc-900/50 border border-zinc-700/30 rounded text-[10px] text-cyan-400/60 flex items-center" title="已在下方手动覆盖区设置了固定文本">
+                                                            ✏️ 已设为固定文本：{item.overrideTextOverrides?.[selCfg.dimName!]?.slice(0, 30)}{(item.overrideTextOverrides?.[selCfg.dimName!]?.length || 0) > 30 ? '…' : ''}
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            {/* 描述模式：预设下拉菜单 */}
+                                                            {isDescribe && (
+                                                                <select
+                                                                    value={selCfg.extractPrompt ? '__has_value__' : ''}
+                                                                    onChange={e => {
+                                                                        e.stopPropagation();
+                                                                        const val = e.target.value;
+                                                                        if (val === '__clear__') {
+                                                                            onUpdateRefImageConfig?.(item.id, selCfg.imageIndex, { dimName: selCfg.dimName, extractPrompt: '' });
+                                                                        } else if (val && val !== '__has_value__') {
+                                                                            const preset = DEFAULT_PRESETS.find(p => p.id === val);
+                                                                            if (preset) {
+                                                                                onUpdateRefImageConfig?.(item.id, selCfg.imageIndex, { dimName: selCfg.dimName, extractPrompt: preset.text });
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="h-6 text-[10px] bg-zinc-900 border border-zinc-700/60 rounded px-1 w-full text-zinc-400 focus:outline-none focus:border-purple-500/40 cursor-pointer"
+                                                                >
+                                                                    <option value="">(继承上级描述指令)</option>
+                                                                    <option value="__has_value__" disabled style={{ display: 'none' }}>已自定义</option>
+                                                                    {DESCRIBE_PRESET_OPTIONS.filter(opt => opt.id !== 'custom').map(opt => (
+                                                                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                                                    ))}
+                                                                    <option value="__clear__">🗑 清空（用继承）</option>
+                                                                </select>
+                                                            )}
+                                                            <input
+                                                                type="text"
+                                                                placeholder={isAppend ? `输入要追加的描述文本` : `输入识别提示词（告诉 AI 看什么）`}
+                                                                value={isAppend ? (selCfg.extractPrompt || '') : (selCfg.extractPrompt ?? getDefaultExtractPrompt(selCfg.dimName!))}
+                                                                onChange={e => { e.stopPropagation(); onUpdateRefImageConfig?.(item.id, selCfg.imageIndex, { dimName: selCfg.dimName, extractPrompt: e.target.value }); }}
+                                                                onMouseDown={e => e.stopPropagation()}
+                                                                onDoubleClick={e => {
+                                                                    e.stopPropagation();
+                                                                    setPromptModalImageIndex(selCfg.imageIndex);
+                                                                }}
+                                                                className="h-8 text-xs bg-zinc-900 border border-zinc-700/80 rounded px-2.5 w-full text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 shadow-inner"
+                                                                title={`双击放大编辑`}
+                                                            />
+                                                        </>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     );
                 })}
                 {onAddFusionImage && (
-                    <div className="min-w-[128px] flex items-start">
+                    <div className="min-w-[140px] flex items-stretch py-0.5">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -2019,10 +2126,10 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                                 input?.click();
                             }}
                             onMouseDown={e => e.stopPropagation()}
-                            className="w-[128px] h-20 rounded border border-dashed border-cyan-500/40 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/10 text-[10px] flex items-center justify-center gap-1 transition-colors"
+                            className="w-[140px] rounded-xl border border-dashed border-zinc-600/50 bg-zinc-800/30 text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200 hover:border-zinc-500 text-[11px] flex flex-col items-center justify-center gap-2 transition-all h-full"
                         >
-                            <Plus size={12} />
-                            添加图
+                            <div className="bg-zinc-800 p-2 rounded-full"><Plus size={16} /></div>
+                            添加参考图
                         </button>
                         <input
                             id={quickFusionInputId}
@@ -2043,17 +2150,87 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
     };
 
     return (
-        <div className="min-w-0 overflow-visible">
-            <div className="flex items-start gap-3 min-w-0 overflow-visible">
-                <div className={`${showInlineOverridePane ? 'w-fit min-w-[280px] max-w-[56%]' : 'flex-1 min-w-0'}`}>
-                    {renderImageStrip()}
-                </div>
-                {showInlineOverridePane && (
-                    <div className="flex-1 min-w-0 max-w-full">
-                        {renderTextOverrideRow()}
+        <div className="min-w-0 flex flex-col gap-3 py-1 bg-zinc-900/40 px-2 rounded-lg border border-zinc-800/60">
+            {/* Top Row: Describe First Switch */}
+            {onToggleDescribeFirst && (item.base64Data || item.imageUrl) && (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <div
+                        className={`flex items-center gap-2 cursor-pointer w-fit select-none px-2.5 py-1.5 rounded-lg transition-all ${item.needDescribeFirst ? 'bg-amber-500/15 text-amber-400 border border-amber-500/40 shadow-sm' : 'bg-zinc-800/80 text-zinc-400 border border-zinc-700/60 hover:bg-zinc-700 hover:text-zinc-200'}`}
+                        onClick={(e) => { e.stopPropagation(); onToggleDescribeFirst(item.id, !item.needDescribeFirst); }}
+                    >
+                        <span className="text-[11px] font-medium flex items-center gap-1.5">
+                            <Sparkles size={14} className={item.needDescribeFirst ? 'text-amber-400' : 'text-zinc-500'} />
+                            先用AI"详细描述全图"并作为基础上下文
+                        </span>
+                        <span className={`ml-3 w-7 h-4 rounded-full relative transition-colors ${item.needDescribeFirst ? 'bg-amber-500' : 'bg-zinc-600'}`}>
+                            <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all shadow-sm ${item.needDescribeFirst ? 'left-[14px]' : 'left-0.5'}`} />
+                        </span>
                     </div>
-                )}
+                    {/* 卡片级描述预设下拉菜单 - 开启时显示 */}
+                    {item.needDescribeFirst && onSetDescribePresetId && (
+                        <div className="flex flex-col gap-1 flex-1 min-w-0">
+                            <select
+                                value={item.describePresetId || ''}
+                                onChange={(e) => {
+                                    e.stopPropagation();
+                                    const newId = e.target.value;
+                                    if (newId === 'custom') {
+                                        // 切换到自定义：预填当前预设内容
+                                        const currentText = item.describeCustomPrompt || getDescribePromptByPresetIdLocal(item.describePresetId || '1');
+                                        onSetDescribePresetId(item.id, newId);
+                                        onSetDescribeCustomPrompt?.(item.id, currentText);
+                                    } else {
+                                        onSetDescribePresetId(item.id, newId);
+                                    }
+                                }}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 focus:outline-none focus:border-amber-500/50 cursor-pointer max-w-[220px]"
+                            >
+                                <option value="">(继承全局)</option>
+                                {DESCRIBE_PRESET_OPTIONS.map(opt => (
+                                    <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                ))}
+                            </select>
+                            {/* 当 describePresetId 非空时，显示可编辑的指令内容 */}
+                            {item.describePresetId && onSetDescribeCustomPrompt && (
+                                <textarea
+                                    value={item.describePresetId === 'custom' ? (item.describeCustomPrompt || '') : getDescribePromptByPresetIdLocal(item.describePresetId)}
+                                    onChange={(e) => {
+                                        e.stopPropagation();
+                                        const newText = e.target.value;
+                                        // 编辑时自动切换到自定义模式
+                                        onSetDescribePresetId(item.id, 'custom');
+                                        onSetDescribeCustomPrompt(item.id, newText);
+                                    }}
+                                    className="w-full px-2 py-1 rounded text-[10px] leading-relaxed bg-zinc-900/80 border border-zinc-700/40 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-amber-500/50 resize-y min-h-[36px] max-h-[100px]"
+                                    rows={2}
+                                    onClick={e => e.stopPropagation()}
+                                    onDoubleClick={e => {
+                                        e.stopPropagation();
+                                        const currentVal = item.describePresetId === 'custom' ? (item.describeCustomPrompt || '') : getDescribePromptByPresetIdLocal(item.describePresetId!);
+                                        setExpandedEdit({
+                                            title: '卡片描述指令编辑',
+                                            value: currentVal,
+                                            onChange: (val) => {
+                                                onSetDescribePresetId(item.id, 'custom');
+                                                onSetDescribeCustomPrompt(item.id, val);
+                                            },
+                                        });
+                                    }}
+                                    title="双击放大编辑"
+                                />
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Middle part: Images and Extracted Dims */}
+            <div className="flex flex-col gap-1 min-w-0">
+                {renderImageStrip()}
             </div>
+
+            {/* Bottom part: Manual Override */}
+            {showInlineOverridePane && renderTextOverrideRow()}
             {promptModalImageIndex !== null && activePromptCfg?.dimName && (
                 <div
                     className="fixed inset-0 z-[220] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
@@ -2065,7 +2242,7 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                     >
                         <div className="px-4 py-3 border-b border-cyan-800/30 flex items-center justify-between">
                             <div className="text-sm text-cyan-300 font-medium">
-                                {activePromptCfg.dimName === QUICK_IMAGE_APPEND_DIM ? '追加内容编辑' : '提取指令编辑'} · 图{(promptModalImageIndex + 1)} · {activePromptCfg.dimName === QUICK_IMAGE_APPEND_DIM ? '追加' : activePromptCfg.dimName}
+                                {activePromptCfg.dimName === QUICK_IMAGE_DESCRIBE_DIM ? '描述指令编辑' : activePromptCfg.dimName === QUICK_IMAGE_APPEND_DIM ? '追加内容编辑' : '提取指令编辑'} · 图{(promptModalImageIndex + 1)} · {activePromptCfg.dimName === QUICK_IMAGE_DESCRIBE_DIM ? '描述' : activePromptCfg.dimName === QUICK_IMAGE_APPEND_DIM ? '追加' : activePromptCfg.dimName}
                             </div>
                             <button
                                 onClick={() => closePromptModal(true)}
@@ -2074,6 +2251,32 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                                 <X size={16} />
                             </button>
                         </div>
+                        {/* 描述模式预设快选 */}
+                        {activePromptCfg.dimName === QUICK_IMAGE_DESCRIBE_DIM && (
+                            <div className="px-4 pt-3 pb-0 flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] text-zinc-500">快速填入预设:</span>
+                                <select
+                                    key={`preset-fill-${promptDraft.length}`}
+                                    defaultValue=""
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '__clear__') {
+                                            setPromptDraft('');
+                                        } else if (val) {
+                                            const preset = DEFAULT_PRESETS.find(p => p.id === val);
+                                            if (preset) setPromptDraft(preset.text);
+                                        }
+                                    }}
+                                    className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 focus:outline-none focus:border-cyan-500/50 cursor-pointer max-w-[220px]"
+                                >
+                                    <option value="" disabled>选择预设填入...</option>
+                                    {DESCRIBE_PRESET_OPTIONS.filter(opt => opt.id !== 'custom').map(opt => (
+                                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                    ))}
+                                    <option value="__clear__">🗑 清空（用继承）</option>
+                                </select>
+                            </div>
+                        )}
                         <div className="p-4">
                             <textarea
                                 ref={promptTextareaRef}
@@ -2084,12 +2287,54 @@ const QuickInlineImageManager: React.FC<QuickInlineImageManagerProps> = ({
                                     if (e.key === 'Escape') closePromptModal(true);
                                 }}
                                 className="w-full min-h-[220px] bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 leading-relaxed focus:outline-none focus:border-cyan-500/60 resize-y"
+                                placeholder={activePromptCfg.dimName === QUICK_IMAGE_DESCRIBE_DIM ? '留空则使用系统默认描述指令（详细描述图片全貌）。\n如需自定义，可在此输入你的描述指令，例如：\n- 描述这张图的色调和光线\n- 详细描述图中的人物外观' : undefined}
                                 autoFocus
                             />
                         </div>
                         <div className="px-4 py-3 border-t border-zinc-800 flex justify-end">
                             <button
                                 onClick={() => closePromptModal(true)}
+                                className="px-4 py-1.5 text-sm rounded bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-600/30 transition-colors"
+                            >
+                                完成
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* 双击放大编辑弹窗 */}
+            {expandedEdit && (
+                <div
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[230] p-4"
+                    onClick={() => setExpandedEdit(null)}
+                >
+                    <div
+                        className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[640px] max-w-[95vw] shadow-2xl flex flex-col gap-3"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-zinc-200">{expandedEdit.title}</span>
+                            <button
+                                onClick={() => setExpandedEdit(null)}
+                                className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <textarea
+                            value={expandedEdit.value}
+                            onChange={e => {
+                                const val = e.target.value;
+                                expandedEdit.onChange(val);
+                                setExpandedEdit(prev => prev ? { ...prev, value: val } : null);
+                            }}
+                            autoFocus
+                            className="w-full min-h-[300px] bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 leading-relaxed focus:outline-none focus:border-cyan-500/60 resize-y"
+                            onKeyDown={e => { if (e.key === 'Escape') setExpandedEdit(null); }}
+                        />
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setExpandedEdit(null)}
                                 className="px-4 py-1.5 text-sm rounded bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-600/30 transition-colors"
                             >
                                 完成
@@ -2174,7 +2419,7 @@ interface CustomPromptPanelProps {
     workMode?: WorkMode;
 }
 
-const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset, onToggleMergeMode, overrideDimsWithImages, onUpdateCardRefSelection, workMode }: CustomPromptPanelProps) => {
+const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset, onToggleMergeMode, overrideDimsWithImages, onUpdateCardRefSelection, workMode, globalUserPrompt, baseInstruction }: CustomPromptPanelProps) => {
     const [showPreview, setShowPreview] = useState(false);
     if (item.status !== 'idle') return null;
 
@@ -2216,7 +2461,7 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                 </div>
             )}
             <div className="mt-1.5 pt-1.5 border-t border-zinc-700/30">
-                <div className="text-[10px] text-zinc-400 mb-1">📝 追加指令</div>
+                <div className="text-[10px] text-zinc-400 mb-1">📝 单任务追加要求</div>
                 <div className="flex items-center gap-2">
                     <input
                         type="text"
@@ -2224,7 +2469,7 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                         onChange={(e) => onUpdateCustomPrompt?.(item.id, e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
-                        placeholder={isMergeMode ? "追加指令（将与全局合并）" : "单独指令（留空使用全局）"}
+                        placeholder={isMergeMode ? "单任务追加要求（将与全局合并）" : "单任务追加要求（独立模式）"}
                         className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                     />
                     {/* 合并模式开关 */}
@@ -2238,7 +2483,7 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                             ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
                             : 'bg-zinc-800 text-zinc-500 border border-zinc-700 hover:border-zinc-600'
                             }`}
-                        data-tip={isMergeMode ? "合并模式：全局指令 + 单独指令" : "独立模式：仅使用单独指令"}
+                        data-tip={isMergeMode ? "合并模式：全局指令 + 单任务追加要求" : "独立模式：单任务追加要求替代全局指令，全局追加要求仍保留"}
                     >
                         {isMergeMode ? '🔗 合并' : '📝 独立'}
                     </button>
@@ -2277,7 +2522,7 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                 </div>
                 {item.customPrompt && (
                     <div className={`text-[0.625rem] mt-1 ${isMergeMode ? 'text-purple-400' : 'text-blue-400'}`}>
-                        {isMergeMode ? '🔗 全局指令 + 单独指令 合并运行' : '✓ 将使用单独指令（替代全局）'}
+                        {isMergeMode ? '🔗 全局指令 + 单任务追加要求 合并运行' : '✓ 单任务追加要求替代全局，全局追加仍保留'}
                     </div>
                 )}
             </div>
@@ -2314,13 +2559,13 @@ const CustomPromptPanel = ({ item, presets, onUpdateCustomPrompt, onApplyPreset,
                                     <div className="text-green-300 whitespace-pre-wrap text-sm space-y-2">
                                         {globalUserPrompt && (
                                             <div>
-                                                <span className="text-green-500 text-xs">全局：</span>
+                                                <span className="text-green-500 text-xs">全局追加要求：</span>
                                                 <span>{globalUserPrompt}</span>
                                             </div>
                                         )}
                                         {item.customPrompt && (
                                             <div>
-                                                <span className="text-emerald-500 text-xs">本图追加：</span>
+                                                <span className="text-emerald-500 text-xs">单任务追加要求：</span>
                                                 <span>{item.customPrompt}</span>
                                             </div>
                                         )}
@@ -3009,12 +3254,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     onUpdateCardRefSelection,
     overrideDimNames,
     globalOverrideCounts,
+    globalOverrideModes,
     onUpdateCardOverrideCount,
     onUpdateCardTextOverride,
     allEnabledDimNames,
     onUpdateRefImageConfig,
     onToggleCardDimBinding,
-    onToggleDescribeFirst
+    onToggleDescribeFirst,
+    onSetDescribePresetId,
+    onSetDescribeCustomPrompt
 }) => {
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [copiedAction, setCopiedAction] = useState<'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en' | null>(null);
@@ -3031,10 +3279,16 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     const [chatPanelRatio, setChatPanelRatio] = useState<Record<string, number>>({});
     // 展开结果的模态框状态
     const [expandedResultItem, setExpandedResultItem] = useState<ImageItem | null>(null);
+    // 快捷模式：放大编辑卡片状态
+    const [expandedEditCardId, setExpandedEditCardId] = useState<string | null>(null);
     // AI 对话记录弹窗状态
     const [conversationLogItem, setConversationLogItem] = useState<ImageItem | null>(null);
     // 图片放大预览弹窗状态
     const [expandedImage, setExpandedImage] = useState<{ url: string; title?: string } | null>(null);
+    const expandedEditCard = expandedEditCardId ? (images.find(img => img.id === expandedEditCardId) || null) : null;
+    const expandedEditCardCreativeResult = expandedEditCard
+        ? creativeResults.find(r => r.imageId === expandedEditCard.id)
+        : undefined;
 
     const isInteractiveTarget = (target: EventTarget | null): boolean => {
         const el = target as HTMLElement | null;
@@ -3052,6 +3306,148 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
         if (!item.imageUrl) return;
         setExpandedImage({ url: item.imageUrl, title: item.originalInput });
     };
+
+    useEffect(() => {
+        if (!expandedEditCardId) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setExpandedEditCardId(null);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [expandedEditCardId]);
+
+    const expandedCardEditorModal = (workMode === 'quick' && expandedEditCard) ? (
+        <div
+            className="fixed inset-0 z-[140] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setExpandedEditCardId(null)}
+        >
+            <div
+                className="w-full max-w-[96vw] h-[88vh] bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="px-5 py-3 border-b border-zinc-700 flex items-start justify-between gap-3 bg-zinc-900/95">
+                    <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-zinc-100">放大编辑卡片</h3>
+                        <p className="text-[11px] text-zinc-500 truncate mt-0.5" title={expandedEditCard.originalInput}>
+                            {expandedEditCard.originalInput || '当前卡片'}
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {(expandedEditCard.status === 'idle' && onStartInnovation) && (
+                            <button
+                                onClick={() => onStartInnovation(expandedEditCard.id)}
+                                className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded transition-colors tooltip-bottom"
+                                data-tip="开始单卡创新"
+                            >
+                                <Play size={12} />
+                            </button>
+                        )}
+                        {expandedEditCard.status === 'error' && (
+                            <button
+                                onClick={() => onRetry(expandedEditCard.id)}
+                                className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded transition-colors tooltip-bottom"
+                                data-tip="重试"
+                            >
+                                <RotateCw size={12} />
+                            </button>
+                        )}
+                        <button
+                            onClick={() => copyImage(expandedEditCard)}
+                            disabled={!expandedEditCard.imageUrl}
+                            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${(copiedId === expandedEditCard.id && copiedAction === 'image')
+                                ? 'text-emerald-400 bg-emerald-900/20'
+                                : 'text-zinc-500 hover:text-purple-400 hover:bg-zinc-800'
+                                }`}
+                            data-tip={expandedEditCard.imageUrl ? '复制图片到剪贴板' : '无图片'}
+                        >
+                            {(copiedId === expandedEditCard.id && copiedAction === 'image') ? <Check size={12} /> : <ImageIcon size={12} />}
+                        </button>
+                        <button
+                            onClick={() => copyLink(expandedEditCard)}
+                            disabled={!canCopyLink(expandedEditCard)}
+                            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${expandedEditCard.isUploadingToGyazo
+                                ? 'text-blue-400 animate-pulse'
+                                : (copiedId === expandedEditCard.id && copiedAction === 'link')
+                                    ? 'text-emerald-400 bg-emerald-900/20'
+                                    : 'text-zinc-500 hover:text-blue-400 hover:bg-zinc-800'
+                                }`}
+                            data-tip={getLinkTitle(expandedEditCard)}
+                        >
+                            {expandedEditCard.isUploadingToGyazo ? <Loader2 size={12} className="animate-spin" /> : ((copiedId === expandedEditCard.id && copiedAction === 'link') ? <Check size={12} /> : <Link size={12} />)}
+                        </button>
+                        <button
+                            onClick={() => copyFormula(expandedEditCard)}
+                            disabled={!canCopyFormula(expandedEditCard)}
+                            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${(copiedId === expandedEditCard.id && copiedAction === 'formula')
+                                ? 'text-emerald-400 bg-emerald-900/20'
+                                : 'text-zinc-500 hover:text-orange-400 hover:bg-zinc-800'
+                                }`}
+                            data-tip={getFormulaTitle(expandedEditCard)}
+                        >
+                            {(copiedId === expandedEditCard.id && copiedAction === 'formula') ? <Check size={12} /> : <FileCode size={12} />}
+                        </button>
+                        <button
+                            onClick={() => copyCreativeResult(expandedEditCard)}
+                            disabled={!expandedEditCardCreativeResult || expandedEditCardCreativeResult.status !== 'success'}
+                            className={`p-1.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed tooltip-bottom ${(copiedId === expandedEditCard.id && copiedAction === 'result')
+                                ? 'text-emerald-400 bg-emerald-900/20'
+                                : 'text-zinc-500 hover:text-emerald-400 hover:bg-zinc-800'
+                                }`}
+                            data-tip="复制所有创新结果"
+                        >
+                            {(copiedId === expandedEditCard.id && copiedAction === 'result') ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                        {(expandedEditCard.status === 'success') && (
+                            <button
+                                onClick={() => onRetry(expandedEditCard.id)}
+                                className="p-1.5 text-zinc-500 hover:text-emerald-400 transition-colors rounded hover:bg-zinc-800 tooltip-bottom"
+                                data-tip="重新创新"
+                            >
+                                <RotateCw size={12} />
+                            </button>
+                        )}
+                        <button
+                            onClick={() => onRemove(expandedEditCard.id)}
+                            className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors tooltip-bottom"
+                            data-tip="删除卡片"
+                        >
+                            <Trash2 size={12} />
+                        </button>
+                        <button
+                            onClick={() => setExpandedEditCardId(null)}
+                            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                            title="关闭"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+                <div className="flex-1 min-h-0 p-4 grid grid-cols-1 xl:grid-cols-[2fr_1fr] gap-4 overflow-hidden">
+                    <div className="min-h-0 overflow-y-auto custom-scrollbar pr-1">
+                        <QuickInlineImageManager
+                            item={expandedEditCard}
+                            allEnabledDimNames={allEnabledDimNames}
+                            globalOverrideCounts={globalOverrideCounts}
+                            globalOverrideModes={globalOverrideModes}
+                            onUpdateCardOverrideCount={onUpdateCardOverrideCount}
+                            onUpdateCardTextOverride={onUpdateCardTextOverride}
+                            onUpdateCustomPrompt={onUpdateCustomPrompt}
+                            onUpdateRefImageConfig={onUpdateRefImageConfig}
+                            onRemoveFusionImage={onRemoveFusionImage}
+                            onAddFusionImage={onAddFusionImage}
+                            onToggleDescribeFirst={onToggleDescribeFirst}
+                            onSetDescribePresetId={onSetDescribePresetId}
+                            onSetDescribeCustomPrompt={onSetDescribeCustomPrompt}
+                        />
+                    </div>
+                    <div className="min-h-0 overflow-y-auto custom-scrollbar bg-zinc-950/60 border border-zinc-800 rounded-xl p-3">
+                        <div className="text-xs text-purple-300 mb-2">创新结果预览</div>
+                        <CreativeResultDisplay result={expandedEditCardCreativeResult} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    ) : null;
 
     // 获取当前视图模式下的侧边栏宽度 (默认为grid或者list的宽度，Compact模式用不到但给个默认值)
     const currentSidebarWidth = viewMode === 'list' ? sidebarWidths.list : sidebarWidths.grid;
@@ -3194,14 +3590,14 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
     };
 
     // 显示复制成功状态
-    const showCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en') => {
+    function showCopied(id: string, action: 'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en') {
         setCopiedId(id);
         setCopiedAction(action);
         setTimeout(() => { setCopiedId(null); setCopiedAction(null); }, 2000);
-    };
+    }
 
     // 复制图片文件到剪贴板
-    const copyImage = async (item: ImageItem) => {
+    async function copyImage(item: ImageItem) {
         if (!item.imageUrl) {
             alert('无图片可复制');
             return;
@@ -3260,77 +3656,77 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                 alert(`复制图片失败: ${error.message || '未知错误'}\n\n请尝试复制链接或公式。`);
             }
         }
-    };
+    }
 
     // 复制纯链接
-    const copyLink = async (item: ImageItem) => {
+    async function copyLink(item: ImageItem) {
         const link = getLink(item);
         if (!link) return;
         await navigator.clipboard.writeText(link);
         showCopied(item.id, 'link');
-    };
+    }
 
     // 获取链接（用于判断是否可复制）
-    const getLink = (item: ImageItem): string => {
+    function getLink(item: ImageItem): string {
         if (item.gyazoUrl) return item.gyazoUrl;
         if (item.fetchUrl) return item.fetchUrl;
         const formulaMatch = item.originalInput.match(/=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i);
         if (formulaMatch) return formulaMatch[1];
         return '';
-    };
+    }
 
     // 是否可以复制链接
-    const canCopyLink = (item: ImageItem): boolean => {
+    function canCopyLink(item: ImageItem): boolean {
         return !item.isUploadingToGyazo && !!getLink(item);
-    };
+    }
 
     // 复制公式（=IMAGE("url")格式）
-    const copyFormula = async (item: ImageItem) => {
+    async function copyFormula(item: ImageItem) {
         const formula = getFormula(item);
         if (!formula) return;
         await navigator.clipboard.writeText(formula);
         showCopied(item.id, 'formula');
-    };
+    }
 
     // 获取公式（用于判断是否可复制）
-    const getFormula = (item: ImageItem): string => {
+    function getFormula(item: ImageItem): string {
         if (item.originalInput.startsWith('=IMAGE')) return item.originalInput;
         if (item.gyazoUrl) return `=IMAGE("${item.gyazoUrl}")`;
         if (item.fetchUrl) return `=IMAGE("${item.fetchUrl}")`;
         return '';
-    };
+    }
 
     // 是否可以复制公式
-    const canCopyFormula = (item: ImageItem): boolean => {
+    function canCopyFormula(item: ImageItem): boolean {
         return !item.isUploadingToGyazo && !!getFormula(item);
-    };
+    }
 
     // 获取链接的提示信息
-    const getLinkTitle = (item: ImageItem): string => {
+    function getLinkTitle(item: ImageItem): string {
         if (item.isUploadingToGyazo) return '正在上传到 Gyazo...';
         if (item.gyazoUrl) return `复制 Gyazo 链接`;
         if (item.fetchUrl) return '复制图片链接';
         if (item.sourceType === 'file') return '未上传，暂无链接';
         return '无链接';
-    };
+    }
 
     // 获取公式的提示信息
-    const getFormulaTitle = (item: ImageItem): string => {
+    function getFormulaTitle(item: ImageItem): string {
         if (item.isUploadingToGyazo) return '正在上传到 Gyazo...';
         if (canCopyFormula(item)) return '复制公式 =IMAGE(...)';
         if (item.sourceType === 'file') return '未上传，暂无公式';
         return '无公式';
-    };
+    }
 
     // 复制识别结果
-    const copyResult = (item: ImageItem) => {
+    function copyResult(item: ImageItem) {
         if (!item.result) return;
         navigator.clipboard.writeText(item.result);
         showCopied(item.id, 'result');
-    };
+    }
 
     // 复制创新结果（创新模式专用）
-    const copyCreativeResult = (item: ImageItem) => {
+    function copyCreativeResult(item: ImageItem) {
         const result = creativeResults.find(r => r.imageId === item.id);
         if (!result || result.status !== 'success' || result.innovations.length === 0) return;
 
@@ -3341,12 +3737,12 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
 
         navigator.clipboard.writeText(text);
         showCopied(item.id, 'result');
-    };
+    }
 
     // 判断当前复制的是什么
-    const isCopied = (id: string, action: 'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en') => {
+    function isCopied(id: string, action: 'image' | 'link' | 'formula' | 'result' | 'result-zh' | 'result-en') {
         return copiedId === id && copiedAction === action;
-    };
+    }
 
     // 复制拆分结果（单张，按语言）
     const copySplitResultLang = (item: ImageItem, lang: 'zh' | 'en') => {
@@ -3417,7 +3813,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                     ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 bg-zinc-950/40 border border-dashed border-zinc-700/60 rounded">
                             <Plus size={18} />
-                            <span className="text-[0.625rem] mt-1">空卡片，点击 + 添加主图</span>
+                            <span className="text-[0.625rem] mt-1">空卡片，点击 + 添加图片</span>
                         </div>
                     )}
 
@@ -3471,7 +3867,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     fusionInputRefs.current[item.id]?.click();
                                 }}
                                 className="absolute top-2 left-2 w-6 h-6 bg-cyan-500/80 hover:bg-cyan-400 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg tooltip-bottom"
-                                data-tip={item.imageUrl ? '添加融合图' : '添加主图'}
+                                data-tip="添加图片"
                             >
                                 <Plus size={14} />
                             </button>
@@ -3532,6 +3928,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                 <ConversationLogModal item={conversationLogItem} onClose={() => setConversationLogItem(null)} />
                 {/* 图片放大预览弹窗 */}
                 <ImagePreviewModal imageUrl={expandedImage?.url || null} title={expandedImage?.title} onClose={() => setExpandedImage(null)} />
+                {/* 卡片放大编辑弹窗 */}
+                {expandedCardEditorModal}
 
                 <div
                     className="flex flex-col gap-1.5 pb-20"
@@ -3743,6 +4141,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         )}
                                     </>
                                 )}
+                                {workMode === 'quick' && (
+                                    <button
+                                        onClick={() => setExpandedEditCardId(item.id)}
+                                        className="p-1 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/20 rounded transition-colors tooltip-bottom"
+                                        data-tip="放大编辑卡片"
+                                    >
+                                        <Maximize2 size={12} />
+                                    </button>
+                                )}
                                 {/* AI 对话记录按钮 */}
                                 {item.aiConversationLog && item.aiConversationLog.length > 0 && (
                                     <button
@@ -3778,6 +4185,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                 <ConversationLogModal item={conversationLogItem} onClose={() => setConversationLogItem(null)} />
                 {/* 图片放大预览弹窗 */}
                 <ImagePreviewModal imageUrl={expandedImage?.url || null} title={expandedImage?.title} onClose={() => setExpandedImage(null)} />
+                {/* 卡片放大编辑弹窗 */}
+                {expandedCardEditorModal}
 
                 <div
                     className="flex flex-col gap-3 pb-20"
@@ -4132,6 +4541,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                                         item={item}
                                                                                         allEnabledDimNames={allEnabledDimNames}
                                                                                         globalOverrideCounts={globalOverrideCounts}
+                                                                                        globalOverrideModes={globalOverrideModes}
                                                                                         onUpdateCardOverrideCount={onUpdateCardOverrideCount}
                                                                                         onUpdateCardTextOverride={onUpdateCardTextOverride}
                                                                                         onUpdateCustomPrompt={onUpdateCustomPrompt}
@@ -4139,6 +4549,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                                         onRemoveFusionImage={onRemoveFusionImage}
                                                                                         onAddFusionImage={onAddFusionImage}
                                                                                         onToggleDescribeFirst={onToggleDescribeFirst}
+                                                                                        onSetDescribePresetId={onSetDescribePresetId}
+                                                                                        onSetDescribeCustomPrompt={onSetDescribeCustomPrompt}
                                                                                     />
                                                                                 </div>
                                                                                 {hasQuickResult && (
@@ -4288,7 +4700,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         <MessageCircle size={12} fill={!item.isChatOpen && item.chatHistory.length > 1 ? "currentColor" : "none"} fillOpacity={!item.isChatOpen && item.chatHistory.length > 1 ? 0.2 : 0} />
                                                                     </button>
                                                                 )}
-                                                                {workMode !== 'split' && ((workMode === 'creative' || workMode === 'quick') ? (
+                                                                {workMode !== 'split' && (workMode === 'creative' ? (
                                                                     // 创新模式：放大查看按钮
                                                                     <button
                                                                         onClick={() => setExpandedResultItem(item)}
@@ -4336,6 +4748,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     </button>
                                                                 )}
                                                             </>
+                                                        )}
+                                                        {workMode === 'quick' && (
+                                                            <button
+                                                                onClick={() => setExpandedEditCardId(item.id)}
+                                                                className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/20 rounded transition-colors tooltip-bottom"
+                                                                data-tip="放大编辑卡片"
+                                                            >
+                                                                <Maximize2 size={12} />
+                                                            </button>
                                                         )}
 
                                                         {/* 删除按钮 - 仅在关闭状态显示（即右侧操作栏），打开状态时使用图片悬浮删除按钮 */}
@@ -4469,6 +4890,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
             <ConversationLogModal item={conversationLogItem} onClose={() => setConversationLogItem(null)} />
             {/* 图片放大预览弹窗 */}
             <ImagePreviewModal imageUrl={expandedImage?.url || null} title={expandedImage?.title} onClose={() => setExpandedImage(null)} />
+            {/* 卡片放大编辑弹窗 */}
+            {expandedCardEditorModal}
 
             <div
                 className="flex flex-wrap gap-4 pb-20"
@@ -4814,6 +5237,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         item={item}
                                                                         allEnabledDimNames={allEnabledDimNames}
                                                                         globalOverrideCounts={globalOverrideCounts}
+                                                                        globalOverrideModes={globalOverrideModes}
                                                                         onUpdateCardOverrideCount={onUpdateCardOverrideCount}
                                                                         onUpdateCardTextOverride={onUpdateCardTextOverride}
                                                                         onUpdateCustomPrompt={onUpdateCustomPrompt}
@@ -4821,6 +5245,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                         onRemoveFusionImage={onRemoveFusionImage}
                                                                         onAddFusionImage={onAddFusionImage}
                                                                         onToggleDescribeFirst={onToggleDescribeFirst}
+                                                                        onSetDescribePresetId={onSetDescribePresetId}
+                                                                        onSetDescribeCustomPrompt={onSetDescribeCustomPrompt}
                                                                     />
                                                                 </div>
                                                                 {hasQuickResult && (
@@ -4988,7 +5414,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                         <MessageCircle size={12} />
                                                     </button>
                                                 )}
-                                                {workMode !== 'split' && ((workMode === 'creative' || workMode === 'quick') ? (
+                                                {workMode !== 'split' && (workMode === 'creative' ? (
                                                     // 创新模式：放大查看按钮
                                                     <button
                                                         onClick={() => setExpandedResultItem(item)}
@@ -5026,6 +5452,15 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     </button>
                                                 )}
                                             </>
+                                        )}
+                                        {workMode === 'quick' && (
+                                            <button
+                                                onClick={() => setExpandedEditCardId(item.id)}
+                                                className="p-1.5 text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/20 rounded transition-colors tooltip-bottom"
+                                                data-tip="放大编辑卡片"
+                                            >
+                                                <Maximize2 size={12} />
+                                            </button>
                                         )}
                                     </div>
                                 </div>

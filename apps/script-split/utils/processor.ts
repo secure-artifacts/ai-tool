@@ -278,6 +278,46 @@ export const processGrid = (
     // Mark these columns as updated
     for (let c = minC; c <= maxC; c++) updatedCols.push(c);
   }
+  else if (tool === ToolType.CleanTails) {
+    // 自动删除结尾是 @一些名字内容啥的。还有结尾是 Veo 这种单词
+    let cleanedCount = 0;
+    for (let r = minR; r <= maxR; r++) {
+      if (!newGrid[r]) newGrid[r] = [];
+      for (let c = minC; c <= maxC; c++) {
+        const val = newGrid[r][c] || '';
+        if (!val) continue;
+
+        let cleaned = val.trim();
+        let changed = true;
+        let originalCleaned = cleaned;
+
+        while (changed) {
+          changed = false;
+          // 删除尾部的 @用户名 (包括前面的空格或标点)
+          const atMatch = cleaned.match(/(?:[\s,:]*@[^\s]+)+$/);
+          if (atMatch) {
+            cleaned = cleaned.substring(0, cleaned.length - atMatch[0].length).trim();
+            changed = true;
+          }
+          // 删除尾部的 Veo 或 veo (包括前面的空格)
+          const veoMatch = cleaned.match(/[\s,]*veo$/i);
+          if (veoMatch) {
+            cleaned = cleaned.substring(0, cleaned.length - veoMatch[0].length).trim();
+            changed = true;
+          }
+        }
+
+        if (cleaned !== originalCleaned) {
+          newGrid[r][c] = cleaned;
+          cleanedCount++;
+        }
+      }
+    }
+    for (let c = minC; c <= maxC; c++) updatedCols.push(c);
+    if (cleanedCount > 0) {
+      updatedCols.push(-5000 - cleanedCount); // Signal: cleaned count
+    }
+  }
   else if (tool === ToolType.ClearChinese) {
     // Delete cells that contain Chinese HANZI characters (only in selected area)
     // Only match actual Chinese characters (CJK Unified Ideographs), NOT punctuation
@@ -528,7 +568,7 @@ export const parsePasteData = (text: string): string[][] => {
         currentCell += char;
       }
     } else {
-      if (char === '"') {
+      if (char === '"' && currentCell === '') {
         insideQuote = true;
       } else if (char === '\t') {
         currentRow.push(currentCell);

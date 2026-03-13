@@ -101,7 +101,7 @@ interface AICopyDeduplicatorAppProps {
     textModel?: string;
 }
 
-export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemini-2.0-flash' }: AICopyDeduplicatorAppProps) {
+export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemini-3.1-flash-lite-preview' }: AICopyDeduplicatorAppProps) {
     const [state, setState] = useState<CopyDedupState>(() => {
         const saved = initialCopyDedupState;
         saved.library = loadLibrary();

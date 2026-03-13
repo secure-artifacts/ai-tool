@@ -469,13 +469,15 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     }, [ensureCurrentDataSourceTab]);
 
     // Switch data source tab
-    const switchDataSourceTab = useCallback(async (tabId: string) => {
+    const switchDataSourceTab = useCallback(async (tabId: string, options?: { skipSave?: boolean }) => {
         if (tabId === activeDataSourceTabId) return;
         if (switchingDsRef.current) return;
         switchingDsRef.current = true;
 
         // Save current state
-        saveCurrentDsState();
+        if (!options?.skipSave) {
+            saveCurrentDsState();
+        }
 
         const targetTab = dataSourceTabs.find(t => t.id === tabId);
         if (!targetTab) {
@@ -546,7 +548,6 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         if (dataSourceTabs.length <= 1) return;
         const tab = dataSourceTabs.find(t => t.id === tabId);
         if (!tab) return;
-        if (!confirm(`关闭数据源 "${tab.name}"？`)) return;
 
         const nextTabs = dataSourceTabs.filter(t => t.id !== tabId);
         setDataSourceTabs(nextTabs);
@@ -555,7 +556,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             // Switch to another tab
             const nextTab = nextTabs[0];
             if (nextTab) {
-                switchDataSourceTab(nextTab.id);
+                void switchDataSourceTab(nextTab.id, { skipSave: true });
             }
         }
     }, [dataSourceTabs, activeDataSourceTabId, switchDataSourceTab]);
@@ -1529,7 +1530,9 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         <div className="h-full w-full flex flex-col bg-slate-100 overflow-hidden sheetmind-app">
 
             {/* Unified Header */}
-            <header className="h-[42px] bg-white border-b border-slate-200 flex items-center shrink-0 shadow-sm z-50 relative overflow-visible pl-2">
+            <div className="shrink-0 border-b border-slate-200 bg-white shadow-sm z-50 relative">
+                <div className="custom-scrollbar overflow-x-auto">
+                    <div className="h-[42px] w-full min-w-full flex items-center relative pl-2 pr-2">
 
                 {/* 1. App Logo (Always Visible) */}
                 <div className="flex items-center shrink-0 mr-2 border-r border-slate-200 pr-2 py-1">
@@ -1541,7 +1544,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
                 {/* 2. Data Source Tabs */}
                 {dataSourceTabs.length > 0 && (
-                    <div className="flex items-center gap-1 shrink-0 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] mr-2 max-w-[25%] border-r border-slate-200 pr-2">
+                    <div className="flex items-center gap-1 shrink-0 mr-2 border-r border-slate-200 pr-2">
                         {dataSourceTabs.map(dsTab => (
                             <div
                                 key={dsTab.id}
@@ -1586,7 +1589,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                             e.stopPropagation();
                                             handleDeleteDataSourceTab(dsTab.id);
                                         }}
-                                        className={`p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-400'
+                                        className={`p-0.5 rounded-full opacity-70 group-hover:opacity-100 transition-opacity ${activeDataSourceTabId === dsTab.id ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-400 text-slate-400'
                                             }`}
                                     >
                                         <X size={12} />
@@ -1625,7 +1628,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 {/* 3. Workbook Controls (Refresh, Reset, Address bar, Settings, Append) */}
                 {workbook ? (
 
-                    <div className="flex items-center gap-2 flex-1 max-w-full">
+                    <div className="flex items-center gap-2 flex-1 min-w-max">
 
                         {/* 刷新/导航按钮 */}
                         <div className="flex items-center gap-0.5 pl-1 shrink-0">
@@ -1649,7 +1652,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         </div>
 
                         {/* Address Bar Equivalent (Sheet Selector & View Switcher) */}
-                        <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 focus-within:bg-white focus-within:shadow-[0_0_0_1px_#cbd5e1] rounded-full px-1.5 py-1 min-w-[300px] flex-1 max-w-4xl mx-2 transition-all border border-transparent">
+                        <div className="flex items-center bg-slate-100/80 hover:bg-slate-100 focus-within:bg-white focus-within:shadow-[0_0_0_1px_#cbd5e1] rounded-full px-1.5 py-1 min-w-[300px] mx-2 transition-all border border-transparent shrink-0">
 
                             {/* Sheet Selector (Domain part) */}
                             <div className="relative border-r border-slate-300 pr-2 py-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -1740,7 +1743,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                             </div>
 
                             {/* View Switcher (Path part) */}
-                            <div className="flex items-center gap-0.5 px-2 py-0.5 flex-1 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                            <div className="flex items-center gap-0.5 px-2 py-0.5 shrink-0 whitespace-nowrap">
                                 <button
                                     onClick={() => setView('grid')}
                                     className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'grid' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
@@ -1924,7 +1927,9 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     </div>
 
                 )}
-            </header>
+                    </div>
+                </div>
+            </div>
 
             {/* Main Content Area */}
             <div className="flex-1 flex overflow-hidden relative">

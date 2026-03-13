@@ -155,7 +155,7 @@ ${items.map(item => `[${item.index}] ${item.text}`).join('\n\n')}
     try {
         const result = await ai.models.generateContent({
             model: textModel,
-            contents: { parts: [{ text: userPrompt }] },
+            contents: { role: 'user', parts: [{ text: userPrompt }] },
             config: {
                 systemInstruction: customPrompt
             }

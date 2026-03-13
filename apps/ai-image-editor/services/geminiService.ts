@@ -8,7 +8,11 @@ const getAiInstance = () => {
   if (!keyToUse) {
     throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
   }
-  return new GoogleGenAI({ apiKey: keyToUse });
+  if (keyToUse.startsWith('AIza')) {
+    throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
+  }
+  const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
+  return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
 };
 
 const fileToGenerativePart = async (file: File) => {
@@ -81,6 +85,7 @@ const generateImage = async (
   }
 
   const contents = {
+    role: 'user' as const,
     parts: [
       ...imageParts,
       { text: prompt },
@@ -167,12 +172,13 @@ const mergeLayers = async (
   return generateImage(compositeFile, null, fullPrompt, model, imageResolution);
 };
 
-const extractStyle = async (baseImage: File, model = 'gemini-3-flash-preview'): Promise<string> => {
+const extractStyle = async (baseImage: File, model = 'gemini-3.1-flash-lite-preview'): Promise<string> => {
   const ai = getAiInstance();
   const imagePart = await fileToGenerativePart(baseImage);
   const prompt = `Thoroughly analyze the artistic style of the provided image. Pay close attention to elements like: color palette and harmony, lighting techniques (e.g., soft, dramatic, chiaroscuro), brushwork or texture (e.g., detailed, impasto, smooth), overall mood and atmosphere, and any identifiable art movement influences (e.g., impressionism, realism, surrealism). Based on this comprehensive analysis, generate a detailed and descriptive prompt in Chinese for an AI image generator. The prompt should be a single, cohesive paragraph that eloquently captures the essence of the style, enabling another AI to replicate it. Crucially, DO NOT describe the subject matter (people, objects, places) of the image; focus exclusively on the stylistic and artistic qualities.`
 
   const contents = {
+    role: 'user' as const,
     parts: [
       imagePart,
       { text: prompt },
@@ -198,7 +204,7 @@ const extractStyle = async (baseImage: File, model = 'gemini-3-flash-preview'): 
 const chatWithPromptHelper = async (
   history: ChatMessage[],
   imageFile?: File,
-  model = 'gemini-3-flash-preview',
+  model = 'gemini-3.1-flash-lite-preview',
 ): Promise<string> => {
   const ai = getAiInstance();
   const systemInstruction = `You are a world-class AI art prompt engineer. Your primary language is Chinese.

@@ -23,7 +23,7 @@ import DropZone from './components/DropZone';
 import PromptManager from './components/PromptManager';
 import ResultsGrid from './components/ResultsGrid';
 import CompactToolbar from './CompactToolbar';
-import { Play, Pause, Square, ClipboardCopy, Trash2, Settings, Settings2, Zap, LayoutGrid, List, Rows3, Check, X, RotateCw, RotateCcw, RefreshCcw, AlertCircle, CheckCircle2, ImagePlus, Upload, Loader2, Link, FileCode, MessageCircle, Send, Copy, ChevronDown, ChevronUp, Sparkles, Download, ArrowLeftRight, Share2, FileText, Eye, EyeOff, ListPlus, Plus, Info, Bell, Languages, HelpCircle } from 'lucide-react';
+import { Play, Pause, Square, ClipboardCopy, Trash2, Settings, Settings2, Zap, LayoutGrid, List, Rows3, Check, X, RotateCw, RotateCcw, RefreshCcw, AlertCircle, CheckCircle2, ImagePlus, Upload, Loader2, Link, FileCode, MessageCircle, Send, Copy, ChevronDown, ChevronUp, Sparkles, Download, ArrowLeftRight, Share2, FileText, Eye, EyeOff, Maximize2, ListPlus, Plus, Info, Bell, Languages, HelpCircle } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { RandomLibraryManager } from './components/RandomLibraryManager';
 import { QuickModeStandalone } from './components/QuickModeStandalone';
@@ -118,6 +118,22 @@ const DEFAULT_INNOVATION_INSTRUCTION = `你是一个专业的AI图像提示词�
 // 纯净回复模式后缀 - 让 AI 只输出描述词，不输出多余内容
 const PURE_REPLY_SUFFIX = `\n\n【输出要求】输出内容为完整的图像生成英文描述词；可直接用于AI图像生成；不要输出多余内容，如说明、分析、引言、标点装饰等。`;
 const QUICK_IMAGE_APPEND_DIM = '__append__';
+const QUICK_IMAGE_DESCRIBE_DIM = '__describe__';
+
+// 描述预设 ID → 名称映射（供 UI 下拉菜单使用，名称与标准模式完全一致）
+const DESCRIBE_PRESET_OPTIONS: Array<{ id: string; label: string }> = [
+    { id: '1', label: '图片转为AI提示词-1（识别原始图片风格）' },
+    { id: '2', label: '图片转为AI提示词-2（统一转为摄影真实风格）' },
+    { id: '6', label: '图片转为AI提示词-3（精准复刻）' },
+    { id: 'custom', label: '✏️ 自定义描述指令' },
+];
+
+// 根据预设ID获取描述指令文本（从 DEFAULT_PRESETS 读取）
+const getDescribePromptByPresetId = (presetId: string, customPrompt?: string): string => {
+    if (presetId === 'custom' && customPrompt?.trim()) return customPrompt.trim();
+    const preset = DEFAULT_PRESETS.find(p => p.id === presetId);
+    return preset?.text || DEFAULT_PRESETS[0].text;
+};
 
 // 上传图片到 Gyazo 图床
 const uploadToGyazo = async (file: File, token: string): Promise<string | null> => {
@@ -271,7 +287,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     templateState,
     unifiedPresets = []
 }) => {
-    const { images, prompt, presets, isProcessing, copyMode, viewMode, autoUploadGyazo, innovationInstruction, globalInnovationTemplateId, globalInnovationCount, globalInnovationRounds, pureReplyMode, workMode = 'standard' as const, creativeCount = 4, creativeResults = [], creativeInstruction = '', needOriginalDesc = false, batchAdvancedMode = false, originalDescPresetId = '1', tabs = [], activeTabId = '' } = state;
+    const { images, prompt, presets, isProcessing, copyMode, viewMode, autoUploadGyazo, innovationInstruction, globalInnovationTemplateId, globalInnovationCount, globalInnovationRounds, pureReplyMode, workMode = 'standard' as const, creativeCount = 4, creativeResults = [], creativeInstruction = '', needOriginalDesc = false, batchAdvancedMode = false, originalDescPresetId = '1', originalDescCustomPrompt = '', tabs = [], activeTabId = '' } = state;
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [pendingDropFiles, setPendingDropFiles] = useState<File[] | null>(null); // 多图拖拽待选择
     const [isPaused, setIsPaused] = useState(false);
@@ -324,6 +340,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const [quickViewMode, setQuickViewMode] = useState<'classic' | 'standalone'>(() => {
         try { return (localStorage.getItem('quick-view-mode') as 'classic' | 'standalone') || 'classic'; } catch { return 'classic'; }
     });
+    const switchQuickViewMode = useCallback((targetMode: 'classic' | 'standalone') => {
+        setQuickViewMode(targetMode);
+        localStorage.setItem('quick-view-mode', targetMode);
+    }, []);
     const [quickSyncingLibraries, setQuickSyncingLibraries] = useState(false); // 快捷模式同步状态
     // === 拆分元素模式 ===
     const DEFAULT_SPLIT_ELEMENTS = ['背景', '主体/人物', '手持物品', '服装（须含性别）', '光影/氛围', '风格/构图'];
@@ -364,9 +384,9 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [splitElements, splitInstruction]);
     const [imageModel, setImageModel] = useState(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('image_model') || 'gemini-3-flash-preview';
+            return localStorage.getItem('image_model') || 'gemini-3.1-flash-lite-preview';
         }
-        return 'gemini-3-flash-preview';
+        return 'gemini-3.1-flash-lite-preview';
     });
     const [sentToDescIds, setSentToDescIds] = useState<string[]>([]);
     const [sentAllCount, setSentAllCount] = useState<number | null>(null);
@@ -435,6 +455,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     needOriginalDesc: prev.needOriginalDesc,
                     batchAdvancedMode: prev.batchAdvancedMode,
                     originalDescPresetId: prev.originalDescPresetId,
+                    originalDescCustomPrompt: prev.originalDescCustomPrompt,
                     pureReplyMode: prev.pureReplyMode,
                 };
             }
@@ -463,6 +484,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 needOriginalDesc: targetTab.needOriginalDesc ?? false,
                 batchAdvancedMode: targetTab.batchAdvancedMode ?? false,
                 originalDescPresetId: targetTab.originalDescPresetId || '1',
+                originalDescCustomPrompt: targetTab.originalDescCustomPrompt || '',
                 pureReplyMode: targetTab.pureReplyMode ?? false,
             };
         });
@@ -493,6 +515,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     needOriginalDesc: prev.needOriginalDesc,
                     batchAdvancedMode: prev.batchAdvancedMode,
                     originalDescPresetId: prev.originalDescPresetId,
+                    originalDescCustomPrompt: prev.originalDescCustomPrompt,
                     pureReplyMode: prev.pureReplyMode,
                     randomLibraryConfig: randomLibraryConfigRef.current,
                 };
@@ -514,6 +537,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 needOriginalDesc: false,
                 batchAdvancedMode: false,
                 originalDescPresetId: '1',
+                originalDescCustomPrompt: '',
                 pureReplyMode: false,
             };
         });
@@ -550,6 +574,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     needOriginalDesc: newActiveTab.needOriginalDesc ?? false,
                     batchAdvancedMode: newActiveTab.batchAdvancedMode ?? false,
                     originalDescPresetId: newActiveTab.originalDescPresetId || '1',
+                    originalDescCustomPrompt: newActiveTab.originalDescCustomPrompt || '',
                     pureReplyMode: newActiveTab.pureReplyMode ?? false,
                 };
                 // 恢复随机库配置
@@ -601,6 +626,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 needOriginalDesc: prev.needOriginalDesc,
                 batchAdvancedMode: prev.batchAdvancedMode,
                 originalDescPresetId: prev.originalDescPresetId,
+                originalDescCustomPrompt: prev.originalDescCustomPrompt,
                 pureReplyMode: prev.pureReplyMode,
             };
             return { ...prev, tabs: updatedTabs };
@@ -649,6 +675,8 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const [isGeneratingNoImage, setIsGeneratingNoImage] = useState(false);
     const textCardsRef = useRef(textCards);
     textCardsRef.current = textCards;
+    // 双击放大编辑弹窗
+    const [expandedEdit, setExpandedEdit] = useState<{ title: string; value: string; onChange: (val: string) => void } | null>(null);
     const [showBulkImportModal, setShowBulkImportModal] = useState(false); // 批量导入弹窗
     const [bulkImportText, setBulkImportText] = useState(''); // 批量导入文本
     const [cardBatchSize, setCardBatchSize] = useState(() => {
@@ -1250,6 +1278,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             const response = await ai.models.generateContent({
                 model: modelId,
                 contents: {
+                    role: 'user',
                     parts: [
                         {
                             inlineData: {
@@ -1453,7 +1482,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
             const response = await ai.models.generateContent({
                 model: modelId,
-                contents: { parts },
+                contents: { role: 'user', parts },
                 config: {
                     temperature: 0.2,
                 },
@@ -1492,7 +1521,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const generateText = useCallback(async (prompt: string): Promise<string> => {
         const ai = getAiInstance();
         const response = await ai.models.generateContent({
-            model: imageModel || 'gemini-2.0-flash',
+            model: imageModel || 'gemini-3.1-flash-lite-preview',
             contents: prompt,
             config: {
                 temperature: 0.8, // 更高温度增加创意性
@@ -1522,8 +1551,8 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         parts.push({ text: prompt });
 
         const response = await ai.models.generateContent({
-            model: imageModel || 'gemini-2.0-flash',
-            contents: { parts },
+            model: imageModel || 'gemini-3.1-flash-lite-preview',
+            contents: { role: 'user', parts },
             config: {
                 temperature: 0.7,
             }
@@ -1601,9 +1630,14 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                     // 转义的引号 ""
                     current += '"';
                     i++;
+                } else if (inQuotes) {
+                    // 退出引号状态
+                    inQuotes = false;
+                } else if (current === '') {
+                    // 进入引号状态
+                    inQuotes = true;
                 } else {
-                    // 切换引号状态
-                    inQuotes = !inQuotes;
+                    current += char;
                 }
             } else if (char === '\t' && !inQuotes) {
                 // Tab 分隔符（不在引号内）= 单元格分隔
@@ -1805,8 +1839,8 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
                 const isRandomLibEnabled = config.enabled &&
                     config.libraries.some(lib => lib.enabled && lib.values.length > 0);
                 const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
-                const presets = DEFAULT_QUICK_INNOVATION_PRESETS;
-                baseInstruction = presets[presetType] || DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                const userPreset = config.quickPresets?.[presetType];
+                baseInstruction = (userPreset && userPreset.trim()) ? userPreset : DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
                 console.log('[无图快捷模式] 使用默认预设:', { presetType, isRandomLibEnabled });
             }
         } else {
@@ -1934,6 +1968,10 @@ ${topicsList}
                 const results: string[] = [];
                 const resultsZh: string[] = [];
 
+                // 快捷模式下 topic 只是标签，不参与提示词；经典模式下 topic 是用户实际输入
+                const topicAsRequirement = workMode !== 'quick' ? card.topic.trim() : '';
+                const hasUserInput = workMode !== 'quick' ? true : !!prompt.trim();
+
                 if (useRandomLibrary) {
                     // 随机库模式：根据设置生成多个组合
                     const combinations: string[] = [];
@@ -1961,8 +1999,6 @@ ${topicsList}
                     }
 
                     const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
-                    // 无图模式下，card.topic就是用户要求
-                    const hasUserInput = true; // 无图模式下总有用户要求（topic）
 
                     // 批量模式：把所有组合合并成一次请求，节省token
                     if (combinations.length > 1) {
@@ -1978,10 +2014,10 @@ ${transitionInstruction}
 ${combinationsList}
 
 ${priorityInstruction}
-
+${topicAsRequirement ? `
 【用户特别要求】
-${card.topic}
-
+${topicAsRequirement}
+` : ''}
 【输出要求】
 - 每个组合输出一个完整的图像生成描述词，同时提供英文和中文版本
 - 返回JSON数组格式，每个元素包含 en（英文）和 zh（中文）
@@ -2008,10 +2044,10 @@ ${transitionInstruction}
 ${combination}
 
 ${priorityInstruction}
-
+${topicAsRequirement ? `
 【用户特别要求】
-${card.topic}
-
+${topicAsRequirement}
+` : ''}
 【输出要求】
 - 生成一个完整的图像生成描述词，同时提供英文和中文版本
 - 返回JSON对象：{"en": "完整英文描述", "zh": "完整中文翻译"}
@@ -2030,8 +2066,7 @@ ${card.topic}
                 } else {
                     // 纯主题模式：批量生成多个变体（节省token）
                     const count = creativeCount || 5;
-                    // 无图模式下，card.topic就是用户要求
-                    const priorityInstruction = getPriorityInstruction(true, false);
+                    const priorityInstruction = getPriorityInstruction(!!topicAsRequirement || !!prompt.trim(), false);
 
                     if (count > 1) {
                         // 批量模式：一次请求生成所有变体
@@ -2039,10 +2074,11 @@ ${card.topic}
 
 ${priorityInstruction}
 
-请根据以下用户要求，生成 ${count} 个完全不同的AI图像生成描述词：
-
+请${topicAsRequirement ? '根据以下用户要求，' : ''}生成 ${count} 个完全不同的AI图像生成描述词：
+${topicAsRequirement ? `
 【用户特别要求】
-${card.topic}
+${topicAsRequirement}
+` : ''}
 
 【输出要求】
 - 每个变体同时提供英文和中文版本
@@ -2066,10 +2102,11 @@ ${card.topic}
 
 ${priorityInstruction}
 
-请根据以下用户要求，生成一个完整、专业、有创意的AI图像生成描述词：
-
+请${topicAsRequirement ? '根据以下用户要求，' : ''}生成一个完整、专业、有创意的AI图像生成描述词：
+${topicAsRequirement ? `
 【用户特别要求】
-${card.topic}
+${topicAsRequirement}
+` : ''}
 
 【输出要求】
 - 同时提供英文和中文版本
@@ -3188,8 +3225,10 @@ ${transitionInstruction}
                     // 合并模式：全局指令 + 单独指令
                     effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
                 } else {
-                    // 独立模式：仅使用单独指令
-                    effectivePrompt = item.customPrompt;
+                    // 独立模式：卡片单独指令 + 全局追加要求（追加要求始终保留）
+                    effectivePrompt = prompt.trim()
+                        ? item.customPrompt.trim() + '\n\n' + prompt.trim()
+                        : item.customPrompt.trim();
                 }
             } else {
                 // 没有单独指令，使用全局指令
@@ -3411,6 +3450,9 @@ ${transitionInstruction}
                         let ep = item.customPrompt!;
                         if ((item.mergeWithGlobalPrompt ?? true) && effectiveBasePrompt.trim()) {
                             ep = effectiveBasePrompt.trim() + '\n\n' + ep.trim();
+                        } else if (effectiveBasePrompt.trim()) {
+                            // 独立模式：卡片指令 + 全局追加要求（追加要求始终保留）
+                            ep = ep.trim() + '\n\n' + effectiveBasePrompt.trim();
                         }
                         if (pureReplyMode) ep += PURE_REPLY_SUFFIX;
 
@@ -3455,8 +3497,10 @@ ${transitionInstruction}
                             // 合并模式：全局指令 + 单独指令
                             effectivePrompt = effectiveBasePrompt.trim() + '\n\n' + item.customPrompt.trim();
                         } else {
-                            // 独立模式：仅使用单独指令
-                            effectivePrompt = item.customPrompt;
+                            // 独立模式：卡片单独指令 + 全局追加要求（追加要求始终保留）
+                            effectivePrompt = effectiveBasePrompt.trim()
+                                ? item.customPrompt.trim() + '\n\n' + effectiveBasePrompt.trim()
+                                : item.customPrompt.trim();
                         }
                     } else {
                         // 没有单独指令，使用全局指令
@@ -3638,8 +3682,10 @@ ${transitionInstruction}
                         // 合并模式：全局指令 + 单独指令
                         effectivePrompt = prompt.trim() + '\n\n' + item.customPrompt.trim();
                     } else {
-                        // 独立模式：仅使用单独指令
-                        effectivePrompt = item.customPrompt;
+                        // 独立模式：卡片单独指令 + 全局追加要求（追加要求始终保留）
+                        effectivePrompt = prompt.trim()
+                            ? item.customPrompt.trim() + '\n\n' + prompt.trim()
+                            : item.customPrompt.trim();
                     }
                 } else {
                     // 没有单独指令，使用全局指令
@@ -4029,6 +4075,19 @@ ${transitionInstruction}
         ));
     }, [setImages]);
 
+    // 设置卡片级描述预设ID
+    const setDescribePresetId = useCallback((id: string, presetId: string) => {
+        setImages(prev => prev.map(img =>
+            img.id === id ? { ...img, describePresetId: presetId } : img
+        ));
+    }, [setImages]);
+
+    const setDescribeCustomPrompt = useCallback((id: string, customPrompt: string) => {
+        setImages(prev => prev.map(img =>
+            img.id === id ? { ...img, describeCustomPrompt: customPrompt } : img
+        ));
+    }, [setImages]);
+
     // 更新卡片的参考图选择（维度名 → RefImage.id）
     const updateCardRefSelection = useCallback((cardId: string, dimName: string, refImageId: string | null) => {
         setImages(prev => prev.map(img => {
@@ -4337,7 +4396,7 @@ ${image.result}
 
                     const response = await ai.models.generateContent({
                         model: modelId,
-                        contents: { parts: [{ text: innovationPrompt }] },
+                        contents: { role: 'user', parts: [{ text: innovationPrompt }] },
                         config: { temperature: 0.85 }
                     });
 
@@ -4360,7 +4419,7 @@ ${image.result}
 
                     const response = await ai.models.generateContent({
                         model: modelId,
-                        contents: { parts: [{ text: innovationPrompt }] },
+                        contents: { role: 'user', parts: [{ text: innovationPrompt }] },
                         config: { temperature: 0.8 }
                     });
 
@@ -4623,7 +4682,7 @@ ${image.result}
 
 ${text}`;
             const response = await ai.models.generateContent({
-                model: imageModel || 'gemini-3-flash-preview',
+                model: imageModel || 'gemini-3.1-flash-lite-preview',
                 contents: prompt
             });
             return response.text?.trim() || text;
@@ -5011,8 +5070,8 @@ ${text}`;
                 const isRandomLibEnabled = config.enabled &&
                     config.libraries.some(lib => lib.enabled && lib.values.length > 0);
                 const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
-                const presets = DEFAULT_QUICK_INNOVATION_PRESETS;
-                baseInstruction = presets[presetType] || DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                const userPreset = config.quickPresets?.[presetType];
+                baseInstruction = (userPreset && userPreset.trim()) ? userPreset : DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
                 console.log('[快捷模式] 使用默认预设:', { presetType, isRandomLibEnabled, instruction: baseInstruction.substring(0, 50) + '...' });
             }
         } else {
@@ -5131,7 +5190,23 @@ ${text}`;
 
                     // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
                     if (workModeRef.current === 'quick') {
-                        let ov = quickOverridesRef.current;
+                        let ov = { ...quickOverridesRef.current };
+                        // 多图融合模式也合并卡片级覆盖（以第一张卡的覆盖为准）
+                        const firstItem = readyImages[0];
+                        if (firstItem?.overrideTextOverrides) {
+                            for (const [dimName, textVal] of Object.entries(firstItem.overrideTextOverrides)) {
+                                if (textVal?.trim()) {
+                                    ov[dimName] = { ...(ov[dimName] || {}), value: textVal, count: ov[dimName]?.count || 0 };
+                                }
+                            }
+                        }
+                        if (firstItem?.overrideCountOverrides) {
+                            for (const [dimName, countVal] of Object.entries(firstItem.overrideCountOverrides)) {
+                                if (ov[dimName]) {
+                                    ov[dimName] = { ...ov[dimName], count: countVal };
+                                }
+                            }
+                        }
                         // 融合模式下使用第一张图进行 queue-image 提取
                         const hasQueueImage = Object.values(ov).some(v => v.mode === 'queue-image');
                         if (hasQueueImage && readyImages[0]?.base64Data && readyImages[0]?.mimeType) {
@@ -5175,6 +5250,7 @@ ${finalInstruction}
                             const response = await ai.models.generateContent({
                                 model: modelId,
                                 contents: {
+                                    role: 'user',
                                     parts: [
                                         ...imageParts,
                                         { text: singlePrompt }
@@ -5257,6 +5333,7 @@ ${effectiveInstruction}
                         const response = await ai.models.generateContent({
                             model: modelId,
                             contents: {
+                                role: 'user',
                                 parts: [
                                     ...imageParts,
                                     { text: fusionPrompt }
@@ -5373,8 +5450,10 @@ ${effectiveInstruction}
                         // 合并模式：全局用户输入 + 单独追加指令
                         itemUserInput = userInput ? `${userInput}\n${item.customPrompt.trim()}` : item.customPrompt.trim();
                     } else {
-                        // 独立模式：仅使用单独追加指令
-                        itemUserInput = item.customPrompt.trim();
+                        // 独立模式：卡片单独指令 + 全局追加要求（追加要求始终保留）
+                        itemUserInput = userInput
+                            ? `${item.customPrompt.trim()}\n${userInput}`
+                            : item.customPrompt.trim();
                     }
                 }
                 // 图级“追加内容”模式：按当前图执行提取，提取结果自动并入用户要求
@@ -5394,9 +5473,15 @@ ${effectiveInstruction}
                         } else {
                             const fusionImg = item.fusionImages?.[cfg.imageIndex - 1];
                             if (fusionImg?.base64Data) {
-                                imgBase64 = fusionImg.base64Data;
-                                const mimeMatch = fusionImg.base64Data.match(/^data:(image\/\w+);/);
-                                imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                let rawData = fusionImg.base64Data;
+                                if (rawData.startsWith('data:')) {
+                                    const mimeMatch = rawData.match(/^data:(image\/\w+);base64,/);
+                                    imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                    rawData = rawData.replace(/^data:image\/\w+;base64,/, '');
+                                } else {
+                                    imgMime = 'image/png';
+                                }
+                                imgBase64 = rawData;
                                 imageSource = `fusion:${cfg.imageIndex - 1}`;
                             }
                         }
@@ -5442,7 +5527,23 @@ ${effectiveInstruction}
                             combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
                         }
                         // 快捷模式：应用用户维度覆盖
-                        let ov = quickOverridesRef.current;
+                        let ov = { ...quickOverridesRef.current };
+                        // 合并卡片级文本覆盖
+                        if (item.overrideTextOverrides) {
+                            for (const [dimName, textVal] of Object.entries(item.overrideTextOverrides)) {
+                                if (textVal?.trim()) {
+                                    ov[dimName] = { ...(ov[dimName] || {}), value: textVal, count: ov[dimName]?.count || 0 };
+                                }
+                            }
+                        }
+                        // 合并卡片级数量覆盖
+                        if (item.overrideCountOverrides) {
+                            for (const [dimName, countVal] of Object.entries(item.overrideCountOverrides)) {
+                                if (ov[dimName]) {
+                                    ov[dimName] = { ...ov[dimName], count: countVal };
+                                }
+                            }
+                        }
                         if (Object.values(ov).some(v => v.value?.trim())) {
                             combinations = applyPartialOverrides(combinations, ov);
                         }
@@ -5483,25 +5584,88 @@ ${effectiveInstruction}
                         }, 3, 2000, onRotateApiKey);
                         conversationLog.push({ timestamp: Date.now(), prompt: noImgPrompt, response: innovationResult, label: '无图创新' });
                     }
-                } else if (needOriginalDesc || item.needDescribeFirst) {
-                    // 模式A：先获取原始描述，再基于描述创新（全局开关 或 卡片级开关）
-                    // 第一步：使用固定的详细指令识别图片获取原始描述
-                    const descPrompt = DEFAULT_ORIGINAL_DESC_PROMPT;
-                    const descResponse = await retryWithBackoff(async () => {
-                        const response = await ai.models.generateContent({
-                            model: modelId,
-                            contents: {
-                                parts: [
-                                    { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
-                                    { text: descPrompt }
-                                ]
-                            },
-                            config: { temperature: 0.3 }
-                        });
-                        return response.text || '';
-                    }, 3, 2000, onRotateApiKey);
-                    originalDesc = descResponse;
-                    conversationLog.push({ timestamp: Date.now(), prompt: descPrompt, response: descResponse, label: '获取原始描述', imageSource: 'main' });
+                } else if (needOriginalDesc || item.needDescribeFirst || (item.refImageConfigs || []).some(cfg => cfg.dimName === QUICK_IMAGE_DESCRIBE_DIM)) {
+                    // 模式A：先获取原始描述，再基于描述创新
+                    // 三层继承：per-image extractPrompt > 卡片 describePresetId > 全局 originalDescPresetId
+                    const describeConfigs = (item.refImageConfigs || []).filter(cfg => cfg.dimName === QUICK_IMAGE_DESCRIBE_DIM);
+                    // 解析默认描述指令（卡片级 > 全局级）
+                    const cardPresetId = item.describePresetId || originalDescPresetId || '1';
+                    // 自定义提示词继承：卡片级 > 全局级
+                    const customPromptText = item.describePresetId === 'custom'
+                        ? item.describeCustomPrompt
+                        : (cardPresetId === 'custom' ? originalDescCustomPrompt : undefined);
+                    const inheritedDescPrompt = getDescribePromptByPresetId(cardPresetId, customPromptText);
+                    const descriptions: string[] = [];
+
+                    if (describeConfigs.length > 0) {
+                        // Per-image 描述模式：描述每个选中的图
+                        for (const cfg of describeConfigs.sort((a, b) => a.imageIndex - b.imageIndex)) {
+                            // per-image 自定义 > 卡片级预设 > 全局预设
+                            const cfgDescPrompt = cfg.extractPrompt?.trim() || inheritedDescPrompt;
+                            let imgBase64: string | undefined;
+                            let imgMime: string | undefined;
+                            let imageSource: string = 'main';
+                            if (cfg.imageIndex === 0) {
+                                imgBase64 = item.base64Data;
+                                imgMime = item.mimeType;
+                                imageSource = 'main';
+                            } else {
+                                const fusionImg = item.fusionImages?.[cfg.imageIndex - 1];
+                                if (fusionImg?.base64Data) {
+                                    let rawData = fusionImg.base64Data;
+                                    if (rawData.startsWith('data:')) {
+                                        const mimeMatch = rawData.match(/^data:(image\/\w+);base64,/);
+                                        imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                        rawData = rawData.replace(/^data:image\/\w+;base64,/, '');
+                                    } else {
+                                        imgMime = 'image/png';
+                                    }
+                                    imgBase64 = rawData;
+                                    imageSource = `fusion:${cfg.imageIndex - 1}`;
+                                }
+                            }
+                            if (!imgBase64 || !imgMime) continue;
+                            try {
+                                const descResponse = await retryWithBackoff(async () => {
+                                    const response = await ai.models.generateContent({
+                                        model: modelId,
+                                        contents: {
+                                            role: 'user',
+                                            parts: [
+                                                { inlineData: { mimeType: imgMime!, data: imgBase64! } },
+                                                { text: cfgDescPrompt }
+                                            ]
+                                        },
+                                        config: { temperature: 0.3 }
+                                    });
+                                    return response.text || '';
+                                }, 3, 2000, onRotateApiKey);
+                                descriptions.push(describeConfigs.length > 1 ? `[图 ${cfg.imageIndex + 1}]:\n${descResponse}` : descResponse);
+                                conversationLog.push({ timestamp: Date.now(), prompt: cfgDescPrompt, response: descResponse, label: `获取原始描述 (图${cfg.imageIndex + 1})`, imageSource });
+                            } catch (err) {
+                                console.error(`[per-image描述] 图${cfg.imageIndex + 1} 描述失败:`, err);
+                            }
+                        }
+                    } else {
+                        // 兼容旧模式：只描述图 1
+                        const descResponse = await retryWithBackoff(async () => {
+                            const response = await ai.models.generateContent({
+                                model: modelId,
+                                contents: {
+                                    role: 'user',
+                                    parts: [
+                                        { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
+                                        { text: inheritedDescPrompt }
+                                    ]
+                                },
+                                config: { temperature: 0.3 }
+                            });
+                            return response.text || '';
+                        }, 3, 2000, onRotateApiKey);
+                        descriptions.push(descResponse);
+                        conversationLog.push({ timestamp: Date.now(), prompt: inheritedDescPrompt, response: descResponse, label: '获取原始描述', imageSource: 'main' });
+                    }
+                    originalDesc = descriptions.join('\n\n');
 
                     // 更新原始描述到结果中
                     setState(prev => ({
@@ -5522,7 +5686,23 @@ ${effectiveInstruction}
                         }
                         // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
                         if (workModeRef.current === 'quick') {
-                            let ov = quickOverridesRef.current;
+                            let ov = { ...quickOverridesRef.current };
+                            // 合并卡片级文本覆盖到 ov 中（独立模式写入的卡片级覆盖）
+                            if (item.overrideTextOverrides) {
+                                for (const [dimName, textVal] of Object.entries(item.overrideTextOverrides)) {
+                                    if (textVal?.trim()) {
+                                        ov[dimName] = { ...(ov[dimName] || {}), value: textVal, count: ov[dimName]?.count || 0 };
+                                    }
+                                }
+                            }
+                            // 合并卡片级数量覆盖到 ov 中
+                            if (item.overrideCountOverrides) {
+                                for (const [dimName, countVal] of Object.entries(item.overrideCountOverrides)) {
+                                    if (ov[dimName]) {
+                                        ov[dimName] = { ...ov[dimName], count: countVal };
+                                    }
+                                }
+                            }
                             // 如果有 queue-image 模式或 per-card 参考图选择，先提取
                             const hasQueueImage = Object.values(ov).some(v => v.mode === 'queue-image');
                             const hasPerCardRef = item.overrideRefSelections && Object.keys(item.overrideRefSelections).length > 0;
@@ -5532,18 +5712,7 @@ ${effectiveInstruction}
                                 conversationLog.push(...ovLogs);
                             }
                             if (Object.values(ov).some(v => v.value?.trim())) {
-                                // 应用卡片级覆盖个数
-                                if (item.overrideCountOverrides && Object.keys(item.overrideCountOverrides).length > 0) {
-                                    const ovWithCardCounts = { ...ov };
-                                    for (const [dimName, cardCount] of Object.entries(item.overrideCountOverrides)) {
-                                        if (ovWithCardCounts[dimName]) {
-                                            ovWithCardCounts[dimName] = { ...ovWithCardCounts[dimName], count: cardCount };
-                                        }
-                                    }
-                                    combinations = applyPartialOverrides(combinations, ovWithCardCounts);
-                                } else {
-                                    combinations = applyPartialOverrides(combinations, ov);
-                                }
+                                combinations = applyPartialOverrides(combinations, ov);
                             }
                         }
 
@@ -5552,7 +5721,7 @@ ${effectiveInstruction}
                             // 按图片序号分组
                             const imgGrouped: Record<number, typeof item.refImageConfigs> = {};
                             for (const cfg of item.refImageConfigs) {
-                                if (!cfg.dimName || cfg.dimName === QUICK_IMAGE_APPEND_DIM) continue;
+                                if (!cfg.dimName || cfg.dimName === QUICK_IMAGE_APPEND_DIM || cfg.dimName === QUICK_IMAGE_DESCRIBE_DIM) continue;
                                 if (!imgGrouped[cfg.imageIndex]) imgGrouped[cfg.imageIndex] = [];
                                 imgGrouped[cfg.imageIndex].push(cfg);
                             }
@@ -5570,9 +5739,15 @@ ${effectiveInstruction}
                                 } else {
                                     const fusionImg = item.fusionImages?.[imgIdx - 1];
                                     if (fusionImg?.base64Data) {
-                                        imgBase64 = fusionImg.base64Data;
-                                        const mimeMatch = fusionImg.base64Data.match(/^data:(image\/\w+);/);
-                                        imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                        let rawData = fusionImg.base64Data;
+                                        if (rawData.startsWith('data:')) {
+                                            const mimeMatch = rawData.match(/^data:(image\/\w+);base64,/);
+                                            imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                            rawData = rawData.replace(/^data:image\/\w+;base64,/, '');
+                                        } else {
+                                            imgMime = 'image/png';
+                                        }
+                                        imgBase64 = rawData;
                                     }
                                 }
                                 if (!imgBase64 || !imgMime) continue;
@@ -5648,6 +5823,7 @@ ${priorityInstruction}
                                 const response = await ai.models.generateContent({
                                     model: modelId,
                                     contents: {
+                                        role: 'user',
                                         parts: [
                                             { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
                                             { text: batchPrompt }
@@ -5689,6 +5865,7 @@ ${finalInstruction}
                                     const response = await ai.models.generateContent({
                                         model: modelId,
                                         contents: {
+                                            role: 'user',
                                             parts: [
                                                 { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
                                                 { text: singlePrompt }
@@ -5735,6 +5912,7 @@ ${itemEffectiveInstruction}
                             const response = await ai.models.generateContent({
                                 model: modelId,
                                 contents: {
+                                    role: 'user',
                                     parts: [
                                         { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
                                         { text: innovationPrompt }
@@ -5767,7 +5945,23 @@ ${itemEffectiveInstruction}
 
                         // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
                         if (workModeRef.current === 'quick') {
-                            let ov = quickOverridesRef.current;
+                            let ov = { ...quickOverridesRef.current };
+                            // 合并卡片级文本覆盖
+                            if (item.overrideTextOverrides) {
+                                for (const [dimName, textVal] of Object.entries(item.overrideTextOverrides)) {
+                                    if (textVal?.trim()) {
+                                        ov[dimName] = { ...(ov[dimName] || {}), value: textVal, count: ov[dimName]?.count || 0 };
+                                    }
+                                }
+                            }
+                            // 合并卡片级数量覆盖
+                            if (item.overrideCountOverrides) {
+                                for (const [dimName, countVal] of Object.entries(item.overrideCountOverrides)) {
+                                    if (ov[dimName]) {
+                                        ov[dimName] = { ...ov[dimName], count: countVal };
+                                    }
+                                }
+                            }
                             // 如果有 queue-image 模式的维度，先从当前图片提取
                             const hasQueueImage = Object.values(ov).some(v => v.mode === 'queue-image');
                             if (hasQueueImage && item.base64Data && item.mimeType) {
@@ -5776,18 +5970,7 @@ ${itemEffectiveInstruction}
                                 conversationLog.push(...ovLogs);
                             }
                             if (Object.values(ov).some(v => v.value?.trim())) {
-                                // 应用卡片级覆盖个数
-                                if (item.overrideCountOverrides && Object.keys(item.overrideCountOverrides).length > 0) {
-                                    const ovWithCardCounts = { ...ov };
-                                    for (const [dimName, cardCount] of Object.entries(item.overrideCountOverrides)) {
-                                        if (ovWithCardCounts[dimName]) {
-                                            ovWithCardCounts[dimName] = { ...ovWithCardCounts[dimName], count: cardCount };
-                                        }
-                                    }
-                                    combinations = applyPartialOverrides(combinations, ovWithCardCounts);
-                                } else {
-                                    combinations = applyPartialOverrides(combinations, ov);
-                                }
+                                combinations = applyPartialOverrides(combinations, ov);
                             }
                         }
 
@@ -5795,7 +5978,7 @@ ${itemEffectiveInstruction}
                         if (item.refImageConfigs && item.refImageConfigs.length > 0) {
                             const imgGrouped: Record<number, typeof item.refImageConfigs> = {};
                             for (const cfg of item.refImageConfigs) {
-                                if (!cfg.dimName || cfg.dimName === QUICK_IMAGE_APPEND_DIM) continue;
+                                if (!cfg.dimName || cfg.dimName === QUICK_IMAGE_APPEND_DIM || cfg.dimName === QUICK_IMAGE_DESCRIBE_DIM) continue;
                                 if (!imgGrouped[cfg.imageIndex]) imgGrouped[cfg.imageIndex] = [];
                                 imgGrouped[cfg.imageIndex].push(cfg);
                             }
@@ -5813,9 +5996,15 @@ ${itemEffectiveInstruction}
                                 } else {
                                     const fusionImg = item.fusionImages?.[imgIdx - 1];
                                     if (fusionImg?.base64Data) {
-                                        imgBase64 = fusionImg.base64Data;
-                                        const mimeMatch = fusionImg.base64Data.match(/^data:(image\/\w+);/);
-                                        imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                        let rawData = fusionImg.base64Data;
+                                        if (rawData.startsWith('data:')) {
+                                            const mimeMatch = rawData.match(/^data:(image\/\w+);base64,/);
+                                            imgMime = mimeMatch ? mimeMatch[1] : 'image/png';
+                                            rawData = rawData.replace(/^data:image\/\w+;base64,/, '');
+                                        } else {
+                                            imgMime = 'image/png';
+                                        }
+                                        imgBase64 = rawData;
                                     }
                                 }
                                 if (!imgBase64 || !imgMime) continue;
@@ -5902,6 +6091,7 @@ ${priorityInstruction}
                                 const response = await ai.models.generateContent({
                                     model: modelId,
                                     contents: {
+                                        role: 'user',
                                         parts: [
                                             { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
                                             { text: batchPrompt }
@@ -5941,6 +6131,7 @@ ${priorityInstruction}
                                     const response = await ai.models.generateContent({
                                         model: modelId,
                                         contents: {
+                                            role: 'user',
                                             parts: [
                                                 { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
                                                 { text: singlePrompt }
@@ -5986,6 +6177,7 @@ ${itemEffectiveInstruction}
                             const response = await ai.models.generateContent({
                                 model: modelId,
                                 contents: {
+                                    role: 'user',
                                     parts: [
                                         { inlineData: { mimeType: item.mimeType!, data: item.base64Data! } },
                                         { text: innovationPrompt }
@@ -6346,42 +6538,43 @@ ${itemEffectiveInstruction}
                                 />
 
                                 {/* 中间操作区：上传 + 清空 + 视图 */}
-                                <div className="flex-1 flex items-center min-w-0 gap-2 h-9">
-                                    <div className="flex-1 h-full flex items-center min-w-[200px]">
+                                <div className="flex-1 flex items-center min-w-0 gap-2 h-8">
+                                    <div className="flex-1 flex items-center min-w-[200px]">
                                         <DropZone
                                             onFilesDropped={handleFiles}
                                             onTextPasted={handleTextPaste}
                                             onHtmlPasted={handleHtmlPaste}
                                             hideOverlay={workMode === 'creative' || workMode === 'quick'}
                                             extraContent={
-                                                showClearConfirm ? (
-                                                    <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 h-[34px]">
-                                                        <button onClick={() => { setImages([]); setShowClearConfirm(false); }} className="bg-red-600 hover:bg-red-500 rounded text-white transition-colors h-full px-2 text-[0.625rem] tooltip-bottom" data-tip="确认清空所有图片">确定</button>
-                                                        <button onClick={() => setShowClearConfirm(false)} className="bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors h-full px-2 text-[0.625rem] tooltip-bottom" data-tip="取消清空">取消</button>
-                                                    </div>
-                                                ) : (
+                                                <div className="relative flex items-center h-8">
                                                     <button
-                                                        onClick={() => setShowClearConfirm(true)}
+                                                        onClick={() => setShowClearConfirm(!showClearConfirm)}
                                                         disabled={images.length === 0}
-                                                        className="flex items-center justify-center rounded-lg border border-red-900/30 bg-red-900/10 text-red-400 hover:bg-red-600 hover:text-white hover:border-red-500 transition-all disabled:opacity-30 shrink-0 ml-1 h-[34px] w-[34px] tooltip-bottom"
+                                                        className="flex items-center justify-center rounded-lg border border-red-900/40 bg-red-900/10 text-red-400 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all disabled:opacity-30 shrink-0 h-8 w-8 tooltip-bottom"
                                                         data-tip="清空列表"
                                                     >
-                                                        <Trash2 size={14} />
+                                                        <Trash2 size={16} />
                                                     </button>
-                                                )
+                                                    {showClearConfirm && (
+                                                        <div className="absolute top-full mt-2 left-0 bg-zinc-900 border border-zinc-700 rounded-lg p-1.5 flex items-center gap-1.5 shadow-xl z-50 whitespace-nowrap min-w-[max-content]">
+                                                            <button onClick={() => { setImages([]); setShowClearConfirm(false); }} className="bg-red-600 hover:bg-red-500 rounded text-white transition-colors py-1.5 px-3 text-[11px] font-medium">确认清空</button>
+                                                            <button onClick={() => setShowClearConfirm(false)} className="bg-zinc-700 hover:bg-zinc-600 rounded text-zinc-300 transition-colors py-1.5 px-3 text-[11px] font-medium">取消</button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             }
                                         />
                                     </div>
 
                                     {/* 视图切换 */}
-                                    <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shrink-0 h-full items-center">
+                                    <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shrink-0 h-8 items-center">
                                         <button onClick={() => setViewMode('compact')} className={`h-full flex items-center justify-center rounded-md transition-all w-8 tooltip-bottom ${viewMode === 'compact' ? 'bg-zinc-800 text-emerald-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`} data-tip="精简"><Rows3 size={14} /></button>
                                         <button onClick={() => setViewMode('list')} className={`h-full flex items-center justify-center rounded-md transition-all w-8 tooltip-bottom ${viewMode === 'list' ? 'bg-zinc-800 text-emerald-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`} data-tip="列表"><List size={14} /></button>
                                         <button onClick={() => setViewMode('grid')} className={`h-full flex items-center justify-center rounded-md transition-all w-8 tooltip-bottom ${viewMode === 'grid' ? 'bg-zinc-800 text-emerald-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`} data-tip="网格"><LayoutGrid size={14} /></button>
                                     </div>
 
                                     {/* 模式切换 */}
-                                    <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shrink-0 h-full items-center">
+                                    <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 shrink-0 h-8 items-center">
                                         <button
                                             onClick={() => setWorkMode('standard')}
                                             className={`h-full flex items-center gap-1 px-2.5 rounded-md transition-all text-xs font-medium ${workMode === 'standard'
@@ -6412,14 +6605,14 @@ ${itemEffectiveInstruction}
                                         {workMode === 'quick' && (
                                             <div className="flex items-center ml-1 bg-zinc-800/60 rounded-md p-0.5 border border-zinc-700/40">
                                                 <button
-                                                    onClick={() => { setQuickViewMode('classic'); localStorage.setItem('quick-view-mode', 'classic'); }}
+                                                    onClick={() => switchQuickViewMode('classic')}
                                                     className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${quickViewMode === 'classic' ? 'bg-orange-600/30 text-orange-400' : 'text-zinc-500 hover:text-zinc-300'
                                                         }`}
                                                 >
                                                     经典
                                                 </button>
                                                 <button
-                                                    onClick={() => { setQuickViewMode('standalone'); localStorage.setItem('quick-view-mode', 'standalone'); }}
+                                                    onClick={() => switchQuickViewMode('standalone')}
                                                     className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${quickViewMode === 'standalone' ? 'bg-purple-600/30 text-purple-400' : 'text-zinc-500 hover:text-zinc-300'
                                                         }`}
                                                 >
@@ -7153,30 +7346,72 @@ ${itemEffectiveInstruction}
                                                         {isProcessing ? <><Loader2 size={14} className="animate-spin" /> 处理中</> : <><Sparkles size={14} fill="currentColor" /> 创新</>}
                                                     </button>
                                                 </div>
-                                                {/* 全局用户特殊要求输入框 */}
-                                                <div className="mt-2">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <span className="text-[10px] text-zinc-500 shrink-0" data-tip="追加要求会作为AI指令的一部分，AI 根据理解来执行。与覆盖不同，追加不做精确替换">📝 追加</span>
-                                                        <input
-                                                            type="text"
-                                                            value={prompt}
-                                                            onChange={(e) => setPrompt(e.target.value)}
-                                                            onDoubleClick={() => setShowGlobalPromptEditor(true)}
-                                                            placeholder="全局追加要求（可选，AI 理解后应用到所有创新）双击放大"
-                                                            title="双击放大编辑"
-                                                            className="flex-1 px-3 py-1.5 text-xs bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 cursor-text"
-                                                        />
-                                                    </div>
-                                                </div>
-                                                {/* 维度覆盖标签：点击库名标签可指定覆盖值 */}
-                                                {randomLibraryConfig.enabled && (() => {
-                                                    const enabledLibs = randomLibraryConfig.libraries.filter(lib => lib.enabled && lib.values.length > 0);
-                                                    if (enabledLibs.length === 0) return null;
+                                                {/* 维度覆盖标签 + 原描述开关：合并为同一行 */}
+                                                {(() => {
+                                                    const enabledLibs = randomLibraryConfig.enabled ? randomLibraryConfig.libraries.filter(lib => lib.enabled && lib.values.length > 0) : [];
                                                     const activeCount = Object.values(quickOverrides).filter(v => v.value?.trim() || v.mode === 'queue-image').length;
                                                     return (
                                                         <div className="mt-1.5">
-                                                            <div className="flex flex-wrap items-center gap-1">
-                                                                <span className="text-[10px] text-zinc-500 mr-0.5" data-tip="全局覆盖：点击库名标签指定固定值或图片提取，替换对应维度的随机值">🎯 全局覆盖</span>
+                                                            <div className="flex items-center gap-1 overflow-x-auto overflow-y-hidden custom-scrollbar">
+                                                                {/* 先用AI详细描述全图开关 */}
+                                                                <button
+                                                                    onClick={() => setState(prev => ({ ...prev, needOriginalDesc: !needOriginalDesc }))}
+                                                                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-all ${needOriginalDesc
+                                                                        ? 'text-emerald-300 bg-emerald-900/30 border-emerald-800/40'
+                                                                        : 'text-zinc-400 bg-zinc-800/40 border-zinc-700/40 hover:bg-zinc-700/40'
+                                                                        }`}
+                                                                    data-tip={needOriginalDesc ? "开启：先用AI\"详细描述全图\"并作为基础上下文" : "关闭：直接创新"}
+                                                                >
+                                                                    {needOriginalDesc ? <Eye size={10} /> : <EyeOff size={10} />}
+                                                                    先用AI"详细描述全图"并作为基础上下文
+                                                                </button>
+                                                                {needOriginalDesc && (
+                                                                    <select
+                                                                        value={originalDescPresetId}
+                                                                        onChange={e => {
+                                                                            const newId = e.target.value;
+                                                                            if (newId === 'custom') {
+                                                                                // 切换到自定义：如果自定义提示词为空，用当前预设内容预填
+                                                                                const currentText = originalDescCustomPrompt || getDescribePromptByPresetId(originalDescPresetId);
+                                                                                setState(prev => ({ ...prev, originalDescPresetId: newId, originalDescCustomPrompt: currentText }));
+                                                                            } else {
+                                                                                setState(prev => ({ ...prev, originalDescPresetId: newId }));
+                                                                            }
+                                                                        }}
+                                                                        className="px-1 py-0.5 rounded text-[10px] bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 focus:outline-none focus:border-emerald-500/50 cursor-pointer max-w-[180px]"
+                                                                    >
+                                                                        {DESCRIBE_PRESET_OPTIONS.map(opt => (
+                                                                            <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                )}
+                                                                {needOriginalDesc && (
+                                                                    <textarea
+                                                                        value={originalDescPresetId === 'custom' ? (originalDescCustomPrompt || '') : getDescribePromptByPresetId(originalDescPresetId)}
+                                                                        onChange={e => {
+                                                                            const newText = e.target.value;
+                                                                            // 编辑时自动切换到自定义模式
+                                                                            setState(prev => ({ ...prev, originalDescPresetId: 'custom', originalDescCustomPrompt: newText }));
+                                                                        }}
+                                                                        className="w-full mt-1 px-2 py-1.5 rounded text-[10px] leading-relaxed bg-zinc-900/80 border border-zinc-700/40 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 resize-y min-h-[40px] max-h-[120px]"
+                                                                        rows={2}
+                                                                        onClick={e => e.stopPropagation()}
+                                                                        onDoubleClick={e => {
+                                                                            e.stopPropagation();
+                                                                            const currentVal = originalDescPresetId === 'custom' ? (originalDescCustomPrompt || '') : getDescribePromptByPresetId(originalDescPresetId);
+                                                                            setExpandedEdit({
+                                                                                title: '描述指令编辑',
+                                                                                value: currentVal,
+                                                                                onChange: (val) => setState(prev => ({ ...prev, originalDescPresetId: 'custom', originalDescCustomPrompt: val })),
+                                                                            });
+                                                                        }}
+                                                                        title="双击放大编辑"
+                                                                    />
+                                                                )}
+                                                                {/* 分隔符 */}
+                                                                {enabledLibs.length > 0 && <div className="w-px h-4 bg-zinc-700/50 mx-0.5" />}
+                                                                {/* 全局覆盖标签 */}
+                                                                {enabledLibs.length > 0 && <span className="text-[10px] text-zinc-500 mr-0.5" data-tip="全局覆盖：点击库名标签指定固定值或图片提取，替换对应维度的随机值">🎯 全局覆盖</span>}
                                                                 {enabledLibs.map(lib => {
                                                                     const override = quickOverrides[lib.name];
                                                                     const mode = override?.mode || 'text';
@@ -7579,6 +7814,18 @@ ${itemEffectiveInstruction}
                                                                         </div>
                                                                     );
                                                                 })}
+                                                                <div className="ml-1 flex items-center gap-1 px-1 py-0 rounded border border-zinc-700/50 bg-zinc-900/50 shrink-0">
+                                                                    <span className="text-[10px] text-zinc-500 shrink-0" data-tip="全局追加要求会作为AI指令的一部分，AI 根据理解来执行。与覆盖不同，追加不做精确替换">📝 全局追加</span>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={prompt}
+                                                                        onChange={(e) => setPrompt(e.target.value)}
+                                                                        onDoubleClick={() => setShowGlobalPromptEditor(true)}
+                                                                        placeholder="全局追加要求（可选）"
+                                                                        title="双击放大编辑"
+                                                                        className="h-5 w-[180px] md:w-[220px] lg:w-[260px] max-w-[36vw] px-1.5 py-0 text-[9px] leading-none bg-zinc-800/50 border border-zinc-700/50 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20"
+                                                                    />
+                                                                </div>
                                                                 {activeCount > 0 && (
                                                                     <button
                                                                         onClick={() => setQuickOverrides({})}
@@ -7638,6 +7885,7 @@ ${itemEffectiveInstruction}
                                                         </div>
                                                     );
                                                 })()}
+
                                             </>
                                         ) : (
                                             /* 创新模式：保持原有多行布局 */
@@ -7695,7 +7943,7 @@ ${itemEffectiveInstruction}
                                                 </div>
 
                                                 {/* 2. 创新设置行 */}
-                                                <div className="grid grid-cols-6 gap-1.5">
+                                                <div className="flex flex-wrap items-center gap-1.5">
                                                     {(() => {
                                                         const btnBase = "flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[0.6875rem] font-medium border transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-95";
                                                         return (
@@ -7718,18 +7966,60 @@ ${itemEffectiveInstruction}
                                                                     <span className="text-[0.625rem] text-zinc-500">个</span>
                                                                 </div>
 
-                                                                {/* 需要原描述开关 */}
+                                                                {/* 先用AI详细描述全图开关 */}
                                                                 <button
                                                                     onClick={() => setState(prev => ({ ...prev, needOriginalDesc: !needOriginalDesc }))}
                                                                     className={`${btnBase} tooltip-bottom ${needOriginalDesc
                                                                         ? 'text-emerald-300 bg-emerald-900/30 border-emerald-800/40'
                                                                         : 'text-zinc-400 bg-zinc-800/40 border-zinc-700/40'
                                                                         }`}
-                                                                    data-tip={needOriginalDesc ? "开启：先识别再创新" : "关闭：直接创新"}
+                                                                    data-tip={needOriginalDesc ? "开启：先用AI\"详细描述全图\"并作为基础上下文" : "关闭：直接创新"}
                                                                 >
                                                                     {needOriginalDesc ? <Eye size={12} /> : <EyeOff size={12} />}
-                                                                    原描述
+                                                                    先用AI"详细描述全图"并作为基础上下文
                                                                 </button>
+                                                                {/* 全局描述预设下拉菜单 - 仅在先描述开启时显示 */}
+                                                                {needOriginalDesc && (
+                                                                    <select
+                                                                        value={originalDescPresetId}
+                                                                        onChange={e => {
+                                                                            const newId = e.target.value;
+                                                                            if (newId === 'custom') {
+                                                                                const currentText = originalDescCustomPrompt || getDescribePromptByPresetId(originalDescPresetId);
+                                                                                setState(prev => ({ ...prev, originalDescPresetId: newId, originalDescCustomPrompt: currentText }));
+                                                                            } else {
+                                                                                setState(prev => ({ ...prev, originalDescPresetId: newId }));
+                                                                            }
+                                                                        }}
+                                                                        className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800/80 border border-zinc-700/50 text-zinc-300 focus:outline-none focus:border-emerald-500/50 cursor-pointer max-w-[200px]"
+                                                                    >
+                                                                        {DESCRIBE_PRESET_OPTIONS.map(opt => (
+                                                                            <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                )}
+                                                                {needOriginalDesc && (
+                                                                    <textarea
+                                                                        value={originalDescPresetId === 'custom' ? (originalDescCustomPrompt || '') : getDescribePromptByPresetId(originalDescPresetId)}
+                                                                        onChange={e => {
+                                                                            const newText = e.target.value;
+                                                                            setState(prev => ({ ...prev, originalDescPresetId: 'custom', originalDescCustomPrompt: newText }));
+                                                                        }}
+                                                                        className="basis-full w-full mt-1 px-2 py-1.5 rounded text-[10px] leading-relaxed bg-zinc-900/80 border border-zinc-700/40 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50 resize-y min-h-[36px] max-h-[120px]"
+                                                                        rows={2}
+                                                                        onClick={e => e.stopPropagation()}
+                                                                        onDoubleClick={e => {
+                                                                            e.stopPropagation();
+                                                                            const currentVal = originalDescPresetId === 'custom' ? (originalDescCustomPrompt || '') : getDescribePromptByPresetId(originalDescPresetId);
+                                                                            setExpandedEdit({
+                                                                                title: '描述指令编辑',
+                                                                                value: currentVal,
+                                                                                onChange: (val) => setState(prev => ({ ...prev, originalDescPresetId: 'custom', originalDescCustomPrompt: val })),
+                                                                            });
+                                                                        }}
+                                                                        title="双击放大编辑"
+                                                                    />
+                                                                )}
 
                                                                 {/* 合并调用开关 */}
                                                                 <button
@@ -7880,7 +8170,7 @@ ${itemEffectiveInstruction}
                                                     className="w-full py-2.5 px-4 rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-600/30 transition-colors text-sm font-medium text-left"
                                                 >
                                                     🗂️ 合并为同一卡片
-                                                    <span className="block text-[10px] text-emerald-400/60 mt-0.5">第一张为主图，其余为参考图</span>
+                                                    <span className="block text-[10px] text-emerald-400/60 mt-0.5">所有图片合并到一个卡片中</span>
                                                 </button>
                                                 <button
                                                     onClick={() => {
@@ -7924,15 +8214,42 @@ ${itemEffectiveInstruction}
                 {workMode === 'quick' && quickViewMode === 'standalone' ? (
                     <div className="flex-1 overflow-hidden">
                         <QuickModeStandalone
-                            images={images}
-                            onAddImages={(files: FileList) => {
+                            images={images.length > 0 ? [images[0]] : []}
+                            onAddImages={async (files: FileList) => {
                                 const arr = Array.from(files).filter(f => f.type.startsWith('image/'));
-                                if (arr.length > 0) handleFiles(arr);
+                                if (arr.length === 0) return;
+                                if (images.length === 0) {
+                                    // 没有卡片 → 所有图合并为一张卡片
+                                    await handleFilesAsOneCard(arr);
+                                } else {
+                                    // 已有卡片 → 追加为融合图
+                                    for (const file of arr) {
+                                        handleAddFusionImage(images[0].id, file);
+                                    }
+                                }
                             }}
-                            onRemoveImage={removeImage}
+                            onRemoveImage={(id) => {
+                                // 独立模式删除=清空整个任务
+                                if (images.length > 0 && images[0].id === id) {
+                                    setImages([]);
+                                } else {
+                                    // 也可能是删除某个融合图（id是fusionImage的id）
+                                    if (images.length > 0) {
+                                        handleRemoveFusionImage(images[0].id, id);
+                                    }
+                                }
+                            }}
                             onClearImages={() => setImages([])}
-                            prompt={prompt}
-                            onPromptChange={(val) => setPrompt(val)}
+                            prompt={images.length > 0 ? (images[0].customPrompt || '') : prompt}
+                            onPromptChange={(val) => {
+                                if (images.length > 0) {
+                                    for (const img of images) {
+                                        updateCustomPrompt(img.id, val);
+                                    }
+                                } else {
+                                    setPrompt(val);
+                                }
+                            }}
                             randomLibraryConfig={randomLibraryConfig}
                             onRandomLibraryConfigChange={handleRandomLibraryConfigChange}
                             onOpenLibraryManager={() => setShowGlobalInnovationSettings(true)}
@@ -8008,29 +8325,100 @@ ${itemEffectiveInstruction}
                                 }
                             }}
                             isSyncing={quickSyncingLibraries}
-                            quickOverrides={quickOverrides}
+                            quickOverrides={(() => {
+                                // 独立模式：卡片级覆盖数据
+                                if (images.length > 0) {
+                                    const card = images[0];
+                                    const result: Record<string, any> = {};
+                                    const enabledLibs = randomLibraryConfig.libraries.filter(l => l.enabled && l.values.length > 0);
+                                    for (const lib of enabledLibs) {
+                                        result[lib.name] = {
+                                            value: card.overrideTextOverrides?.[lib.name] || '',
+                                            count: card.overrideCountOverrides?.[lib.name] ?? 0,
+                                            mode: quickOverrides[lib.name]?.mode || 'text',
+                                            extractPrompt: quickOverrides[lib.name]?.extractPrompt || '',
+                                        };
+                                    }
+                                    return result;
+                                }
+                                return quickOverrides;
+                            })()}
                             onOverrideClick={(libName) => {
                                 if (editingOverrideLib === libName) {
                                     closeOverrideEditor();
                                 } else {
-                                    openOverrideEditor(libName, quickOverrides[libName]);
+                                    // 构造当前覆盖数据给编辑器
+                                    const currentOv = images.length > 0
+                                        ? {
+                                            value: images[0].overrideTextOverrides?.[libName] || '',
+                                            count: images[0].overrideCountOverrides?.[libName] ?? 0,
+                                            mode: quickOverrides[libName]?.mode || 'text',
+                                            extractPrompt: quickOverrides[libName]?.extractPrompt || '',
+                                        }
+                                        : quickOverrides[libName];
+                                    openOverrideEditor(libName, currentOv);
                                 }
                             }}
                             onOverrideChange={(libName, updates) => {
-                                setQuickOverrides(prev => ({
-                                    ...prev,
-                                    [libName]: { ...prev[libName], ...updates, count: updates.count !== undefined ? updates.count : (prev[libName]?.count || 0) }
-                                }));
+                                if (images.length > 0) {
+                                    if (updates.value !== undefined) {
+                                        for (const img of images) {
+                                            updateCardTextOverride(img.id, libName, updates.value || null);
+                                        }
+                                    }
+                                    if (updates.count !== undefined) {
+                                        for (const img of images) {
+                                            updateCardOverrideCount(img.id, libName, updates.count > 0 ? updates.count : null);
+                                        }
+                                    }
+                                    // mode/extractPrompt 存全局（工具配置）
+                                    if (updates.mode !== undefined || updates.extractPrompt !== undefined) {
+                                        setQuickOverrides(prev => ({
+                                            ...prev,
+                                            [libName]: { ...prev[libName], mode: updates.mode ?? prev[libName]?.mode, extractPrompt: updates.extractPrompt ?? prev[libName]?.extractPrompt }
+                                        }));
+                                    }
+                                } else {
+                                    setQuickOverrides(prev => ({
+                                        ...prev,
+                                        [libName]: { ...prev[libName], ...updates, count: updates.count !== undefined ? updates.count : (prev[libName]?.count || 0) }
+                                    }));
+                                }
                             }}
                             editingOverrideLib={editingOverrideLib}
                             creativeCount={creativeCount}
                             onCreativeCountChange={(count) => setState(prev => ({ ...prev, creativeCount: count }))}
+                            needDescribeFirst={images.length > 0 ? images.every(img => !!img.needDescribeFirst) : false}
+                            onToggleNeedDescribeFirst={(val) => {
+                                if (images.length > 0) {
+                                    for (const img of images) {
+                                        toggleDescribeFirst(img.id, val);
+                                    }
+                                }
+                            }}
+                            originalDescPresetId={images.length > 0 ? (images[0].describePresetId || originalDescPresetId) : originalDescPresetId}
+                            onSetOriginalDescPresetId={(presetId) => {
+                                if (images.length > 0) {
+                                    for (const img of images) {
+                                        setDescribePresetId(img.id, presetId);
+                                    }
+                                }
+                            }}
+                            originalDescCustomPrompt={images.length > 0 ? (images[0].describeCustomPrompt || originalDescCustomPrompt) : originalDescCustomPrompt}
+                            onSetOriginalDescCustomPrompt={(value) => {
+                                if (images.length > 0) {
+                                    for (const img of images) {
+                                        setDescribeCustomPrompt(img.id, value);
+                                    }
+                                }
+                            }}
                             isProcessing={isProcessing}
                             onStartInnovation={() => {
                                 if (noImageMode || images.length === 0) {
                                     // 无图模式：自动创建文字卡片并调用无图批量创新
                                     if (!noImageMode) setNoImageMode(true);
-                                    const topic = workMode === 'quick' ? '创新' : (prompt.trim() || '创新');
+                                    // 快捷模式下 topic 只是标签，不参与 AI prompt
+                                    const topicLabel = `创新 ${new Date().toLocaleTimeString()}`;
                                     const currentCards = textCardsRef.current;
                                     const existingCards = currentCards.filter(c => c.topic.trim());
 
@@ -8038,7 +8426,7 @@ ${itemEffectiveInstruction}
                                         // 没有卡片：创建第一个（放最前面）
                                         setTextCards(prev => [{
                                             id: uuidv4(),
-                                            topic,
+                                            topic: topicLabel,
                                             results: [],
                                             status: 'idle' as const,
                                             createdAt: Date.now()
@@ -8048,10 +8436,9 @@ ${itemEffectiveInstruction}
                                         // 已有卡片：追加模式
                                         const doneCards = existingCards.filter(c => c.status === 'done');
                                         if (doneCards.length > 0) {
-                                            const appendTopic = workMode === 'quick' ? '创新' : (prompt.trim() || doneCards[0].topic);
                                             setTextCards(prev => [{
                                                 id: uuidv4(),
-                                                topic: appendTopic,
+                                                topic: topicLabel,
                                                 results: [],
                                                 status: 'idle' as const,
                                                 createdAt: Date.now()
@@ -8063,6 +8450,7 @@ ${itemEffectiveInstruction}
                                         }
                                     }
                                 } else {
+                                    // 独立模式：处理当前全部卡片
                                     runCreativeAnalysis();
                                 }
                             }}
@@ -8094,11 +8482,12 @@ ${itemEffectiveInstruction}
                             onCopyZH={copyCreativeZH}
                             onCopyAll={copyCreativeResults}
                             copySuccess={copySuccess}
-                            onSwitchToClassic={() => { setQuickViewMode('classic'); localStorage.setItem('quick-view-mode', 'classic'); }}
+                            onSwitchToClassic={() => switchQuickViewMode('classic')}
+                            onUpdateRefImageConfig={updateRefImageConfig}
                         />
                     </div>
                 ) : (
-                    <div className={`flex-1 ${noImageMode ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto'}`}>
+                    <div className={`flex-1 classic-mode-scroll-skin ${noImageMode ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto'}`}>
                         <div className="max-w-none mx-auto px-4 py-4">
                             {/* 结果列表 */}
                             <div className="flex-1">
@@ -8278,6 +8667,13 @@ ${itemEffectiveInstruction}
                                                                             {card.status === 'idle' && (
                                                                                 <span className="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 text-[10px] rounded">待处理</span>
                                                                             )}
+                                                                            <button
+                                                                                onClick={() => setResultDetailModal({ show: true, card })}
+                                                                                className="p-0.5 text-zinc-500 hover:text-cyan-300 transition-colors"
+                                                                                title="放大编辑卡片"
+                                                                            >
+                                                                                <Maximize2 size={12} />
+                                                                            </button>
                                                                             <button
                                                                                 onClick={() => deleteTextCard(card.id)}
                                                                                 className="p-0.5 text-zinc-500 hover:text-red-400 transition-colors"
@@ -8678,7 +9074,8 @@ ${itemEffectiveInstruction}
                                                 const isRandomLibEnabled = randomLibraryConfig.enabled &&
                                                     randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
                                                 const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
-                                                return DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                                                const userPreset = randomLibraryConfig.quickPresets?.[presetType];
+                                                return (userPreset && userPreset.trim()) ? userPreset : DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
                                             }
                                             return prompt || DEFAULT_CREATIVE_INSTRUCTION;
                                         })()}
@@ -8704,6 +9101,13 @@ ${itemEffectiveInstruction}
                                             }
                                             return counts;
                                         })()}
+                                        globalOverrideModes={(() => {
+                                            const modes: Record<string, string> = {};
+                                            for (const [name, ov] of Object.entries(quickOverrides)) {
+                                                modes[name] = ov?.mode || 'text';
+                                            }
+                                            return modes;
+                                        })()}
                                         onUpdateCardOverrideCount={updateCardOverrideCount}
                                         onUpdateCardTextOverride={updateCardTextOverride}
                                         allEnabledDimNames={
@@ -8716,8 +9120,52 @@ ${itemEffectiveInstruction}
                                         onUpdateRefImageConfig={updateRefImageConfig}
                                         onToggleCardDimBinding={toggleCardDimBinding}
                                         onToggleDescribeFirst={toggleDescribeFirst}
+                                        onSetDescribePresetId={setDescribePresetId}
+                                        onSetDescribeCustomPrompt={setDescribeCustomPrompt}
                                     />
                                 )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 双击放大编辑弹窗 */}
+                {expandedEdit && (
+                    <div
+                        className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200] p-4"
+                        onClick={() => setExpandedEdit(null)}
+                    >
+                        <div
+                            className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[640px] max-w-[95vw] shadow-2xl flex flex-col gap-3"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold text-zinc-200">{expandedEdit.title}</span>
+                                <button
+                                    onClick={() => setExpandedEdit(null)}
+                                    className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <textarea
+                                value={expandedEdit.value}
+                                onChange={e => {
+                                    const val = e.target.value;
+                                    expandedEdit.onChange(val);
+                                    setExpandedEdit(prev => prev ? { ...prev, value: val } : null);
+                                }}
+                                autoFocus
+                                className="w-full min-h-[300px] bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 leading-relaxed focus:outline-none focus:border-cyan-500/60 resize-y"
+                                onKeyDown={e => { if (e.key === 'Escape') setExpandedEdit(null); }}
+                            />
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={() => setExpandedEdit(null)}
+                                    className="px-4 py-1.5 text-sm rounded bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-600/30 transition-colors"
+                                >
+                                    完成
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -8810,7 +9258,7 @@ ${itemEffectiveInstruction}
                             onClick={() => setShowGlobalInnovationSettings(false)}
                         >
                             <div
-                                className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[700px] max-w-[95vw] max-h-[85vh] overflow-y-auto shadow-2xl mt-10"
+                                className="bg-zinc-900 border border-zinc-700 rounded-xl p-5 w-[700px] max-w-[95vw] max-h-[85vh] overflow-y-auto shadow-2xl mt-10 classic-mode-scroll-skin"
                                 onClick={e => e.stopPropagation()}
                             >
                                 <div className="flex items-center justify-between mb-4">
@@ -8859,7 +9307,8 @@ ${itemEffectiveInstruction}
                                                 const isRandomLibEnabled = randomLibraryConfig.enabled &&
                                                     randomLibraryConfig.libraries.some(lib => lib.enabled && lib.values.length > 0);
                                                 const presetType = isRandomLibEnabled ? 'withRandomLib' : 'standard';
-                                                return DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
+                                                const userPreset = randomLibraryConfig.quickPresets?.[presetType];
+                                                return (userPreset && userPreset.trim()) ? userPreset : DEFAULT_QUICK_INNOVATION_PRESETS[presetType];
                                             }
                                             // 创新模式下：使用用户输入的 prompt
                                             return prompt;
@@ -8984,7 +9433,7 @@ ${itemEffectiveInstruction}
                     </div>
                 )}
 
-                {/* 预设编辑弹窗 - 只读模式 */}
+                {/* 预设编辑弹窗 - 可编辑模式 */}
                 {showPresetEditor && (
                     <div
                         className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
@@ -8997,7 +9446,7 @@ ${itemEffectiveInstruction}
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
                                     <Settings2 size={18} className={showPresetEditor === 'standard' ? 'text-cyan-400' : 'text-purple-400'} />
-                                    查看{showPresetEditor === 'standard' ? '标准' : '随机库'}预设
+                                    编辑{showPresetEditor === 'standard' ? '标准' : '随机库'}预设
                                 </h3>
                                 <button
                                     onClick={() => setShowPresetEditor(null)}
@@ -9009,13 +9458,25 @@ ${itemEffectiveInstruction}
 
                             <div className="mb-4">
                                 <label className="block text-sm font-medium text-zinc-400 mb-2">
-                                    创新指令内容（只读）
+                                    创新指令内容
                                 </label>
-                                <div
-                                    className="w-full h-80 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-zinc-300 text-sm overflow-y-auto whitespace-pre-wrap"
-                                >
-                                    {DEFAULT_QUICK_INNOVATION_PRESETS[showPresetEditor]}
-                                </div>
+                                <textarea
+                                    value={(() => {
+                                        const userPreset = randomLibraryConfig.quickPresets?.[showPresetEditor];
+                                        return (userPreset !== undefined && userPreset !== null) ? userPreset : DEFAULT_QUICK_INNOVATION_PRESETS[showPresetEditor];
+                                    })()}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        handleRandomLibraryConfigChange({
+                                            ...randomLibraryConfig,
+                                            quickPresets: {
+                                                standard: showPresetEditor === 'standard' ? val : (randomLibraryConfig.quickPresets?.standard ?? DEFAULT_QUICK_INNOVATION_PRESETS.standard),
+                                                withRandomLib: showPresetEditor === 'withRandomLib' ? val : (randomLibraryConfig.quickPresets?.withRandomLib ?? DEFAULT_QUICK_INNOVATION_PRESETS.withRandomLib),
+                                            }
+                                        });
+                                    }}
+                                    className="w-full h-80 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-zinc-300 text-sm focus:outline-none focus:border-cyan-500/60 resize-y whitespace-pre-wrap"
+                                />
                             </div>
 
                             <div className="text-xs text-zinc-500 mb-4 bg-zinc-800/50 rounded-lg p-3 border border-zinc-700/50">
@@ -9035,7 +9496,23 @@ ${itemEffectiveInstruction}
                                 </ul>
                             </div>
 
-                            <div className="flex justify-end">
+                            <div className="flex justify-between">
+                                <button
+                                    onClick={() => {
+                                        handleRandomLibraryConfigChange({
+                                            ...randomLibraryConfig,
+                                            quickPresets: {
+                                                standard: showPresetEditor === 'standard' ? DEFAULT_QUICK_INNOVATION_PRESETS.standard : (randomLibraryConfig.quickPresets?.standard ?? DEFAULT_QUICK_INNOVATION_PRESETS.standard),
+                                                withRandomLib: showPresetEditor === 'withRandomLib' ? DEFAULT_QUICK_INNOVATION_PRESETS.withRandomLib : (randomLibraryConfig.quickPresets?.withRandomLib ?? DEFAULT_QUICK_INNOVATION_PRESETS.withRandomLib),
+                                            }
+                                        });
+                                        showToast(`已恢复${showPresetEditor === 'standard' ? '标准' : '随机库'}预设为默认值`);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-orange-400 hover:text-orange-300 bg-orange-900/20 hover:bg-orange-900/30 border border-orange-700/40 rounded-lg transition-colors"
+                                >
+                                    <RotateCcw size={14} />
+                                    恢复默认
+                                </button>
                                 <button
                                     onClick={() => setShowPresetEditor(null)}
                                     className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${showPresetEditor === 'standard' ? 'bg-cyan-600 hover:bg-cyan-500' : 'bg-purple-600 hover:bg-purple-500'
@@ -9061,7 +9538,7 @@ ${itemEffectiveInstruction}
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
                                     <Settings2 size={18} className="text-purple-400" />
-                                    全局用户要求
+                                    全局追加要求
                                 </h3>
                                 <button
                                     onClick={() => setShowGlobalPromptEditor(false)}
@@ -9073,12 +9550,12 @@ ${itemEffectiveInstruction}
 
                             <div className="mb-4">
                                 <label className="block text-sm font-medium text-zinc-400 mb-2">
-                                    输入您的全局要求（将应用到所有图片）
+                                    输入您的全局追加要求（将应用到所有图片）
                                 </label>
                                 <textarea
                                     value={prompt}
                                     onChange={(e) => setPrompt(e.target.value)}
-                                    placeholder="在此输入全局用户要求...\n\n例如：\n- 使用更简洁的语言\n- 突出产品特点\n- 加入情感化描述"
+                                    placeholder="在此输入全局追加要求...\n\n例如：\n- 使用更简洁的语言\n- 突出产品特点\n- 加入情感化描述"
                                     className="w-full h-64 p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg text-zinc-200 text-sm placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 resize-none"
                                     autoFocus
                                 />
@@ -9174,46 +9651,23 @@ ${itemEffectiveInstruction}
                 resultDetailModal.show && resultDetailModal.card && (() => {
                     // 从 textCards 获取最新数据，避免使用过时的快照
                     const liveCard = textCards.find(c => c.id === resultDetailModal.card!.id) || resultDetailModal.card;
+                    const liveCardIndex = textCards.findIndex(c => c.id === liveCard.id);
                     return (
                         <div
                             className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200] flex items-center justify-center p-4"
                             onClick={() => setResultDetailModal({ show: false, card: null })}
                         >
                             <div
-                                className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+                                className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-[1600px] max-w-[96vw] h-[88vh] overflow-hidden flex flex-col"
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 {/* 弹窗头部 */}
                                 <div className="px-5 py-4 border-b border-zinc-700 flex items-center justify-between bg-zinc-800/50">
                                     <div>
-                                        <h3 className="text-lg font-semibold text-white">结果详情</h3>
-                                        <p className="text-sm text-zinc-400 mt-1">主题: {liveCard.topic}</p>
+                                        <h3 className="text-lg font-semibold text-white">放大编辑卡片</h3>
+                                        <p className="text-sm text-zinc-400 mt-1">整卡放大：左侧主题，右侧结果</p>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => translateAllResults(liveCard.id, liveCard.results)}
-                                            disabled={translatingItems.size > 0}
-                                            className="px-3 py-1.5 text-xs text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
-                                        >
-                                            {translatingItems.size > 0 ? (
-                                                <><Loader2 size={12} className="animate-spin" />翻译中...</>
-                                            ) : (
-                                                <><Languages size={12} />全部翻译</>
-                                            )}
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                // 把结果内的换行替换成空格，确保每个结果是单行
-                                                const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
-                                                const cleanResults = liveCard.results.map(r => cleanText(r));
-                                                navigator.clipboard.writeText(cleanResults.join('\n'));
-                                                showToast(`已复制 ${liveCard.results.length} 条结果！`);
-                                            }}
-                                            className="px-3 py-1.5 text-xs text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-1"
-                                        >
-                                            <Copy size={12} />
-                                            复制全部
-                                        </button>
                                         <button
                                             onClick={() => setResultDetailModal({ show: false, card: null })}
                                             className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
@@ -9222,111 +9676,163 @@ ${itemEffectiveInstruction}
                                         </button>
                                     </div>
                                 </div>
-                                {/* 结果列表 */}
-                                <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                                    {liveCard.results.map((result, idx) => {
-                                        const cacheKey = `${liveCard.id}-${idx}`;
-                                        const translation = translationCache[cacheKey];
-                                        const isTranslating = translatingItems.has(cacheKey);
-
-                                        return (
-                                            <div key={idx} className="group bg-zinc-800/50 rounded-xl p-4 border border-zinc-700 hover:border-purple-500/50 transition-colors">
-                                                <div className="flex items-center justify-between mb-3">
-                                                    <span className="text-sm font-medium text-purple-400">#{idx + 1}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        {/* 翻译按钮 */}
-                                                        {!translation && (
-                                                            <button
-                                                                onClick={() => translateResult(liveCard.id, idx, result)}
-                                                                disabled={isTranslating}
-                                                                className="px-2 py-1 text-xs text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
-                                                            >
-                                                                {isTranslating ? (
-                                                                    <><Loader2 size={10} className="animate-spin" />翻译中...</>
-                                                                ) : (
-                                                                    <><Languages size={10} />翻译</>
-                                                                )}
-                                                            </button>
+                                <div className="flex-1 min-h-0 p-4">
+                                    <div className="h-full bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                                        <div className="grid gap-px bg-zinc-800 h-full" style={{ gridTemplateColumns: '36% 64%' }}>
+                                            {/* 左列：主题 */}
+                                            <div className="bg-zinc-950 flex flex-col min-h-0">
+                                                <div className="px-3 py-2 bg-zinc-800/60 flex items-center justify-between border-b border-zinc-700/50">
+                                                    <span className="text-xs text-pink-400 font-medium">#{liveCardIndex >= 0 ? liveCardIndex + 1 : '-'} 主题</span>
+                                                    <div className="flex items-center gap-1">
+                                                        {liveCard.status === 'processing' && (
+                                                            <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-900/30 text-purple-400 text-[10px] rounded">
+                                                                <Loader2 size={10} className="animate-spin" /> 处理中
+                                                            </span>
                                                         )}
-                                                        <button
-                                                            onClick={() => retryTextCardResult(liveCard.id, idx)}
-                                                            className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1 transition-opacity"
-                                                        >
-                                                            <RotateCcw size={10} />
-                                                            重新生成
-                                                        </button>
+                                                        {liveCard.status === 'done' && (
+                                                            <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-900/30 text-emerald-400 text-[10px] rounded">
+                                                                <Check size={10} /> 完成
+                                                            </span>
+                                                        )}
+                                                        {liveCard.status === 'error' && (
+                                                            <span className="px-2 py-0.5 bg-red-900/30 text-red-400 text-[10px] rounded">失败</span>
+                                                        )}
+                                                        {liveCard.status === 'idle' && (
+                                                            <span className="px-2 py-0.5 bg-zinc-800 text-zinc-400 text-[10px] rounded">待处理</span>
+                                                        )}
                                                     </div>
                                                 </div>
-
-                                                {/* 英文原文 */}
-                                                <div className="mb-2">
-                                                    <div className="flex items-center justify-between mb-1">
-                                                        <span className="text-[10px] text-zinc-500 font-medium">🇬🇧 English</span>
-                                                        <button
-                                                            onClick={() => {
-                                                                const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
-                                                                navigator.clipboard.writeText(cleanText);
-                                                                showToast('已复制英文！');
-                                                            }}
-                                                            className="px-1.5 py-0.5 text-[9px] text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-0.5"
-                                                        >
-                                                            <Copy size={8} />
-                                                            复制
-                                                        </button>
-                                                    </div>
-                                                    <div className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed bg-zinc-900/50 rounded p-2">
-                                                        {result}
-                                                    </div>
+                                                <div className="p-3 flex-1 min-h-0">
+                                                    <textarea
+                                                        value={liveCard.topic}
+                                                        onChange={(e) => updateTextCardTopic(liveCard.id, e.target.value)}
+                                                        placeholder="输入创作主题..."
+                                                        className="w-full h-full min-h-[220px] px-3 py-2 text-base bg-zinc-800/50 border border-zinc-700 rounded text-white placeholder-zinc-500 resize-none focus:border-pink-500 focus:outline-none"
+                                                        disabled={liveCard.status === 'processing'}
+                                                    />
                                                 </div>
+                                            </div>
 
-                                                {/* 中文翻译 */}
-                                                {translation && (
-                                                    <div>
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <span className="text-[10px] text-zinc-500 font-medium">🇨🇳 中文</span>
+                                            {/* 右列：结果 */}
+                                            <div className="bg-zinc-950 border-l-2 border-purple-500/50 flex flex-col min-h-0">
+                                                <div className="px-3 py-2 bg-zinc-800/60 flex items-center justify-between border-b border-zinc-700/50">
+                                                    <span className="text-xs text-purple-400 font-medium">
+                                                        生成结果 {liveCard.results.length > 0 && `(${liveCard.results.length})`}
+                                                    </span>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button
+                                                            onClick={() => appendTextCardResults(liveCard.id, 1)}
+                                                            disabled={liveCard.status === 'processing'}
+                                                            className="px-2 py-1 text-xs text-emerald-400 hover:bg-emerald-900/30 rounded disabled:opacity-50 flex items-center gap-1"
+                                                            title="追加生成1条"
+                                                        >
+                                                            <Plus size={11} />
+                                                            追加
+                                                        </button>
+                                                        <button
+                                                            onClick={() => regenerateTextCard(liveCard.id)}
+                                                            disabled={liveCard.status === 'processing'}
+                                                            className="px-2 py-1 text-xs text-amber-400 hover:bg-amber-900/30 rounded disabled:opacity-50 flex items-center gap-1"
+                                                            title="清空并重新生成所有结果"
+                                                        >
+                                                            <RefreshCcw size={11} />
+                                                            重新创新
+                                                        </button>
+                                                        <button
+                                                            onClick={() => translateAllResults(liveCard.id, liveCard.results)}
+                                                            disabled={translatingItems.size > 0 || liveCard.results.length === 0}
+                                                            className="px-2 py-1 text-xs text-blue-400 hover:bg-blue-900/30 rounded disabled:opacity-50 flex items-center gap-1"
+                                                        >
+                                                            {translatingItems.size > 0 ? (
+                                                                <><Loader2 size={11} className="animate-spin" />翻译中</>
+                                                            ) : (
+                                                                <><Languages size={11} />全部翻译</>
+                                                            )}
+                                                        </button>
+                                                        {liveCard.results.length > 0 && (
                                                             <button
                                                                 onClick={() => {
-                                                                    const cleanText = translation.replace(/[\r\n]+/g, ' ').trim();
-                                                                    navigator.clipboard.writeText(cleanText);
-                                                                    showToast('已复制中文！');
+                                                                    const cleanText = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+                                                                    const cleanResults = liveCard.results.map(r => cleanText(r));
+                                                                    navigator.clipboard.writeText(cleanResults.join('\n'));
+                                                                    showToast(`已复制 ${liveCard.results.length} 条结果！`);
                                                                 }}
-                                                                className="px-1.5 py-0.5 text-[9px] text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-0.5"
+                                                                className="px-2 py-1 text-xs text-purple-400 hover:bg-purple-900/30 rounded flex items-center gap-1"
                                                             >
-                                                                <Copy size={8} />
-                                                                复制
+                                                                <Copy size={11} />
+                                                                复制全部
                                                             </button>
-                                                        </div>
-                                                        <div className="text-sm text-emerald-200 whitespace-pre-wrap break-words leading-relaxed bg-emerald-900/20 rounded p-2 border border-emerald-800/30">
-                                                            {translation}
-                                                        </div>
+                                                        )}
                                                     </div>
-                                                )}
+                                                </div>
+                                                <div className="p-3 flex-1 min-h-0 overflow-y-auto">
+                                                    {liveCard.status === 'processing' && liveCard.results.length === 0 ? (
+                                                        <div className="flex items-center gap-2 text-purple-400 text-base">
+                                                            <Loader2 size={16} className="animate-spin" />
+                                                            AI正在创作...
+                                                        </div>
+                                                    ) : liveCard.results.length > 0 ? (
+                                                        <div className="space-y-2.5">
+                                                            {liveCard.results.map((result, idx) => {
+                                                                const cacheKey = `${liveCard.id}-${idx}`;
+                                                                const translation = translationCache[cacheKey];
+                                                                const isTranslating = translatingItems.has(cacheKey);
+                                                                return (
+                                                                    <div key={idx} className="group relative bg-zinc-900/50 rounded-lg p-3 border border-zinc-800 hover:border-purple-500/50 transition-colors">
+                                                                        <div className="flex items-center justify-between mb-2">
+                                                                            <span className="text-xs text-zinc-500">#{idx + 1}</span>
+                                                                            <div className="flex items-center gap-1">
+                                                                                {!translation && (
+                                                                                    <button
+                                                                                        onClick={() => translateResult(liveCard.id, idx, result)}
+                                                                                        disabled={isTranslating}
+                                                                                        className="px-2 py-0.5 text-[11px] text-blue-400 hover:bg-blue-900/30 rounded flex items-center gap-1 disabled:opacity-50"
+                                                                                    >
+                                                                                        {isTranslating ? <Loader2 size={10} className="animate-spin" /> : <Languages size={10} />}
+                                                                                        翻译
+                                                                                    </button>
+                                                                                )}
+                                                                                <button
+                                                                                    onClick={() => retryTextCardResult(liveCard.id, idx)}
+                                                                                    disabled={liveCard.status === 'processing'}
+                                                                                    className="px-2 py-0.5 text-[11px] text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1 disabled:opacity-50"
+                                                                                    title="重新生成这条结果"
+                                                                                >
+                                                                                    <RotateCcw size={10} />
+                                                                                    重新生成
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={() => {
+                                                                                        const cleanText = result.replace(/[\r\n]+/g, ' ').trim();
+                                                                                        navigator.clipboard.writeText(cleanText);
+                                                                                        showToast('已复制！');
+                                                                                    }}
+                                                                                    className="px-2 py-0.5 text-[11px] text-purple-400 hover:bg-purple-900/30 rounded"
+                                                                                >
+                                                                                    复制
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-base text-purple-100 whitespace-pre-wrap break-words leading-relaxed">
+                                                                            {result}
+                                                                        </div>
+                                                                        {translation && (
+                                                                            <div className="text-sm text-cyan-300/85 whitespace-pre-wrap break-words mt-2 pt-2 border-t border-zinc-700/50 leading-relaxed">
+                                                                                {translation}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : liveCard.status === 'error' ? (
+                                                        <div className="text-base text-red-400">生成失败</div>
+                                                    ) : (
+                                                        <div className="text-base text-zinc-600 italic">等待生成...</div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        );
-                                    })}
-                                </div>
-                                {/* 弹窗底部 */}
-                                <div className="px-5 py-3 border-t border-zinc-700 flex items-center justify-between bg-zinc-800/30">
-                                    <span className="text-xs text-zinc-500">共 {liveCard.results.length} 条结果{liveCard.status === 'processing' ? ' · 生成中...' : ''}</span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => {
-                                                appendTextCardResults(liveCard.id, 1);
-                                            }}
-                                            className="px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-900/30 rounded flex items-center gap-1"
-                                        >
-                                            <Plus size={12} />
-                                            追加1条
-                                        </button>
-                                        <button
-                                            onClick={() => {
-                                                regenerateTextCard(liveCard.id);
-                                            }}
-                                            className="px-3 py-1.5 text-xs text-amber-400 hover:bg-amber-900/30 rounded flex items-center gap-1"
-                                        >
-                                            <RefreshCcw size={12} />
-                                            全部重新生成
-                                        </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

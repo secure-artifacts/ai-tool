@@ -33,7 +33,11 @@ const getAiInstance = (): GoogleGenAI => {
     if (!apiKey) {
         throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
     }
-    return new GoogleGenAI({ apiKey });
+    if (apiKey.startsWith('AIza')) {
+        throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
+    }
+    const cleanKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
+    return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
 };
 
 // 文件转 base64
@@ -108,7 +112,7 @@ export const generatePrompts = async (
         // 调用 API - 使用与参考文件一致的格式
         const response = await ai.models.generateContent({
             model,
-            contents: { parts },
+            contents: { role: 'user', parts },
             config: {
                 responseMimeType: "application/json"
             }
@@ -241,6 +245,7 @@ const generateWithGemini = async (
     const response = await ai.models.generateContent({
         model: apiModel,
         contents: {
+            role: 'user',
             parts: contents,
         },
         config: {

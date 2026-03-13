@@ -23,6 +23,8 @@ import {
 const DEFAULT_GYAZO_TOKEN = 'W0SHYCmn38FEoNQEdu7GwT1bOJP84TjQadGjlSgbG6I';
 const BATCH_LANG_STORAGE_KEY = 'smart_translate_batch_languages';
 const BATCH_ONLY_CHINESE_KEY = 'smart_translate_batch_only_chinese';
+const BATCH_CLEANUP_MODE_KEY = 'smart_translate_batch_cleanup_mode';
+const CUSTOM_INSTRUCTION_KEY = 'smart_translate_custom_instruction';
 const DEFAULT_BATCH_LANGS = ['en'];
 
 const zhDisplayNames = typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function'
@@ -94,6 +96,28 @@ const loadBatchOnlyChinese = (): boolean => {
     }
 };
 
+const loadBatchCleanupMode = (): boolean => {
+    if (typeof localStorage === 'undefined') {
+        return false;
+    }
+    try {
+        const raw = localStorage.getItem(BATCH_CLEANUP_MODE_KEY);
+        if (!raw) return false;
+        return JSON.parse(raw) === true;
+    } catch {
+        return false;
+    }
+};
+
+const loadCustomInstruction = (): string => {
+    if (typeof localStorage === 'undefined') return '';
+    try {
+        return localStorage.getItem(CUSTOM_INSTRUCTION_KEY) || '';
+    } catch {
+        return '';
+    }
+};
+
 // Helper for retrying on empty results - 当 AI 返回空结果时自动重试
 async function retryOnEmpty<T>(
     fn: () => Promise<T>,
@@ -144,6 +168,9 @@ const translations = {
         batchLanguagesHint: "Chinese (Simplified) is always included.",
         batchOnlyChineseLabel: "Only translate to Chinese",
         batchOnlyChineseHint: "When enabled, other languages are ignored.",
+        batchCleanupModeLabel: "Watermark Cleanup Mode",
+        batchCleanupModeHint: "When enabled, the AI will attempt to remove AI tool watermarks (e.g. \"Made with ChatGPT\") before translating. Default: OFF.",
+        batchCleanupModeWarning: "⚠️ Warning: This mode may occasionally misidentify a title or closing line as promotional content, causing it to be omitted from the translation. Please review results manually.",
         batchLanguagesSelected: "Selected",
         batchLanguagesEmpty: "No extra languages selected",
         batchLanguagesEdit: "Edit",
@@ -218,6 +245,9 @@ const translations = {
         batchLanguagesHint: "中文（简体）始终包含",
         batchOnlyChineseLabel: "仅翻译为中文",
         batchOnlyChineseHint: "开启后将忽略其他语种，仅输出中文。",
+        batchCleanupModeLabel: "水印清理模式",
+        batchCleanupModeHint: "开启后，AI 会在翻译前尝试移除 AI 工具水印（如 \"Made with ChatGPT\" 等）。默认：关闭。",
+        batchCleanupModeWarning: "⚠️ 注意：该模式偶尔可能将文案的标题行或结尾误判为推广内容而在翻译中遗漏，翻译完成后请自行检查结果。",
         batchLanguagesSelected: "已选",
         batchLanguagesEmpty: "暂无额外语种",
         batchLanguagesEdit: "设置",
@@ -378,7 +408,11 @@ const ApiProvider: React.FC<ApiProviderProps> = ({ children, external }) => {
         if (!keyToUse) {
             throw new Error('API key is not set.');
         }
-        return new GoogleGenAI({ apiKey: keyToUse });
+        if (keyToUse.startsWith('AIza')) {
+            throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
+        }
+        const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
+        return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
     };
 
     const isKeySet = !!(apiKey || getEnvApiKey());
@@ -1107,6 +1141,8 @@ export type SmartTranslateState = {
     targetLanguage: string;
     batchTargetLanguages?: string[];
     batchOnlyChinese?: boolean;
+    batchCleanupMode?: boolean;
+    customInstruction?: string;
     isProcessing: boolean;
 };
 
@@ -1117,17 +1153,24 @@ export const initialSmartTranslateState: SmartTranslateState = {
     targetLanguage: (() => { try { return localStorage.getItem('smart_translate_target_lang') || 'smart_auto'; } catch { return 'smart_auto'; } })(),
     batchTargetLanguages: loadBatchLanguages(),
     batchOnlyChinese: loadBatchOnlyChinese(),
+    batchCleanupMode: loadBatchCleanupMode(),
+    customInstruction: loadCustomInstruction(),
     isProcessing: false,
 };
 
 interface TranslateToolProps {
     textModel: string;
+    imageModel: string;
     state?: SmartTranslateState;
     setState?: React.Dispatch<React.SetStateAction<SmartTranslateState>>;
     batchTargetLanguages: string[];
     setBatchTargetLanguages: (val: string[] | ((prev: string[]) => string[])) => void;
     batchOnlyChinese: boolean;
     setBatchOnlyChinese: (val: boolean | ((prev: boolean) => boolean)) => void;
+    batchCleanupMode: boolean;
+    setBatchCleanupMode: (val: boolean | ((prev: boolean) => boolean)) => void;
+    customInstruction: string;
+    setCustomInstruction: (val: string) => void;
 }
 
 const useBatchLanguageState = (
@@ -1136,6 +1179,8 @@ const useBatchLanguageState = (
 ) => {
     const [localBatchLanguages, setLocalBatchLanguages] = useState<string[]>(() => loadBatchLanguages());
     const [localBatchOnlyChinese, setLocalBatchOnlyChinese] = useState<boolean>(() => loadBatchOnlyChinese());
+    const [localBatchCleanupMode, setLocalBatchCleanupMode] = useState<boolean>(() => loadBatchCleanupMode());
+    const [localCustomInstruction, setLocalCustomInstruction] = useState<string>(() => loadCustomInstruction());
 
     const batchOnlyChinese = useMemo(() => {
         if (typeof state?.batchOnlyChinese === 'boolean') {
@@ -1143,6 +1188,20 @@ const useBatchLanguageState = (
         }
         return localBatchOnlyChinese;
     }, [state?.batchOnlyChinese, localBatchOnlyChinese]);
+
+    const batchCleanupMode = useMemo(() => {
+        if (typeof state?.batchCleanupMode === 'boolean') {
+            return state.batchCleanupMode;
+        }
+        return localBatchCleanupMode;
+    }, [state?.batchCleanupMode, localBatchCleanupMode]);
+
+    const customInstruction = useMemo(() => {
+        if (typeof state?.customInstruction === 'string') {
+            return state.customInstruction;
+        }
+        return localCustomInstruction;
+    }, [state?.customInstruction, localCustomInstruction]);
 
     const batchTargetLanguages = useMemo(() => {
         if (state?.batchTargetLanguages && state.batchTargetLanguages.length > 0) {
@@ -1169,6 +1228,22 @@ const useBatchLanguageState = (
         }
     }, [state?.batchOnlyChinese]);
 
+    useEffect(() => {
+        if (typeof state?.batchCleanupMode !== 'boolean') return;
+        setLocalBatchCleanupMode(state.batchCleanupMode);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(BATCH_CLEANUP_MODE_KEY, JSON.stringify(state.batchCleanupMode));
+        }
+    }, [state?.batchCleanupMode]);
+
+    useEffect(() => {
+        if (typeof state?.customInstruction !== 'string') return;
+        setLocalCustomInstruction(state.customInstruction);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(CUSTOM_INSTRUCTION_KEY, state.customInstruction);
+        }
+    }, [state?.customInstruction]);
+
     const setBatchTargetLanguages = useCallback((val: string[] | ((prev: string[]) => string[])) => {
         const prevLangs = batchOnlyChinese ? localBatchLanguages : batchTargetLanguages;
         const nextRaw = typeof val === 'function' ? val(prevLangs) : val;
@@ -1193,17 +1268,43 @@ const useBatchLanguageState = (
         }
     }, [batchOnlyChinese, setState]);
 
-    return { batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese };
+    const setBatchCleanupMode = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+        const next = typeof val === 'function' ? val(batchCleanupMode) : val;
+        if (setState) {
+            setState(prev => ({ ...prev, batchCleanupMode: next }));
+        }
+        setLocalBatchCleanupMode(next);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(BATCH_CLEANUP_MODE_KEY, JSON.stringify(next));
+        }
+    }, [batchCleanupMode, setState]);
+
+    const setCustomInstruction = useCallback((val: string) => {
+        if (setState) {
+            setState(prev => ({ ...prev, customInstruction: val }));
+        }
+        setLocalCustomInstruction(val);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(CUSTOM_INSTRUCTION_KEY, val);
+        }
+    }, [setState]);
+
+    return { batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese, batchCleanupMode, setBatchCleanupMode, customInstruction, setCustomInstruction };
 };
 
 const TranslateTool = ({
     textModel,
+    imageModel,
     state,
     setState,
     batchTargetLanguages,
     setBatchTargetLanguages,
     batchOnlyChinese,
-    setBatchOnlyChinese
+    setBatchOnlyChinese,
+    batchCleanupMode,
+    setBatchCleanupMode,
+    customInstruction,
+    setCustomInstruction
 }: TranslateToolProps) => {
     const { t } = useTranslation();
     const { getAiInstance, gyazoToken, setSettingsOpen } = useApi();
@@ -1296,6 +1397,7 @@ const TranslateTool = ({
     const [copyAllStatus, setCopyAllStatus] = useState(false);
     const [showBatchCopyMenu, setShowBatchCopyMenu] = useState(false);
     const [isInputCollapsed, setIsInputCollapsed] = useState(false);
+    const [showInlineInstruction, setShowInlineInstruction] = useState(() => !!customInstruction?.trim());
 
     // 保存到表格状态
     const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -1469,7 +1571,7 @@ const TranslateTool = ({
         };
 
         saveToProject();
-    }, [user?.uid, items, targetLanguage, effectiveBatchLanguages, batchOnlyChinese, currentProject, mode]);
+    }, [user?.uid, items, targetLanguage, effectiveBatchLanguages, batchOnlyChinese, batchCleanupMode, customInstruction, currentProject, mode]);
 
 
     // Helper to detect URL
@@ -1658,7 +1760,8 @@ const TranslateTool = ({
             setItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i));
         };
 
-        // OCR 单张图片
+        // OCR 单张图片（含 429 自动重试）
+
         const ocrImage = async (item: TranslateItem): Promise<string> => {
             let base64Data = item.content;
             let mimeType = item.mimeType;
@@ -1672,18 +1775,37 @@ const TranslateTool = ({
             }
 
             updateItemById(item.id, { status: 'processing_ocr' });
-            const response = await ai.models.generateContent({
-                model: textModel,
-                contents: {
-                    parts: [
-                        { inlineData: { mimeType: mimeType!, data: base64Data } },
-                        { text: "Identify all text in this image. Return only the text exactly as it appears, without any introductory or concluding remarks." }
-                    ]
+
+            // 429 自动重试
+            let lastError: any = null;
+            for (let attempt = 0; attempt < 4; attempt++) {
+                try {
+                    const response = await ai.models.generateContent({
+                        model: textModel,
+                        contents: {
+                            role: 'user',
+                            parts: [
+                                { inlineData: { mimeType: mimeType!, data: base64Data } },
+                                { text: "Identify all text in this image. Return only the text exactly as it appears, without any introductory or concluding remarks." }
+                            ]
+                        }
+                    });
+                    const text = response.text || '';
+                    updateItemById(item.id, { originalText: text });
+                    return text;
+                } catch (e: any) {
+                    lastError = e;
+                    const is429 = e?.message?.includes('429') || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.status === 429;
+                    if (is429 && attempt < 3) {
+                        const delay = 3000 * Math.pow(2, attempt); // 3s, 6s, 12s
+                        console.warn(`[OCR] 429 rate limit, retry ${attempt + 1}/3 after ${delay}ms`);
+                        await new Promise(r => setTimeout(r, delay));
+                        continue;
+                    }
+                    throw e;
                 }
-            });
-            const text = response.text || '';
-            updateItemById(item.id, { originalText: text });
-            return text;
+            }
+            throw lastError;
         };
 
         // 批量翻译一组文本
@@ -1693,16 +1815,20 @@ const TranslateTool = ({
             // 标记所有为翻译中
             batch.forEach(b => updateItemById(b.id, { status: 'processing_translate' }));
 
-            const cleanupInstruction = `
-IMPORTANT: Before translating, remove any of the following from the text:
-- AI tool signatures/watermarks (e.g., "Made with ChatGPT", "Generated by Midjourney", "Created using DALL-E", "Sora", "Kling", etc.)
-- Social media handles (@username, @logo)
-- Website URLs and promotional links
-- Copyright notices and trademark symbols
-- "Download", "Subscribe", "Follow" calls-to-action
-- Any other promotional or watermark text
+            const cleanupInstruction = batchCleanupMode ? `
+NOTE: Only remove text that EXACTLY matches these specific AI tool watermark patterns (verbatim signatures):
+- Exact phrases like "Made with ChatGPT", "Generated by Midjourney", "Created using DALL-E", "Made by Sora", "Made by Kling"
+- Standalone social media handles that are NOT part of the copywriting (e.g., a line containing ONLY "@username")
 
-Only translate the meaningful content.`;
+DO NOT remove:
+- Titles, headings, or the first line of any text - these are part of the content and MUST be translated
+- Slogans, taglines, or short promotional phrases that are part of the copywriting
+- Any sentence that appears to be written content, even if it sounds like an advertisement
+- URLs that are part of the content
+
+Only translate all the meaningful content, including titles and headings.` : '';
+
+            const customInstructionBlock = customInstruction?.trim() ? `\nADDITIONAL USER REQUIREMENTS:\n${customInstruction.trim()}\n` : '';
 
             const numberedTexts = batch.map((b, i) => `--- ITEM ${i + 1} ---\n${b.text}`).join('\n\n');
 
@@ -1711,12 +1837,13 @@ Only translate the meaningful content.`;
 Also detect the source language for each item.
 
 ${cleanupInstruction}
-
+${customInstructionBlock}
 CRITICAL RULES:
-1. Translate the COMPLETE text for each item - do NOT skip or omit any sentences.
-2. If the source text is already in Chinese, copy it exactly.
-3. Preserve all line breaks and formatting from the original.
-4. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
+1. Translate the COMPLETE text for each item - do NOT skip or omit any part, especially the FIRST LINE (title/heading).
+2. The first line of each item is the TITLE and MUST be translated - never skip it.
+3. If the source text is already in Chinese, copy it exactly.
+4. Preserve all line breaks and formatting from the original.
+5. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
 
 Return in this exact JSON format (no markdown, no extra text):
 [
@@ -1731,13 +1858,14 @@ ${numberedTexts}`
 Also detect the source language for each item.
 
 ${cleanupInstruction}
-
+${customInstructionBlock}
 CRITICAL RULES:
-1. Translate the COMPLETE text for each item - do NOT skip or omit any sentences.
-2. If the source text is already in Chinese, copy it exactly to the "chinese" field.
-3. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
-4. Preserve all line breaks and formatting from the original.
-5. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
+1. Translate the COMPLETE text for each item - do NOT skip or omit any part, especially the FIRST LINE (title/heading).
+2. The first line of each item is the TITLE and MUST be translated - never skip it.
+3. If the source text is already in Chinese, copy it exactly to the "chinese" field.
+4. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
+5. Preserve all line breaks and formatting from the original.
+6. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
 
 Return in this exact JSON format (no markdown, no extra text):
 [
@@ -2164,15 +2292,20 @@ ${numberedTexts}`;
 
         try {
             // 第一步：翻译（多语种 + 中文）
+            const cleanupNote = batchCleanupMode ? `\nNOTE: Only remove text that EXACTLY matches these specific AI tool watermark patterns (verbatim signatures): "Made with ChatGPT", "Generated by Midjourney", "Created using DALL-E", "Made by Sora", "Made by Kling", or a line containing ONLY a social handle like "@username". DO NOT remove titles, headings, slogans, or any written content.\n` : '';
+            const customNote = customInstruction?.trim() ? `\nADDITIONAL USER REQUIREMENTS:\n${customInstruction.trim()}\n` : '';
+
             const translatePrompt = isChineseOnly
                 ? `Translate the following text into Chinese (Simplified).
 Also provide the detected source language name in Chinese.
-
+${cleanupNote}${customNote}
 CRITICAL RULES:
-1. Translate the COMPLETE text - do NOT skip or omit any sentences, including the first line and last line.
-2. If the source text is already in Chinese, copy it exactly to the "chinese" field.
-3. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
-4. Preserve all line breaks and formatting from the original.
+1. Translate the COMPLETE text - do NOT skip or omit any part, especially the FIRST LINE (title/heading).
+2. The first line is the TITLE and MUST be translated - never skip or remove it.
+3. If the source text is already in Chinese, copy it exactly to the "chinese" field.
+4. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
+5. Preserve all line breaks and formatting from the original.
+6. Do NOT remove any content - translate everything including titles, slogans, and all body text.
 
 Return in this exact JSON format (no markdown):
 {"chinese": "Chinese translation or original if source is Chinese", "detectedLanguage": "语言名称"}
@@ -2184,12 +2317,14 @@ ${textToTranslate}
                 : `Translate the following text into these target languages: ${targetLangSpecs}.
 Also provide the detected source language name in Chinese.
 Use the language codes as keys in the JSON output.
-
+${cleanupNote}${customNote}
 CRITICAL RULES:
-1. Translate the COMPLETE text - do NOT skip or omit any sentences, including the first line and last line.
-2. If the source text is already in Chinese, copy it exactly to the "chinese" field.
-3. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
-4. Preserve all line breaks and formatting from the original.
+1. Translate the COMPLETE text - do NOT skip or omit any part, especially the FIRST LINE (title/heading).
+2. The first line is the TITLE and MUST be translated - never skip or remove it.
+3. If the source text is already in Chinese, copy it exactly to the "chinese" field.
+4. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
+5. Preserve all line breaks and formatting from the original.
+6. Do NOT remove any content - translate everything including titles, slogans, and all body text.
 
 Return in this exact JSON format (no markdown):
 {"translations": {${targetLangJson}}, "chinese": "Chinese translation or original if source is Chinese", "detectedLanguage": "语言名称"}
@@ -2913,6 +3048,64 @@ ${textToTranslate}
                         )}
                     </div>
 
+                    {/* 自定义翻译要求 - 直接显示在页面上 */}
+                    <div className="inline-custom-instruction">
+                        <button
+                            className="inline-instruction-toggle"
+                            onClick={() => setShowInlineInstruction(!showInlineInstruction)}
+                            type="button"
+                        >
+                            <span className={`toggle-arrow ${showInlineInstruction ? 'open' : ''}`}>▶</span>
+                            <span>📝 翻译指令</span>
+                            {customInstruction?.trim() && !showInlineInstruction && (
+                                <span className="inline-instruction-preview">
+                                    {customInstruction.trim().slice(0, 40)}{customInstruction.trim().length > 40 ? '...' : ''}
+                                </span>
+                            )}
+                        </button>
+                        {showInlineInstruction && (
+                            <div className="inline-instruction-body">
+                                <div className="instruction-presets">
+                                    {[
+                                        { label: '🔠 标题全大写', text: 'The first sentence or title of each translation MUST use ALL UPPERCASE LETTERS.' },
+                                        { label: '✂️ 去掉@内容', text: 'Remove all @username handles and any content after @ symbols (e.g. @someone).' },
+                                        { label: '✨ 正式语气', text: 'Use formal and professional tone in all translations.' },
+                                        { label: '💬 口语化', text: 'Use casual, conversational tone in all translations.' },
+                                    ].map(preset => {
+                                        const isActive = customInstruction?.includes(preset.text);
+                                        return (
+                                            <button
+                                                key={preset.label}
+                                                className={`instruction-preset-chip ${isActive ? 'active' : ''}`}
+                                                onClick={() => {
+                                                    if (isActive) {
+                                                        const updated = customInstruction.replace(preset.text, '').replace(/\n{2,}/g, '\n').trim();
+                                                        setCustomInstruction(updated);
+                                                    } else {
+                                                        const updated = customInstruction?.trim()
+                                                            ? customInstruction.trim() + '\n' + preset.text
+                                                            : preset.text;
+                                                        setCustomInstruction(updated);
+                                                    }
+                                                }}
+                                                type="button"
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <textarea
+                                    className="inline-instruction-textarea"
+                                    placeholder="可选：添加翻译要求，也可以点击上方预设快速添加..."
+                                    value={customInstruction}
+                                    onChange={(e) => setCustomInstruction(e.target.value)}
+                                    rows={2}
+                                />
+                            </div>
+                        )}
+                    </div>
+
                     <div className="batch-queue">
                         {items.map(item => (
                             <BatchItemCard
@@ -2974,7 +3167,11 @@ const ApiKeyModal: React.FC<{
     setBatchTargetLanguages: (val: string[] | ((prev: string[]) => string[])) => void;
     batchOnlyChinese: boolean;
     setBatchOnlyChinese: (val: boolean | ((prev: boolean) => boolean)) => void;
-}> = ({ onClose, batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese }) => {
+    batchCleanupMode: boolean;
+    setBatchCleanupMode: (val: boolean | ((prev: boolean) => boolean)) => void;
+    customInstruction: string;
+    setCustomInstruction: (val: string) => void;
+}> = ({ onClose, batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese, batchCleanupMode, setBatchCleanupMode, customInstruction, setCustomInstruction }) => {
     const { t } = useTranslation();
     const { apiKey, setApiKey, gyazoToken, setGyazoToken, allowApiKeySettings } = useApi();
     const [localKey, setLocalKey] = useState(apiKey);
@@ -2983,6 +3180,9 @@ const ApiKeyModal: React.FC<{
     const [languageSearch, setLanguageSearch] = useState('');
     const [localBatchLanguages, setLocalBatchLanguages] = useState<string[]>(batchTargetLanguages);
     const [localBatchOnlyChinese, setLocalBatchOnlyChinese] = useState<boolean>(batchOnlyChinese);
+    const [localBatchCleanupMode, setLocalBatchCleanupMode] = useState<boolean>(batchCleanupMode);
+    const [localCustomInstruction, setLocalCustomInstruction] = useState<string>(customInstruction);
+    const [showCustomInstruction, setShowCustomInstruction] = useState<boolean>(!!customInstruction?.trim());
     const inputRef = useRef<HTMLInputElement>(null);
     const languageSearchRef = useRef<HTMLInputElement>(null);
 
@@ -3001,6 +3201,15 @@ const ApiKeyModal: React.FC<{
     useEffect(() => {
         setLocalBatchOnlyChinese(batchOnlyChinese);
     }, [batchOnlyChinese]);
+
+    useEffect(() => {
+        setLocalBatchCleanupMode(batchCleanupMode);
+    }, [batchCleanupMode]);
+
+    useEffect(() => {
+        setLocalCustomInstruction(customInstruction);
+        if (customInstruction?.trim()) setShowCustomInstruction(true);
+    }, [customInstruction]);
 
     const selectableLanguages = useMemo(() => {
         return allLanguages.filter(lang => lang.code !== 'smart_auto' && lang.code !== 'zh');
@@ -3049,6 +3258,8 @@ const ApiKeyModal: React.FC<{
         }
         setBatchTargetLanguages(localBatchLanguages);
         setBatchOnlyChinese(localBatchOnlyChinese);
+        setBatchCleanupMode(localBatchCleanupMode);
+        setCustomInstruction(localCustomInstruction);
         onClose();
     };
 
@@ -3107,6 +3318,56 @@ const ApiKeyModal: React.FC<{
                         </label>
                         <div className="batch-only-chinese-hint">{t('batchOnlyChineseHint')}</div>
                     </div>
+                    <div className="batch-cleanup-mode-toggle">
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={localBatchCleanupMode}
+                                onChange={(e) => setLocalBatchCleanupMode(e.target.checked)}
+                            />
+                            <span>{t('batchCleanupModeLabel')}</span>
+                        </label>
+                        <div className="batch-cleanup-mode-hint">{t('batchCleanupModeHint')}</div>
+                        {localBatchCleanupMode && (
+                            <div className="batch-cleanup-mode-warning">{t('batchCleanupModeWarning')}</div>
+                        )}
+                    </div>
+                    <div className="batch-custom-instruction-section">
+                        <button
+                            className="custom-instruction-toggle"
+                            onClick={() => setShowCustomInstruction(!showCustomInstruction)}
+                            type="button"
+                        >
+                            <span className={`toggle-arrow ${showCustomInstruction ? 'open' : ''}`}>▶</span>
+                            <span>自定义翻译要求</span>
+                            {localCustomInstruction?.trim() && !showCustomInstruction && (
+                                <span className="custom-instruction-badge">已设置</span>
+                            )}
+                        </button>
+                        {showCustomInstruction && (
+                            <div className="custom-instruction-body">
+                                <div className="custom-instruction-hint">
+                                    可选：添加额外的翻译要求，AI 会在翻译时遵循这些指令。留空则使用默认翻译规则。
+                                </div>
+                                <textarea
+                                    className="custom-instruction-textarea"
+                                    placeholder="例如：&#10;• 使用正式/书面语气&#10;• 品牌名称保持英文不翻译&#10;• 翻译风格偏口语化&#10;• 专业术语使用行业标准译法"
+                                    value={localCustomInstruction}
+                                    onChange={(e) => setLocalCustomInstruction(e.target.value)}
+                                    rows={4}
+                                />
+                                {localCustomInstruction?.trim() && (
+                                    <button
+                                        className="text-btn custom-instruction-clear"
+                                        onClick={() => setLocalCustomInstruction('')}
+                                        type="button"
+                                    >
+                                        ✕ 清除要求
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
                     <div className="batch-language-selected">
                         {t('batchLanguagesSelected')}:
                         <span className={`batch-language-selected-values ${localBatchOnlyChinese ? 'disabled' : ''}`}>
@@ -3155,15 +3416,16 @@ const ApiKeyModal: React.FC<{
 interface SmartTranslateInnerProps {
     showHeader?: boolean;
     textModel: string;
+    imageModel: string;
     state?: SmartTranslateState;
     setState?: React.Dispatch<React.SetStateAction<SmartTranslateState>>;
 }
 
-const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = true, textModel, state, setState }) => {
+const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = true, textModel, imageModel, state, setState }) => {
     const { t, setLanguage, language } = useTranslation();
     const { theme, toggleTheme } = useTheme();
     const { isKeySet, isSettingsOpen, setSettingsOpen, allowApiKeySettings } = useApi();
-    const { batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese } = useBatchLanguageState(state, setState);
+    const { batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese, batchCleanupMode, setBatchCleanupMode, customInstruction, setCustomInstruction } = useBatchLanguageState(state, setState);
 
     useEffect(() => {
         if (!allowApiKeySettings) return;
@@ -3185,6 +3447,10 @@ const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = 
                         setBatchTargetLanguages={setBatchTargetLanguages}
                         batchOnlyChinese={batchOnlyChinese}
                         setBatchOnlyChinese={setBatchOnlyChinese}
+                        batchCleanupMode={batchCleanupMode}
+                        setBatchCleanupMode={setBatchCleanupMode}
+                        customInstruction={customInstruction}
+                        setCustomInstruction={setCustomInstruction}
                     />
                 )}
                 {showHeader && (
@@ -3214,12 +3480,17 @@ const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = 
                 <main>
                     <TranslateTool
                         textModel={textModel}
+                        imageModel={imageModel}
                         state={state}
                         setState={setState}
                         batchTargetLanguages={batchTargetLanguages}
                         setBatchTargetLanguages={setBatchTargetLanguages}
                         batchOnlyChinese={batchOnlyChinese}
                         setBatchOnlyChinese={setBatchOnlyChinese}
+                        batchCleanupMode={batchCleanupMode}
+                        setBatchCleanupMode={setBatchCleanupMode}
+                        customInstruction={customInstruction}
+                        setCustomInstruction={setCustomInstruction}
                     />
                 </main>
             </div>
@@ -3236,6 +3507,7 @@ interface SmartTranslateAppProps {
     theme?: Theme;
     toggleTheme?: () => void;
     textModel?: string;
+    imageModel?: string;
     state?: SmartTranslateState;
     setState?: React.Dispatch<React.SetStateAction<SmartTranslateState>>;
 }
@@ -3248,7 +3520,8 @@ const SmartTranslateApp: React.FC<SmartTranslateAppProps> = ({
     setLanguage,
     theme,
     toggleTheme,
-    textModel = 'gemini-3-flash-preview',
+    textModel = 'gemini-3.1-flash-lite-preview',
+    imageModel = 'gemini-2.5-flash-image',
     state,
     setState,
 }) => {
@@ -3260,7 +3533,7 @@ const SmartTranslateApp: React.FC<SmartTranslateAppProps> = ({
         <ThemeProvider external={externalTheme}>
             <LanguageProvider external={externalLanguage}>
                 <ApiProvider external={externalApi}>
-                    <SmartTranslateInner showHeader={showHeader} textModel={textModel} state={state} setState={setState} />
+                    <SmartTranslateInner showHeader={showHeader} textModel={textModel} imageModel={imageModel} state={state} setState={setState} />
                 </ApiProvider>
             </LanguageProvider>
         </ThemeProvider>

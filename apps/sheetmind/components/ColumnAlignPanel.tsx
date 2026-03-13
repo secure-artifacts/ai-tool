@@ -282,7 +282,7 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
 
                 try {
                     const response = await ai.models.generateContent({
-                        model: 'gemini-2.0-flash',
+                        model: 'gemini-3.1-flash-lite-preview',
                         contents: prompt
                     });
 

@@ -140,7 +140,7 @@ ${text}`;
 
     try {
         const result = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-3.1-flash-lite-preview',
             contents: prompt,
         });
         return result.text?.trim() || text;
@@ -543,3 +543,74 @@ export function parseInputText(text: string): ParsedCopyItem[] {
 
     return results;
 }
+
+/**
+ * 从 HTML 剪贴板数据解析文案（Google Sheets 粘贴优先使用）
+ * 
+ * Google Sheets 复制时剪贴板同时包含 text/html 和 text/plain
+ * HTML 中每个 <td> 明确界定单元格边界，完美解决单元格内换行被拆碎的问题
+ */
+export function parseInputFromHtml(html: string): ParsedCopyItem[] | null {
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const table = doc.querySelector('table');
+        if (!table) return null;
+
+        const trs = table.querySelectorAll('tr');
+        if (trs.length === 0) return null;
+
+        // 检测文本是否主要是中文
+        const isChinese = (text: string): boolean => {
+            if (!text) return false;
+            const chineseChars = text.match(/[\u4e00-\u9fff]/g);
+            const totalChars = text.replace(/\s/g, '').length;
+            if (totalChars === 0) return false;
+            return (chineseChars?.length || 0) / totalChars > 0.3;
+        };
+
+        // 提取单元格文本（保留内部换行）
+        const getCellText = (cell: Element): string => {
+            const clone = cell.cloneNode(true) as HTMLElement;
+            clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+            clone.querySelectorAll('p').forEach((p, idx) => {
+                if (idx > 0) p.insertBefore(document.createTextNode('\n'), p.firstChild);
+            });
+            return (clone.textContent || '').trim();
+        };
+
+        const results: ParsedCopyItem[] = [];
+
+        trs.forEach(tr => {
+            const cells = tr.querySelectorAll('td, th');
+            if (cells.length === 0) return;
+
+            if (cells.length >= 2) {
+                const col1 = getCellText(cells[0]);
+                const col2 = getCellText(cells[1]);
+                if (!col1 && !col2) return;
+
+                const firstIsChinese = isChinese(col1);
+                const secondIsChinese = isChinese(col2);
+
+                if (firstIsChinese && !secondIsChinese && col2.length > 0) {
+                    results.push({ foreign: col2, chinese: col1 });
+                } else if (!firstIsChinese && secondIsChinese && col1.length > 0) {
+                    results.push({ foreign: col1, chinese: col2 });
+                } else if (col1.length > 0) {
+                    results.push({ foreign: col1, chinese: col2 });
+                }
+            } else {
+                const text = getCellText(cells[0]);
+                if (text) {
+                    results.push({ foreign: text });
+                }
+            }
+        });
+
+        return results.length > 0 ? results : null;
+    } catch {
+        return null;
+    }
+}
+
