@@ -18,7 +18,9 @@ export interface TextItem {
 export interface MinHashSignature {
     id: string;
     signature: number[];    // MinHash 签名（固定长度数组）
-    shingles: Set<string>;  // 原始 shingles（用于精确计算）
+    shingles: Set<string>;  // 合并 shingles（用于查重精确计算）
+    shinglesText?: Set<string>;    // 仅英文 shingles（用于搜索分语言比对）
+    shinglesChinese?: Set<string>; // 仅中文 shingles（用于搜索分语言比对）
 }
 
 export interface SimilarPair {
@@ -124,6 +126,7 @@ function removeEnding(text: string): string {
 
 /**
  * 文本预处理：去标题、去结尾互动语、小写、去标点、规范化空格
+ * 支持中文/俄语/日韩等非拉丁文字
  */
 function preprocessText(text: string): string {
     // 1. 移除标题
@@ -133,30 +136,103 @@ function preprocessText(text: string): string {
     processed = removeEnding(processed);
 
     // 3. 标准化处理
+    // 注意：/[^\w\s]/g 只保留 ASCII 字母，会删除所有中文/俄语等非拉丁字符！
+    // 改用 Unicode 感知的正则：保留所有语言的字母、数字、空格，只去除标点符号
     return processed
         .toLowerCase()
-        .replace(/[^\w\s]/g, ' ')  // 去除标点
-        .replace(/\s+/g, ' ')       // 规范化空格
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')  // 保留所有 Unicode 字母和数字，去除标点
+        .replace(/\s+/g, ' ')                 // 规范化空格
         .trim();
 }
 
+// CJK Unicode 范围检测
+const CJK_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/;
+
+// 惰性初始化中文分词器（浏览器原生 API，零依赖）
+let _zhSegmenter: Intl.Segmenter | null = null;
+function getZhSegmenter(): Intl.Segmenter | null {
+    if (_zhSegmenter) return _zhSegmenter;
+    try {
+        _zhSegmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+        return _zhSegmenter;
+    } catch {
+        console.warn('[MinHash] Intl.Segmenter 不可用，回退到字符 N-gram');
+        return null;
+    }
+}
+
 /**
- * 生成 Shingles (N-grams)
- * 例如: "hello world" with n=3 → {"hel", "ell", "llo", "lo ", "o w", " wo", "wor", "orl", "rld"}
+ * 中文分词：使用 Intl.Segmenter 提取有意义的词
+ * "美好的事情将要发生" → ["美好", "的", "事情", "将要", "发生"]
+ */
+function segmentCJKText(text: string): string[] {
+    const segmenter = getZhSegmenter();
+    if (!segmenter) return [];
+    return [...segmenter.segment(text)]
+        .filter(s => s.isWordLike)
+        .map(s => s.segment);
+}
+
+/**
+ * 生成 Shingles — 混合策略
+ * - 英文/拉丁文：字符级 N-gram（如 n=3: "hello" → {"hel","ell","llo"}）
+ * - 中日韩文：词级 N-gram（分词后相邻词组合，如 n=2: ["美好","事情","发生"] → {"美好+事情","事情+发生"}）
+ * 两种特征合并，使混合语言文案也能正确匹配
  */
 function generateShingles(text: string, n: number = DEFAULT_CONFIG.shingleSize): Set<string> {
     const processed = preprocessText(text);
     const shingles = new Set<string>();
 
-    if (processed.length < n) {
-        shingles.add(processed);
-        return shingles;
+    if (!processed) return shingles;
+
+    // === 1. 提取非 CJK 部分 → 字符级 N-gram（原有逻辑）===
+    const nonCJKParts = processed.replace(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (nonCJKParts.length >= n) {
+        for (let i = 0; i <= nonCJKParts.length - n; i++) {
+            shingles.add(nonCJKParts.substring(i, i + n));
+        }
+    } else if (nonCJKParts.length > 0) {
+        shingles.add(nonCJKParts);
     }
 
-    for (let i = 0; i <= processed.length - n; i++) {
-        shingles.add(processed.substring(i, i + n));
+    // === 2. 提取 CJK 部分 → 词级 N-gram（Intl.Segmenter 分词）===
+    const cjkParts = processed.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]+/g);
+    if (cjkParts) {
+        const cjkText = cjkParts.join('');
+        const words = segmentCJKText(cjkText).filter(w => w.length > 0);
+        if (words.length > 0) {
+            // 单词本身作为特征
+            words.forEach(w => shingles.add(w));
+            // 词级 bi-gram 作为短语特征
+            for (let i = 0; i < words.length - 1; i++) {
+                shingles.add(words[i] + words[i + 1]);
+            }
+            // 词级 tri-gram（更长的语义特征）
+            for (let i = 0; i < words.length - 2; i++) {
+                shingles.add(words[i] + words[i + 1] + words[i + 2]);
+            }
+        } else {
+            // Segmenter 回退：用字符 bi-gram
+            const chars = [...cjkText];
+            for (let i = 0; i < chars.length - 1; i++) {
+                shingles.add(chars[i] + chars[i + 1]);
+            }
+        }
     }
 
+    return shingles;
+}
+
+/**
+ * 生成合并 Shingles：同时包含 text 和 chineseText 的 N-grams
+ * 使中文查询能匹配到含中文翻译的库条目
+ */
+function generateCombinedShingles(item: TextItem, n: number = DEFAULT_CONFIG.shingleSize): Set<string> {
+    const shingles = generateShingles(item.text, n);
+    if (item.chineseText) {
+        const chineseShingles = generateShingles(item.chineseText, n);
+        chineseShingles.forEach(s => shingles.add(s));
+    }
     return shingles;
 }
 
@@ -335,13 +411,19 @@ export class MinHashDedupEngine {
         for (const item of items) {
             if (this.libraryItems.has(item.id)) continue;
 
-            const shingles = generateShingles(item.text, this.config.shingleSize);
+            const shingles = generateCombinedShingles(item, this.config.shingleSize);
             const signature = generateMinHashSignature(shingles, this.config.numHashFunctions);
+
+            // 分别存储各语言的 shingles，搜索时按语言独立比对
+            const shinglesText = generateShingles(item.text, this.config.shingleSize);
+            const shinglesChinese = item.chineseText ? generateShingles(item.chineseText, this.config.shingleSize) : undefined;
 
             this.librarySignatures.set(item.id, {
                 id: item.id,
                 signature,
-                shingles
+                shingles,
+                shinglesText,
+                shinglesChinese
             });
             this.libraryItems.set(item.id, item);
         }
@@ -366,7 +448,9 @@ export class MinHashDedupEngine {
     }
 
     /**
-     * 搜索库中与查询文本相似的项目（使用 MinHash 算法，与查重一致）
+     * 搜索库中与查询文本相似的项目
+     * 关键改进：分语言独立比对，取最高相似度
+     * 避免中英文 shingle 合并导致 Jaccard 分母膨胀（搜中文时英文稀释相似度）
      */
     searchLibrary(
         queryTexts: string[],
@@ -385,23 +469,38 @@ export class MinHashDedupEngine {
                 return { query: queryText, matches: [] };
             }
 
-            // 生成查询的 shingles（与查重库匹配使用相同算法）
+            // 生成查询的 shingles
             const queryShingles = generateShingles(processed, this.config.shingleSize);
             if (queryShingles.size === 0) {
                 return { query: queryText, matches: [] };
             }
 
-            // 与库中每个项目比较（使用精确 Jaccard，与查重库匹配一致）
+            // 检测查询语言
+            const queryCJK = CJK_REGEX.test(queryText);
+
+            // 与库中每个项目比较 — 分语言独立比对取最高分
             const matches: Array<{ item: TextItem; similarity: number }> = [];
 
             for (const [id, libSig] of this.librarySignatures) {
-                // 精确计算 Jaccard 相似度（与查重库匹配算法完全一致）
-                const similarity = exactJaccard(queryShingles, libSig.shingles);
+                let bestSim = 0;
 
-                if (similarity >= threshold) {
+                if (queryCJK && libSig.shinglesChinese && libSig.shinglesChinese.size > 0) {
+                    // 中文查询 → 优先和中文 shingles 比对
+                    bestSim = Math.max(bestSim, exactJaccard(queryShingles, libSig.shinglesChinese));
+                }
+                if (!queryCJK && libSig.shinglesText && libSig.shinglesText.size > 0) {
+                    // 英文查询 → 优先和英文 shingles 比对
+                    bestSim = Math.max(bestSim, exactJaccard(queryShingles, libSig.shinglesText));
+                }
+                if (bestSim < threshold) {
+                    // 如果优先语言没达标，也试试合并 shingles（混合语言查询）
+                    bestSim = Math.max(bestSim, exactJaccard(queryShingles, libSig.shingles));
+                }
+
+                if (bestSim >= threshold) {
                     const item = this.libraryItems.get(id);
                     if (item) {
-                        matches.push({ item, similarity });
+                        matches.push({ item, similarity: bestSim });
                     }
                 }
             }
@@ -443,13 +542,16 @@ export class MinHashDedupEngine {
         const startTime = performance.now();
         const threshold = options.threshold ?? this.config.similarityThreshold;
         const checkLibrary = options.checkLibrary ?? true;
+        console.log(`[MinHash] 开始查重: ${newItems.length} 条, 阈值=${threshold}, 库=${this.libraryItems.size} 条`);
+        console.time('[MinHash] 总耗时');
 
+        console.time('[MinHash] 1.生成签名');
         // 1. 为新项目生成签名
         const newSignatures = new Map<string, MinHashSignature>();
         const newItemsMap = new Map<string, TextItem>();
 
         for (const item of newItems) {
-            const shingles = generateShingles(item.text, this.config.shingleSize);
+            const shingles = generateCombinedShingles(item, this.config.shingleSize);
             const signature = generateMinHashSignature(shingles, this.config.numHashFunctions);
 
             newSignatures.set(item.id, {
@@ -459,13 +561,17 @@ export class MinHashDedupEngine {
             });
             newItemsMap.set(item.id, item);
         }
+        console.timeEnd('[MinHash] 1.生成签名');
 
+        console.time('[MinHash] 2.LSH索引');
         // 2. 批次内互查 - 使用 LSH 加速
         const batchSignatures = new Map<string, number[]>();
         newSignatures.forEach((sig, id) => batchSignatures.set(id, sig.signature));
 
         const bandIndices = buildLSHIndex(batchSignatures, this.config.numBands);
         const candidatePairs = findCandidatePairs(bandIndices);
+        console.timeEnd('[MinHash] 2.LSH索引');
+        console.log(`[MinHash] 候选对数量: ${candidatePairs.size}`);
 
         // 3. 验证候选对的实际相似度
         const similarPairs: SimilarPair[] = [];

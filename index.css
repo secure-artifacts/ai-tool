@@ -1086,30 +1086,16 @@ nav button.active {
   flex: 1;
   display: flex;
   flex-direction: row;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: none;
-  /* Firefox - 隐藏滚动条 */
-  -ms-overflow-style: none;
-  /* IE/Edge - 隐藏滚动条 */
-  padding: 0 0.25rem;
-}
-
-.collapsed-toolbar::-webkit-scrollbar {
-  display: none;
-  /* Chrome/Safari - 隐藏滚动条 */
+  gap: 0.35rem 0.5rem;
+  overflow: visible;
+  padding: 0.15rem 0.25rem;
 }
 
 /* 折叠导航栏 */
 .collapsed-nav {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.35rem;
+  display: contents;
 }
 
 .collapsed-nav-btn {
@@ -1165,8 +1151,14 @@ nav button.active {
   color: #8b5cf6;
 }
 
-.collapsed-nav-btn .nav-icon-mindMap {
-  color: #23e5c4;
+/* .collapsed-nav-btn .nav-icon-mindMap removed */
+
+.collapsed-nav-btn .nav-icon-imageRecognition {
+  color: #ef4444;
+}
+
+.collapsed-nav-btn .nav-icon-imageSorter {
+  color: #06b6d4;
 }
 
 .collapsed-nav-btn .nav-icon-skillGenerator {
@@ -1179,11 +1171,7 @@ nav button.active {
 
 /* 分隔线 */
 .collapsed-divider {
-  width: 1px;
-  height: 24px;
-  background: var(--border-color);
-  flex-shrink: 0;
-  margin: 0 0.25rem;
+  display: none;
 }
 
 /* 模型选择器 */
@@ -1308,7 +1296,9 @@ nav button.active {
   align-items: center !important;
   justify-content: center !important;
   height: 28px !important;
-  width: 28px !important;
+  min-width: 28px !important;
+  padding: 0 6px !important;
+  gap: 3px;
   border: 1px solid var(--border-color) !important;
   border-radius: 5px !important;
   background: var(--control-bg-color) !important;
@@ -4008,7 +3998,7 @@ body.eye-care .prompt-tab-btn:hover {
 .api-key-modal {
   height: 640px;
   max-height: 80vh;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .api-key-modal .tab-content {
@@ -7176,6 +7166,29 @@ body.eye-care .prompt-tab-btn:hover {
   padding: 0.5rem 0.75rem;
   background: var(--card-bg-color);
   border-bottom: 1px solid var(--border-color);
+}
+
+/* ProDedup 顶栏提示统一向下显示，避免顶部空间不足被遮挡 */
+.pro-dedup-topbar [title]::after {
+  bottom: auto;
+  top: 100%;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.pro-dedup-topbar [title]::before {
+  bottom: auto;
+  top: 100%;
+  border-top-color: transparent;
+  border-bottom-color: rgba(15, 15, 20, 0.95);
+  transform: translateX(-50%) translateY(-8px);
+}
+
+.pro-dedup-topbar [title]:hover::after {
+  transform: translateX(-50%) translateY(6px);
+}
+
+.pro-dedup-topbar [title]:hover::before {
+  transform: translateX(-50%) translateY(0);
 }
 
 .topbar-btn {

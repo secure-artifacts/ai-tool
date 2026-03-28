@@ -703,7 +703,7 @@ ${entryTexts}
 请只返回相关教程的序号，用逗号分隔。如果没有相关的，返回“无”。
 示例：1,3,5,8`;
 
-            const response = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite-preview', contents: prompt });
+            const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
             const text = (response.text || '').trim();
             if (text === '无' || !text) {
                 setAiSearchResults(new Set());
@@ -836,7 +836,7 @@ ${tutorialList}
 ...
 只返回序号、大类和子分类，不要返回其他内容。`;
 
-            const response = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite-preview', contents: prompt });
+            const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
             const text = response.text || '';
             const lines = text.trim().split('\n');
             const categoryMap = new Map<number, { main: string; sub: string }>();

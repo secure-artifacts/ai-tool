@@ -14,11 +14,11 @@ import {
 } from '../prompts/promptPresets';
 
 // 可用的 Gemini 模型 (使用官方 API 正确名称)
-export type GeminiModelId = 'gemini-3.1-flash-lite-preview' | 'gemini-3-pro-preview' | 'gemini-2.5-flash' | 'gemini-2.0-flash';
+export type GeminiModelId = 'gemini-3-flash-preview' | 'gemini-3.1-pro-preview' | 'gemini-2.5-flash' | 'gemini-2.0-flash';
 
 export const GEMINI_MODELS: { id: GeminiModelId; label: string; description: string }[] = [
-    { id: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite', description: '最新轻量模型，速度极快' },
-    { id: 'gemini-3-pro-preview', label: 'Gemini 3 Pro', description: '最强模型，复杂任务首选' },
+    { id: 'gemini-3-flash-preview', label: 'Gemini 3.1 Flash Lite', description: '最新轻量模型，速度极快' },
+    { id: 'gemini-3.1-pro-preview', label: 'Gemini 3 Pro', description: '最强模型，复杂任务首选' },
     { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: '稳定快速模型' },
     { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: '经典快速模型' },
 ];
@@ -1294,7 +1294,7 @@ ${modeInstructions}
                 const ai = aiFactory();
                 // 使用 Gemini 2.0 的 Google Search 工具
                 const response = await ai.models.generateContent({
-                    model: 'gemini-3.1-flash-lite-preview',
+                    model: 'gemini-3-flash-preview',
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     config: {
                         temperature,
@@ -1328,7 +1328,7 @@ ${modeInstructions}
         }
 
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${effectiveKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${effectiveKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2291,7 +2291,7 @@ ${modeInstructions}
                     const normalizedBody = this.normalizeBodyForGenAI(body);
                     const ai = aiFactory();
                     const response = await ai.models.generateContent({
-                        model: 'gemini-3.1-flash-lite-preview',
+                        model: 'gemini-3-flash-preview',
                         ...normalizedBody,
                     });
                     const text = response?.text

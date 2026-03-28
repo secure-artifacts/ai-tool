@@ -25,6 +25,8 @@ import {
     RotateCcw,
     Trash2,
     Eye,
+    FileCode,
+    LayoutGrid,
 } from 'lucide-react';
 import { CreativeResult, ImageItem, DEFAULT_PRESETS } from '../types';
 import { RandomLibraryConfig, getDefaultExtractPrompt } from '../services/randomLibraryService';
@@ -83,6 +85,8 @@ interface QuickModeStandaloneProps {
     onCopyEN: () => void;
     onCopyZH: () => void;
     onCopyAll: () => void;
+    onCopyFormulas?: () => void;
+    onCopyOriginalAndResults?: () => void;
     copySuccess: string | null;
 
     // 视图切换
@@ -135,6 +139,8 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
     onCopyEN,
     onCopyZH,
     onCopyAll,
+    onCopyFormulas,
+    onCopyOriginalAndResults,
     copySuccess,
     onSwitchToClassic,
     needDescribeFirst,
@@ -864,92 +870,111 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                                         null
                                     ) : null;
                                     const modeIcon = override?.mode === 'image' ? '📷' : override?.mode === 'queue-image' ? '🔄' : '';
+                                    const descriptionText = lib.description?.trim();
                                     return (
-                                        <button
-                                            key={lib.id}
-                                            onClick={() => {
-                                                if (selectedImageId) {
-                                                    if (imageDimensionMap[lib.name] === selectedImageId) {
-                                                        // 已关联当前图片 → 打开编辑器设置提取要求
-                                                        setInlineEditLib(inlineEditLib === lib.name ? null : lib.name);
+                                        <div key={lib.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxWidth: '180px' }}>
+                                            <button
+                                                onClick={() => {
+                                                    if (selectedImageId) {
+                                                        if (imageDimensionMap[lib.name] === selectedImageId) {
+                                                            // 已关联当前图片 → 打开编辑器设置提取要求
+                                                            setInlineEditLib(inlineEditLib === lib.name ? null : lib.name);
+                                                        } else {
+                                                            // 未关联 → 关联到这个维度，默认从图提取
+                                                            setImageDimensionMap(prev => ({ ...prev, [lib.name]: selectedImageId }));
+                                                            onOverrideChange(lib.name, { mode: 'image' });
+                                                            // 持久化到卡片 refImageConfigs
+                                                            if (onUpdateRefImageConfig && images.length > 0) {
+                                                                const card = images[0];
+                                                                const allImgIds = [card.id, ...(card.fusionImages?.map(fi => fi.id) || [])];
+                                                                const imgIdx = allImgIds.indexOf(selectedImageId);
+                                                                if (imgIdx >= 0) {
+                                                                    onUpdateRefImageConfig(card.id, imgIdx, { dimName: lib.name, extractPrompt: '' });
+                                                                }
+                                                            }
+                                                            setInlineEditLib(lib.name);
+                                                        }
                                                     } else {
-                                                        // 未关联 → 关联到这个维度，默认从图提取
-                                                        setImageDimensionMap(prev => ({ ...prev, [lib.name]: selectedImageId }));
-                                                        onOverrideChange(lib.name, { mode: 'image' });
-                                                        // 持久化到卡片 refImageConfigs
+                                                        // 没有选中图片 → 展开文本编辑器
+                                                        setInlineEditLib(isInlineEditing ? null : lib.name);
+                                                    }
+                                                }}
+                                                title={descriptionText ? `${lib.name}：${descriptionText}` : lib.name}
+                                                style={{
+                                                    padding: '3px 8px',
+                                                    borderRadius: '6px',
+                                                    border: isInlineEditing
+                                                        ? '1.5px solid #8b5cf6'
+                                                        : linkedImage
+                                                            ? '1.5px solid #f59e0b'
+                                                            : hasOverride
+                                                                ? '1px solid rgba(245,158,11,0.4)'
+                                                                : selectedImageId
+                                                                    ? '1px solid rgba(59,130,246,0.4)'
+                                                                    : '1px solid #27272a',
+                                                    background: linkedImage
+                                                        ? 'rgba(245,158,11,0.15)'
+                                                        : hasOverride
+                                                            ? 'rgba(245,158,11,0.1)'
+                                                            : selectedImageId
+                                                                ? 'rgba(59,130,246,0.08)'
+                                                                : '#18181b',
+                                                    color: linkedImage
+                                                        ? '#fbbf24'
+                                                        : hasOverride
+                                                            ? '#fbbf24'
+                                                            : selectedImageId
+                                                                ? '#60a5fa'
+                                                                : '#71717a',
+                                                    fontSize: '11px',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    transition: 'all 0.15s',
+                                                }}
+                                            >
+                                                {linkedImage && (
+                                                    <img src={linkedImage.imageUrl} alt="" style={{
+                                                        width: '16px', height: '16px', borderRadius: '3px', objectFit: 'cover',
+                                                    }} />
+                                                )}
+                                                {modeIcon && <span style={{ fontSize: '10px' }}>{modeIcon}</span>}
+                                                {lib.name}
+                                                {(hasOverride || linkedImage) && (
+                                                    <X size={8} style={{ opacity: 0.6 }} onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onOverrideChange(lib.name, { value: '' });
+                                                        setImageDimensionMap(prev => { const n = { ...prev }; delete n[lib.name]; return n; });
+                                                        // 从卡片 refImageConfigs 移除
                                                         if (onUpdateRefImageConfig && images.length > 0) {
                                                             const card = images[0];
-                                                            const allImgIds = [card.id, ...(card.fusionImages?.map(fi => fi.id) || [])];
-                                                            const imgIdx = allImgIds.indexOf(selectedImageId);
-                                                            if (imgIdx >= 0) {
-                                                                onUpdateRefImageConfig(card.id, imgIdx, { dimName: lib.name, extractPrompt: '' });
+                                                            const cfgs = card.refImageConfigs || [];
+                                                            const cfg = cfgs.find(c => c.dimName === lib.name);
+                                                            if (cfg) {
+                                                                onUpdateRefImageConfig(card.id, cfg.imageIndex, { dimName: `__remove__${lib.name}` } as any);
                                                             }
                                                         }
-                                                        setInlineEditLib(lib.name);
-                                                    }
-                                                } else {
-                                                    // 没有选中图片 → 展开文本编辑器
-                                                    setInlineEditLib(isInlineEditing ? null : lib.name);
-                                                }
-                                            }}
-                                            style={{
-                                                padding: '3px 8px',
-                                                borderRadius: '6px',
-                                                border: isInlineEditing
-                                                    ? '1.5px solid #8b5cf6'
-                                                    : linkedImage
-                                                        ? '1.5px solid #f59e0b'
-                                                        : hasOverride
-                                                            ? '1px solid rgba(245,158,11,0.4)'
-                                                            : selectedImageId
-                                                                ? '1px solid rgba(59,130,246,0.4)'
-                                                                : '1px solid #27272a',
-                                                background: linkedImage
-                                                    ? 'rgba(245,158,11,0.15)'
-                                                    : hasOverride
-                                                        ? 'rgba(245,158,11,0.1)'
-                                                        : selectedImageId
-                                                            ? 'rgba(59,130,246,0.08)'
-                                                            : '#18181b',
-                                                color: linkedImage
-                                                    ? '#fbbf24'
-                                                    : hasOverride
-                                                        ? '#fbbf24'
-                                                        : selectedImageId
-                                                            ? '#60a5fa'
-                                                            : '#71717a',
-                                                fontSize: '11px',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '4px',
-                                                transition: 'all 0.15s',
-                                            }}
-                                        >
-                                            {linkedImage && (
-                                                <img src={linkedImage.imageUrl} alt="" style={{
-                                                    width: '16px', height: '16px', borderRadius: '3px', objectFit: 'cover',
-                                                }} />
+                                                    }} />
+                                                )}
+                                            </button>
+                                            {descriptionText && (
+                                                <div
+                                                    style={{
+                                                        fontSize: '9px',
+                                                        color: '#71717a',
+                                                        lineHeight: '1.35',
+                                                        padding: '0 4px',
+                                                        overflow: 'hidden',
+                                                        textOverflow: 'ellipsis',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                    title={descriptionText}
+                                                >
+                                                    {descriptionText}
+                                                </div>
                                             )}
-                                            {modeIcon && <span style={{ fontSize: '10px' }}>{modeIcon}</span>}
-                                            {lib.name}
-                                            {(hasOverride || linkedImage) && (
-                                                <X size={8} style={{ opacity: 0.6 }} onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onOverrideChange(lib.name, { value: '' });
-                                                    setImageDimensionMap(prev => { const n = { ...prev }; delete n[lib.name]; return n; });
-                                                    // 从卡片 refImageConfigs 移除
-                                                    if (onUpdateRefImageConfig && images.length > 0) {
-                                                        const card = images[0];
-                                                        const cfgs = card.refImageConfigs || [];
-                                                        const cfg = cfgs.find(c => c.dimName === lib.name);
-                                                        if (cfg) {
-                                                            onUpdateRefImageConfig(card.id, cfg.imageIndex, { dimName: `__remove__${lib.name}` } as any);
-                                                        }
-                                                    }
-                                                }} />
-                                            )}
-                                        </button>
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -1595,7 +1620,7 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                             </span>
                         )}
                     </div>
-                    <div style={{ display: 'flex', gap: '4px' }}>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {[
                             { label: 'EN', fn: onCopyEN, key: 'creative-en', color: '#60a5fa' },
                             { label: '中', fn: onCopyZH, key: 'creative-zh', color: '#fb923c' },
@@ -1624,6 +1649,54 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                                 {label}
                             </button>
                         ))}
+                        {onCopyFormulas && (
+                            <button
+                                onClick={onCopyFormulas}
+                                disabled={images.length === 0}
+                                style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${copySuccess === 'formulas' ? '#10b98140' : '#27272a'}`,
+                                    background: copySuccess === 'formulas' ? 'rgba(16,185,129,0.15)' : '#18181b',
+                                    color: copySuccess === 'formulas' ? '#34d399' : images.length > 0 ? '#fb923c' : '#3f3f46',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    cursor: images.length > 0 ? 'pointer' : 'not-allowed',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    transition: 'all 0.15s',
+                                }}
+                                title="复制全部 IMAGE 公式"
+                            >
+                                {copySuccess === 'formulas' ? <Check size={11} /> : <FileCode size={11} />}
+                                原始公式
+                            </button>
+                        )}
+                        {onCopyOriginalAndResults && (
+                            <button
+                                onClick={onCopyOriginalAndResults}
+                                disabled={successCount === 0}
+                                style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '6px',
+                                    border: `1px solid ${copySuccess === 'original' ? '#10b98140' : '#27272a'}`,
+                                    background: copySuccess === 'original' ? 'rgba(16,185,129,0.15)' : '#18181b',
+                                    color: copySuccess === 'original' ? '#34d399' : successCount > 0 ? '#a78bfa' : '#3f3f46',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    cursor: successCount > 0 ? 'pointer' : 'not-allowed',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    transition: 'all 0.15s',
+                                }}
+                                title="复制 公式 + 结果 (Tab分隔)"
+                            >
+                                {copySuccess === 'original' ? <Check size={11} /> : <LayoutGrid size={11} />}
+                                原+结果
+                            </button>
+                        )}
                         <button
                             onClick={downloadCSV}
                             disabled={successCount === 0}
@@ -1883,7 +1956,16 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                                                         ))}
                                                     </div>
                                                 ) : card.status === 'error' ? (
-                                                    <div style={{ fontSize: '12px', color: '#f87171', padding: '8px 0' }}>生成失败</div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px 0' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f87171', fontSize: '13px', fontWeight: 600 }}>
+                                                            ⚠️ 生成失败
+                                                        </div>
+                                                        {card.results.length > 0 && card.results[0] && (
+                                                            <div style={{ fontSize: '11px', color: 'rgba(248,113,113,0.6)', textAlign: 'center', maxWidth: '300px' }}>
+                                                                {card.results[0]}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     <div style={{ fontSize: '12px', color: '#3f3f46', padding: '8px 0', fontStyle: 'italic' }}>等待生成...</div>
                                                 )}
@@ -1905,6 +1987,19 @@ export const QuickModeStandalone: React.FC<QuickModeStandaloneProps> = ({
                                 <Sparkles size={40} style={{ opacity: 0.3 }} />
                                 <div style={{ fontSize: '14px' }}>{noImageMode ? '输入主题后点击"开始创新"' : '上传图片后点击"开始创新"'}</div>
                                 <div style={{ fontSize: '12px' }}>结果将显示在这里</div>
+                            </div>
+                        ) : creativeResults.length === 0 && isProcessing ? (
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                height: '100%',
+                                gap: '16px',
+                            }}>
+                                <Loader2 size={36} style={{ color: '#8b5cf6' }} className="animate-spin" />
+                                <div style={{ fontSize: '14px', color: '#a78bfa', fontWeight: 600 }}>正在处理中...</div>
+                                <div style={{ fontSize: '12px', color: '#52525b' }}>结果将逐步显示在这里</div>
                             </div>
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

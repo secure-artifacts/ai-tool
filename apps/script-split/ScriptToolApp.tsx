@@ -30,13 +30,31 @@ import type { GoogleGenAI } from '@google/genai';
 
 interface ScriptToolAppProps {
   getAiInstance?: () => GoogleGenAI | null;
+  textModel?: string;
 }
+
+const LOCAL_MODEL_KEY = 'script_tool_local_model';
+const INHERIT_VALUE = '__global__';
+
+const MODEL_OPTIONS = [
+  { value: INHERIT_VALUE, label: '继承全局设置' },
+  { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA)' },
+  { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快)' },
+  { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
+  { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview)' },
+  { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
+];
 
 // Default grid size
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLS = 20;
 
-function ScriptToolApp({ getAiInstance }: ScriptToolAppProps) {
+function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: ScriptToolAppProps) {
+  // 本地模型选择（默认继承全局）
+  const [localModel, setLocalModel] = useState<string>(() => {
+    try { return localStorage.getItem(LOCAL_MODEL_KEY) || INHERIT_VALUE; } catch { return INHERIT_VALUE; }
+  });
+  const effectiveModel = localModel === INHERIT_VALUE ? textModel : localModel;
   const [gridData, setGridData] = useState<GridData>([]);
   const [selection, setSelection] = useState<GridSelection | null>(null);
   const [forceSelection, setForceSelection] = useState<GridSelection | null>(null); // 用于外部触发选区
@@ -123,7 +141,7 @@ ${textsJson}
 Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
 
         const response = await ai.models.generateContent({
-          model: 'gemini-3.1-flash-lite-preview',
+          model: effectiveModel,
           contents: prompt,
         });
 
@@ -609,6 +627,27 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                   className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${clearSource ? 'switch-on' : 'switch-off'}`}
                 />
               </button>
+            </div>
+
+            {/* AI 模型选择 */}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-500">AI模型:</span>
+              <select
+                value={localModel}
+                onChange={e => {
+                  const v = e.target.value;
+                  setLocalModel(v);
+                  try { localStorage.setItem(LOCAL_MODEL_KEY, v); } catch {}
+                }}
+                className="text-xs border border-slate-300 rounded px-1 py-0.5 bg-white text-slate-700"
+                style={{ maxWidth: '180px' }}
+              >
+                {MODEL_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>
+                    {o.value === INHERIT_VALUE ? `${o.label} (${textModel})` : o.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

@@ -76,7 +76,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
     getAiInstance,
     t,
     templateBuilderState,
-    textModel = 'gemini-3.1-flash-lite-preview',
+    textModel = 'gemini-3-flash-preview',
 }) => {
     // ========== State ==========
 

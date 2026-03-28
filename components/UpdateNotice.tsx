@@ -30,11 +30,31 @@ interface UpdateNoticeProps {
 // 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
     {
-        version: 'v3.0.0',
-        date: '2026-02-20',
-        description: '3.0 大版本发布：全面亮色/护眼主题适配 + 文字覆盖折叠优化 + 翻译组件主题修复',
+        version: 'v3.8.0',
+        date: '2026-03-27',
+        description: 'v3.8.0 修复 AI Studio 模式 API 认证 + API 池自动轮换无限递归修复',
         url: '#',
         isCurrent: true
+    },
+    {
+        version: 'v3.7.0',
+        date: '2026-03-26',
+        description: 'v3.7.0 fix Chinese search and dedup + image formula empty rows',
+        url: 'https://ai-toolkit-b2b78--v3-7-0.web.app',
+        isCurrent: false
+    },
+    {
+        version: 'v3.6.0',
+        date: '2026-03-23',
+        description: 'v3.6.0 quick innovation enhancements',
+        url: 'https://ai-toolkit-b2b78--v3-6-0-2qgu9tdy.web.app',
+        isCurrent: false
+    },
+    {
+        version: 'v3.5.0',
+        date: '2026-03-19',
+        description: 'v3.5.0 全面升级：AI Studio/Vertex AI 自动检测 + 侧边栏分组排序 + 工具设置增强',
+        url: '#'
     },
     {
         version: 'v2.96.0',
@@ -149,18 +169,49 @@ const versionHistory: VersionInfo[] = [
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v3.0.0',
-    date: '2026-02-20',
+    version: 'v3.8.0',
+    date: '2026-03-27',
     features: {
         en: [
-            'Full light/eye-care theme support across all modules',
-            'Collapsible text override panel for cleaner UI',
-            'Smart Translate tab bar theme fix'
+            'Quick innovation result panel visible during processing and error states',
+            'Pause/Stop controls in quick mode toolbar',
+            'Double-click creative count for manual input',
+            'Single card retry preserves other card results'
         ],
         zh: [
             '✨如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
+            '2026.03.23 v3.6.0',
+            '-',
+            '🎯 快捷创新模式增强',
+            '• 运行中和失败状态下右侧结果面板正常显示进度/错误信息',
+            '• 工具栏新增暂停/停止按钮，处理中可随时控制',
+            '• 创新个数支持双击手动输入任意数字（1-999）',
+            '• 单卡重试不再清除其他卡片的已有结果',
+            '-',
+            '-',
+            '-',
+            '',
+            '2026.03.19 v3.5.0',
+            '-',
+            '🔄 AI Studio / Vertex AI 双模式自动检测',
+            '• 根据 API Key 前缀自动切换模式，无需手动配置',
+            '• 所有工具统一支持两种模式',
+            '-',
+            '📂 侧边栏分组排序',
+            '• 工具按类型分组：修图相关、写描述词、提示词&文案、新工具、老工具、实验工具',
+            '• 分组标题显示在展开侧边栏中',
+            '-',
+            '⚙️ 工具设置增强',
+            '• 智能翻译：批次上限扩展到 50，支持手动输入',
+            '• 地区分类：新增模型选择、批次大小、并发数设置',
+            '• 图片前景文字提取：全模型选择 + 批次扩展',
+            '• 图片智能分拣：全模型选择 + 批次扩展',
+            '-',
+            '-',
+            '-',
+            '',
             '2026.02.20 v3.0.0',
             '-',
             '🎨 全面亮色/护眼主题适配',

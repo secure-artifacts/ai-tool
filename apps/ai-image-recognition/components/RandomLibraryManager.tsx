@@ -311,6 +311,45 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
         const hasEnabledLibraries = config.libraries.some(lib => lib.enabled && lib.values.length > 0);
         if (!hasEnabledLibraries) return [];
 
+        // 遍历模式优先级最高
+        const hasTraverse = config.libraries.some(lib => lib.enabled && lib.traverseAll && lib.values.length > 0);
+        if (hasTraverse) {
+            // 遍历模式预览：按遍历库的值数量生成预览组
+            const enabledLibs = config.libraries.filter(lib => lib.enabled && lib.values.length > 0);
+            const traverseLibs = enabledLibs.filter(lib => lib.traverseAll);
+            
+            // 计算总预览数（取遍历库值数量，最多显示 innovationCount 个）
+            const traverseTotal = traverseLibs.reduce((acc, lib) => acc * lib.values.length, 1);
+            const previewCount = Math.min(traverseTotal, innovationCount, 10); // 最多预览10个
+            
+            const groups: { name: string; value: string; color: string }[][] = [];
+            // 笛卡尔积索引
+            const traverseArrays = traverseLibs.map(lib => lib.values);
+            const flatProduct: string[][] = [];
+            const buildProduct = (arrays: string[][], current: string[] = []): void => {
+                if (arrays.length === 0) { flatProduct.push(current); return; }
+                const [first, ...rest] = arrays;
+                for (const item of first) buildProduct(rest, [...current, item]);
+            };
+            buildProduct(traverseArrays);
+
+            for (let i = 0; i < previewCount; i++) {
+                const traverseValues = flatProduct[i % flatProduct.length];
+                let tIdx = 0;
+                const group = enabledLibs.map(lib => {
+                    if (lib.traverseAll) {
+                        const val = traverseValues[tIdx++];
+                        return { name: lib.name, value: val, color: lib.color };
+                    }
+                    // 随机库正常随机
+                    const idx = Math.floor(Math.random() * lib.values.length);
+                    return { name: lib.name, value: lib.values[idx], color: lib.color };
+                });
+                groups.push(group);
+            }
+            return groups;
+        }
+
         if (config.combinationMode === 'random') {
             // 整体随机模式：按创新个数生成多组
             const groups: { name: string; value: string; color: string }[][] = [];
@@ -360,7 +399,7 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
                     }
                 }
 
-                // Update existing libraries: preserve user settings, only update values
+                // Update existing libraries: preserve user settings, only update data fields
                 const updatedLibraries = config.libraries.map(existingLib => {
                     const key = `${existingLib.sourceSheet || ''}::${existingLib.name}`;
                     const refreshedLib = refreshedMap.get(key);
@@ -370,6 +409,8 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
                             ...existingLib,
                             values: refreshedLib.values,
                             valuesWithCategory: refreshedLib.valuesWithCategory,
+                            hasImageUrls: refreshedLib.hasImageUrls,
+                            description: refreshedLib.description,
                         };
                     }
                     return existingLib;
@@ -402,7 +443,9 @@ export const RandomLibraryManager: React.FC<RandomLibraryManagerProps> = ({
             }
         };
 
-        autoSync();
+        // autoSync(); 
+        // 用户反馈：不要每次都自动重新加载（导致之前做的状态/修改不被保持）。
+        // 改为按需手动点击"同步刷新"按钮获取。
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [config.enabled, config.sourceSpreadsheetUrl]); // 仅在启用状态或源URL变化时同步
 
@@ -1422,7 +1465,7 @@ ${targetCountry}
                 }
             }
 
-            // Update existing libraries: preserve user settings, only update values
+            // Update existing libraries: preserve user settings, only update data fields
             let updatedCount = 0;
             const updatedLibraries = config.libraries.map(existingLib => {
                 const key = `${existingLib.sourceSheet || ''}::${existingLib.name}`;
@@ -1431,11 +1474,13 @@ ${targetCountry}
                     refreshedMap.delete(key); // Mark as matched
                     updatedCount++;
                     // Preserve user settings (enabled, color, participationRate, pickMode, etc.)
-                    // Only update data fields (values, valuesWithCategory)
+                    // Only update data fields (values, valuesWithCategory, description)
                     return {
                         ...existingLib,
                         values: refreshedLib.values,
                         valuesWithCategory: refreshedLib.valuesWithCategory,
+                        hasImageUrls: refreshedLib.hasImageUrls,
+                        description: refreshedLib.description,
                     };
                 }
                 return existingLib; // Not refreshed, keep as-is
@@ -1798,7 +1843,10 @@ ${targetCountry}
                                         {lib.name}
                                     </span>
                                 )}
-                                <span className={lib.values.length > 0 ? 'text-emerald-400' : 'text-zinc-500'}>({lib.values.length})</span>
+                                <span className={lib.values.length > 0 ? 'text-emerald-400' : 'text-zinc-500'}>
+                                    {lib.traverseAll && <span title="遍历模式">🔄</span>}
+                                    ({lib.values.length})
+                                </span>
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -1964,9 +2012,40 @@ ${targetCountry}
                                 </span>
                             </div>
 
+                            {/* 遍历模式开关 */}
+                            <div className="flex items-center gap-3 p-2 bg-amber-900/10 border border-amber-800/20 rounded-lg">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={!!activeLibrary.traverseAll}
+                                        onChange={(e) => {
+                                            const updates: Partial<typeof activeLibrary> = { traverseAll: e.target.checked };
+                                            // 遍历模式下锁定参与概率为100%
+                                            if (e.target.checked) {
+                                                updates.participationRate = 100;
+                                            }
+                                            updateLibrary(activeLibrary.id, updates);
+                                        }}
+                                        className="w-4 h-4 rounded border-zinc-600 bg-zinc-700 text-amber-500 focus:ring-0"
+                                    />
+                                    <div className="text-xs">
+                                        <span className={`font-medium ${activeLibrary.traverseAll ? 'text-amber-400' : 'text-zinc-400'}`}>
+                                            🔄 遍历所有值
+                                        </span>
+                                        <span className="text-zinc-500 ml-2">
+                                            {activeLibrary.traverseAll
+                                                ? `（${activeLibrary.values.length} 个值依次使用，其他库随机）`
+                                                : '（关闭时随机抽取）'}
+                                        </span>
+                                    </div>
+                                </label>
+                            </div>
+
                             {/* 抽取说明 */}
                             <div className="flex items-center gap-2 text-xs text-zinc-500">
-                                {config.combinationMode === 'cartesian' ? (
+                                {activeLibrary.traverseAll ? (
+                                    <span>🔄 遍历模式：每个值依次生成一个结果（创新数\u003e库值数时循环）</span>
+                                ) : config.combinationMode === 'cartesian' ? (
                                     <span>笛卡尔积模式：各库抽取数量的乘积 = 总组合数</span>
                                 ) : (
                                     <span>整体随机模式：每次从各库各随机1个组成组合</span>
@@ -2133,7 +2212,11 @@ ${targetCountry}
                             <div className="flex items-center gap-2">
                                 <Eye size={12} className="text-zinc-500" />
                                 <span className="text-xs text-zinc-500">
-                                    预览 {config.combinationMode === 'random' ? `(${previewGroups.length}组)` : '(笛卡尔积示例)'}:
+                                    预览 {config.libraries.some(lib => lib.enabled && lib.traverseAll && lib.values.length > 0) 
+                                        ? `(🔄 遍历模式 ${previewGroups.length}组)` 
+                                        : config.combinationMode === 'random' 
+                                            ? `(${previewGroups.length}组)` 
+                                            : '(笛卡尔积示例)'}:
                                 </span>
                             </div>
                             <button

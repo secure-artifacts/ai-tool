@@ -8,7 +8,36 @@ description: 部署到 Firebase 和打包 AI Studio 源码
 1. **Firebase 部署** - 发布到正式网站
 2. **AI Studio 打包** - 生成源码压缩包供 Google AI Studio 使用
 
-**当前版本**: v2.82 (2026-01-28)
+---
+
+## ⚠️ 零、版本号同步（每次部署前必做！）
+
+每次部署或打包前，必须确保以下所有位置的版本号一致：
+
+### 需要更新的位置
+
+| 文件 | 位置说明 |
+|------|----------|
+| `package.json` | 根目录 `"version"` 字段 |
+| `metadata.json` | AI Studio 应用名中的版本号（`"name"` 字段） |
+| `index.tsx` | 设置面板中的 `当前版本: vX.X.X`（搜索 `当前版本`） |
+| `index.tsx` | 设置面板「历史版本」链接列表（搜索 `历史版本`，更新 URL 和版本号） |
+| `index.tsx` | `UpdateNotice` 组件中的版本号（如有） |
+| 本文件 `deploy.md` | zip 命令中的版本号 |
+
+### 快速查找命令
+
+// turbo
+```bash
+cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
+echo "=== package.json ===" && \
+grep '"version"' package.json && \
+echo "=== index.tsx 设置面板版本 ===" && \
+grep -n '当前版本' index.tsx | head -3
+```
+
+> [!IMPORTANT]
+> 如果版本号不一致，先统一更新再执行后续步骤！
 
 ---
 
@@ -20,9 +49,9 @@ description: 部署到 Firebase 和打包 AI Studio 源码
 
 // turbo
 ```bash
-rm ~/Desktop/ai-toolkit-源码-v2.82.zip 2>/dev/null; \
+rm ~/Desktop/ai-toolkit-源码-v3.8.0.zip 2>/dev/null; \
 cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
-zip -r ~/Desktop/ai-toolkit-源码-v2.82.zip . \
+zip -r ~/Desktop/ai-toolkit-源码-v3.8.0.zip . \
     -x "node_modules/*" \
     -x ".git/*" \
     -x "dist/*" \
@@ -38,11 +67,14 @@ zip -r ~/Desktop/ai-toolkit-源码-v2.82.zip . \
     -x "AI创作工具包-*/*" \
     -x "ai-toolkit-*/*" \
     -x "版本归档/*" \
+    -x "未命名文件夹/*" \
+    -x "backups/*" \
+    -x "docs/*" \
     -x "functions/node_modules/*"
 ```
 
 ### 输出位置
-- `~/Desktop/ai-toolkit-源码-v2.82.zip`
+- `~/Desktop/ai-toolkit-源码-v3.8.0.zip`
 
 ### 包含内容
 - ✅ 所有源代码（`apps/`, `services/`, `components/`）
@@ -58,7 +90,7 @@ zip -r ~/Desktop/ai-toolkit-源码-v2.82.zip . \
 - ❌ 各种 `.zip`, `.dmg` 文件
 
 ### 注意事项
-- **版本号更新**：每次打包前请更新命令中的版本号（如 `v2.7.0` → `v2.7.1`）
+- **版本号更新**：每次打包前请更新命令中的版本号（如 `v3.8.0` → `v3.8.1`）
 - **AI Studio 识别**：压缩包根目录必须包含 `package.json`，这是 AI Studio 识别项目的关键
 
 ---
@@ -73,12 +105,12 @@ zip -r ~/Desktop/ai-toolkit-源码-v2.82.zip . \
 在构建和部署新版本之前，先把当前正式网站备份到一个版本频道：
 
 ```bash
-# 将 X-X-X 替换为当前版本号，如 v2-7-0
-firebase hosting:clone ai-toolkit-b2b78:live ai-toolkit-b2b78:v2-7-0
+# 将 X-X-X 替换为当前版本号，如 v3-8-0
+firebase hosting:clone ai-toolkit-b2b78:live ai-toolkit-b2b78:v3-8-0
 ```
 
 备份完成后，老版本可通过独立链接访问，例如：
-`https://ai-toolkit-b2b78--v2-7-0-xxxxx.web.app`
+`https://ai-toolkit-b2b78--v3-8-0-xxxxx.web.app`
 
 ### 第二步：构建新版本
 
@@ -110,6 +142,7 @@ firebase deploy --only hosting
 
 | 操作 | 命令 |
 |------|------|
+| **版本号检查** | `grep '"version"' package.json && grep -n '当前版本' index.tsx` |
 | **AI Studio 打包** | 见上方完整 zip 命令 |
 | **备份当前版本** | `firebase hosting:clone ai-toolkit-b2b78:live ai-toolkit-b2b78:vX-X-X` |
 | 构建 | `npm run build` |
@@ -129,7 +162,7 @@ firebase deploy --only hosting
    ```
 
 2. 把老版本链接发给用户，例如：
-   - v2.7.0: `https://ai-toolkit-b2b78--v2-7-0-xxxxx.web.app`
+   - v3.8.0: `https://ai-toolkit-b2b78--v3-8-0-xxxxx.web.app`
 
 ---
 
@@ -138,8 +171,8 @@ firebase deploy --only hosting
 如果需要把正式网站回滚到老版本：
 
 ```bash
-# 把 v2-7-0 版本恢复为正式版本
-firebase hosting:clone ai-toolkit-b2b78:v2-7-0 ai-toolkit-b2b78:live
+# 把 v3-8-0 版本恢复为正式版本
+firebase hosting:clone ai-toolkit-b2b78:v3-8-0 ai-toolkit-b2b78:live
 ```
 
 ---

@@ -6,6 +6,7 @@ declare const __BUILD_TIME__: string;
 import React, { useState, useRef, useEffect, useMemo, createContext, useContext, useCallback, Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality, Type } from "@google/genai";
+import { shouldUseAiStudioMode, isRunningInAiStudio } from './utils/aiStudioDetect';
 import { FixedTooltipProvider } from '@/components/FixedTooltip';
 import { ToastProvider } from '@/components/ui/Toast';
 import ScriptToolApp from '@/apps/script-split/ScriptToolApp';
@@ -17,12 +18,14 @@ import SheetMindAppV2 from '@/apps/sheetmind/SheetMindAppV2';
 import SheetMindAppV1 from '@/apps/sheetmind/SheetMindApp';
 import AICopyDeduplicatorApp from '@/apps/ai-copy-deduplicator/AICopyDeduplicatorApp';
 import ProDedupApp from '@/apps/ai-copy-deduplicator/ProDedupApp';
+import CopywritingLibraryApp from '@/apps/copywriting-library/CopywritingLibraryApp';
 import CopySearchApp from '@/apps/copy-search/CopySearchApp';
 import { MindMapApp } from '@/apps/ai-mind-map';
 import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
 import SkillGeneratorApp from '@/apps/skill-generator/SkillGeneratorApp';
 import ImageSorterApp from '@/apps/image-sorter/ImageSorterApp';
 import RegionClassifierApp from '@/apps/region-classifier/RegionClassifierApp';
+import WorkflowEditorApp from '@/apps/workflow-editor/WorkflowEditorApp';
 import ImageTextExtractorApp from '@/apps/image-text-extractor/ImageTextExtractorApp';
 import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
 import GeminiChatApp from '@/apps/gemini-chat/GeminiChatApp';
@@ -179,6 +182,7 @@ const translations = {
     navSheetMind: "SheetMind",
     navCopyDedup: "AI Copy Deduplicator",
     navProDedup: "Pro Dedup Search",
+    navCopywritingLibrary: "Copywriting Library",
     navMindMap: "AI Mind Map",
     navAIToolsDirectory: "AI Tools",
     navApiImageGen: "API Image Gen",
@@ -189,6 +193,7 @@ const translations = {
     navTutorialHub: "Tutorial Hub",
     navGeminiChat: "Gemini Chat",
     navOpalBatch: "Opal Batch Image",
+    navWorkflowEditor: "Workflow Editor",
     // Prompt Tool
     promptTitle: "Image to Prompt",
     promptDescription: "Batch upload images and use multi-turn chat to refine prompts for each image independently.",
@@ -437,6 +442,7 @@ const translations = {
     navSheetMind: "表格数据分析",
     navCopyDedup: "AI 文案去重",
     navProDedup: "专业文案查重",
+    navCopywritingLibrary: "超级文案库",
     navMindMap: "AI 思维导图",
     navAIToolsDirectory: "AI 工具集",
     navApiImageGen: "API 生图",
@@ -447,6 +453,7 @@ const translations = {
     navTutorialHub: "教程检索台",
     navGeminiChat: "Gemini 对话",
     navOpalBatch: "Opal 批量生图",
+    navWorkflowEditor: "工作流编排",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
     promptDescription: "支持批量上传图片，对每张图的提示词进行独立的多轮对话修改",
@@ -747,8 +754,8 @@ const ThemeContext = createContext({
 
 const INTERNAL_ADMIN_SHEET_ID = '1InDrlrypvb_5xwtNCmqYIUuWL5cm7YNbBaCvJuEY9D0';
 
-// 🚫 API 池轮换全局禁用标志 —— 防止旧版付费级 AIza Key 被误添加
-const API_POOL_FORCE_DISABLED = true;
+// API 池轮换开关（AI Studio 模式自动启用）
+const API_POOL_FORCE_DISABLED = false;
 
 // 🔄 强制刷新版本号 —— 更新此值会让所有旧页面自动刷新
 const FORCE_RELOAD_VERSION = '2026-03-12-v1';
@@ -914,30 +921,53 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   const getCurrentApiKey = (): string => {
-    // 🚫 API 池轮换功能已暂停：防止旧版付费级 AIza Key 被误添加到轮换池中
-    // if (usePool && apiPool?.hasKeys()) {
-    //   try {
-    //     return apiPool.getCurrentKey();
-    //   } catch (error) {
-    //     console.error('[ApiProvider] 从API池获取密钥失败:', error);
-    //   }
-    // }
+    // API 池轮换（已启用）
+    if (usePool && apiPool?.hasKeys()) {
+      try {
+        return apiPool.getCurrentKey();
+      } catch (error) {
+        console.error('[ApiProvider] 从API池获取密钥失败:', error);
+      }
+    }
     return manualApiKey || process.env.API_KEY || '';
   };
 
+  // 检测是否为 AI Studio 模式
+  const isAiStudioMode = (): boolean => {
+    const key = getCurrentApiKey().trim();
+    return shouldUseAiStudioMode(key);
+  };
+
   const getAiInstance = () => {
-    // 清理 API Key：去除空白和非 ASCII 字符（防止 Headers 报错）
+    // 清理 API Key：去除空白和非 ASCII 字符
     const rawKey = getCurrentApiKey();
     const keyToUse = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
+
+    // AI Studio 模式：平台内部处理认证，不强制要求 API key
+    if (isRunningInAiStudio()) {
+      if (keyToUse) {
+        return new GoogleGenAI({ apiKey: keyToUse });
+      }
+      // 无 key 时让 SDK 自动使用 AI Studio 内部认证
+      return new GoogleGenAI({});
+    }
+
+    // 非 AI Studio 模式：必须有 key
     if (!keyToUse) {
       throw new Error('API key is not set.');
     }
-    // 🚫 拦截旧版 AIza 开头的 Gemini API Key（会导致银行卡扣费）
-    if (keyToUse.startsWith('AIza')) {
-      throw new Error('⚠️ 您当前使用的是旧版 AI Studio API Key（AIza 开头），该 Key 可能导致银行卡直接扣费。\n\n请联系本国技术员注册最新的 Vertex AI API Key 后再使用。');
+    // AIza key → 标准模式（AI Studio 免费 key）
+    if (shouldUseAiStudioMode(keyToUse)) {
+      return new GoogleGenAI({ apiKey: keyToUse });
     }
-    // Vertex AI Key → 走 Vertex AI 端点
-    return new GoogleGenAI({ apiKey: keyToUse, vertexai: true });
+    // AQ key 等 → Vertex AI 模式
+    return new GoogleGenAI({
+      apiKey: keyToUse,
+      vertexai: true,
+      httpOptions: {
+        baseUrl: 'https://aiplatform.googleapis.com/',
+      }
+    });
   };
 
   // 自动轮换包装函数 - 当API调用失败时自动切换密钥
@@ -1013,8 +1043,12 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-              const currentInstance = attempt === 0 ? instance : getAiInstance();
-              return await (currentInstance as any).models.generateContent(...args);
+              // attempt 0: 使用保存的原始方法，避免调用包装后的自身导致无限递归
+              if (attempt === 0) {
+                return await originalModelsGenerateContent(...args);
+              }
+              const newInstance = getAiInstance();
+              return await (newInstance as any).models.generateContent(...args);
             } catch (error: any) {
               lastError = error;
               const errorMsg = (error?.message || '').toLowerCase();
@@ -1058,8 +1092,12 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-              const currentInstance = attempt === 0 ? instance : getAiInstance();
-              return await (currentInstance as any).models.generateContentStream(...args);
+              // attempt 0: 使用保存的原始方法，避免调用包装后的自身导致无限递归
+              if (attempt === 0) {
+                return await originalModelsGenerateContentStream(...args);
+              }
+              const newInstance = getAiInstance();
+              return await (newInstance as any).models.generateContentStream(...args);
             } catch (error: any) {
               lastError = error;
               const errorMsg = (error?.message || '').toLowerCase();
@@ -1104,15 +1142,20 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       // 暴露API池供子模块使用
       (window as any).__apiPool = apiPool;
       (window as any).__usePool = usePool;
+      (window as any).__app_rotate_api_key = rotateApiKey;
+      (window as any).__app_force_reset_keys = () => apiPool?.forceResetAll();
       return () => {
         delete (window as any).__app_get_ai_instance;
         delete (window as any).__apiPool;
         delete (window as any).__usePool;
+        delete (window as any).__app_rotate_api_key;
+        delete (window as any).__app_force_reset_keys;
       };
     }
-  }, [getAiInstanceWithAutoRotate, apiPool, usePool]);
+  }, [getAiInstanceWithAutoRotate, apiPool, usePool, rotateApiKey]);
 
-  const isKeySet = !!getCurrentApiKey();
+  // AI Studio 模式不需要手动设置 key，平台内部处理认证
+  const isKeySet = isRunningInAiStudio() || !!getCurrentApiKey();
 
   // 🚫 API 池已全局禁用 —— 以下 useEffect 已停用
   // useEffect(() => {
@@ -1202,7 +1245,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -4997,7 +5040,9 @@ const ImageStudioTool: React.FC<{
       const response = await ai.models.generateContent({
         model: imageModel,
         contents: { role: 'user', parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
-        config: { responseModalities: [Modality.IMAGE], imageSize: imageResolution } as any,
+        config: shouldUseAiStudioMode()
+          ? { imageConfig: { imageSize: imageResolution } } as any
+          : { responseModalities: [Modality.IMAGE], imageSize: imageResolution } as any,
       });
 
       const imageResponsePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
@@ -5097,7 +5142,9 @@ const ImageStudioTool: React.FC<{
       const response = await ai.models.generateContent({
         model: imageModel,
         contents: { role: 'user', parts: [{ inlineData: { mimeType, data: base64Data } }, { text: finalPrompt }] },
-        config: { responseModalities: [Modality.IMAGE], imageSize: imageResolution } as any,
+        config: shouldUseAiStudioMode()
+          ? { imageConfig: { imageSize: imageResolution } } as any
+          : { responseModalities: [Modality.IMAGE], imageSize: imageResolution } as any,
       });
 
       const imageResponsePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
@@ -6289,6 +6336,23 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 点击跳转到 Google AI Studio，登录后即可一键创建
               </p>
             </div>
+            {/* AIza key 实时收费警告 — 仅当输入了 AIza 开头的 key 时显示 */}
+            {localKey.trim().startsWith('AIza') && (
+              <div style={{
+                padding: '0.6rem 0.8rem',
+                marginBottom: '0.75rem',
+                backgroundColor: 'rgba(255, 80, 80, 0.12)',
+                border: '1px solid rgba(255, 80, 80, 0.4)',
+                borderRadius: '6px',
+                fontSize: '0.8rem',
+                color: '#ff8a8a',
+                lineHeight: 1.6,
+                animation: 'fadeIn 0.3s ease',
+              }}>
+                🚨 <strong>收费警告：</strong>检测到您输入的是 <strong>AIza 开头的普通 API Key</strong>。如果此 Key 关联了 Google Cloud <strong>付费项目</strong>或 <strong>$300 试用额度账号</strong>，使用本工具<strong style={{ color: '#ff6b6b' }}>可能会产生真实扣费</strong>，费用直接从银行卡扣除！<br />
+                <span style={{ color: '#4ecdc4' }}>✅ 请确保使用的是从 AI Studio 免费申请的 Key，且未绑定付费 Google Cloud 项目。或使用 Vertex AI 注册的 API Key（AQ 开头）。</span>
+              </div>
+            )}
             <div className="modal-footer">
               <button className="secondary-btn" onClick={onClose}>{t('cancel')}</button>
               <button className="primary" onClick={handleSaveManual}>{t('save')}</button>
@@ -6315,6 +6379,19 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               lineHeight: 1.5
             }}>
               <Lightbulb size={14} className="inline mr-1 text-amber-400" /><strong>建议：</strong>添加至少 5 个以上的 API Key 进行轮换，否则容易出现配额不足报错
+            </div>
+            {/* 收费警告 */}
+            <div style={{
+              padding: '0.6rem 0.8rem',
+              marginBottom: '0.75rem',
+              backgroundColor: 'rgba(255, 80, 80, 0.1)',
+              border: '1px solid rgba(255, 80, 80, 0.3)',
+              borderRadius: '6px',
+              fontSize: '0.75rem',
+              color: '#ff8a8a',
+              lineHeight: 1.5
+            }}>
+              🚨 <strong>收费提醒：</strong>请只添加<strong>免费申请</strong>的 API Key。如果 Key 关联了 Google Cloud 付费项目或 $300 试用额度账号，使用本工具<strong>会产生真实扣费</strong>！
             </div>
 
             {/* API池开关 */}
@@ -7071,6 +7148,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   sheetMind: 'table_chart',
   copyDedup: 'content_copy',
   proDedup: 'fingerprint',
+  copywritingLibrary: 'library_books',
   mindMap: 'tips_and_updates',
   aiToolsDirectory: 'apps',
   apiImageGen: 'auto_awesome',
@@ -7080,37 +7158,52 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   imageTextExtractor: 'text_fields',
   tutorialHub: 'school',
   geminiChat: 'chat',
+  workflowEditor: 'account_tree',
 };
 
-const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
-  { tool: 'studio', labelKey: 'navStudio' },
+const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: string }[] = [
+  // === 修图相关 ===
+  { tool: 'studio', labelKey: 'navStudio', group: '修图相关' },
   { tool: 'magicCanvas', labelKey: 'navMagicCanvas' },
-  { tool: 'prompt', labelKey: 'navPrompt' },
+  // === 写描述词相关 ===
+  { tool: 'prompt', labelKey: 'navPrompt', group: '写描述词相关' },
   { tool: 'imageRecognition', labelKey: 'navImageRecognition' },
-  { tool: 'desc', labelKey: 'navDesc' },
-  { tool: 'skillGenerator', labelKey: 'navSkillGenerator' },
+  // === 创新提示词+文案改写 ===
+  { tool: 'desc', labelKey: 'navDesc', group: '提示词 & 文案' },
+  // === 文案相关 ===
   { tool: 'proDedup', labelKey: 'navProDedup' },
-  { tool: 'translate', labelKey: 'navTranslate' },
   { tool: 'script', labelKey: 'navScriptTool' },
+  { tool: 'translate', labelKey: 'navTranslate' },
+  // === 新工具 ===
+  { tool: 'skillGenerator', labelKey: 'navSkillGenerator', group: '新工具' },
   { tool: 'sheetMind', labelKey: 'navSheetMind' },
-  { tool: 'mindMap', labelKey: 'navMindMap' },
-  { tool: 'template', labelKey: 'navTemplate' },
-  { tool: 'subemail', labelKey: 'navSubEmail' },
-  { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory' },
-  { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
-  { tool: 'copyDedup', labelKey: 'navCopyDedup' },
-  { tool: 'imageReview', labelKey: 'navImageReview' },
-  { tool: 'imageTextExtractor', labelKey: 'navImageTextExtractor' },
-  { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
-  { tool: 'geminiChat', labelKey: 'navGeminiChat' },
   { tool: 'imageSorter', labelKey: 'navImageSorter' },
+  { tool: 'imageTextExtractor', labelKey: 'navImageTextExtractor' },
   { tool: 'regionClassifier', labelKey: 'navRegionClassifier' },
+  { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
+  { tool: 'imageReview', labelKey: 'navImageReview' },
+  // === 老工具 ===
+  { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory', group: '老工具' },
+  { tool: 'subemail', labelKey: 'navSubEmail' },
+  { tool: 'template', labelKey: 'navTemplate' },
+  // === 实验工具 ===
+  { tool: 'mindMap', labelKey: 'navMindMap', group: '实验工具' },
+  { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
+  { tool: 'geminiChat', labelKey: 'navGeminiChat' },
+  { tool: 'copyDedup', labelKey: 'navCopyDedup' },
+  { tool: 'workflowEditor', labelKey: 'navWorkflowEditor' },
+  { tool: 'copywritingLibrary', labelKey: 'navCopywritingLibrary' },
 ];
 
 const TEXT_MODEL_OPTIONS = [
-  { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (最新)' },
-  { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview' },
-  { value: 'gemini-3-pro-preview', label: 'gemini-3-pro-preview' },
+  // === GA 正式版（配额高，稳定） ===
+  { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA·快速)' },
+  { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
+  { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
+  // === Preview 预览版（配额较低） ===
+  { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview·默认)' },
+  { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
+  { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Preview·Lite⚡)' },
 ];
 
 const IMAGE_MODEL_OPTIONS = [
@@ -7159,7 +7252,10 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '2.6.9', date: '2025-12-31', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.0', date: '2026-03-27', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.7.0', date: '2026-03-26', url: 'https://ai-toolkit-b2b78--v3-7-0.web.app', isCurrent: false },
+  { version: '3.6.0', date: '2026-03-23', url: 'https://ai-toolkit-b2b78--v3-6-0-2qgu9tdy.web.app', isCurrent: false },
+  { version: '3.5.0', date: '2026-03-20', url: 'https://ai-toolkit-b2b78--v3-5-0-c3rakrg9.web.app', isCurrent: false },
   { version: '2.6.8', date: '2025-12-30', url: 'https://ai-toolkit-b2b78--v2-6-8-22v256no.web.app', isCurrent: false },
   { version: '2.5.1', date: '2025-12-21', url: 'https://ai-toolkit-b2b78--v2-5-1-2nti7xkx.web.app', isCurrent: false },
 ];
@@ -7299,12 +7395,7 @@ const App = () => {
   const [isTutorialSurveyDone, setIsTutorialSurveyDone] = useState(() => isTutorialSurveyCompleted(TUTORIAL_SURVEY_KEY));
   const [showUpdateNotice, setShowUpdateNotice] = useState(false);
   const [showHelpCenter, setShowHelpCenter] = useState(false);
-  const [showApiKeyBillingWarning, setShowApiKeyBillingWarning] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('api_key_billing_warning_dismissed_v1') !== 'true';
-    }
-    return false;
-  });
+  const [showApiKeyBillingWarning, setShowApiKeyBillingWarning] = useState(false);
   const [proDedupSubTab, setProDedupSubTab] = useState<'dedup' | 'copySearch'>('dedup');
   const [hideToolbar, setHideToolbar] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -7453,10 +7544,10 @@ const App = () => {
   // 模型迁移映射 - 旧模型 -> 新模型
   const migrateModel = (model: string, isImage: boolean): string => {
     const TEXT_MIGRATION: Record<string, string> = {
-      'gemini-2.5-flash': 'gemini-3.1-flash-lite-preview',
-      'gemini-pro': 'gemini-3.1-flash-lite-preview',
-      'gemini-1.5-flash': 'gemini-3.1-flash-lite-preview',
-      'gemini-1.5-pro': 'gemini-3-pro-preview',
+      // 只迁移已废弃的旧模型
+      'gemini-pro': 'gemini-2.5-flash',
+      'gemini-1.5-flash': 'gemini-2.5-flash',
+      'gemini-1.5-pro': 'gemini-2.5-pro',
     };
     const IMAGE_MIGRATION: Record<string, string> = {
       'gemini-3-pro-image-preview': 'gemini-2.5-flash-image',
@@ -7466,17 +7557,20 @@ const App = () => {
   };
 
   const [textModel, setTextModel] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'gemini-3.1-flash-lite-preview';
+    if (typeof window === 'undefined') return 'gemini-3-flash-preview';
     try {
       const saved = localStorage.getItem('app_text_model');
-      if (!saved) return 'gemini-3.1-flash-lite-preview';
+      if (!saved) return 'gemini-3-flash-preview';
+      // 检查是否在可选列表中
+      const validModels = TEXT_MODEL_OPTIONS.map(o => o.value);
       const migrated = migrateModel(saved, false);
-      if (migrated !== saved) {
-        localStorage.setItem('app_text_model', migrated);
+      if (validModels.includes(migrated)) {
+        if (migrated !== saved) localStorage.setItem('app_text_model', migrated);
+        return migrated;
       }
-      return migrated;
+      return 'gemini-3-flash-preview';
     } catch {
-      return 'gemini-3.1-flash-lite-preview';
+      return 'gemini-3-flash-preview';
     }
   });
 
@@ -8004,6 +8098,23 @@ const App = () => {
     };
   }, []);
 
+  // 全局跨模块导航事件（子组件可通过 CustomEvent 发起导航请求）
+  useEffect(() => {
+    const handleNavigate = (e: Event) => {
+      const detail = (e as CustomEvent<{ tool?: string; subTab?: string }>).detail;
+      if (!detail?.tool) return;
+      setActiveTool(detail.tool as Tool);
+      // 延迟派发子标签事件，等目标组件挂载后处理
+      if (detail.subTab) {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('navigate-sub-tab', { detail: { subTab: detail.subTab } }));
+        }, 100);
+      }
+    };
+    window.addEventListener('navigate-to-tool', handleNavigate);
+    return () => window.removeEventListener('navigate-to-tool', handleNavigate);
+  }, []);
+
   // ==================== 模板 & 预设云端同步 ====================
   // 模板数据云端同步 - 加载
   const templateCloudLoadedRef = useRef<boolean>(false);
@@ -8356,7 +8467,7 @@ const App = () => {
           />
         );
       case 'script':
-        return <ScriptToolApp getAiInstance={getAiInstance} />;
+        return <ScriptToolApp getAiInstance={getAiInstance} textModel={textModel} />;
       case 'aiToolsDirectory':
         return <AIToolsDirectoryApp getAiInstance={getAiInstance} textModel={textModel} currentUser={user} />;
       case 'magicCanvas':
@@ -8403,6 +8514,12 @@ const App = () => {
               templateState={templateBuilderState}
               unifiedPresets={DEFAULT_RECOGNITION_PRESETS}
             />
+          </div>
+        );
+      case 'workflowEditor':
+        return (
+          <div className="tool-container" style={{ padding: 0, overflow: 'hidden' }}>
+            <WorkflowEditorApp getAiInstance={getAiInstance} />
           </div>
         );
       case 'imageReview':
@@ -8679,7 +8796,7 @@ const App = () => {
               color: '#ffb400',
               letterSpacing: '0.5px',
             }}>
-              重要通知：API Key 计费变更
+              重要提醒：API Key 使用须知
             </h2>
             {/* 正文 */}
             <div style={{
@@ -8692,19 +8809,16 @@ const App = () => {
               color: '#e0e0e0',
             }}>
               <p style={{ margin: '0 0 12px 0' }}>
-                由于 <strong style={{ color: '#ff6b6b' }}>谷歌使用条款的变更</strong>，通过 AI Studio 注册的 $300 试用额度 API Key，
-                <strong style={{ color: '#ff6b6b' }}>可能导致直接从银行卡扣款</strong>。
-              </p>
-              <p style={{ margin: '0 0 12px 0' }}>
-                为保障大家的资金安全，请尽快按照最新方式注册使用 
-                <strong style={{ color: '#4ecdc4' }}> Vertex AI 限定的 API Key</strong>，
-                该 Key 严格限定在免费额度范围内，不会产生额外扣费。
+                本工具支持 <strong style={{ color: '#4ecdc4' }}>AI Studio 免费 API Key</strong> 和 <strong style={{ color: '#4ecdc4' }}>Vertex AI Key</strong> 两种类型。
               </p>
               <p style={{ margin: '0 0 14px 0', padding: '10px 14px', background: 'rgba(255,80,80,0.12)', border: '1px solid rgba(255,80,80,0.3)', borderRadius: '8px', color: '#ff8a8a', fontWeight: 600 }}>
-                🚫 请注册使用最新的 Vertex AI API Key 后再使用本工具包。旧版 Key 已被禁止在网站版和软件版中使用。
+                🚨 请务必使用<strong>免费申请</strong>的 API Key！如果您的 Key 关联了付费账号（如 Google Cloud 付费项目或 $300 试用额度账号），通过本工具调用 API <strong style={{ color: '#ff6b6b' }}>会产生真实扣费</strong>，费用直接从您的银行卡中扣除！
               </p>
-              <p style={{ margin: '0 0 12px 0', padding: '8px 14px', background: 'rgba(255,180,0,0.08)', border: '1px solid rgba(255,180,0,0.25)', borderRadius: '8px', color: '#e8b84d', fontSize: '13px' }}>
-                ⏸️ 为避免误将旧版付费级 API Key 添加到轮换池中，<strong>API 池轮换功能已暂停使用</strong>。
+              <p style={{ margin: '0 0 12px 0' }}>
+                ✅ <strong style={{ color: '#4ecdc4' }}>推荐方式：</strong>前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#4ecdc4', textDecoration: 'underline' }}>AI Studio</a> 免费创建 Key，确保不绑定付费 Google Cloud 项目。
+              </p>
+              <p style={{ margin: '0 0 12px 0' }}>
+                ✅ <strong style={{ color: '#4ecdc4' }}>API 轮换：</strong>支持添加多个免费 Key 进行自动轮换，避免单个 Key 配额用尽。建议添加 5 个以上。
               </p>
               <p style={{ margin: '0 0 12px 0', color: '#aaa' }}>
                 📞 如需协助，请联系<strong style={{ color: '#fff' }}>本国技术员</strong>进行注册或修改。
@@ -8723,7 +8837,7 @@ const App = () => {
               <button
                 onClick={() => {
                   setShowApiKeyBillingWarning(false);
-                  localStorage.setItem('api_key_billing_warning_dismissed_v1', 'true');
+                  localStorage.setItem('api_key_billing_warning_dismissed_v2', 'true');
                 }}
                 style={{
                   padding: '10px 40px',
@@ -8740,7 +8854,7 @@ const App = () => {
                 onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(255,180,0,0.5)'; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(255,180,0,0.3)'; }}
               >
-                我已知晓
+                我已知晓，使用的是免费 Key
               </button>
             </div>
           </div>
@@ -8779,32 +8893,18 @@ const App = () => {
         </button>
       ) : (
         <div className="header-toggle-container">
-          {/* 左侧：展开/收起按钮 */}
-          <button
-            className="header-toggle-btn"
-            onClick={() => setIsPresetControlsExpanded(!isPresetControlsExpanded)}
-            aria-label={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
-            data-tip={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
-          >
-            <span className="hand-icon tooltip-bottom" style={{ transform: isPresetControlsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }}>👉</span>
-          </button>
-
           {/* 折叠时显示的快捷工具栏 */}
           {!isPresetControlsExpanded && (
             <div className="collapsed-toolbar">
+              {/* 展开/收起按钮 - 和导航图标在同一行 */}
               <button
-                onClick={() => setShowTutorialSurveyModal(true)}
-                className="collapsed-settings-btn tooltip-bottom"
-                data-tip={language === 'zh' ? '查看教程投票结果（已结束）' : 'View tutorial survey results (closed)'}
-                style={{ fontSize: '16px' }}
+                className="header-toggle-btn"
+                onClick={() => setIsPresetControlsExpanded(!isPresetControlsExpanded)}
+                aria-label={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
+                data-tip={isPresetControlsExpanded ? "收起功能菜单" : "展开功能菜单"}
               >
-                <ClipboardList size={16} />
+                <span className="hand-icon tooltip-bottom" style={{ transform: isPresetControlsExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }}>👉</span>
               </button>
-
-              {/* 分隔线 */}
-              <div className="collapsed-divider" />
-
-              {/* 导航图标 */}
               <nav className="collapsed-nav">
                 {NAV_ITEMS.map(item => (
                   <button
@@ -8818,8 +8918,7 @@ const App = () => {
                 ))}
               </nav>
 
-              {/* 分隔线 */}
-              <div className="collapsed-divider" />
+              {/* === 三个一组：API Key + Web模式 + 设置 === */}
 
               {/* API 状态指示 */}
               <button
@@ -8837,109 +8936,6 @@ const App = () => {
                 {usePool && apiPoolStatus && (
                   <span className="api-pool-count">{apiPoolStatus.current}/{apiPoolStatus.total}</span>
                 )}
-              </button>
-
-              {/* 分隔线 */}
-              <div className="collapsed-divider" />
-
-              {/* 用户账号按钮 - 点击打开登录/账号弹窗 */}
-              <button
-                onClick={() => setShowLoginModal(true)}
-                className={`collapsed-login-btn tooltip-bottom ${user ? 'logged-in' : ''}`}
-                data-tip={user ? (user.email || '账号设置') : (language === 'zh' ? '登录' : 'Login')}
-                style={{ padding: user?.photoURL ? '2px' : undefined }}
-              >
-                {user ? (
-                  user.photoURL ? (
-                    <img
-                      src={user.photoURL}
-                      alt="avatar"
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        borderRadius: '50%',
-                        objectFit: 'cover'
-                      }}
-                    />
-                  ) : (
-                    <span style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '50%',
-                      background: 'var(--primary-color)',
-                      color: 'white',
-                      fontSize: '0.75rem',
-                      fontWeight: 600
-                    }}>
-                      {user.email?.charAt(0).toUpperCase() || '?'}
-                    </span>
-                  )
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                  </svg>
-                )}
-              </button>
-
-              {/* 版本切换按钮 */}
-              <div style={{ position: 'relative' }}>
-                <button
-                  ref={editionBtnRef}
-                  onClick={() => {
-                    if (editionBtnRef.current) {
-                      const rect = editionBtnRef.current.getBoundingClientRect();
-                      setEditionTooltipPos({
-                        top: rect.bottom + 8,
-                        left: rect.left + rect.width / 2
-                      });
-                    }
-                    setShowEditionTooltip(!showEditionTooltip);
-                  }}
-                  className={`collapsed-edition-btn tooltip-bottom ${appEdition}`}
-                  data-tip={appEdition === 'website' ? '网站版' : 'AI Studio版'}
-                  style={{
-                    padding: '0.3rem 0.5rem',
-                    fontSize: '0.7rem',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border-color)',
-                    background: appEdition === 'aistudio' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'var(--surface-color)',
-                    color: appEdition === 'aistudio' ? 'white' : 'var(--on-surface-color)',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.2rem'
-                  }}
-                >
-                  {appEdition === 'website' ? <Globe size={14} /> : <Bot size={14} />}
-                  <span>{appEdition === 'website' ? 'Web' : 'AI'}</span>
-                </button>
-              </div>
-
-              {/* 主题切换按钮 */}
-              <button
-                onClick={toggleTheme}
-                className="collapsed-settings-btn tooltip-bottom"
-                data-tip={theme === 'dark' ? '切换到亮色模式' : theme === 'light' ? '切换到护眼模式' : '切换到暗色模式'}
-                style={{ fontSize: '16px' }}
-              >
-                {theme === 'dark' ? '☀️' : theme === 'light' ? '🌿' : '🌙'}
-              </button>
-
-              {/* 分隔线 */}
-              <div className="collapsed-divider" />
-
-              {/* 📖 帮助按钮 */}
-              <button
-                onClick={() => setShowHelpCenter(true)}
-                className="collapsed-settings-btn tooltip-bottom"
-                data-tip={language === 'zh' ? '帮助中心' : 'Help Center'}
-                style={{ fontSize: '16px' }}
-              >
-                <HelpCircle size={16} />
               </button>
 
               {/* 设置按钮 - 弹出设置面板 */}
@@ -9093,14 +9089,14 @@ const App = () => {
                           fontSize: '0.8rem'
                         }}>
                           <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500 }}>
-                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v2.6.9
+                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v3.8.0
                           </div>
                           <div style={{ color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                             <div style={{ marginBottom: '0.25rem' }}>
                               {language === 'zh' ? '历史版本：' : 'History:'}
                             </div>
                             <a
-                              href="https://ai-toolkit-b2b78--v2-6-8-22v256no.web.app"
+                              href="https://ai-toolkit-b2b78--v3-7-0-nei2zznk.web.app"
                               target="_blank"
                               rel="noopener noreferrer"
                               style={{
@@ -9113,10 +9109,26 @@ const App = () => {
                                 backgroundColor: 'rgba(77, 171, 255, 0.1)'
                               }}
                             >
-                              <Package size={12} className="inline mr-1" /> v2.6.8 (12/30)
+                              <Package size={12} className="inline mr-1" /> v3.7.0 (03/27)
                             </a>
                             <a
-                              href="https://ai-toolkit-b2b78--v2-5-1-2nti7xkx.web.app"
+                              href="https://ai-toolkit-b2b78--v3-6-0-2qgu9tdy.web.app"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: '#4dabff',
+                                textDecoration: 'none',
+                                display: 'block',
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                backgroundColor: 'rgba(77, 171, 255, 0.1)'
+                              }}
+                            >
+                              <Package size={12} className="inline mr-1" /> v3.6.0 (03/26)
+                            </a>
+                            <a
+                              href="https://ai-toolkit-b2b78--v3-5-0-c3rakrg9.web.app"
                               target="_blank"
                               rel="noopener noreferrer"
                               style={{
@@ -9128,7 +9140,7 @@ const App = () => {
                                 backgroundColor: 'rgba(77, 171, 255, 0.1)'
                               }}
                             >
-                              <Package size={12} className="inline mr-1" /> v2.5.1 (12/21)
+                              <Package size={12} className="inline mr-1" /> v3.5.0 (03/20)
                             </a>
                           </div>
                         </div>
@@ -9245,6 +9257,91 @@ const App = () => {
                 )}
               </div>
 
+              {/* 版本切换按钮 */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  ref={editionBtnRef}
+                  onClick={() => {
+                    if (editionBtnRef.current) {
+                      const rect = editionBtnRef.current.getBoundingClientRect();
+                      setEditionTooltipPos({
+                        top: rect.bottom + 8,
+                        left: rect.left + rect.width / 2
+                      });
+                    }
+                    setShowEditionTooltip(!showEditionTooltip);
+                  }}
+                  className={`collapsed-settings-btn tooltip-bottom ${appEdition}`}
+                  data-tip={appEdition === 'website' ? '网站版' : 'AI Studio版'}
+                >
+                  {appEdition === 'website' ? <Globe size={14} /> : <Bot size={14} />}
+                  <span style={{ fontSize: '0.7rem' }}>{appEdition === 'website' ? 'Web' : 'AI'}</span>
+                </button>
+              </div>
+
+              {/* 用户账号按钮 */}
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className={`collapsed-login-btn tooltip-bottom ${user ? 'logged-in' : ''}`}
+                data-tip={user ? (user.email || '账号设置') : (language === 'zh' ? '登录' : 'Login')}
+                style={{ padding: user?.photoURL ? '2px' : undefined }}
+              >
+                {user ? (
+                  user.photoURL ? (
+                    <img
+                      src={user.photoURL}
+                      alt="avatar"
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        objectFit: 'cover'
+                      }}
+                    />
+                  ) : (
+                    <span style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: 'var(--primary-color)',
+                      color: 'white',
+                      fontSize: '0.75rem',
+                      fontWeight: 600
+                    }}>
+                      {user.email?.charAt(0).toUpperCase() || '?'}
+                    </span>
+                  )
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                )}
+              </button>
+
+              {/* 主题切换按钮 */}
+              <button
+                onClick={toggleTheme}
+                className="collapsed-settings-btn tooltip-bottom"
+                data-tip={theme === 'dark' ? '切换到亮色模式' : theme === 'light' ? '切换到护眼模式' : '切换到暗色模式'}
+                style={{ fontSize: '16px' }}
+              >
+                {theme === 'dark' ? '☀️' : theme === 'light' ? '🌿' : '🌙'}
+              </button>
+
+              {/* 📖 帮助按钮 */}
+              <button
+                onClick={() => setShowHelpCenter(true)}
+                className="collapsed-settings-btn tooltip-bottom"
+                data-tip={language === 'zh' ? '帮助中心' : 'Help Center'}
+                style={{ fontSize: '16px' }}
+              >
+                <HelpCircle size={16} />
+              </button>
+
               {/* 分隔线 */}
               <div className="collapsed-divider" />
 
@@ -9275,24 +9372,20 @@ const App = () => {
             </div>
           )}
 
-          {/* 展开时显示的文字 */}
+          {/* 展开时显示的收起按钮 */}
           {isPresetControlsExpanded && (
-            <span className="toggle-text">
-              收起功能菜单
-            </span>
+            <button
+              className="header-toggle-btn"
+              onClick={() => setIsPresetControlsExpanded(false)}
+              aria-label="收起功能菜单"
+              data-tip="收起功能菜单"
+            >
+              <span className="hand-icon tooltip-bottom" style={{ transform: 'rotate(90deg)', transition: 'transform 0.3s ease' }}>👉</span>
+              <span className="toggle-text">收起功能菜单</span>
+            </button>
           )}
 
-          {/* 查看更新按钮 */}
-          <button
-            className="view-update-btn tooltip-bottom"
-            onClick={() => setShowUpdateNotice(true)}
-            data-tip={language === 'zh' ? '查看最新更新' : 'View Updates'}
-          >
-            <span className="update-icon">🎉</span>
-            <span className="update-text">
-              {language === 'zh' ? '更新 (02/09)' : 'Updates (02/09)'}
-            </span>
-          </button>
+
         </div >
       )}
 
@@ -9596,17 +9689,32 @@ const App = () => {
           </div>
 
           <nav>
-            {NAV_ITEMS.map(item => (
-              <button
-                key={item.tool}
-                onClick={() => setActiveTool(item.tool)}
-                className={activeTool === item.tool ? 'active' : ''}
-              >
-                <span aria-hidden="true" className="nav-icon material-icons">
-                  {NAV_ICON_NAMES[item.tool]}
-                </span>
-                {t(item.labelKey)}
-              </button>
+            {NAV_ITEMS.map((item, idx) => (
+              <React.Fragment key={item.tool}>
+                {item.group && (
+                  <div className="nav-group-label" style={{
+                    fontSize: '0.625rem',
+                    color: 'var(--text-tertiary, #666)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    padding: '8px 12px 4px',
+                    marginTop: idx === 0 ? 0 : '4px',
+                    borderTop: idx === 0 ? 'none' : '1px solid var(--border-color, rgba(255,255,255,0.06))',
+                    userSelect: 'none',
+                  }}>
+                    {item.group}
+                  </div>
+                )}
+                <button
+                  onClick={() => setActiveTool(item.tool)}
+                  className={activeTool === item.tool ? 'active' : ''}
+                >
+                  <span aria-hidden="true" className="nav-icon material-icons">
+                    {NAV_ICON_NAMES[item.tool]}
+                  </span>
+                  {t(item.labelKey)}
+                </button>
+              </React.Fragment>
             ))}
           </nav>
         </div>
@@ -9705,11 +9813,15 @@ const App = () => {
             </div>
             {/* 子页面 */}
             <div style={{ flex: 1, overflow: 'auto', display: proDedupSubTab === 'dedup' ? 'block' : 'none' }}>
-              <ProDedupApp />
+              <ProDedupApp textModel={textModel} getAiInstance={getAiInstance} />
             </div>
             <div style={{ flex: 1, overflow: 'hidden', display: proDedupSubTab === 'copySearch' ? 'flex' : 'none' }}>
-              <CopySearchApp getAiInstance={getAiInstance} />
+              <CopySearchApp getAiInstance={getAiInstance} textModel={textModel} />
             </div>
+          </div>
+          {/* Copywriting Library - 超级文案库 */}
+          <div className={`copydedup-page-wrapper ${activeTool === 'copywritingLibrary' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'copywritingLibrary' ? '100%' : '0' }}>
+            <CopywritingLibraryApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
           {/* AI Mind Map - Full-screen React Flow canvas */}
           <div className={`mindmap-page-wrapper ${activeTool === 'mindMap' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'mindMap' ? '100%' : '0' }}>
@@ -9733,7 +9845,7 @@ const App = () => {
           </div>
           {/* 图片智能分拣 */}
           <div className={`image-sorter-wrapper ${activeTool === 'imageSorter' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'imageSorter' ? '100%' : '0', display: activeTool === 'imageSorter' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
-            <ImageSorterApp getAiInstance={getAiInstance} />
+            <ImageSorterApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
           {/* 地区分类工具 */}
           <div className={`region-classifier-wrapper ${activeTool === 'regionClassifier' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'regionClassifier' ? '100%' : '0', display: activeTool === 'regionClassifier' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
@@ -9749,7 +9861,7 @@ const App = () => {
 
       {/* 版本号显示与选择器 */}
       <VersionSelector
-        currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '2.6.10'}
+        currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.8.0'}
         buildTime={typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : ''}
       />
     </>

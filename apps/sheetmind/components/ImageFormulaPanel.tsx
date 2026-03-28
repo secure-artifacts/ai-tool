@@ -1,12 +1,13 @@
 /**
- * ImageFormulaPanel - 图片链接转 Google Sheets IMAGE() 公式工具
+ * ImageFormulaPanel - 图片/视频链接转 Google Sheets IMAGE() 公式工具
  * 
  * 功能：
- * 1. 输入多个图片链接（每行一个或逗号/空格分隔）
- * 2. 生成 =IMAGE("url") 公式
+ * 1. 输入多个图片/Drive视频链接（每行一个或逗号/空格分隔）
+ * 2. 生成 =IMAGE("url") 公式（Drive视频自动转为缩略图端点）
  * 3. 横版排列显示：第一行原始链接，第二行缩略图预览
  * 4. 可配置每行显示几个
  * 5. 复制后直接粘贴到 Google Sheets
+ * 6. 【文件夹扫描】给定 Google Drive 文件夹链接，递归提取所有视频文件
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
@@ -33,6 +34,12 @@ import {
     Rows,
     AlertCircle,
     ExternalLink,
+    FolderOpen,
+    Key,
+    Loader2,
+    Film,
+    Search,
+    ChevronRight,
 } from 'lucide-react';
 
 interface ImageFormulaProps {
@@ -174,6 +181,90 @@ function driveIdToPreviewUrls(fileId: string, resourceKey?: string): string[] {
 
 // =================================================================
 
+// ==================== Google Drive Folder Scan ====================
+
+const VIDEO_MIME_TYPES = new Set([
+    'video/mp4',
+    'video/x-msvideo',
+    'video/quicktime',
+    'video/x-matroska',
+    'video/webm',
+    'video/x-flv',
+    'video/mpeg',
+    'video/3gpp',
+    'video/x-ms-wmv',
+    'video/ogg',
+]);
+
+interface DriveFile {
+    id: string;
+    name: string;
+    mimeType: string;
+}
+
+/** Extract Google Drive folder ID from folder URL */
+function extractDriveFolderId(url: string): string | null {
+    const m = url.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
+    if (m) return m[1];
+    // drive.google.com/open?id=xxx (if it's a folder)
+    try {
+        const parsed = new URL(url);
+        const id = parsed.searchParams.get('id');
+        if (id && /^[a-zA-Z0-9_-]{10,}$/.test(id)) return id;
+    } catch { }
+    return null;
+}
+
+/** Recursively list all video files inside a Drive folder (breadth-first) */
+async function listDriveVideosRecursive(
+    folderId: string,
+    apiKey: string,
+    onProgress: (msg: string) => void,
+    signal: AbortSignal,
+): Promise<DriveFile[]> {
+    const results: DriveFile[] = [];
+    const queue: string[] = [folderId];
+    let folderCount = 0;
+
+    while (queue.length > 0) {
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const currentId = queue.shift()!;
+        folderCount++;
+        onProgress(`正在扫描第 ${folderCount} 个文件夹…`);
+
+        let pageToken: string | undefined;
+        do {
+            if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+            const q = encodeURIComponent(`'${currentId}' in parents and trashed=false`);
+            const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType)');
+            let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1000&key=${apiKey}`;
+            if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+
+            const res = await fetch(url, { signal });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err?.error?.message || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            const files: DriveFile[] = data.files || [];
+
+            for (const f of files) {
+                if (f.mimeType === 'application/vnd.google-apps.folder') {
+                    queue.push(f.id);
+                } else if (VIDEO_MIME_TYPES.has(f.mimeType)) {
+                    results.push(f);
+                }
+            }
+            pageToken = data.nextPageToken;
+        } while (pageToken);
+    }
+    return results;
+}
+
+// ===================================================================
+
+const DRIVE_API_KEY_STORAGE = 'sheetmind_drive_api_key';
+
 const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     // State
     const [inputText, setInputText] = useState('');
@@ -186,10 +277,22 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     const [copyUrlStatus, setCopyUrlStatus] = useState<'idle' | 'copied'>('idle');
     const [previewFallbackIndex, setPreviewFallbackIndex] = useState<Record<string, number>>({});
     const [showFormulaInPreview, setShowFormulaInPreview] = useState(false);
+    const [addEmptyRow, setAddEmptyRow] = useState(false); // 组间是否插入空行
     const [imageMode, setImageMode] = useState<1 | 2 | 4>(1); // Google Sheets IMAGE mode
     const [customImageHeight, setCustomImageHeight] = useState(200);
     const [customImageWidth, setCustomImageWidth] = useState(200);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // ── Folder scan state ──
+    const [showFolderScanner, setShowFolderScanner] = useState(false);
+    const [folderUrl, setFolderUrl] = useState('');
+    const [driveApiKey, setDriveApiKey] = useState<string>(() => localStorage.getItem(DRIVE_API_KEY_STORAGE) || '');
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [scanStatus, setScanStatus] = useState<'idle' | 'scanning' | 'done' | 'error'>('idle');
+    const [scanProgress, setScanProgress] = useState('');
+    const [scanError, setScanError] = useState('');
+    const [scanResult, setScanResult] = useState<DriveFile[]>([]);
+    const scanAbortRef = useRef<AbortController | null>(null);
 
     // Parse input URLs
     const parsedImages: ParsedImage[] = useMemo(() => {
@@ -226,7 +329,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             if (isDrive) {
                 if (isGoogleDriveFolderUrl(url)) {
                     isValid = false;
-                    driveIssue = '这是 Google Drive 文件夹链接，不是图片文件链接';
+                    driveIssue = '这是 Google Drive 文件夹链接，请粘贴具体的文件链接';
                 }
                 const fileId = extractGoogleDriveFileId(url);
                 const resourceKey = extractGoogleDriveResourceKey(url);
@@ -282,6 +385,8 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     const generateTsvData = useCallback(() => {
         if (parsedImages.length === 0) return '';
 
+        const separator = addEmptyRow ? '\n\n' : '\n';
+
         if (layoutMode === 'horizontal') {
             // 横版：一行链接 + 一行公式，按 itemsPerRow 分组
             const blocks: string[] = [];
@@ -290,7 +395,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 const formulaRow = row.map(img => img.formula).join('\t');
                 blocks.push(`${urlRow}\n${formulaRow}`);
             }
-            return blocks.join('\n');
+            return blocks.join(separator);
         } else {
             // 纵版：每列一组（链接 + 公式），横向排列
             const blocks: string[] = [];
@@ -300,9 +405,9 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 const formulaRow = row.map(img => img.formula).join('\t');
                 blocks.push(`${urlRow}\n${formulaRow}`);
             }
-            return blocks.join('\n');
+            return blocks.join(separator);
         }
-    }, [parsedImages, imageRows, layoutMode]);
+    }, [parsedImages, imageRows, layoutMode, addEmptyRow]);
 
     // Copy to clipboard as TSV (Tab-separated values for Google Sheets)
     const handleCopy = useCallback(async () => {
@@ -312,7 +417,8 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         try {
             // Build HTML table to ensure Google Sheets interprets formulas correctly
             const htmlRows: string[] = [];
-            for (const row of imageRows) {
+            for (let ri = 0; ri < imageRows.length; ri++) {
+                const row = imageRows[ri];
                 // URL row
                 htmlRows.push('<tr>' + row.map(img =>
                     `<td>${img.originalUrl}</td>`
@@ -321,6 +427,10 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 htmlRows.push('<tr>' + row.map(img =>
                     `<td>${img.formula}</td>`
                 ).join('') + '</tr>');
+                // 组间空行
+                if (addEmptyRow && ri < imageRows.length - 1) {
+                    htmlRows.push('<tr>' + row.map(() => '<td></td>').join('') + '</tr>');
+                }
             }
             const html = `<table>${htmlRows.join('')}</table>`;
 
@@ -342,7 +452,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 console.error('Copy failed:', e);
             }
         }
-    }, [generateTsvData, imageRows]);
+    }, [generateTsvData, imageRows, addEmptyRow]);
 
     // Copy only URLs
     const handleCopyUrls = useCallback(async () => {
@@ -407,6 +517,85 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         return () => window.removeEventListener('keydown', handler);
     }, [handleCopy]);
 
+    // ── Folder scan handler (supports multiple folder URLs) ──
+    const handleFolderScan = useCallback(async () => {
+        // Parse all lines into folder IDs
+        const lines = folderUrl.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+        const folderEntries: { url: string; id: string }[] = [];
+        for (const line of lines) {
+            const id = extractDriveFolderId(line);
+            if (id) folderEntries.push({ url: line, id });
+        }
+        if (folderEntries.length === 0) {
+            setScanError('无法识别文件夹链接，请粘贴 Google Drive 文件夹分享链接（每行一个）');
+            setScanStatus('error');
+            return;
+        }
+        if (!driveApiKey.trim()) {
+            setScanError('请输入 Google Drive API Key');
+            setScanStatus('error');
+            return;
+        }
+        // Persist API key
+        localStorage.setItem(DRIVE_API_KEY_STORAGE, driveApiKey.trim());
+
+        // Abort previous scan
+        scanAbortRef.current?.abort();
+        const controller = new AbortController();
+        scanAbortRef.current = controller;
+
+        setScanStatus('scanning');
+        setScanError('');
+        setScanResult([]);
+        setScanProgress(`开始扫描 ${folderEntries.length} 个文件夹…`);
+
+        try {
+            const allVideos: DriveFile[] = [];
+            for (let fi = 0; fi < folderEntries.length; fi++) {
+                if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+                const entry = folderEntries[fi];
+                setScanProgress(`[${fi + 1}/${folderEntries.length}] 正在扫描文件夹…`);
+                const videos = await listDriveVideosRecursive(
+                    entry.id,
+                    driveApiKey.trim(),
+                    (msg) => setScanProgress(`[${fi + 1}/${folderEntries.length}] ${msg}`),
+                    controller.signal,
+                );
+                allVideos.push(...videos);
+            }
+            setScanResult(allVideos);
+            setScanStatus('done');
+            setScanProgress(`扫描完成：${folderEntries.length} 个文件夹，共找到 ${allVideos.length} 个视频`);
+        } catch (e: unknown) {
+            if ((e as Error).name === 'AbortError') return;
+            setScanError((e as Error).message || '扫描失败，请检查 API Key 和文件夹权限');
+            setScanStatus('error');
+        }
+    }, [folderUrl, driveApiKey]);
+
+    const handleFolderScanAbort = useCallback(() => {
+        scanAbortRef.current?.abort();
+        setScanStatus('idle');
+        setScanProgress('');
+    }, []);
+
+    /** Append scanned videos into the input textarea */
+    const handleAppendScannedVideos = useCallback(() => {
+        if (scanResult.length === 0) return;
+        const urls = scanResult
+            .map(f => `https://drive.google.com/file/d/${f.id}/view`)
+            .join('\n');
+        setInputText(prev => {
+            const existing = prev.trim();
+            return existing ? existing + '\n' + urls : urls;
+        });
+        // Collapse scanner after appending
+        setShowFolderScanner(false);
+        setScanStatus('idle');
+        setScanResult([]);
+        setScanProgress('');
+    }, [scanResult]);
+
     const validCount = parsedImages.filter(img => img.isValid).length;
     const invalidCount = parsedImages.length - validCount;
     const driveCount = parsedImages.filter(img => img.isGoogleDrive).length;
@@ -420,8 +609,8 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                         <Image className="text-white" size={18} />
                     </div>
                     <div>
-                        <h2 className="font-bold text-slate-800 text-sm">图片公式生成器</h2>
-                        <p className="text-[11px] text-slate-500">批量生成 Google Sheets =IMAGE() 公式，支持直接粘贴到表格</p>
+                        <h2 className="font-bold text-slate-800 text-sm">图片 / 视频公式生成器</h2>
+                        <p className="text-[11px] text-slate-500">批量生成 Google Sheets =IMAGE() 公式，支持图片及 Google Drive 视频缩略图</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -551,6 +740,19 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                             <Sparkles size={12} />
                             {showFormulaInPreview ? '显示公式' : '隐藏公式'}
                         </button>
+
+                        {/* Empty row toggle */}
+                        <button
+                            onClick={() => setAddEmptyRow(!addEmptyRow)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${addEmptyRow
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-slate-100 text-slate-500'
+                                }`}
+                            title="复制时在每组（链接行+公式行）之间插入一行空行"
+                        >
+                            <Rows size={12} />
+                            {addEmptyRow ? '组间空行 ✓' : '组间空行'}
+                        </button>
                     </div>
                 </div>
             )}
@@ -560,10 +762,137 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
 
                 {/* Left: Input Area */}
                 <div className="w-full md:w-[360px] flex flex-col border-r border-slate-200 shrink-0">
+
+                    {/* ── Folder Scanner Toggle ── */}
+                    <div className="border-b border-slate-200 shrink-0">
+                        <button
+                            onClick={() => { setShowFolderScanner(v => !v); setScanStatus('idle'); setScanError(''); }}
+                            className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition-colors ${
+                                showFolderScanner
+                                    ? 'bg-violet-50 text-violet-700'
+                                    : 'bg-slate-50 text-slate-600 hover:bg-violet-50/50 hover:text-violet-600'
+                            }`}
+                        >
+                            <span className="flex items-center gap-1.5">
+                                <FolderOpen size={13} className={showFolderScanner ? 'text-violet-500' : 'text-slate-400'} />
+                                📁 文件夹批量扫描（Google Drive）
+                            </span>
+                            <ChevronRight size={13} className={`transition-transform ${showFolderScanner ? 'rotate-90' : ''}`} />
+                        </button>
+
+                        {showFolderScanner && (
+                            <div className="px-3 py-3 bg-violet-50/60 space-y-2.5">
+                                {/* Folder URLs (multiple) */}
+                                <div>
+                                    <label className="text-[10px] text-violet-700 font-semibold mb-1 block">📂 文件夹分享链接（每行一个，支持批量）</label>
+                                    <textarea
+                                        value={folderUrl}
+                                        onChange={e => setFolderUrl(e.target.value)}
+                                        placeholder={"粘贴一个或多个文件夹链接：\nhttps://drive.google.com/drive/folders/xxx\nhttps://drive.google.com/drive/folders/yyy"}
+                                        rows={3}
+                                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-violet-200 rounded-lg bg-white focus:ring-2 focus:ring-violet-400 outline-none placeholder:text-slate-400 resize-none leading-relaxed"
+                                    />
+                                </div>
+
+                                {/* API Key */}
+                                <div>
+                                    <label className="text-[10px] text-violet-700 font-semibold mb-1 flex items-center gap-1">
+                                        <Key size={10} /> Google Drive API Key
+                                        <a
+                                            href="https://console.cloud.google.com/apis/library/drive.googleapis.com"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-blue-500 hover:underline ml-auto"
+                                        >
+                                            → 获取免费 Key
+                                        </a>
+                                    </label>
+                                    <div className="flex gap-1">
+                                        <input
+                                            type={showApiKey ? 'text' : 'password'}
+                                            value={driveApiKey}
+                                            onChange={e => setDriveApiKey(e.target.value)}
+                                            placeholder="AIzaSy…"
+                                            className="flex-1 px-2.5 py-1.5 text-xs font-mono border border-violet-200 rounded-lg bg-white focus:ring-2 focus:ring-violet-400 outline-none placeholder:text-slate-400"
+                                        />
+                                        <button
+                                            onClick={() => setShowApiKey(v => !v)}
+                                            className="px-2 rounded-lg border border-violet-200 bg-white text-slate-500 hover:text-violet-600 transition-colors"
+                                            title={showApiKey ? '隐藏' : '显示'}
+                                        >
+                                            {showApiKey ? <EyeOff size={12} /> : <Eye size={12} />}
+                                        </button>
+                                    </div>
+                                    <p className="text-[9px] text-slate-400 mt-0.5">Key 保存在本地，用于读取公开文件夹内的视频列表</p>
+                                </div>
+
+                                {/* Scan button + progress */}
+                                <div className="flex gap-2">
+                                    {scanStatus === 'scanning' ? (
+                                        <button
+                                            onClick={handleFolderScanAbort}
+                                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-red-50 text-red-600 border border-red-200 text-xs font-medium hover:bg-red-100 transition-colors"
+                                        >
+                                            <X size={13} /> 停止扫描
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={handleFolderScan}
+                                            disabled={!folderUrl.trim() || !driveApiKey.trim()}
+                                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
+                                        >
+                                            <Search size={13} /> 开始扫描视频
+                                        </button>
+                                    )}
+                                    {scanResult.length > 0 && (
+                                        <button
+                                            onClick={handleAppendScannedVideos}
+                                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors shadow-sm"
+                                        >
+                                            <Plus size={13} /> 导入 {scanResult.length} 个视频
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Status messages */}
+                                {scanStatus === 'scanning' && (
+                                    <div className="flex items-center gap-2 text-[11px] text-violet-600 bg-violet-100 px-2.5 py-1.5 rounded-lg">
+                                        <Loader2 size={12} className="animate-spin shrink-0" />
+                                        <span>{scanProgress}</span>
+                                    </div>
+                                )}
+                                {scanStatus === 'done' && scanResult.length === 0 && (
+                                    <div className="text-[11px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-lg">
+                                        ⚠️ 文件夹中未找到视频文件（包含所有子文件夹）
+                                    </div>
+                                )}
+                                {scanStatus === 'done' && scanResult.length > 0 && (
+                                    <div className="bg-white border border-green-200 rounded-lg p-2 max-h-28 overflow-y-auto space-y-1">
+                                        <p className="text-[10px] font-semibold text-green-700 mb-1">
+                                            ✅ 找到 {scanResult.length} 个视频：
+                                        </p>
+                                        {scanResult.map(f => (
+                                            <div key={f.id} className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                                                <Film size={10} className="text-violet-400 shrink-0" />
+                                                <span className="truncate" title={f.name}>{f.name}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {scanStatus === 'error' && (
+                                    <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 px-2.5 py-1.5 rounded-lg">
+                                        ❌ {scanError}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ── Manual link input ── */}
                     <div className="px-3 py-2 border-b border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
                         <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
                             <Link2 size={12} className="text-blue-500" />
-                            粘贴图片链接（每行一个）
+                            粘贴图片 / 视频链接（每行一个）
                         </span>
                         {inputText && (
                             <button
@@ -579,7 +908,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                         value={inputText}
                         onChange={e => setInputText(e.target.value)}
                         onPaste={handlePaste}
-                        placeholder={"粘贴图片链接，每行一个：\n\nhttps://example.com/image1.jpg\nhttps://drive.google.com/open?id=xxx\nhttps://drive.google.com/file/d/xxx/view\n\n💡 支持 Google Drive 各种链接格式\n💡 也支持从 Google Sheets 粘贴带 =IMAGE() 公式的单元格"}
+                        placeholder={"粘贴图片或 Google Drive 视频链接，每行一个：\n\nhttps://example.com/image1.jpg\nhttps://drive.google.com/file/d/xxx/view\nhttps://drive.google.com/open?id=xxx\n\n🎬 Google Drive 视频 → 自动生成视频缩略图公式\n🖼️ 图片链接 → 直接生成 =IMAGE() 公式\n💡 也支持从 Google Sheets 粘贴带 =IMAGE() 公式的单元格"}
                         className="flex-1 px-3 py-2 text-xs font-mono text-slate-700 resize-none outline-none focus:bg-blue-50/30 transition-colors leading-relaxed placeholder:text-slate-350 placeholder:leading-relaxed"
                         spellCheck={false}
                     />
@@ -668,7 +997,11 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                                 第 {rowIdx + 1} 组 ({row.length} 个)
                                             </span>
                                             <span className="text-[10px] text-slate-400">
-                                                行 {rowIdx * 2 + 1}-{rowIdx * 2 + 2}
+                                                {(() => {
+                                                    const rowsPerGroup = addEmptyRow ? 3 : 2;
+                                                    const startRow = rowIdx * rowsPerGroup + 1;
+                                                    return `行 ${startRow}-${startRow + 1}`;
+                                                })()}
                                             </span>
                                         </div>
 
@@ -774,6 +1107,21 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                                             </td>
                                                         ))}
                                                     </tr>
+                                                    {/* 组间空行预览 */}
+                                                    {addEmptyRow && rowIdx < imageRows.length - 1 && (
+                                                        <tr className="bg-amber-50/40">
+                                                            <td className="px-2 py-1 border-r border-b border-slate-200 bg-amber-50/60 text-[10px] text-amber-400 font-medium w-8 text-center whitespace-nowrap">
+                                                                空
+                                                            </td>
+                                                            {row.map((_, colIdx) => (
+                                                                <td
+                                                                    key={`empty-${colIdx}`}
+                                                                    className="px-2 py-2 border-r border-b border-slate-200 border-dashed"
+                                                                    style={{ minWidth: thumbnailSize + 20 }}
+                                                                />
+                                                            ))}
+                                                        </tr>
+                                                    )}
                                                 </tbody>
                                             </table>
                                         </div>
@@ -783,13 +1131,13 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                 {/* Summary */}
                                 <div className="text-center py-4">
                                     <div className="inline-flex items-center gap-3 px-4 py-2 bg-slate-100 rounded-full text-xs text-slate-500">
-                                        <span>共 <strong className="text-slate-700">{parsedImages.length}</strong> 个图片</span>
+                                        <span>共 <strong className="text-slate-700">{parsedImages.length}</strong> 个文件</span>
                                         <span className="text-slate-300">|</span>
                                         <span>分 <strong className="text-slate-700">{imageRows.length}</strong> 组</span>
                                         <span className="text-slate-300">|</span>
                                         <span>每行 <strong className="text-slate-700">{itemsPerRow}</strong> 个</span>
                                         <span className="text-slate-300">|</span>
-                                        <span>共 <strong className="text-slate-700">{imageRows.length * 2}</strong> 行</span>
+                                        <span>共 <strong className="text-slate-700">{addEmptyRow ? imageRows.length * 3 - 1 : imageRows.length * 2}</strong> 行{addEmptyRow && <span className="text-amber-500 ml-0.5">(含空行)</span>}</span>
                                     </div>
                                 </div>
                             </div>

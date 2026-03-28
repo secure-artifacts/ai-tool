@@ -48,6 +48,8 @@ import {
 } from 'lucide-react';
 import { DirectChatView } from './DirectChatView';
 import { CopywritingView } from './CopywritingView';
+import { PrayerRewriteView } from './PrayerRewriteView';
+import { SuperRewriteView } from './SuperRewriteView';
 
 import {
     appendToSheet,
@@ -143,7 +145,7 @@ export interface DescState {
     viewLanguage: 'en' | 'zh';
     viewOverrides: Record<string, 'en' | 'zh'>;
     pendingAutoGenerate?: boolean;
-    activeTab?: 'innovator' | 'chat' | 'copywriting';
+    activeTab?: 'innovator' | 'chat' | 'copywriting' | 'prayer' | 'super-rewrite';
     // 标签页系统
     promptTabs: PromptTab[];
     activePromptTabId: string;
@@ -154,10 +156,12 @@ const DEFAULT_SPLIT_CHAR = '###SPLIT###';
 const STORAGE_KEY = 'desc_innovator_state_v5'; // Bumped version for new OutputItem structure
 const INNOVATOR_PRESETS_DOC = 'innovator_presets';
 
-// 2025年12月 Gemini API 规范模型选项
+// Gemini API 模型选项
 const MODEL_OPTIONS = [
     { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview' },
-    { value: 'gemini-3-pro-preview', label: 'gemini-3-pro-preview' },
+    { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview' },
+    { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Lite⚡)' },
+    { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash (稳定🛡️)' },
 ];
 
 // 创新要求预设
@@ -278,7 +282,9 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
         };
     });
 
+    // 模型：跟随全局设置，全局切换时自动同步
     const [currentModel, setCurrentModel] = useState(textModel || 'gemini-3-flash-preview');
+    useEffect(() => { setCurrentModel(textModel); }, [textModel]);
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [previewContent, setPreviewContent] = useState('');
     const [expandedEntryIds, setExpandedEntryIds] = useState<string[]>([]);
@@ -1759,7 +1765,7 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
     // === 标签页栏 JSX ===
     const promptTabBar = state.promptTabs.length > 0 && (
-        <div className="ai-recognition-tabbar flex items-center gap-1 px-2 py-1 bg-zinc-900/60 border-b border-zinc-700/50 overflow-x-auto custom-scrollbar">
+        <div className="ai-recognition-tabbar flex items-center gap-1 min-w-0 overflow-x-auto custom-scrollbar">
             {state.promptTabs.map(tab => {
                 const isActive = tab.id === state.activePromptTabId;
                 const isEditing = editingPromptTabId === tab.id;
@@ -1844,8 +1850,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
             <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 font-sans">
                 {/* --- Top Bar --- */}
                 <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
-                    <div className="max-w-none mx-auto px-4 py-2 space-y-3">
-                        {/* 第一行：标题 + 模式切换 */}
+                    <div className="max-w-none mx-auto px-4 py-2">
+                        {/* 单行：标题 + 标签页 + 模式切换 */}
                         <div className="flex items-center gap-3 w-full">
                             <div className="flex items-center gap-2 shrink-0">
                                 <div className="bg-purple-500/20 p-1.5 rounded-lg">
@@ -1854,9 +1860,11 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                 <h1 className="text-base font-bold tracking-tight text-white hidden xl:block">提示词工具</h1>
                             </div>
 
-                            <div className="flex-1"></div>
+                            <div className="flex-1 min-w-0 px-1">
+                                {promptTabBar}
+                            </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
                                 <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg p-0.5">
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
@@ -1879,13 +1887,25 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     >
                                         文案改写
                                     </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'prayer' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'prayer' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="祷告词提炼改写 - 三段式英中双语文案"
+                                    >
+                                        🙏 祷告提炼
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'super-rewrite' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'super-rewrite' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="超级文案改写 - 三指令并行生成标题/正文/结尾"
+                                    >
+                                        🔥 超级改写
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                {promptTabBar}
 
                 <DirectChatView getAiInstance={getAiInstance} textModel={currentModel} />
             </div>
@@ -1898,8 +1918,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
             <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 font-sans">
                 {/* --- Top Bar --- */}
                 <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
-                    <div className="max-w-none mx-auto px-4 py-2 space-y-3">
-                        {/* 第一行：标题 + 模式切换 */}
+                    <div className="max-w-none mx-auto px-4 py-2">
+                        {/* 单行：标题 + 标签页 + 模式切换 */}
                         <div className="flex items-center gap-3 w-full">
                             <div className="flex items-center gap-2 shrink-0">
                                 <div className="bg-amber-500/20 p-1.5 rounded-lg">
@@ -1908,9 +1928,11 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                 <h1 className="text-base font-bold tracking-tight text-white hidden xl:block">提示词工具</h1>
                             </div>
 
-                            <div className="flex-1"></div>
+                            <div className="flex-1 min-w-0 px-1">
+                                {promptTabBar}
+                            </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
                                 <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg p-0.5">
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
@@ -1933,15 +1955,161 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     >
                                         文案改写
                                     </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'prayer' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'prayer' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="祷告词提炼改写 - 三段式英中双语文案"
+                                    >
+                                        🙏 祷告提炼
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'super-rewrite' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'super-rewrite' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="超级文案改写 - 三指令并行生成标题/正文/结尾"
+                                    >
+                                        🔥 超级改写
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {promptTabBar}
-
                 <CopywritingView getAiInstance={getAiInstance} textModel={currentModel} promptTabId={state.activePromptTabId} />
+            </div>
+        );
+    }
+
+    // If Prayer Tab is Active, render prayer rewrite component
+    if (getActiveTab() === 'prayer') {
+        return (
+            <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 font-sans">
+                {/* --- Top Bar --- */}
+                <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
+                    <div className="max-w-none mx-auto px-4 py-2">
+                        <div className="flex items-center gap-3 w-full">
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="bg-sky-500/20 p-1.5 rounded-lg">
+                                    <Zap className="text-sky-400 w-4 h-4" fill="currentColor" />
+                                </div>
+                                <h1 className="text-base font-bold tracking-tight text-white hidden xl:block">提示词工具</h1>
+                            </div>
+
+                            <div className="flex-1 min-w-0 px-1">
+                                {promptTabBar}
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg p-0.5">
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'innovator' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="切换到创新模式 - 批量创新提示词"
+                                    >
+                                        创新模式
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'chat' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'chat' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="切换到普通模式 - 直接对话"
+                                    >
+                                        普通模式
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'copywriting' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'copywriting' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="切换到文案改写模式 - 批量改写文案"
+                                    >
+                                        文案改写
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'prayer' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'prayer' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="祷告词提炼改写 - 三段式英中双语文案"
+                                    >
+                                        🙏 祷告提炼
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'super-rewrite' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'super-rewrite' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="超级文案改写 - 三指令并行生成标题/正文/结尾"
+                                    >
+                                        🔥 超级改写
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <PrayerRewriteView getAiInstance={getAiInstance} textModel={currentModel} />
+            </div>
+        );
+    }
+
+    // If Super Rewrite Tab is Active, render super rewrite component
+    if (getActiveTab() === 'super-rewrite') {
+        return (
+            <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 font-sans">
+                {/* --- Top Bar --- */}
+                <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
+                    <div className="max-w-none mx-auto px-4 py-2">
+                        <div className="flex items-center gap-3 w-full">
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="bg-orange-500/20 p-1.5 rounded-lg">
+                                    <Zap className="text-orange-400 w-4 h-4" fill="currentColor" />
+                                </div>
+                                <h1 className="text-base font-bold tracking-tight text-white hidden xl:block">提示词工具</h1>
+                            </div>
+
+                            <div className="flex-1 min-w-0 px-1">
+                                {promptTabBar}
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg p-0.5">
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'innovator' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="切换到创新模式 - 批量创新提示词"
+                                    >
+                                        创新模式
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'chat' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'chat' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="切换到普通模式 - 直接对话"
+                                    >
+                                        普通模式
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'copywriting' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'copywriting' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="切换到文案改写模式 - 批量改写文案"
+                                    >
+                                        文案改写
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'prayer' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'prayer' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="祷告词提炼改写 - 三段式英中双语文案"
+                                    >
+                                        🙏 祷告提炼
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'super-rewrite' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'super-rewrite' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="超级文案改写 - 三指令并行生成标题/正文/结尾"
+                                    >
+                                        🔥 超级改写
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <SuperRewriteView getAiInstance={getAiInstance} textModel={currentModel} />
             </div>
         );
     }
@@ -1952,8 +2120,8 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
 
                 {/* --- Top Bar --- */}
                 <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
-                    <div className="max-w-none mx-auto px-4 py-2 space-y-3">
-                        {/* 第一行：标题 + 模式切换 */}
+                    <div className="max-w-none mx-auto px-4 py-2">
+                        {/* 单行：标题 + 标签页 + 模式切换 */}
                         <div className="flex items-center gap-3 w-full">
                             <div className="flex items-center gap-2 shrink-0">
                                 <div className="bg-purple-500/20 p-1.5 rounded-lg">
@@ -1962,9 +2130,11 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                 <h1 className="text-base font-bold tracking-tight text-white hidden xl:block">提示词工具</h1>
                             </div>
 
-                            <div className="flex-1"></div>
+                            <div className="flex-1 min-w-0 px-1">
+                                {promptTabBar}
+                            </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
                                 <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg p-0.5">
                                     <button
                                         onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))}
@@ -1986,6 +2156,20 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                         data-tip="切换到文案改写模式 - 批量改写文案"
                                     >
                                         文案改写
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'prayer' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'prayer' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="祷告词提炼改写 - 三段式英中双语文案"
+                                    >
+                                        🙏 祷告提炼
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'super-rewrite' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'super-rewrite' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="超级文案改写 - 三指令并行生成标题/正文/结尾"
+                                    >
+                                        🔥 超级改写
                                     </button>
                                 </div>
                                 {/* 项目管理按钮和当前项目名称 */}
@@ -2007,8 +2191,6 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                         </div>
                     </div>
                 </div>
-
-                {promptTabBar}
 
                 {/* --- Main Content --- */}
                 <div className="flex-1 overflow-y-auto overflow-x-hidden">

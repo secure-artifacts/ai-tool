@@ -12,8 +12,9 @@ import {
     Search, Plus, Trash2, Copy, Download, Upload, Loader2,
     Palette, MessageSquare, X, ChevronDown, ChevronUp, Check,
     RotateCcw, Settings2, Eye, EyeOff, Columns, AlertCircle,
-    Sparkles, Bot,
+    Sparkles, Bot, Brain,
 } from 'lucide-react';
+import { getTextEmbedding, batchEmbedTexts } from '@/apps/ai-copy-deduplicator/services/similarityService';
 
 // ===== 类型 =====
 interface CellData {
@@ -51,30 +52,102 @@ interface TableState {
 
 const SHINGLE_SIZE = 3;
 
-/** 文本预处理：小写、去标点、规范化空格 */
+/** 文本预处理：小写、去标点、规范化空格（支持中文/俄语等多语言） */
 function preprocessText(text: string): string {
     return text
         .toLowerCase()
-        .replace(/[^\w\s]/g, ' ')
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')  // 保留所有 Unicode 字母和数字，去除标点
         .replace(/\s+/g, ' ')
         .trim();
 }
 
-/** 生成 N-gram Shingles */
+// CJK Unicode 范围检测
+const CJK_REGEX = /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/;
+
+// 惰性初始化中文分词器（浏览器原生 API，零依赖）
+let _zhSegmenter: Intl.Segmenter | null = null;
+function getZhSegmenter(): Intl.Segmenter | null {
+    if (_zhSegmenter) return _zhSegmenter;
+    try {
+        _zhSegmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+        return _zhSegmenter;
+    } catch {
+        return null;
+    }
+}
+
+/** 中文分词：使用 Intl.Segmenter 提取有意义的词 */
+function segmentCJKText(text: string): string[] {
+    const segmenter = getZhSegmenter();
+    if (!segmenter) return [];
+    return [...segmenter.segment(text)]
+        .filter(s => s.isWordLike)
+        .map(s => s.segment);
+}
+
+/** 生成特征集合 — 混合策略（同 minHashEngine）
+ *  - 英文/拉丁文：字符级 N-gram
+ *  - 中日韩文：词级 N-gram（Intl.Segmenter 分词后，单词 + bi-gram + tri-gram）
+ */
 function generateShingles(text: string, n: number = SHINGLE_SIZE): Set<string> {
     const processed = preprocessText(text);
     const shingles = new Set<string>();
-    if (processed.length < n) {
-        shingles.add(processed);
-        return shingles;
+
+    if (!processed) return shingles;
+
+    // === 1. 提取非 CJK 部分 → 字符级 N-gram ===
+    const nonCJKParts = processed.replace(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (nonCJKParts.length >= n) {
+        for (let i = 0; i <= nonCJKParts.length - n; i++) {
+            shingles.add(nonCJKParts.substring(i, i + n));
+        }
+    } else if (nonCJKParts.length > 0) {
+        shingles.add(nonCJKParts);
     }
-    for (let i = 0; i <= processed.length - n; i++) {
-        shingles.add(processed.substring(i, i + n));
+
+    // === 2. 提取 CJK 部分 → 词级 N-gram（Intl.Segmenter 分词）===
+    const cjkParts = processed.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]+/g);
+    if (cjkParts) {
+        const cjkText = cjkParts.join('');
+        const words = segmentCJKText(cjkText).filter(w => w.length > 0);
+        if (words.length > 0) {
+            // 单词本身作为特征
+            words.forEach(w => shingles.add(w));
+            // 词级 bi-gram 作为短语特征
+            for (let i = 0; i < words.length - 1; i++) {
+                shingles.add(words[i] + words[i + 1]);
+            }
+            // 词级 tri-gram（更长的语义特征）
+            for (let i = 0; i < words.length - 2; i++) {
+                shingles.add(words[i] + words[i + 1] + words[i + 2]);
+            }
+        } else {
+            // Segmenter 回退：用字符 bi-gram
+            const chars = [...cjkText];
+            for (let i = 0; i < chars.length - 1; i++) {
+                shingles.add(chars[i] + chars[i + 1]);
+            }
+        }
     }
+
     return shingles;
 }
 
-/** 精确 Jaccard 相似度 */
+/** 查重匹配：计算查询词在高亮单元格中的覆盖度（Overlap Coefficient / Recall）
+ * 解决了“短查询词在大段文字中由于分母(Union)过大导致相似度被稀释为0”的问题。
+ */
+function exactCoverage(querySet: Set<string>, cellSet: Set<string>): number {
+    if (querySet.size === 0 && cellSet.size === 0) return 0;
+    if (querySet.size === 0) return 0;
+    let intersection = 0;
+    for (const item of querySet) {
+        if (cellSet.has(item)) intersection++;
+    }
+    // 计算查询特征被覆盖的比例
+    return intersection / querySet.size;
+}
+
+/** 精确 Jaccard 相似度（用于表格内部两两查重） */
 function exactJaccard(set1: Set<string>, set2: Set<string>): number {
     if (set1.size === 0 && set2.size === 0) return 0;
     let intersection = 0;
@@ -265,9 +338,23 @@ interface AiSearchResult {
     relevance: number; // 1-100
 }
 
+// ===== 模型选择常量 =====
+const LOCAL_MODEL_KEY_CS = 'copy_search_local_model';
+const INHERIT_VALUE = '__global__';
+
+const CS_MODEL_OPTIONS = [
+  { value: INHERIT_VALUE, label: '继承全局设置' },
+  { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA)' },
+  { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快)' },
+  { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
+  { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview)' },
+  { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
+];
+
 // ===== 组件 =====
 interface Props {
     getAiInstance?: () => any;
+    textModel?: string;
 }
 
 interface ExpandedModalState {
@@ -279,7 +366,13 @@ interface ExpandedModalState {
     accentColor?: string;
 }
 
-const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
+const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5-flash' }) => {
+    // 本地模型选择（默认继承全局）
+    const [localModel, setLocalModel] = useState<string>(() => {
+        try { return localStorage.getItem(LOCAL_MODEL_KEY_CS) || INHERIT_VALUE; } catch { return INHERIT_VALUE; }
+    });
+    const effectiveModel = localModel === INHERIT_VALUE ? textModel : localModel;
+
     // 表格状态
     const [table, setTable] = useState<TableState>({ headers: [], rows: [], noteColumnVisible: true });
     const [pasteInput, setPasteInput] = useState('');
@@ -293,11 +386,26 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
 
     // 配置
     const [threshold, setThreshold] = useState(0.45); // MinHash Jaccard 阈值默认 0.45
-    const [searchCol, setSearchCol] = useState<number>(0); // 默认搜索第一列（指定列）
-    const [searchMode, setSearchMode] = useState<'contains' | 'similar'>('similar'); // 默认相似模式
+    const [searchCol, setSearchCol] = useState<number>(-1); // 默认搜索全部列
+    const [searchMode, setSearchMode] = useState<'contains' | 'similar' | 'embedding' | 'llm'>('similar'); // 默认相似模式
     const [showSettings, setShowSettings] = useState(false);
     const [searchQueriesCollapsed, setSearchQueriesCollapsed] = useState(false);
     const [globalProgress, setGlobalProgress] = useState('');
+
+    // Embedding 缓存: cellText -> embedding vector
+    const embeddingCacheRef = useRef<Map<string, number[]>>(new Map());
+
+    // 余弦相似度
+    const cosineSimilarity = useCallback((a: number[], b: number[]): number => {
+        if (a.length !== b.length || a.length === 0) return 0;
+        let dot = 0, magA = 0, magB = 0;
+        for (let i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            magA += a[i] * a[i];
+            magB += b[i] * b[i];
+        }
+        return dot / (Math.sqrt(magA) * Math.sqrt(magB) || 1);
+    }, []);
     const [expandedModal, setExpandedModal] = useState<ExpandedModalState | null>(null);
     const [expandedDraft, setExpandedDraft] = useState('');
 
@@ -506,17 +614,29 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
         const startTime = performance.now();
 
         // 异步执行以免阻塞 UI
-        setTimeout(() => {
+        setTimeout(async () => {
             try {
                 // 先基于 ref 同步计算新行和匹配数，避免 setTable updater 时序问题
                 const prev = tableRef.current;
                 const matchedRows = new Set<number>();
 
-                // 先清理该搜索项旧高亮，避免重复
-                const updatedRows = prev.rows.map(row => row.map(cell => ({
-                    ...cell,
-                    highlights: cell.highlights.filter(h => h.queryId !== query.id),
-                })));
+                // 先清理该搜索项旧高亮及旧备注，避免重复堆叠
+                const noteKeyToClear = getQueryLabel(query);
+                const updatedRows = prev.rows.map(row => row.map(cell => {
+                    let newNote = cell.note;
+                    if (newNote && newNote.includes(noteKeyToClear)) {
+                        newNote = newNote.split('|')
+                            .map(s => s.trim())
+                            .filter(s => !s.includes(noteKeyToClear))
+                            .join(' | ')
+                            .trim();
+                    }
+                    return {
+                        ...cell,
+                        note: newNote,
+                        highlights: cell.highlights.filter(h => h.queryId !== query.id),
+                    };
+                }));
 
                 // 收集要搜索的单元格
                 const cellsToSearch: { row: number; col: number; text: string }[] = [];
@@ -529,7 +649,57 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
                 });
 
                 if (cellsToSearch.length > 0) {
-                    if (searchMode === 'contains') {
+                    if (searchMode === 'llm') {
+                        // ===== LLM 精判模式：调用 AI 直接判断 =====
+                        executeAiQuerySearch(query);
+                        return; // executeAiQuerySearch 自行处理状态
+                    } else if (searchMode === 'embedding') {
+                        // ===== AI 语义搜索：Embedding + 余弦相似度 =====
+                        if (!getAiInstance) throw new Error('AI 语义搜索需要配置 API Key');
+                        const ai = getAiInstance();
+                        if (!ai) throw new Error('请先配置 API Key');
+
+                        setGlobalProgress('🧠 正在分析查询文案...');
+                        const queryEmb = await getTextEmbedding(query.text, ai);
+
+                        // 批量获取单元格 embedding（有缓存就跳过）
+                        const cache = embeddingCacheRef.current;
+                        const needEmbed = cellsToSearch.filter(c => !cache.has(c.text));
+                        if (needEmbed.length > 0) {
+                            const texts = needEmbed.map(c => c.text);
+                            const embeddings = await batchEmbedTexts(texts, ai, (done: number, total: number) => {
+                                setGlobalProgress(`🧠 建立语义索引 (${done}/${total})...`);
+                            });
+                            embeddings.forEach((emb: number[], idx: number) => {
+                                cache.set(needEmbed[idx].text, emb);
+                            });
+                        }
+
+                        setGlobalProgress('🧠 正在计算语义相似度...');
+                        cellsToSearch.forEach(c => {
+                            const cellEmb = cache.get(c.text);
+                            if (!cellEmb) return;
+                            const similarity = cosineSimilarity(queryEmb, cellEmb);
+                            const effectiveThreshold = query.threshold ?? threshold;
+                            if (similarity < effectiveThreshold) return;
+                            matchedRows.add(c.row);
+                            const cell = updatedRows[c.row][c.col];
+                            cell.highlights.push({
+                                queryId: query.id,
+                                color: query.color,
+                                similarity: Math.round(similarity * 100),
+                                queryText: query.text,
+                            });
+                            const similarityPercent = Math.round(similarity * 100);
+                            const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
+                            const noteKey = getQueryLabel(query);
+                            if (!cell.note) {
+                                cell.note = noteContent;
+                            } else if (!cell.note.includes(noteKey)) {
+                                cell.note += ` | ${noteContent}`;
+                            }
+                        });
+                    } else if (searchMode === 'contains') {
                         // ===== 包含搜索：大小写不敏感的子串匹配 =====
                         const queryLower = query.text.toLowerCase();
 
@@ -596,7 +766,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
                 setTable({ ...prev, rows: updatedRows });
 
                 const elapsed = Math.round(performance.now() - startTime);
-                const modeLabel = searchMode === 'contains' ? '包含搜索' : 'MinHash + Jaccard';
+                const modeLabel = searchMode === 'contains' ? '包含搜索' : searchMode === 'embedding' ? 'AI 语义搜索' : searchMode === 'llm' ? 'AI 精判' : 'MinHash + Jaccard';
                 updateQuery(query.id, { isSearching: false, resultCount: matchedRowCount });
                 setGlobalProgress(`✅ ${matchedRowCount} 行匹配 (${elapsed}ms, ${modeLabel})`);
                 setTimeout(() => setGlobalProgress(''), 3000);
@@ -611,17 +781,18 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
     // ===== 单个搜索项的 AI 搜索 =====
     const executeAiQuerySearch = async (query: SearchQuery) => {
         if (!query.text.trim() || tableRef.current.rows.length === 0) return;
-        if (!getAiInstance) {
-            setGlobalProgress('⚠️ AI 搜索需要配置 API Key');
-            setTimeout(() => setGlobalProgress(''), 3000);
-            return;
-        }
 
         updateQuery(query.id, { isSearching: true, resultCount: 0 });
         setGlobalProgress(`🤖 AI 搜索中: ${query.text.substring(0, 30)}...`);
 
         try {
-            const ai = getAiInstance();
+            // 使用全局 AI 实例（与 AI 分类一致，支持 key 轮换）
+            let ai: any;
+            if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+                ai = (window as any).__app_get_ai_instance();
+            } else if (getAiInstance) {
+                ai = getAiInstance();
+            }
             if (!ai) {
                 updateQuery(query.id, { isSearching: false });
                 setGlobalProgress('⚠️ 请先配置 API Key');
@@ -633,15 +804,21 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
             const rows = prev.rows;
             const col = searchCol >= 0 ? searchCol : -1;
 
-            // 先清除该搜索项旧高亮
-            const updatedRows = rows.map(row => row.map(cell => ({
-                ...cell,
-                highlights: cell.highlights.filter(h => h.queryId !== query.id),
-            })));
+            // 断点续搜：不清除旧高亮，保留已有结果
+            const updatedRows = rows.map(row => row.map(cell => ({ ...cell })));
 
-            // 收集文本
+            // 找出已经有该 query 高亮的行（跳过不重复搜索）
+            const alreadyMatchedRows = new Set<number>();
+            updatedRows.forEach((row, ri) => {
+                if (row.some(cell => cell.highlights.some(h => h.queryId === query.id))) {
+                    alreadyMatchedRows.add(ri);
+                }
+            });
+
+            // 只收集还没搜过的行
             const rowTexts: { idx: number; text: string }[] = [];
             updatedRows.forEach((row, ri) => {
+                if (alreadyMatchedRows.has(ri)) return; // 跳过已匹配行
                 const texts: string[] = [];
                 row.forEach((cell, ci) => {
                     if (col >= 0 && ci !== col) return;
@@ -654,13 +831,21 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance }) => {
 
             if (rowTexts.length === 0) {
                 updateQuery(query.id, { isSearching: false });
-                setGlobalProgress('⚠️ 表格中没有可搜索的内容');
+                const msg = alreadyMatchedRows.size > 0
+                    ? `✅ 所有行已搜索完毕（${alreadyMatchedRows.size} 行匹配）`
+                    : '⚠️ 表格中没有可搜索的内容';
+                setGlobalProgress(msg);
                 setTimeout(() => setGlobalProgress(''), 3000);
                 return;
             }
 
             const BATCH = 50;
-            let matchedCount = 0;
+            let matchedCount = alreadyMatchedRows.size; // 从已有结果开始计数
+            const totalRows = rowTexts.length + alreadyMatchedRows.size;
+
+            if (alreadyMatchedRows.size > 0) {
+                setGlobalProgress(`🤖 断点续搜（已有 ${alreadyMatchedRows.size} 行，剩余 ${rowTexts.length} 行）...`);
+            }
 
             for (let bStart = 0; bStart < rowTexts.length; bStart += BATCH) {
                 const batch = rowTexts.slice(bStart, bStart + BATCH);
@@ -693,7 +878,7 @@ Return ONLY a JSON array in this exact format:
 If no matches: []`;
 
                 const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
+                    model: effectiveModel,
                     contents: prompt,
                 });
 
@@ -729,17 +914,34 @@ If no matches: []`;
                         console.warn('AI 返回 JSON 解析失败:', parseErr);
                     }
                 }
+
+                // ✅ 每批完成后立即更新表格和计数（实时反馈，防止中途失败丢失结果）
+                setTable({ ...prev, rows: updatedRows });
+                updateQuery(query.id, { isSearching: true, resultCount: matchedCount });
+                if (totalBatches > 1) {
+                    setGlobalProgress(`🤖 AI 分析中... (${batchNum}/${totalBatches}，已匹配 ${matchedCount} 行)`);
+                }
             }
 
-            setTable({ ...prev, rows: updatedRows });
             updateQuery(query.id, { isSearching: false, resultCount: matchedCount });
             setGlobalProgress(`✅ AI 搜索完成: ${matchedCount} 行匹配`);
             setTimeout(() => setGlobalProgress(''), 3000);
         } catch (err: any) {
-            console.error('AI 搜索失败:', err);
+            const errMsg = err?.message || JSON.stringify(err?.error) || '未知错误';
+            const errCode = err?.status || err?.error?.code || '';
+            console.error('AI 搜索失败:', errCode, errMsg);
+
+            // 403 / PERMISSION_DENIED → 尝试轮换 key 重试
+            if ((errCode === 403 || errMsg.includes('PERMISSION_DENIED') || errMsg.includes('SERVICE_BLOCKED')) 
+                && typeof window !== 'undefined' && (window as any).__app_rotate_api_key) {
+                console.warn('[AI精判] 403 错误，尝试轮换 API Key...');
+                (window as any).__app_rotate_api_key();
+                // 不标记失败，让用户重新点击
+            }
+
             updateQuery(query.id, { isSearching: false });
-            setGlobalProgress(`❌ AI 搜索失败: ${err.message || '未知错误'}`);
-            setTimeout(() => setGlobalProgress(''), 4000);
+            setGlobalProgress(`❌ AI 搜索失败: ${errMsg.substring(0, 100)}`);
+            setTimeout(() => setGlobalProgress(''), 5000);
         }
     };
 
@@ -754,18 +956,30 @@ If no matches: []`;
         ));
         const startTime = performance.now();
 
-        setTimeout(() => {
+        setTimeout(async () => {
             try {
                 const resultCounts = new Map<string, number>();
 
                 // 基于 ref 同步计算，避免 setTable updater 时序问题
                 const prev = tableRef.current;
 
-                // 先清除所有将要重新搜索项的旧高亮，避免重复/串色
-                const updatedRows = prev.rows.map(row => row.map(cell => ({
-                    ...cell,
-                    highlights: cell.highlights.filter(h => !activeIds.has(h.queryId)),
-                })));
+                // 先清除所有将要重新搜索项的旧高亮及包含它们文本的旧备注
+                const activeLabelsToClear = activeQueries.map(q => getQueryLabel(q));
+                const updatedRows = prev.rows.map(row => row.map(cell => {
+                    let newNote = cell.note;
+                    if (newNote) {
+                        newNote = newNote.split('|')
+                            .map(s => s.trim())
+                            .filter(s => !activeLabelsToClear.some(lbl => s.includes(lbl)))
+                            .join(' | ')
+                            .trim();
+                    }
+                    return {
+                        ...cell,
+                        note: newNote,
+                        highlights: cell.highlights.filter(h => !activeIds.has(h.queryId)),
+                    };
+                }));
 
                 // 收集可搜索单元格（所有 query 共用）
                 const cellsToSearch: { row: number; col: number; text: string }[] = [];
@@ -779,38 +993,46 @@ If no matches: []`;
 
                 if (cellsToSearch.length === 0) {
                     activeQueries.forEach(q => resultCounts.set(q.id, 0));
+                } else if (searchMode === 'llm') {
+                    // LLM 精判模式：逐个查询调用 AI
+                    // executeAiQuerySearch 自行管理 table 和 query 状态，不需要后续覆盖
+                    for (const query of activeQueries) {
+                        await executeAiQuerySearch(query);
+                    }
+                    // LLM 模式直接结束，不走后面的 setTable/setQueries（避免覆盖 AI 结果）
+                    const elapsed = Math.round(performance.now() - startTime);
+                    setGlobalProgress(`✅ AI 精判完成 ${activeQueries.length} 项搜索 (${elapsed}ms)`);
+                    setTimeout(() => setGlobalProgress(''), 3000);
+                    return;
                 } else {
-                    activeQueries.forEach(query => {
-                        const matchedRows = new Set<number>();
-                        if (searchMode === 'contains') {
-                            const queryLower = query.text.toLowerCase();
-                            cellsToSearch.forEach(c => {
-                                if (!c.text.toLowerCase().includes(queryLower)) return;
-                                matchedRows.add(c.row);
-                                const cell = updatedRows[c.row][c.col];
-                                cell.highlights.push({
-                                    queryId: query.id,
-                                    color: query.color,
-                                    similarity: 100,
-                                    queryText: query.text,
-                                });
-                                const noteContent = buildQueryNoteContent(query, 'contains');
-                                const noteKey = getQueryLabel(query);
-                                if (!cell.note) {
-                                    cell.note = noteContent;
-                                } else if (!cell.note.includes(noteKey)) {
-                                    cell.note += ` | ${noteContent}`;
-                                }
+                    // Embedding 模式需要异步获取向量
+                    if (searchMode === 'embedding') {
+                        if (!getAiInstance) throw new Error('AI 语义搜索需要配置 API Key');
+                        const ai = getAiInstance();
+                        if (!ai) throw new Error('请先配置 API Key');
+
+                        // 批量获取单元格 embedding
+                        const cache = embeddingCacheRef.current;
+                        const needEmbed = cellsToSearch.filter(c => !cache.has(c.text));
+                        if (needEmbed.length > 0) {
+                            const texts = needEmbed.map(c => c.text);
+                            const embeddings = await batchEmbedTexts(texts, ai, (done: number, total: number) => {
+                                setGlobalProgress(`🧠 建立语义索引 (${done}/${total})...`);
                             });
-                        } else {
-                            const queryShingles = generateShingles(query.text);
+                            embeddings.forEach((emb: number[], idx: number) => {
+                                cache.set(needEmbed[idx].text, emb);
+                            });
+                        }
+
+                        // 逐个查询搜索
+                        for (const query of activeQueries) {
+                            const matchedRows = new Set<number>();
+                            setGlobalProgress(`🧠 ${query.text.substring(0, 20)}... 语义分析中...`);
+                            const queryEmb = await getTextEmbedding(query.text, ai);
                             cellsToSearch.forEach(c => {
-                                if (!shingleCache.current.has(c.text)) {
-                                    shingleCache.current.set(c.text, generateShingles(c.text));
-                                }
-                                const cellShingles = shingleCache.current.get(c.text);
-                                if (!cellShingles) return;
-                                const similarity = exactJaccard(queryShingles, cellShingles);
+                                const cellEmb = cache.get(c.text);
+                                if (!cellEmb) return;
+                                const similarity = cosineSimilarity(queryEmb, cellEmb);
                                 const effectiveThreshold = query.threshold ?? threshold;
                                 if (similarity < effectiveThreshold) return;
                                 matchedRows.add(c.row);
@@ -830,9 +1052,63 @@ If no matches: []`;
                                     cell.note += ` | ${noteContent}`;
                                 }
                             });
+                            resultCounts.set(query.id, matchedRows.size);
                         }
-                        resultCounts.set(query.id, matchedRows.size);
-                    });
+                    } else {
+                        activeQueries.forEach(query => {
+                            const matchedRows = new Set<number>();
+                            if (searchMode === 'contains') {
+                                const queryLower = query.text.toLowerCase();
+                                cellsToSearch.forEach(c => {
+                                    if (!c.text.toLowerCase().includes(queryLower)) return;
+                                    matchedRows.add(c.row);
+                                    const cell = updatedRows[c.row][c.col];
+                                    cell.highlights.push({
+                                        queryId: query.id,
+                                        color: query.color,
+                                        similarity: 100,
+                                        queryText: query.text,
+                                    });
+                                    const noteContent = buildQueryNoteContent(query, 'contains');
+                                    const noteKey = getQueryLabel(query);
+                                    if (!cell.note) {
+                                        cell.note = noteContent;
+                                    } else if (!cell.note.includes(noteKey)) {
+                                        cell.note += ` | ${noteContent}`;
+                                    }
+                                });
+                            } else {
+                                const queryShingles = generateShingles(query.text);
+                                cellsToSearch.forEach(c => {
+                                    if (!shingleCache.current.has(c.text)) {
+                                        shingleCache.current.set(c.text, generateShingles(c.text));
+                                    }
+                                    const cellShingles = shingleCache.current.get(c.text);
+                                    if (!cellShingles) return;
+                                    const similarity = exactJaccard(queryShingles, cellShingles);
+                                    const effectiveThreshold = query.threshold ?? threshold;
+                                    if (similarity < effectiveThreshold) return;
+                                    matchedRows.add(c.row);
+                                    const cell = updatedRows[c.row][c.col];
+                                    cell.highlights.push({
+                                        queryId: query.id,
+                                        color: query.color,
+                                        similarity: Math.round(similarity * 100),
+                                        queryText: query.text,
+                                    });
+                                    const similarityPercent = Math.round(similarity * 100);
+                                    const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
+                                    const noteKey = getQueryLabel(query);
+                                    if (!cell.note) {
+                                        cell.note = noteContent;
+                                    } else if (!cell.note.includes(noteKey)) {
+                                        cell.note += ` | ${noteContent}`;
+                                    }
+                                });
+                            }
+                            resultCounts.set(query.id, matchedRows.size);
+                        });
+                    }
                 }
 
                 // 同步设置 table 和 query 状态
@@ -846,7 +1122,7 @@ If no matches: []`;
 
                 const totalRows = Array.from(resultCounts.values()).reduce((a, b) => a + b, 0);
                 const elapsed = Math.round(performance.now() - startTime);
-                const modeLabel = searchMode === 'contains' ? '包含搜索' : 'MinHash + Jaccard';
+                const modeLabel = searchMode === 'contains' ? '包含搜索' : searchMode === 'embedding' ? 'AI 语义搜索' : searchMode === 'llm' ? 'AI 精判' : 'MinHash + Jaccard';
                 setGlobalProgress(`✅ 已完成 ${activeQueries.length} 项搜索，合计 ${totalRows} 行匹配 (${elapsed}ms, ${modeLabel})`);
                 setTimeout(() => setGlobalProgress(''), 3000);
             } catch (err: any) {
@@ -868,6 +1144,14 @@ If no matches: []`;
             }))),
         }));
         setQueries(prev => prev.map(q => ({ ...q, resultCount: 0 })));
+    };
+
+    // TSV 单元格编码：含换行/Tab/引号的文本用引号包裹，保留原始格式
+    const tsvCell = (val: string): string => {
+        if (val.includes('\n') || val.includes('\r') || val.includes('\t') || val.includes('"')) {
+            return '"' + val.replace(/"/g, '""') + '"';
+        }
+        return val;
     };
 
     // ===== 复制 HTML 到剪贴板（兼容 Google Sheets） =====
@@ -959,7 +1243,7 @@ If no matches: []`;
         // TSV
         let tsv = headers.join('\t') + (noteColumnVisible ? '\t备注' : '') + '\n';
         matchedRows.forEach(row => {
-            tsv += row.map(c => c.value).join('\t');
+            tsv += row.map(c => tsvCell(c.value)).join('\t');
             if (noteColumnVisible) {
                 const notes = getRowNoteWithSummary(row);
                 tsv += '\t' + notes;
@@ -1019,7 +1303,7 @@ If no matches: []`;
 
         let tsv = headers.join('\t') + (noteColumnVisible ? '\t备注' : '') + '\n';
         filteredRows.forEach(row => {
-            tsv += row.map(c => c.value).join('\t');
+            tsv += row.map(c => tsvCell(c.value)).join('\t');
             if (noteColumnVisible) {
                 const notes = getRowNoteWithSummary(row);
                 tsv += '\t' + notes;
@@ -1144,10 +1428,6 @@ If no matches: []`;
     // ===== AI 智能搜索 =====
     const executeAiSearch = useCallback(async () => {
         if (!aiSearchQuery.trim()) return;
-        if (!getAiInstance) {
-            setAiSearchError('AI 搜索需要配置 API Key');
-            return;
-        }
 
         const { rows } = table;
         if (rows.length === 0) return;
@@ -1158,7 +1438,13 @@ If no matches: []`;
         setGlobalProgress('🤖 AI 正在分析表格数据...');
 
         try {
-            const ai = getAiInstance();
+            // 使用全局 AI 实例（与 AI 分类一致，支持 key 轮换）
+            let ai: any;
+            if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+                ai = (window as any).__app_get_ai_instance();
+            } else if (getAiInstance) {
+                ai = getAiInstance();
+            }
             if (!ai) {
                 setAiSearchError('请先在设置中配置 API Key');
                 setAiSearching(false);
@@ -1222,7 +1508,7 @@ Return ONLY a JSON array in this exact format:
 If no matches: []`;
 
                 const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
+                    model: effectiveModel,
                     contents: prompt,
                 });
 
@@ -1335,7 +1621,7 @@ If no matches: []`;
     }, []);
 
     // ===== 辅助 =====
-    const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 
     const getContrastColor = (hex: string): string => {
         const r = parseInt(hex.slice(1, 3), 16);
@@ -1457,7 +1743,7 @@ If no matches: []`;
                         </div>
                     )}
 
-                    <div style={{ display: 'flex', gap: '4px' }}>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {table.rows.length > 0 && (
                             <>
                                 <button onClick={() => setShowPasteArea(!showPasteArea)}
@@ -1630,7 +1916,7 @@ If no matches: []`;
                                 </button>
                                 <button
                                     onClick={() => setSearchMode('similar')}
-                                    data-tip="模糊匹配：搜索与关键词语义相似的文案"
+                                    data-tip="本地词汇匹配：MinHash + Jaccard（免费，速度快）"
                                     style={{
                                         padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
                                         border: 'none', cursor: 'pointer', transition: 'all 0.15s',
@@ -1640,6 +1926,36 @@ If no matches: []`;
                                 >
                                     相似
                                 </button>
+                                {getAiInstance && (
+                                    <button
+                                        onClick={() => setSearchMode('embedding')}
+                                        data-tip="AI 语义匹配：使用 Gemini Embedding 理解文案含义（中文精准度最高）"
+                                        style={{
+                                            padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                                            border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                                            background: searchMode === 'embedding' ? 'rgba(168,85,247,0.2)' : 'transparent',
+                                            color: searchMode === 'embedding' ? '#c084fc' : '#71717a',
+                                            display: 'flex', alignItems: 'center', gap: '3px',
+                                        }}
+                                    >
+                                        <Brain size={11} /> AI语义
+                                    </button>
+                                )}
+                                {getAiInstance && (
+                                    <button
+                                        onClick={() => setSearchMode('llm')}
+                                        data-tip="AI 精判：使用 Gemini 直接判断语义是否重复（最精确，较慢）"
+                                        style={{
+                                            padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                                            border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                                            background: searchMode === 'llm' ? 'rgba(34,197,94,0.2)' : 'transparent',
+                                            color: searchMode === 'llm' ? '#4ade80' : '#71717a',
+                                            display: 'flex', alignItems: 'center', gap: '3px',
+                                        }}
+                                    >
+                                        <Bot size={11} /> AI精判
+                                    </button>
+                                )}
                             </div>
                             <button onClick={() => setShowSettings(!showSettings)} style={{ ...btnSmStyle, color: '#71717a' }} data-tip="搜索设置（相似度阈值、搜索列）">
                                 <Settings2 size={13} />
@@ -1689,6 +2005,27 @@ If no matches: []`;
                                                 <option value={-1}>所有列</option>
                                                 {table.headers.map((h, i) => (
                                                     <option key={i} value={i}>{h}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                            <span style={{ color: '#a1a1aa' }}>AI模型:</span>
+                                            <select
+                                                value={localModel}
+                                                onChange={e => {
+                                                    const v = e.target.value;
+                                                    setLocalModel(v);
+                                                    try { localStorage.setItem(LOCAL_MODEL_KEY_CS, v); } catch {}
+                                                }}
+                                                style={{
+                                                    background: '#27272a', color: '#e4e4e7', border: '1px solid #3f3f46',
+                                                    borderRadius: '4px', padding: '2px 6px', fontSize: '12px', maxWidth: '200px',
+                                                }}
+                                            >
+                                                {CS_MODEL_OPTIONS.map(o => (
+                                                    <option key={o.value} value={o.value}>
+                                                        {o.value === INHERIT_VALUE ? `${o.label} (${textModel})` : o.label}
+                                                    </option>
                                                 ))}
                                             </select>
                                         </div>
@@ -1868,6 +2205,19 @@ If no matches: []`;
                                                     </span>
                                                 </div>
                                             )}
+                                            {/* 结果数量指示器 */}
+                                            {q.text.trim() !== '' && (
+                                                <div style={{
+                                                    fontSize: '11px', flexShrink: 0,
+                                                    color: q.isSearching ? '#71717a' : (q.resultCount > 0 ? '#10b981' : '#71717a'),
+                                                    background: q.resultCount > 0 ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
+                                                    padding: '2px 8px', borderRadius: '4px',
+                                                    minWidth: '40px', textAlign: 'center',
+                                                    border: q.resultCount > 0 ? '1px solid rgba(16,185,129,0.3)' : '1px solid transparent'
+                                                }}>
+                                                    {q.isSearching ? '...' : `${q.resultCount} 行`}
+                                                </div>
+                                            )}
                                             <button
                                                 onClick={() => updateQuery(q.id, { useAi: !q.useAi })}
                                                 style={{
@@ -1882,12 +2232,12 @@ If no matches: []`;
                                                 <Sparkles size={13} />
                                             </button>
                                             <button
-                                                onClick={() => q.useAi ? executeAiQuerySearch(q) : executeSearch(q)}
+                                                onClick={() => (searchMode === 'llm' || q.useAi) ? executeAiQuerySearch(q) : executeSearch(q)}
                                                 disabled={!q.text.trim() || q.isSearching}
-                                                style={{ ...btnSmStyle, color: q.isSearching ? '#71717a' : (q.useAi ? '#a78bfa' : '#fbbf24') }}
-                                                data-tip={q.useAi ? 'AI 智能搜索' : '搜索'}
+                                                style={{ ...btnSmStyle, color: q.isSearching ? '#71717a' : (searchMode === 'llm' || q.useAi ? '#4ade80' : '#fbbf24') }}
+                                                data-tip={searchMode === 'llm' ? 'AI 精判搜索' : (q.useAi ? 'AI 智能搜索' : '搜索')}
                                             >
-                                                {q.isSearching ? <Loader2 size={14} className="animate-spin" /> : (q.useAi ? <Bot size={14} /> : <Search size={14} />)}
+                                                {q.isSearching ? <Loader2 size={14} className="animate-spin" /> : (searchMode === 'llm' || q.useAi ? <Bot size={14} /> : <Search size={14} />)}
                                             </button>
                                             {q.resultCount > 0 && (
                                                 <>
@@ -2024,7 +2374,7 @@ If no matches: []`;
 
                                         let tsv = headers.join('\t') + (noteColumnVisible ? '\t备注' : '') + '\n';
                                         matchedRows.forEach(row => {
-                                            tsv += row.map(c => c.value).join('\t');
+                                            tsv += row.map(c => tsvCell(c.value)).join('\t');
                                             if (noteColumnVisible) tsv += '\t' + getRowNoteWithSummary(row);
                                             tsv += '\n';
                                         });

@@ -37,11 +37,13 @@ export interface LibraryValue {
 export interface RandomLibrary {
     id: string;
     name: string;
+    description?: string; // 库说明（可选，可从表格"库名说明/描述/备注"列自动读取）
     values: string[]; // 库中的值数组，允许重复（向后兼容，简单模式）
     valuesWithCategory?: LibraryValue[]; // 带分类的值数组（分类联动模式 + 图片URL标记）
     valueWeights?: Record<string, number>; // 值权重映射，如 {"神父": 1, "普通人-男性": 5}，权重越高被选中概率越大
     enabled: boolean; // 是否在创新时使用此库
     participationRate?: number; // 参与概率 0-100，默认100（必选）
+    traverseAll?: boolean; // 遍历模式：按顺序使用库中所有值，每个值生成一个结果
     pickMode: 'random-one' | 'random-multiple' | 'sequential'; // 抽取模式
     pickCount: number; // random-multiple 模式下抽取几个
     color: string; // 标签页颜色
@@ -826,6 +828,27 @@ const parseCSVLine = (line: string): string[] => {
     return result;
 };
 
+// 从说明列表头中提取对应库名
+// 支持示例：场景说明 / 场景描述 / 场景备注 / 说明-场景 / description-scene
+const extractDescriptionTargetName = (header: string): string | null => {
+    const normalized = (header || '').trim();
+    if (!normalized) return null;
+
+    let match = normalized.match(/^(.+?)\s*(?:说明|描述|备注)$/);
+    if (match && match[1]?.trim()) return match[1].trim();
+
+    match = normalized.match(/^(?:说明|描述|备注)\s*[-_:：]?\s*(.+)$/);
+    if (match && match[1]?.trim()) return match[1].trim();
+
+    match = normalized.match(/^(.+?)\s*[_\-\s]+(?:desc|description|note|notes)$/i);
+    if (match && match[1]?.trim()) return match[1].trim();
+
+    match = normalized.match(/^(?:desc|description|note|notes)\s*[-_:：]?\s*(.+)$/i);
+    if (match && match[1]?.trim()) return match[1].trim();
+
+    return null;
+};
+
 // 从"随机总库"分页读取所有库（表头=库名，列=值）
 // 支持分类联动：如果表头有"XX分类"列，则解析为带分类的值
 export const fetchMasterSheetLibraries = async (
@@ -851,14 +874,35 @@ export const fetchMasterSheetLibraries = async (
             const headers = parseCSVLine(lines[0]);
             if (headers.length === 0) continue;
 
+            const trimmedHeaders = headers.map(h => (h || '').trim());
+            const possibleLibraryNames = new Set<string>();
+            trimmedHeaders.forEach(header => {
+                if (!header || header.endsWith('分类')) return;
+                possibleLibraryNames.add(header);
+                // 兼容 "分类-库名" 的库名识别
+                const dashMatch = header.match(/^(.+)-(.+)$/);
+                if (dashMatch?.[2]?.trim()) {
+                    possibleLibraryNames.add(dashMatch[2].trim());
+                }
+            });
+            const descriptionColumns = new Map<string, number>(); // 库名 -> 说明列索引
+            trimmedHeaders.forEach((header, colIndex) => {
+                const targetName = extractDescriptionTargetName(header);
+                if (targetName && possibleLibraryNames.has(targetName)) {
+                    descriptionColumns.set(targetName, colIndex);
+                }
+            });
+            const descriptionColumnIndices = new Set(descriptionColumns.values());
+
             // 识别哪些列是值列，哪些是分类列
             // 分类列的表头格式："XX分类"，紧跟在值列后面
             // 也支持"分类-库名"格式的表头
             const libraryColumns: { name: string; valueIndex: number; categoryIndex?: number; defaultCategory?: string }[] = [];
 
             for (let i = 0; i < headers.length; i++) {
-                const header = headers[i];
+                const header = trimmedHeaders[i];
                 if (!header) continue;
+                if (descriptionColumnIndices.has(i)) continue; // 说明列，不作为值列处理
 
                 // 检查是否是分类列（以"分类"结尾）
                 if (header.endsWith('分类')) {
@@ -889,6 +933,7 @@ export const fetchMasterSheetLibraries = async (
 
             // 解析数据行
             const libraryData: Map<string, { values: string[]; valuesWithCategory: LibraryValue[] }> = new Map();
+            const libraryDescriptions = new Map<string, string>();
 
             libraryColumns.forEach(col => {
                 libraryData.set(col.name, { values: [], valuesWithCategory: [] });
@@ -896,6 +941,15 @@ export const fetchMasterSheetLibraries = async (
 
             for (let i = 1; i < lines.length; i++) {
                 const row = parseCSVLine(lines[i]);
+
+                // 优先读取每个库第一条非空说明
+                descriptionColumns.forEach((colIndex, libName) => {
+                    if (libraryDescriptions.has(libName)) return;
+                    const description = row[colIndex]?.trim();
+                    if (description) {
+                        libraryDescriptions.set(libName, description);
+                    }
+                });
 
                 libraryColumns.forEach(col => {
                     const rawValue = row[col.valueIndex]?.trim();
@@ -958,6 +1012,7 @@ export const fetchMasterSheetLibraries = async (
                     libraries.push({
                         id: `lib_master_${Date.now()}_${secureRandomId(5)}`,
                         name: name,
+                        description: libraryDescriptions.get(name),
                         values: data.values,
                         valuesWithCategory: (hasCategories || hasImageUrls) ? data.valuesWithCategory : undefined,
                         hasImageUrls: hasImageUrls || undefined,
@@ -1029,9 +1084,43 @@ export const fetchMasterSheetWithGroup = async (
         // 分类列的数据会作为对应库的valuesWithCategory导入
         const categoryColumns = new Map<string, number>(); // 库名 -> 分类列索引
         const libraryColumns = new Map<string, number>(); // 库名 -> 值列索引
+        const descriptionColumns = new Map<string, number>(); // 库名 -> 说明列索引
+        const trimmedHeaders = headers.map(h => (h || '').trim());
+        const libraryAliasMap = new Map<string, string>(); // 别名 -> 实际库名（列名）
+        const aliasConflicts = new Set<string>(); // 同一别名对应多个库时视为冲突，避免误配
+        const registerAlias = (alias: string, libraryName: string) => {
+            const normalizedAlias = alias.trim();
+            if (!normalizedAlias) return;
+            const existing = libraryAliasMap.get(normalizedAlias);
+            if (existing && existing !== libraryName) {
+                aliasConflicts.add(normalizedAlias);
+                libraryAliasMap.delete(normalizedAlias);
+                return;
+            }
+            if (!aliasConflicts.has(normalizedAlias)) {
+                libraryAliasMap.set(normalizedAlias, libraryName);
+            }
+        };
 
-        headers.forEach((header, colIndex) => {
+        trimmedHeaders.forEach(header => {
+            if (!header || header.endsWith('分类')) return;
+            registerAlias(header, header);
+            const dashMatch = header.match(/^(.+)-(.+)$/);
+            if (dashMatch?.[2]?.trim()) {
+                registerAlias(dashMatch[2], header);
+            }
+        });
+
+        trimmedHeaders.forEach((header, colIndex) => {
             if (!header) return;
+            const targetName = extractDescriptionTargetName(header);
+            const mappedLibraryName = targetName && !aliasConflicts.has(targetName)
+                ? libraryAliasMap.get(targetName)
+                : undefined;
+            if (mappedLibraryName) {
+                descriptionColumns.set(mappedLibraryName, colIndex);
+                return;
+            }
             if (header.endsWith('分类')) {
                 // 这是分类列，找出对应的库名
                 const libName = header.slice(0, -2); // 去掉"分类"后缀
@@ -1043,12 +1132,21 @@ export const fetchMasterSheetWithGroup = async (
 
         // 解析数据行，同时收集值和分类
         const libraryData: Map<string, { values: string[], categories: string[], imageUrlCount: number }> = new Map();
+        const libraryDescriptions = new Map<string, string>();
         libraryColumns.forEach((_, name) => {
             libraryData.set(name, { values: [], categories: [], imageUrlCount: 0 });
         });
 
         for (let i = 1; i < lines.length; i++) {
             const row = parseCSVLine(lines[i]);
+            // 优先读取每个库第一条非空说明
+            descriptionColumns.forEach((colIndex, libName) => {
+                if (libraryDescriptions.has(libName)) return;
+                const description = row[colIndex]?.trim();
+                if (description) {
+                    libraryDescriptions.set(libName, description);
+                }
+            });
             libraryColumns.forEach((colIndex, libName) => {
                 const rawValue = row[colIndex]?.trim();
                 if (rawValue) {
@@ -1089,6 +1187,7 @@ export const fetchMasterSheetWithGroup = async (
 
         console.log('[fetchMasterSheetWithGroup] 分页:', sheetName, '表头:', headers, '数据行数:', lines.length - 1);
         console.log('[fetchMasterSheetWithGroup] 分类列配对:', Object.fromEntries(categoryColumns));
+        console.log('[fetchMasterSheetWithGroup] 说明列配对:', Object.fromEntries(descriptionColumns));
 
         libraryData.forEach((data, name) => {
             console.log(`[fetchMasterSheetWithGroup] 库 "${name}" 值数量:`, data.values.length, '分类数量:', data.categories.length, '图片URL数量:', data.imageUrlCount);
@@ -1120,6 +1219,7 @@ export const fetchMasterSheetWithGroup = async (
             libraries.push({
                 id: `lib_${groupName}_${Date.now()}_${secureRandomId(5)}`,
                 name: name,
+                description: libraryDescriptions.get(name),
                 values: data.values,
                 valuesWithCategory,
                 hasImageUrls: hasImageUrls || undefined,
@@ -1390,6 +1490,9 @@ export const importFromGoogleSheets = async (
         if (existing) {
             // 同名库：合并值（保留重复）
             existing.values = [...existing.values, ...sheetLib.values];
+            if (!existing.description && sheetLib.description) {
+                existing.description = sheetLib.description;
+            }
             existing.updatedAt = Date.now();
         } else {
             // 新库：直接添加
@@ -1413,6 +1516,9 @@ export const importFromGoogleSheets = async (
             if (existing) {
                 // 保留重复值
                 existing.values = [...existing.values, ...newLib.values];
+                if (newLib.description) {
+                    existing.description = newLib.description;
+                }
                 existing.updatedAt = Date.now();
             } else {
                 existingLibraries.push(newLib);
@@ -2150,6 +2256,87 @@ export const generateCartesianCombinations = (
     return allCombinations.map(combo => {
         return combo.map((value, index) => `${libraryPicks[index].name}：${value}`).join('，');
     });
+};
+
+/**
+ * 遍历模式组合生成
+ * 标记为 traverseAll 的库会按顺序遍历所有值（循环），其他库随机。
+ * count 由外部控制（如创新个数）：
+ *   - count <= 库值数量：取前 N 个值
+ *   - count > 库值数量：循环（i % values.length）
+ * 如果有多个 traverseAll 库，使用笛卡尔积然后截取 count 个。
+ */
+export const generateTraverseCombinations = (
+    config: RandomLibraryConfig,
+    count: number
+): string[] => {
+    if (!config.enabled) return [];
+
+    const enabledLibraries = config.libraries.filter(lib => lib.enabled && lib.values.length > 0);
+    if (enabledLibraries.length === 0) return [];
+
+    const traverseLibs = enabledLibraries.filter(lib => lib.traverseAll);
+    const randomLibs = enabledLibraries.filter(lib => !lib.traverseAll);
+
+    if (traverseLibs.length === 0) {
+        // 没有遍历库，退化为普通随机
+        return generateMultipleUniqueCombinations(config, count);
+    }
+
+    // 计算遍历库的笛卡尔积（如果有多个遍历库）
+    const traverseArrays = traverseLibs.map(lib => lib.values);
+    const cartesian = (arrays: string[][]): string[][] => {
+        if (arrays.length === 0) return [[]];
+        const [first, ...rest] = arrays;
+        const restCombos = cartesian(rest);
+        const result: string[][] = [];
+        for (const item of first) {
+            for (const combo of restCombos) {
+                result.push([item, ...combo]);
+            }
+        }
+        return result;
+    };
+    const traverseProduct = cartesian(traverseArrays);
+
+    // 生成 count 个组合
+    const combinations: string[] = [];
+    for (let i = 0; i < count; i++) {
+        // 遍历库按顺序循环
+        const traverseValues = traverseProduct[i % traverseProduct.length];
+        const parts: string[] = [];
+
+        let traverseIdx = 0;
+        for (const lib of enabledLibraries) {
+            // 根据 participationRate 概率决定是否参与
+            const rate = lib.participationRate ?? 100;
+            if (rate < 100 && !lib.traverseAll) {
+                if (rate <= 0) continue;
+                if (secureRandom() * 100 >= rate) continue;
+            }
+
+            if (lib.traverseAll) {
+                // 使用遍历值
+                const val = traverseValues[traverseIdx];
+                traverseIdx++;
+                parts.push(`${lib.name}：${val}`);
+            } else {
+                // 随机抽取
+                const picked = pickRandomValues(lib);
+                if (picked.length > 0) {
+                    parts.push(`${lib.name}：${picked.join('、')}`);
+                }
+            }
+        }
+        combinations.push(parts.join('，'));
+    }
+
+    return combinations;
+};
+
+/** 检查配置中是否有启用的遍历模式库 */
+export const hasTraverseLibraries = (config: RandomLibraryConfig): boolean => {
+    return config.libraries.some(lib => lib.enabled && lib.traverseAll && lib.values.length > 0);
 };
 
 // 云同步：保存配置

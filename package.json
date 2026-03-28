@@ -1,7 +1,7 @@
 {
-  "name": "ai-创作工具包",
+  "name": "ai-creative-toolkit",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,7 @@
   "dependencies": {
     "@google/genai": "^1.27.0",
     "@vitejs/plugin-react": "^5.1.1",
-    "@xyflow/react": "^12.10.0",
+    "@xyflow/react": "^12.10.1",
     "dagre": "^0.8.5",
     "file-saver": "^2.0.5",
     "firebase": "^12.7.0",

@@ -30,7 +30,9 @@ import {
     Share2,
     Globe,
     User,
-    Loader2
+    Loader2,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getPublicPresets, sharePresetToPublic, deletePublicPreset, PublicPreset, PRESET_CATEGORIES, PresetCategory } from './publicPresetService';
@@ -42,6 +44,7 @@ export interface CopywritingPreset {
     instruction: string;
     createdAt: number;
     isBuiltin?: boolean;  // 内置预设标记
+    presetCategory?: string; // 预设分类：改写预设 / 分类预设 / 拆分预设
 }
 
 interface PresetManagerProps {
@@ -49,6 +52,9 @@ interface PresetManagerProps {
     onClose: () => void;
     presets: CopywritingPreset[];
     builtinPresets: CopywritingPreset[];
+    hiddenPresetIds: string[];
+    onTogglePresetVisibility: (presetId: string) => void;
+    onSetHiddenPresetIds: (ids: string[]) => void;
     onPresetsChange: (presets: CopywritingPreset[]) => void;
     onSelectPreset: (preset: CopywritingPreset) => void;
 }
@@ -58,6 +64,9 @@ export function PresetManager({
     onClose,
     presets,
     builtinPresets,
+    hiddenPresetIds,
+    onTogglePresetVisibility,
+    onSetHiddenPresetIds,
     onPresetsChange,
     onSelectPreset
 }: PresetManagerProps) {
@@ -354,6 +363,31 @@ export function PresetManager({
                     >
                         <Download className="w-4 h-4" /> 导出
                     </button>
+                    {/* 总开关 */}
+                    {(() => {
+                        const allIds = [...builtinPresets.map(p => p.id), ...presets.map(p => p.id)];
+                        const allHidden = allIds.length > 0 && allIds.every(id => hiddenPresetIds.includes(id));
+                        return (
+                            <button
+                                onClick={() => {
+                                    if (allHidden) {
+                                        onSetHiddenPresetIds([]);
+                                        showToast('已显示全部预设');
+                                    } else {
+                                        onSetHiddenPresetIds(allIds);
+                                        showToast('已隐藏全部预设');
+                                    }
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ml-auto ${
+                                    allHidden
+                                        ? 'bg-zinc-700 hover:bg-zinc-600 text-zinc-400'
+                                        : 'bg-amber-900/40 hover:bg-amber-900/60 text-amber-400 border border-amber-700/50'
+                                }`}
+                            >
+                                {allHidden ? <><EyeOff className="w-4 h-4" /> 全部隐藏</> : <><Eye className="w-4 h-4" /> 全部显示</>}
+                            </button>
+                        );
+                    })()}
                     <input
                         ref={fileInputRef}
                         type="file"
@@ -413,49 +447,85 @@ export function PresetManager({
                         </div>
                     )}
 
-                    {/* Builtin Presets Section */}
+                    {/* Builtin Presets Section - 按分类分组显示 */}
                     <div className="mb-4">
                         <div className="text-xs text-zinc-500 mb-2 flex items-center gap-1">
                             <FileText className="w-3 h-3" /> 内置预设
                         </div>
-                        {builtinPresets.map((preset) => (
-                            <div
-                                key={preset.id}
-                                className="bg-zinc-800/50 border border-zinc-700 rounded-lg mb-2 overflow-hidden"
-                            >
-                                <div
-                                    className="flex items-center gap-2 p-2.5 cursor-pointer hover:bg-zinc-700/50"
-                                    onClick={() => setExpandedId(expandedId === preset.id ? null : preset.id)}
-                                >
-                                    <span className="text-sm font-medium text-zinc-300 flex-1">
-                                        {preset.name}
-                                    </span>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleUsePreset(preset); }}
-                                        className="px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded"
-                                    >
-                                        使用
-                                    </button>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleDuplicatePreset(preset); }}
-                                        className="p-1 text-zinc-500 hover:text-zinc-300 tooltip-bottom"
-                                         data-tip="复制为自定义预设"
-                                    >
-                                        <Copy className="w-4 h-4" />
-                                    </button>
-                                    {expandedId === preset.id ? (
-                                        <ChevronUp className="w-4 h-4 text-zinc-500" />
-                                    ) : (
-                                        <ChevronDown className="w-4 h-4 text-zinc-500" />
-                                    )}
-                                </div>
-                                {expandedId === preset.id && (
-                                    <div className="px-3 pb-3 text-xs text-zinc-400 bg-zinc-900/50 border-t border-zinc-700">
-                                        <pre className="whitespace-pre-wrap mt-2">{preset.instruction}</pre>
+                        {(() => {
+                            // 按 presetCategory 分组
+                            const groups: Record<string, CopywritingPreset[]> = {};
+                            builtinPresets.forEach(preset => {
+                                const cat = (preset as any).presetCategory || '其他预设';
+                                if (!groups[cat]) groups[cat] = [];
+                                groups[cat].push(preset);
+                            });
+                            const categoryOrder = ['改写预设', '分类预设', '拆分预设', '其他预设'];
+                            const sortedCategories = Object.keys(groups).sort((a, b) => {
+                                const ia = categoryOrder.indexOf(a);
+                                const ib = categoryOrder.indexOf(b);
+                                return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+                            });
+
+                            return sortedCategories.map(category => (
+                                <div key={category} className="mb-3">
+                                    <div className="text-[10px] text-zinc-400 mb-1.5 flex items-center gap-1 px-1">
+                                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+                                            category === '改写预设' ? 'bg-amber-500' :
+                                            category === '分类预设' ? 'bg-cyan-500' :
+                                            category === '拆分预设' ? 'bg-orange-500' : 'bg-zinc-500'
+                                        }`} />
+                                        {category}
+                                        <span className="text-zinc-600">({groups[category].length})</span>
                                     </div>
-                                )}
-                            </div>
-                        ))}
+                                    {groups[category].map((preset) => (
+                                        <div
+                                            key={preset.id}
+                                            className="bg-zinc-800/50 border border-zinc-700 rounded-lg mb-2 overflow-hidden"
+                                        >
+                                            <div
+                                                className="flex items-center gap-2 p-2.5 cursor-pointer hover:bg-zinc-700/50"
+                                                onClick={() => setExpandedId(expandedId === preset.id ? null : preset.id)}
+                                            >
+                                                <span className="text-sm font-medium text-zinc-300 flex-1">
+                                                    {preset.name}
+                                                </span>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleUsePreset(preset); }}
+                                                    className="px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded"
+                                                >
+                                                    使用
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); onTogglePresetVisibility(preset.id); }}
+                                                    className={`p-1 transition-colors tooltip-bottom ${hiddenPresetIds.includes(preset.id) ? 'text-zinc-600 hover:text-zinc-400' : 'text-amber-400/60 hover:text-amber-400'}`}
+                                                    data-tip={hiddenPresetIds.includes(preset.id) ? '已隐藏，点击显示在快速栏' : '已显示，点击从快速栏隐藏'}
+                                                >
+                                                    {hiddenPresetIds.includes(preset.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDuplicatePreset(preset); }}
+                                                    className="p-1 text-zinc-500 hover:text-zinc-300 tooltip-bottom"
+                                                     data-tip="复制为自定义预设"
+                                                >
+                                                    <Copy className="w-4 h-4" />
+                                                </button>
+                                                {expandedId === preset.id ? (
+                                                    <ChevronUp className="w-4 h-4 text-zinc-500" />
+                                                ) : (
+                                                    <ChevronDown className="w-4 h-4 text-zinc-500" />
+                                                )}
+                                            </div>
+                                            {expandedId === preset.id && (
+                                                <div className="px-3 pb-3 text-xs text-zinc-400 bg-zinc-900/50 border-t border-zinc-700">
+                                                    <pre className="whitespace-pre-wrap mt-2">{preset.instruction}</pre>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ));
+                        })()}
                     </div>
 
                     {/* User Presets Section */}
@@ -524,6 +594,13 @@ export function PresetManager({
                                                     className="px-2 py-1 text-xs bg-green-600 hover:bg-green-500 text-white rounded"
                                                 >
                                                     使用
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); onTogglePresetVisibility(preset.id); }}
+                                                    className={`p-1 transition-colors tooltip-bottom ${hiddenPresetIds.includes(preset.id) ? 'text-zinc-600 hover:text-zinc-400' : 'text-amber-400/60 hover:text-amber-400'}`}
+                                                    data-tip={hiddenPresetIds.includes(preset.id) ? '已隐藏，点击显示在快速栏' : '已显示，点击从快速栏隐藏'}
+                                                >
+                                                    {hiddenPresetIds.includes(preset.id) ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                                 </button>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); startEditing(preset); }}

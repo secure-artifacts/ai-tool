@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
 import { Copy, Check, FileText, Globe, Languages, RefreshCw, Plus, FolderOpen, Pencil } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from '@google/genai';
+import { shouldUseAiStudioMode } from '../../utils/aiStudioDetect';
 import './SmartTranslateApp.css';
 import { InstantTranslateTool } from './InstantTranslateTool';
 import { allLanguages } from './constants';
@@ -408,10 +409,11 @@ const ApiProvider: React.FC<ApiProviderProps> = ({ children, external }) => {
         if (!keyToUse) {
             throw new Error('API key is not set.');
         }
-        if (keyToUse.startsWith('AIza')) {
-            throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
-        }
+        // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
         const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
+        if (shouldUseAiStudioMode(cleanKey)) {
+            return new GoogleGenAI({ apiKey: cleanKey });
+        }
         return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
     };
 
@@ -657,7 +659,7 @@ const BatchItemCard: React.FC<{
     onDelete: (id: string) => void,
     onUpdate?: (id: string, updates: Partial<TranslateItem>) => void,
     onTranslate?: (id: string) => void
-}> = ({ item, batchTargetLanguages, batchOnlyChinese, onDelete, onUpdate, onTranslate }) => {
+}> = React.memo(({ item, batchTargetLanguages, batchOnlyChinese, onDelete, onUpdate, onTranslate }) => {
     const { t } = useTranslation();
     const { setSettingsOpen } = useApi();
     const [copied, setCopied] = useState(false);
@@ -1132,6 +1134,83 @@ const BatchItemCard: React.FC<{
             </div>
         </div>
     );
+});
+
+// ========== Paginated Batch Queue ==========
+// 分页加载：先显示30条，加到底部自动加载更多
+const PAGE_SIZE = 30;
+
+const VirtualizedBatchQueue: React.FC<{
+    items: TranslateItem[];
+    effectiveBatchLanguages: string[];
+    batchOnlyChinese: boolean;
+    onDelete: (id: string) => void;
+    onUpdate: (id: string, updates: Partial<TranslateItem>) => void;
+    onTranslate: (id: string) => void;
+}> = ({ items, effectiveBatchLanguages, batchOnlyChinese, onDelete, onUpdate, onTranslate }) => {
+    const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
+    const sentinelRef = useRef<HTMLDivElement>(null);
+
+    // 当 items 变化时（如清空），重置 displayCount
+    useEffect(() => {
+        if (items.length <= PAGE_SIZE) {
+            setDisplayCount(PAGE_SIZE);
+        }
+    }, [items.length]);
+
+    // IntersectionObserver 自动加载更多
+    useEffect(() => {
+        if (displayCount >= items.length) return; // 已经全部显示
+
+        const sentinel = sentinelRef.current;
+        if (!sentinel) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0]?.isIntersecting) {
+                    setDisplayCount(prev => Math.min(prev + PAGE_SIZE, items.length));
+                }
+            },
+            { rootMargin: '200px' } // 提前200px开始加载
+        );
+
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [displayCount, items.length]);
+
+    const visibleItems = items.slice(0, displayCount);
+    const hasMore = displayCount < items.length;
+
+    return (
+        <div className="batch-queue">
+            {visibleItems.map(item => (
+                <BatchItemCard
+                    key={item.id}
+                    item={item}
+                    batchTargetLanguages={effectiveBatchLanguages}
+                    batchOnlyChinese={batchOnlyChinese}
+                    onDelete={onDelete}
+                    onUpdate={onUpdate}
+                    onTranslate={onTranslate}
+                />
+            ))}
+            {hasMore && (
+                <div
+                    ref={sentinelRef}
+                    style={{
+                        padding: '12px',
+                        textAlign: 'center',
+                        color: 'var(--text-muted-color, #888)',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                    }}
+                    onClick={() => setDisplayCount(prev => Math.min(prev + PAGE_SIZE, items.length))}
+                >
+                    已显示 {displayCount}/{items.length} 条 · 点击或滚动加载更多
+                </div>
+            )}
+        </div>
+    );
 };
 
 export type SmartTranslateState = {
@@ -1321,6 +1400,7 @@ const TranslateTool = ({
     const [showProjectPanel, setShowProjectPanel] = useState(false);
     const [currentProject, setCurrentProject] = useState<Project | null>(null);
     const projectInitializedRef = useRef(false);
+    const batchTextareaRef = useRef<HTMLTextAreaElement>(null);
     const lastSavedStateRef = useRef<string>('');
     const isCreatingProjectRef = useRef(false); // 防止重复创建项目的竞态条件
     const { user } = useAuth();
@@ -1448,16 +1528,18 @@ const TranslateTool = ({
     const [isDragging, setIsDragging] = useState(false);
     // 批次大小（用户可自定义，localStorage 持久化）
     const BATCH_SIZE_KEY = 'smart_translate_batch_size';
+    const ST_BATCH_SIZE_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50];
     const [batchSize, setBatchSize] = useState(() => {
-        try { const v = localStorage.getItem(BATCH_SIZE_KEY); return v ? Math.max(1, Math.min(20, parseInt(v))) : 10; } catch { return 10; }
+        try { const v = localStorage.getItem(BATCH_SIZE_KEY); return v ? Math.max(1, Math.min(50, parseInt(v))) : 10; } catch { return 10; }
     });
     const handleBatchSizeChange = (val: number) => {
-        const clamped = Math.max(1, Math.min(20, val));
+        const clamped = Math.max(1, Math.min(50, isNaN(val) ? 10 : val));
         setBatchSize(clamped);
         try { localStorage.setItem(BATCH_SIZE_KEY, String(clamped)); } catch { }
     };
     const processingIdsRef = useRef<Set<string>>(new Set());
     const activeWorkersRef = useRef(0);
+    const stopRef = useRef(false);
 
     // 自动保存状态到项目（仅批量模式）
     // 即时模式在 InstantTranslateTool 组件中单独处理
@@ -1711,9 +1793,10 @@ const TranslateTool = ({
     };
 
     const parseInputAndAddItems = () => {
-        if (!inputText.trim()) return;
+        const text = batchTextareaRef.current?.value || '';
+        if (!text.trim()) return;
 
-        const lines = inputText.split(/\n+/);
+        const lines = text.split(/\n+/);
         const newItems: TranslateItem[] = [];
 
         lines.forEach(line => {
@@ -1722,7 +1805,7 @@ const TranslateTool = ({
         });
 
         setItems(prev => [...prev, ...newItems]);
-        setInputText("");
+        if (batchTextareaRef.current) batchTextareaRef.current.value = '';
     };
 
     // Add empty item for manual input
@@ -1739,10 +1822,25 @@ const TranslateTool = ({
 
     // Processing Logic
     const processQueue = async () => {
+        stopRef.current = false;
         parseInputAndAddItems();
         // Allow state to settle
         await new Promise(r => setTimeout(r, 50));
         setIsProcessing(true);
+    };
+
+    // --- Stop / Pause processing ---
+    const handleStopProcessing = () => {
+        stopRef.current = true;
+        setIsProcessing(false);
+        activeWorkersRef.current = 0;
+        processingIdsRef.current.clear();
+        // 把所有还在 processing 的项目恢复为 idle
+        setItems(prev => prev.map(item =>
+            (item.status as string).startsWith('processing')
+                ? { ...item, status: 'idle' as const }
+                : item
+        ));
     };
 
     useEffect(() => {
@@ -1877,6 +1975,9 @@ Here are the ${batch.length} items:
 
 ${numberedTexts}`;
 
+            // 429 重试逻辑
+            const MAX_TRANSLATE_RETRIES = 3;
+            for (let attempt = 0; attempt <= MAX_TRANSLATE_RETRIES; attempt++) {
             try {
                 const translateResponse = await retryOnEmpty(
                     () => ai.models.generateContent({
@@ -1955,10 +2056,21 @@ ${numberedTexts}`;
                     });
                 });
 
+                break; // 成功，跳出重试循环
+
             } catch (e: any) {
+                const is429 = e?.message?.includes('429') || e?.message?.includes('RESOURCE_EXHAUSTED') || e?.status === 429;
+                if (is429 && attempt < MAX_TRANSLATE_RETRIES) {
+                    const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
+                    console.warn(`[翻译] 429 rate limit, retry ${attempt + 1}/${MAX_TRANSLATE_RETRIES} after ${delay}ms`);
+                    await new Promise(r => setTimeout(r, delay));
+                    continue;
+                }
                 console.error('Batch translate error:', e);
                 batch.forEach(b => updateItemById(b.id, { status: 'error', error: e.message || '翻译失败' }));
+                break;
             }
+            } // end retry loop
         };
 
         // 主调度逻辑
@@ -1985,6 +2097,7 @@ ${numberedTexts}`;
             // 1. 并发 OCR 图片（最多 batchSize 个同时）
             const ocrResults: { id: string; text: string }[] = [];
             for (let i = 0; i < imageItems.length; i += batchSize) {
+                if (stopRef.current) break;
                 const chunk = imageItems.slice(i, i + batchSize);
                 const results = await Promise.allSettled(
                     chunk.map(async item => {
@@ -2013,8 +2126,16 @@ ${numberedTexts}`;
 
             // 3. 分批翻译（每批 batchSize 条）
             for (let i = 0; i < allToTranslate.length; i += batchSize) {
+                if (stopRef.current) break;
                 const batch = allToTranslate.slice(i, i + batchSize);
                 await translateBatch(batch);
+            }
+
+            // 如果被停止，不自动完成
+            if (stopRef.current) {
+                idleItems.forEach(i => processingIdsRef.current.delete(i.id));
+                activeWorkersRef.current = 0;
+                return;
             }
 
             // 清理
@@ -2334,10 +2455,27 @@ Text to translate:
 ${textToTranslate}
 """`;
 
-            const translateResponse = await ai.models.generateContent({
-                model: textModel,
-                contents: translatePrompt
-            });
+            // 429 重试逻辑
+            const MAX_SINGLE_RETRIES = 3;
+            let translateResponse: any = null;
+            for (let attempt = 0; attempt <= MAX_SINGLE_RETRIES; attempt++) {
+                try {
+                    translateResponse = await ai.models.generateContent({
+                        model: textModel,
+                        contents: translatePrompt
+                    });
+                    break; // 成功
+                } catch (retryErr: any) {
+                    const is429 = retryErr?.message?.includes('429') || retryErr?.message?.includes('RESOURCE_EXHAUSTED') || retryErr?.status === 429;
+                    if (is429 && attempt < MAX_SINGLE_RETRIES) {
+                        const delay = (attempt + 1) * 5000;
+                        console.warn(`[翻译] 429 rate limit, retry ${attempt + 1}/${MAX_SINGLE_RETRIES} after ${delay}ms`);
+                        await new Promise(r => setTimeout(r, delay));
+                        continue;
+                    }
+                    throw retryErr; // 非 429 或重试用尽，抛出
+                }
+            }
 
             let translatedText = translateResponse.text ?? '';
             let chineseText = '';
@@ -2422,7 +2560,7 @@ ${textToTranslate}
 
     const handleClear = () => {
         setItems([]);
-        setInputText("");
+        if (batchTextareaRef.current) batchTextareaRef.current.value = '';
     };
 
     const handleBatchCopy = async () => {
@@ -2706,22 +2844,38 @@ ${textToTranslate}
                                 ↻ 重试失败
                             </button>
                         )}
-                        <select
+                        <input
+                            type="number"
+                            list="st-batch-size-options"
                             className="batch-size-select"
                             value={batchSize}
                             onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
                             title="每批翻译数量"
+                            min={1}
+                            max={50}
                             disabled={isProcessing}
-                        >
-                            {[1, 2, 3, 5, 8, 10, 15, 20].map(n => <option key={n} value={n}>{n}条/批</option>)}
-                        </select>
-                        <button
-                            className="btn btn-primary"
-                            onClick={processQueue}
-                            disabled={isProcessing || items.every(i => i.status === 'success' || i.status === 'error')}
-                        >
-                            {isProcessing ? <Loader small /> : '翻译'}
-                        </button>
+                            style={{ width: '70px' }}
+                        />
+                        <datalist id="st-batch-size-options">
+                            {ST_BATCH_SIZE_OPTIONS.map(n => <option key={n} value={n} />)}
+                        </datalist>
+                        {isProcessing ? (
+                            <button
+                                className="btn btn-danger"
+                                onClick={handleStopProcessing}
+                                style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                            >
+                                ⏹ 停止
+                            </button>
+                        ) : (
+                            <button
+                                className="btn btn-primary"
+                                onClick={processQueue}
+                                disabled={items.every(i => i.status === 'success' || i.status === 'error')}
+                            >
+                                翻译
+                            </button>
+                        )}
                         <button
                             className="expand-input-btn tooltip-bottom"
                             onClick={() => setIsInputCollapsed(false)}
@@ -2874,13 +3028,23 @@ ${textToTranslate}
                                     {items.length > 0 && (
                                         <button className="text-btn" onClick={handleClear}>{t('clearQueue')}</button>
                                     )}
-                                    <button
-                                        className="btn btn-primary"
-                                        onClick={processQueue}
-                                        disabled={isProcessing || items.every(i => i.status === 'success' || i.status === 'error')}
-                                    >
-                                        {isProcessing ? <Loader small /> : t('translateButton')}
-                                    </button>
+                                    {isProcessing ? (
+                                        <button
+                                            className="btn btn-danger"
+                                            onClick={handleStopProcessing}
+                                            style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                                        >
+                                            ⏹ 停止
+                                        </button>
+                                    ) : (
+                                        <button
+                                            className="btn btn-primary"
+                                            onClick={processQueue}
+                                            disabled={items.every(i => i.status === 'success' || i.status === 'error')}
+                                        >
+                                            {t('translateButton')}
+                                        </button>
+                                    )}
                                     <button
                                         className="expand-input-btn tooltip-bottom"
                                         onClick={() => setIsInputCollapsed(false)}
@@ -2902,8 +3066,8 @@ ${textToTranslate}
                                 <textarea
                                     className="batch-textarea"
                                     placeholder={t('inputPlaceholder')}
-                                    value={inputText}
-                                    onChange={e => setInputText(e.target.value)}
+                                    ref={batchTextareaRef}
+                                    defaultValue=""
                                     onKeyDown={e => {
                                         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                                             processQueue();
@@ -3026,22 +3190,38 @@ ${textToTranslate}
                                                 🔄 {t('retranslateAll') || '重新翻译'}
                                             </button>
                                         )}
-                                        <select
+                                        <input
+                                            type="number"
+                                            list="st-batch-size-options-full"
                                             className="batch-size-select"
                                             value={batchSize}
                                             onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
                                             title="每批翻译数量"
+                                            min={1}
+                                            max={50}
                                             disabled={isProcessing}
-                                        >
-                                            {[1, 2, 3, 5, 8, 10, 15, 20].map(n => <option key={n} value={n}>{n}条/批</option>)}
-                                        </select>
-                                        <button
-                                            className="btn btn-primary"
-                                            onClick={processQueue}
-                                            disabled={isProcessing || (!inputText.trim() && items.every(i => i.status === 'success' || i.status === 'error'))}
-                                        >
-                                            {isProcessing ? <Loader small /> : t('translateButton')}
-                                        </button>
+                                            style={{ width: '70px' }}
+                                        />
+                                        <datalist id="st-batch-size-options-full">
+                                            {ST_BATCH_SIZE_OPTIONS.map(n => <option key={n} value={n} />)}
+                                        </datalist>
+                                        {isProcessing ? (
+                                            <button
+                                                className="btn btn-danger"
+                                                onClick={handleStopProcessing}
+                                                style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                                            >
+                                                ⏹ 停止
+                                            </button>
+                                        ) : (
+                                            <button
+                                                className="btn btn-primary"
+                                                onClick={processQueue}
+                                                disabled={items.length === 0 && items.every(i => i.status === 'success' || i.status === 'error')}
+                                            >
+                                                {t('translateButton')}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -3106,19 +3286,14 @@ ${textToTranslate}
                         )}
                     </div>
 
-                    <div className="batch-queue">
-                        {items.map(item => (
-                            <BatchItemCard
-                                key={item.id}
-                                item={item}
-                                batchTargetLanguages={effectiveBatchLanguages}
-                                batchOnlyChinese={batchOnlyChinese}
-                                onDelete={handleDelete}
-                                onUpdate={handleUpdateItem}
-                                onTranslate={handleTranslateItem}
-                            />
-                        ))}
-                    </div>
+                    <VirtualizedBatchQueue
+                        items={items}
+                        effectiveBatchLanguages={effectiveBatchLanguages}
+                        batchOnlyChinese={batchOnlyChinese}
+                        onDelete={handleDelete}
+                        onUpdate={handleUpdateItem}
+                        onTranslate={handleTranslateItem}
+                    />
                 </>
             )}
 
@@ -3520,7 +3695,7 @@ const SmartTranslateApp: React.FC<SmartTranslateAppProps> = ({
     setLanguage,
     theme,
     toggleTheme,
-    textModel = 'gemini-3.1-flash-lite-preview',
+    textModel = 'gemini-3-flash-preview',
     imageModel = 'gemini-2.5-flash-image',
     state,
     setState,

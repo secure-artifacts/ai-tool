@@ -5118,11 +5118,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         const outputRows: string[][] = [];
 
         orderedGroups.forEach(([groupKey, rows]) => {
-            // Add group header row (group name with note if exists)
-            const note = config.groupNotes?.[groupKey] || '';
-            const headerText = note ? `${groupKey} — ${note}` : groupKey;
-            outputRows.push([headerText]);
-
             // Extract rows with their image URLs and data
             const rowsWithImages = rows
                 .map(row => {
@@ -5143,43 +5138,40 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 const chunk = rowsWithImages.slice(i, i + columnsPerRow);
 
                 if (includeExtraData && selectedColumns.length > 0) {
-                    // Add column name labels in first column, then data
+                    // Add column name labels in first column, with groupKey prepended
                     selectedColumns.forEach(colName => {
-                        const dataRow = [colName]; // First cell is column name
+                        const dataRow = [groupKey, colName]; // First cell is group name, second is column name
                         chunk.forEach(item => {
                             dataRow.push(item.extraData[colName] || '');
                         });
                         // Pad with empty cells if needed
-                        while (dataRow.length < columnsPerRow + 1) {
+                        while (dataRow.length < columnsPerRow + 2) {
                             dataRow.push('');
                         }
                         outputRows.push(dataRow);
                     });
 
-                    // Add image row with label
-                    const imageRow = ['缩略图'];
+                    // Add image row with groupKey prepended
+                    const imageRow = [groupKey, '缩略图'];
                     chunk.forEach(item => {
                         imageRow.push(item.formula);
                     });
-                    while (imageRow.length < columnsPerRow + 1) {
+                    while (imageRow.length < columnsPerRow + 2) {
                         imageRow.push('');
                     }
                     outputRows.push(imageRow);
-
-                    // Add empty separator row
-                    outputRows.push([]);
                 } else {
-                    // Original behavior - just images
-                    const rowImages = chunk.map(item => item.formula);
-                    while (rowImages.length < columnsPerRow) {
+                    // Images only - prepend groupKey as first column
+                    const rowImages = [groupKey];
+                    chunk.forEach(item => {
+                        rowImages.push(item.formula);
+                    });
+                    while (rowImages.length < columnsPerRow + 1) {
                         rowImages.push('');
                     }
                     outputRows.push(rowImages);
                 }
             }
-
-            // Add empty row between groups
-            outputRows.push([]);
         });
 
         // Convert to TSV format
@@ -6588,7 +6580,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             <div className="relative flex-1 flex overflow-hidden flex-overflow-container">
                 {/* Thin side icon bar - completely absolute and overlapping */}
                 <div
-                    className="absolute top-0 left-0 bottom-0 w-8 lg:w-10 bg-gradient-to-r from-black/5 to-transparent flex flex-col items-center py-4 z-40 transition-opacity opacity-20 hover:opacity-100"
+                    className="absolute top-0 left-0 bottom-0 w-8 lg:w-10 bg-gradient-to-r from-black/5 to-transparent flex flex-col items-center py-4 z-40 transition-opacity opacity-50 hover:opacity-100"
                 >
                     <button
                         onClick={() => setShowConfig(!showConfig)}

@@ -231,6 +231,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     const [appendHtmlContent, setAppendHtmlContent] = useState<string | null>(null); // Google Sheets HTML
     const [appendLoading, setAppendLoading] = useState(false);
     const appendTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const settingsBtnRef = useRef<HTMLButtonElement>(null);
 
     // ==================== Unified Settings State ====================
     const [showUnifiedSettings, setShowUnifiedSettings] = useState(false);
@@ -1659,6 +1660,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         {/* Unified Settings Button with Dropdown */}
                         <div className="relative">
                             <button
+                                ref={settingsBtnRef}
                                 onClick={() => setShowUnifiedSettings(!showUnifiedSettings)}
                                 className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors shadow-sm ${showUnifiedSettings
                                     ? 'bg-indigo-600 text-white'
@@ -1685,6 +1687,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 dedupMode={dedupMode}
                                 onDedupModeChange={setDedupMode}
                                 duplicateStats={duplicateStats}
+                                anchorRef={settingsBtnRef}
                             />
                         </div>
 

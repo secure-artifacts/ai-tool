@@ -39,6 +39,8 @@ import {
     generateRandomCombination,
     generateMultipleUniqueCombinations,
     generateCartesianCombinations,
+    generateTraverseCombinations,
+    hasTraverseLibraries,
     resetUsedCombinations,
     saveRandomLibraryConfig,
     loadRandomLibraryConfig,
@@ -384,9 +386,9 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     }, [splitElements, splitInstruction]);
     const [imageModel, setImageModel] = useState(() => {
         if (typeof window !== 'undefined') {
-            return localStorage.getItem('image_model') || 'gemini-3.1-flash-lite-preview';
+            return localStorage.getItem('image_model') || 'gemini-3-flash-preview';
         }
-        return 'gemini-3.1-flash-lite-preview';
+        return 'gemini-3-flash-preview';
     });
     const [sentToDescIds, setSentToDescIds] = useState<string[]>([]);
     const [sentAllCount, setSentAllCount] = useState<number | null>(null);
@@ -1521,7 +1523,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const generateText = useCallback(async (prompt: string): Promise<string> => {
         const ai = getAiInstance();
         const response = await ai.models.generateContent({
-            model: imageModel || 'gemini-3.1-flash-lite-preview',
+            model: imageModel || 'gemini-3-flash-preview',
             contents: prompt,
             config: {
                 temperature: 0.8, // 更高温度增加创意性
@@ -1551,7 +1553,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         parts.push({ text: prompt });
 
         const response = await ai.models.generateContent({
-            model: imageModel || 'gemini-3.1-flash-lite-preview',
+            model: imageModel || 'gemini-3-flash-preview',
             contents: { role: 'user', parts },
             config: {
                 temperature: 0.7,
@@ -1976,7 +1978,11 @@ ${topicsList}
                     // 随机库模式：根据设置生成多个组合
                     const combinations: string[] = [];
 
-                    if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                    if (hasTraverseLibraries(randomLibraryConfigRef.current)) {
+                        // 遍历模式：标记为遍历的库按顺序使用所有值
+                        const count = creativeCount || 5;
+                        combinations.push(...generateTraverseCombinations(randomLibraryConfigRef.current, count));
+                    } else if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                         // 笛卡尔积模式
                         const cartesian = generateCartesianCombinations(randomLibraryConfigRef.current);
                         combinations.push(...cartesian);
@@ -1989,13 +1995,30 @@ ${topicsList}
 
                     // 应用用户维度覆盖：将用户指定的值替换随机库中对应维度的随机值（支持部分覆盖）
                     // 注意：无图模式下 queue-image 模式不生效（没有图片可供提取）
-                    const overrides = quickOverridesRef.current;
+                    let overrides = { ...quickOverridesRef.current };
+                    // 合并卡片级覆盖（快捷独立模式下，有图时覆盖值存在 card.overrideTextOverrides 而非 quickOverrides）
+                    const firstImage = images[0];
+                    if (firstImage?.overrideTextOverrides) {
+                        for (const [dimName, textVal] of Object.entries(firstImage.overrideTextOverrides)) {
+                            if (textVal?.trim()) {
+                                overrides[dimName] = { ...(overrides[dimName] || {}), value: textVal, count: overrides[dimName]?.count || 0 };
+                            }
+                        }
+                    }
+                    if (firstImage?.overrideCountOverrides) {
+                        for (const [dimName, countVal] of Object.entries(firstImage.overrideCountOverrides)) {
+                            if (overrides[dimName]) {
+                                overrides[dimName] = { ...overrides[dimName], count: countVal };
+                            }
+                        }
+                    }
                     const hasActiveOverrides = Object.values(overrides).some(v => v.value?.trim());
+                    let overrideSummary = '';
                     if (hasActiveOverrides) {
                         const applied = applyPartialOverrides(combinations, overrides);
                         combinations.length = 0;
                         combinations.push(...applied);
-                        console.log('[快捷模式] 已应用维度覆盖:', overrides);
+                        overrideSummary = Object.entries(overrides).filter(([,v]) => v.value?.trim()).map(([k,v]) => `「${k}>${v.value}」`).join(' ');
                     }
 
                     const transitionInstruction = DEFAULT_TRANSITION_INSTRUCTION;
@@ -2032,7 +2055,7 @@ ${topicAsRequirement}
 
                         // 更新结果（含对话记录）
                         setTextCards(prev => prev.map(c =>
-                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: batchPrompt, response: batchResult, label: `随机库批量 (${combinations.length}组)` }] } : c
+                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: batchPrompt, response: batchResult, label: `随机库批量 (${combinations.length}组)${overrideSummary ? ' 覆盖:' + overrideSummary : ''}` }] } : c
                         ));
                     } else if (combinations.length === 1) {
                         // 单个组合：正常处理
@@ -2060,7 +2083,7 @@ ${topicAsRequirement}
                         resultsZh.push(...parsed.zh);
 
                         setTextCards(prev => prev.map(c =>
-                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: aiPrompt, response: result, label: '随机库单组' }] } : c
+                            c.id === card.id ? { ...c, results: [...results], resultsZh: [...resultsZh], aiConversationLog: [...(c.aiConversationLog || []), { timestamp: Date.now(), prompt: aiPrompt, response: result, label: `随机库单组${overrideSummary ? ' 覆盖:' + overrideSummary : ''}` }] } : c
                         ));
                     }
                 } else {
@@ -2129,9 +2152,10 @@ ${topicAsRequirement}
                     c.id === card.id ? { ...c, status: 'done', results, resultsZh } : c
                 ));
             } catch (error) {
+                const errMsg = error instanceof Error ? error.message : String(error);
                 console.error('无图创新失败:', error);
                 setTextCards(prev => prev.map(c =>
-                    c.id === card.id ? { ...c, status: 'error', results: ['生成失败'] } : c
+                    c.id === card.id ? { ...c, status: 'error', results: [errMsg || '生成失败'] } : c
                 ));
             }
         }
@@ -2167,7 +2191,10 @@ ${topicAsRequirement}
 
             if (useRandomLibrary) {
                 const combinations: string[] = [];
-                if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                if (hasTraverseLibraries(randomLibraryConfigRef.current)) {
+                    const count = creativeCount || 5;
+                    combinations.push(...generateTraverseCombinations(randomLibraryConfigRef.current, count));
+                } else if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                     const cartesian = generateCartesianCombinations(randomLibraryConfigRef.current);
                     combinations.push(...cartesian);
                 } else {
@@ -2515,21 +2542,24 @@ ${transitionInstruction}
             const id = uuidv4();
             // 检测是否是需要代理的链接（如 Facebook CDN）
             const needsRehost = isLikelyHotlinkBlocked(p.url);
+            // data: URL（如 Google Sheets 内嵌图片）也需要上传到 Gyazo，避免巨大 base64 存入历史
+            const isDataUrl = p.url.startsWith('data:');
+            const shouldUploadToGyazo = needsRehost || (isDataUrl && autoUploadGyazo);
             const isGyazoDirect = isGyazoDirectImageUrl(p.url);
             return {
                 item: {
                     id,
                     sourceType: p.type,
                     originalInput: p.content,
-                    imageUrl: isGyazoDirect ? '' : p.url,  // Gyazo 先不直显，避免错误占位图
+                    imageUrl: isGyazoDirect ? '' : (isDataUrl ? '' : p.url),  // data URL 不直显，等上传后用 Gyazo 链接
                     fetchUrl: p.url,
                     status: 'loading',  // 表示正在准备base64
                     result: '',
                     chatHistory: [],
-                    isUploadingToGyazo: needsRehost  // 如果需要代理，自动上传到 Gyazo
+                    isUploadingToGyazo: shouldUploadToGyazo  // 如果需要代理或是 data URL，自动上传到 Gyazo
                 } as ImageItem,
                 fetchUrl: p.url,
-                needsRehost
+                needsRehost: shouldUploadToGyazo
             };
         });
 
@@ -2617,6 +2647,8 @@ ${transitionInstruction}
             if (group.length === 0) continue;
             const main = group[0];
             const needsRehost = isLikelyHotlinkBlocked(main.url);
+            const isMainDataUrl = main.url.startsWith('data:');
+            const shouldUploadMain = needsRehost || (isMainDataUrl && autoUploadGyazo);
             const isMainGyazoDirect = isGyazoDirectImageUrl(main.url);
             const id = uuidv4();
 
@@ -2624,12 +2656,12 @@ ${transitionInstruction}
                 id,
                 sourceType: main.type,
                 originalInput: main.content,
-                imageUrl: isMainGyazoDirect ? '' : main.url,
+                imageUrl: isMainGyazoDirect ? '' : (isMainDataUrl ? '' : main.url),
                 fetchUrl: main.url,
                 status: 'loading',
                 result: '',
                 chatHistory: [],
-                isUploadingToGyazo: needsRehost
+                isUploadingToGyazo: shouldUploadMain
             };
 
             if (group.length > 1 && workMode === 'quick') {
@@ -2647,17 +2679,18 @@ ${transitionInstruction}
             if (group.length > 1 && workMode !== 'quick') {
                 for (let i = 1; i < group.length; i++) {
                     const sub = group[i];
-                    const subNeedsRehost = isLikelyHotlinkBlocked(sub.url);
+                    const subIsDataUrl = sub.url.startsWith('data:');
+                    const subShouldUpload = isLikelyHotlinkBlocked(sub.url) || (subIsDataUrl && autoUploadGyazo);
                     newItems.push({
                         id: uuidv4(),
                         sourceType: sub.type,
                         originalInput: sub.content,
-                        imageUrl: isGyazoDirectImageUrl(sub.url) ? '' : sub.url,
+                        imageUrl: isGyazoDirectImageUrl(sub.url) ? '' : (subIsDataUrl ? '' : sub.url),
                         fetchUrl: sub.url,
                         status: 'loading',
                         result: '',
                         chatHistory: [],
-                        isUploadingToGyazo: subNeedsRehost
+                        isUploadingToGyazo: subShouldUpload
                     });
                 }
             }
@@ -2674,11 +2707,34 @@ ${transitionInstruction}
                     const { blob, mimeType } = await fetchImageBlob(item.fetchUrl!);
                     const blobUrl = URL.createObjectURL(blob);
                     const base64 = await convertBlobToBase64(blob);
+
+                    // data: URL 或需要 rehost 的链接：上传到 Gyazo
+                    if (item.isUploadingToGyazo && autoUploadGyazo) {
+                        const tokenToUse = gyazoToken || DEFAULT_GYAZO_TOKEN;
+                        const file = new File([blob], 'image.jpg', { type: mimeType || 'image/jpeg' });
+                        try {
+                            const gyazoUrl = await uploadToGyazo(file, tokenToUse);
+                            if (gyazoUrl) {
+                                setImages(prev => prev.map(img => img.id === item.id ? {
+                                    ...img, imageUrl: blobUrl, base64Data: base64, mimeType,
+                                    status: 'idle' as const,
+                                    gyazoUrl: gyazoUrl,
+                                    originalInput: `=IMAGE("${gyazoUrl}")`,
+                                    isUploadingToGyazo: false,
+                                } : img));
+                                return;
+                            }
+                        } catch (uploadErr) {
+                            console.warn('[addFromUrlGroups] Gyazo upload failed, keeping original:', uploadErr);
+                        }
+                    }
+
                     setImages(prev => prev.map(img => img.id === item.id ? {
                         ...img, imageUrl: blobUrl, base64Data: base64, mimeType, status: 'idle' as const,
+                        isUploadingToGyazo: false,
                     } : img));
                 } catch (err) {
-                    setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: (err as Error).message } : img));
+                    setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: (err as Error).message, isUploadingToGyazo: false } : img));
                 }
             })();
             // 融合子图
@@ -2795,7 +2851,10 @@ ${transitionInstruction}
                 const hasMeaningfulText = plainText && plainText.trim().length > 0;
 
                 // 1. Files (真正的文件粘贴，如从文件管理器复制的图片)
-                if (e.clipboardData.files.length > 0) {
+                // 重要：如果纯文本包含 =IMAGE 公式，跳过文件处理！
+                // 因为 Google Sheets 多格复制时 files 里是低分辨率单元格截图，
+                // 而 =IMAGE 公式里才有原始高清图片 URL，应该优先走公式提取路径
+                if (e.clipboardData.files.length > 0 && !hasImageFormula) {
                     // 如果剪贴板有文件但也有不包含链接的纯文本，可能是 Google Sheets 复制
                     // 检查是否是真正的图片粘贴还是带截图的文本粘贴
                     if (hasMeaningfulText && !shouldHandleAsImageContent) {
@@ -2824,37 +2883,57 @@ ${transitionInstruction}
                 }
 
                 // Some browsers only expose pasted images via clipboard items
-                const items = Array.from(e.clipboardData.items || []);
-                const imageItems = items.filter(item => item.type.startsWith('image/'));
-                if (imageItems.length > 0) {
-                    // 同样的检查：如果有纯文本但没有链接，说明图片只是附带的截图
-                    if (hasMeaningfulText && !shouldHandleAsImageContent) {
-                        // 有纯文本但没有链接/公式，让浏览器正常处理
-                        return;
-                    }
-                    const files = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
-                    if (files.length > 0) {
-                        e.preventDefault();
-                        const canAddToSelected =
-                            workModeRef.current === 'creative' &&
-                            !!selectedCardIdRef.current &&
-                            !!handleAddFusionImageRef.current;
-                        if (canAddToSelected) {
-                            void (async () => {
-                                for (const file of files) {
-                                    await handleAddFusionImageRef.current!(selectedCardIdRef.current!, file);
-                                }
-                            })();
-                        } else {
-                            handleFilesRef.current(files);
+                // 同样：如果有 =IMAGE 公式，跳过 image items 处理
+                if (!hasImageFormula) {
+                    const items = Array.from(e.clipboardData.items || []);
+                    const imageItems = items.filter(item => item.type.startsWith('image/'));
+                    if (imageItems.length > 0) {
+                        // 同样的检查：如果有纯文本但没有链接，说明图片只是附带的截图
+                        if (hasMeaningfulText && !shouldHandleAsImageContent) {
+                            // 有纯文本但没有链接/公式，让浏览器正常处理
+                            return;
                         }
-                        handled = true;
-                        return;
+                        const files = imageItems.map(item => item.getAsFile()).filter(Boolean) as File[];
+                        if (files.length > 0) {
+                            e.preventDefault();
+                            const canAddToSelected =
+                                workModeRef.current === 'creative' &&
+                                !!selectedCardIdRef.current &&
+                                !!handleAddFusionImageRef.current;
+                            if (canAddToSelected) {
+                                void (async () => {
+                                    for (const file of files) {
+                                        await handleAddFusionImageRef.current!(selectedCardIdRef.current!, file);
+                                    }
+                                })();
+                            } else {
+                                handleFilesRef.current(files);
+                            }
+                            handled = true;
+                            return;
+                        }
                     }
                 }
 
                 // 2. HTML (Google Sheets cells copy as HTML containing <img> tags)
 
+
+                // [DEBUG] 粘贴诊断 - 临时日志
+                console.log('[PASTE DEBUG] === 粘贴事件触发 ===');
+                console.log('[PASTE DEBUG] files count:', e.clipboardData.files.length);
+                console.log('[PASTE DEBUG] hasImageFormula:', hasImageFormula);
+                console.log('[PASTE DEBUG] plainText length:', plainText?.length);
+                console.log('[PASTE DEBUG] plainText preview:', plainText?.substring(0, 500));
+                console.log('[PASTE DEBUG] html length:', html?.length);
+                if (html) {
+                    // 检查 HTML 中的 img 标签
+                    const imgMatches = html.match(/<img[^>]+src=["']([^"']{0,200})/gi);
+                    console.log('[PASTE DEBUG] HTML img tags found:', imgMatches?.length || 0);
+                    imgMatches?.forEach((m, i) => console.log(`[PASTE DEBUG]   img[${i}]:`, m.substring(0, 200)));
+                }
+                // 检查 items
+                const debugItems = Array.from(e.clipboardData.items || []);
+                console.log('[PASTE DEBUG] clipboard items:', debugItems.map(i => `${i.kind}:${i.type}`));
 
                 // 优先检查纯文本中是否有 =IMAGE() 公式
                 // 因为从 Google Sheets 复制单元格时，纯文本中的 URL 才是原始可用的 URL
@@ -3751,22 +3830,50 @@ ${transitionInstruction}
     };
 
     // 复制全部公式 - 保留空行以确保行对齐
+    // 创新/快捷模式下：每个创新结果对应一行公式（一张图多个结果则公式重复多行）
     const copyAllFormulas = () => {
-        const lines = images.map(img => {
-            // 去掉可能的前导单引号
+        // 辅助函数：从 ImageItem 提取公式
+        const getFormula = (img: typeof images[0]) => {
             const cleanInput = img.originalInput.replace(/^'+/, '');
             if (cleanInput.toUpperCase().startsWith('=IMAGE')) return cleanInput;
             if (img.gyazoUrl) return `=IMAGE("${img.gyazoUrl}")`;
             if (img.fetchUrl) return `=IMAGE("${img.fetchUrl}")`;
-            return ''; // 保留空行
-        });
+            return '';
+        };
 
-        if (lines.some(l => l)) {
-            navigator.clipboard.writeText(lines.join('\n'));
-            setCopySuccess('formulas');
-            setTimeout(() => setCopySuccess(null), 2000);
+        if (workMode === 'creative' || workMode === 'quick') {
+            // 创新模式：每个创新结果对应一行公式
+            const lines: string[] = [];
+            for (const result of creativeResults) {
+                if (result.status !== 'success') continue;
+                const img = images.find(i => i.id === result.imageId);
+                const formula = img ? getFormula(img) : '';
+                const count = result.innovations?.length || 0;
+                if (count === 0) {
+                    lines.push(formula);
+                } else {
+                    for (let i = 0; i < count; i++) {
+                        lines.push(formula);
+                    }
+                }
+            }
+            if (lines.length > 0 && lines.some(l => l)) {
+                navigator.clipboard.writeText(lines.join('\n'));
+                setCopySuccess('formulas');
+                setTimeout(() => setCopySuccess(null), 2000);
+            } else {
+                showToast('没有可复制的公式');
+            }
         } else {
-            showToast('没有可复制的公式');
+            // 标准模式：每张图一行
+            const lines = images.map(img => getFormula(img));
+            if (lines.some(l => l)) {
+                navigator.clipboard.writeText(lines.join('\n'));
+                setCopySuccess('formulas');
+                setTimeout(() => setCopySuccess(null), 2000);
+            } else {
+                showToast('没有可复制的公式');
+            }
         }
     };
 
@@ -3796,28 +3903,63 @@ ${transitionInstruction}
     };
 
     // 复制全部原始+结果（Tab分隔）
+    // 创新/快捷模式下：每个创新结果对应一行（公式 TAB 英文结果 TAB 中文结果）
     const copyAllOriginalAndResults = () => {
-        const lines = images.map(img => {
-            const original = img.originalInput.startsWith('=IMAGE')
-                ? img.originalInput
-                : (img.gyazoUrl ? `=IMAGE("${img.gyazoUrl}")` : (img.fetchUrl ? `=IMAGE("${img.fetchUrl}")` : img.originalInput));
-            let result = '';
-            if (img.status === 'success' && img.result) {
-                const r = img.result;
-                // 如果结果包含换行、Tab或双引号，需要用双引号包裹（TSV格式规范）
-                if (r.includes('\n') || r.includes('\r') || r.includes('\t') || r.includes('"')) {
-                    result = `"${r.replace(/"/g, '""')}"`;
+        // 辅助函数：TSV 安全包裹
+        const tsvWrap = (text: string) => {
+            if (text.includes('\n') || text.includes('\r') || text.includes('\t') || text.includes('"')) {
+                return `"${text.replace(/"/g, '""')}"`;
+            }
+            return text;
+        };
+
+        // 辅助函数：从 ImageItem 提取公式
+        const getFormula = (img: typeof images[0]) => {
+            const cleanInput = img.originalInput.replace(/^'+/, '');
+            if (cleanInput.toUpperCase().startsWith('=IMAGE')) return cleanInput;
+            if (img.gyazoUrl) return `=IMAGE("${img.gyazoUrl}")`;
+            if (img.fetchUrl) return `=IMAGE("${img.fetchUrl}")`;
+            return img.originalInput;
+        };
+
+        if (workMode === 'creative' || workMode === 'quick') {
+            // 创新模式：每个创新结果 = 公式 + TAB + 英文 + TAB + 中文
+            const lines: string[] = [];
+            for (const result of creativeResults) {
+                if (result.status !== 'success') continue;
+                const img = images.find(i => i.id === result.imageId);
+                const formula = img ? getFormula(img) : '';
+                if (!result.innovations || result.innovations.length === 0) {
+                    lines.push(formula);
                 } else {
-                    result = r;
+                    for (const innovation of result.innovations) {
+                        lines.push(`${formula}\t${tsvWrap(innovation.textEn)}\t${tsvWrap(innovation.textZh)}`);
+                    }
                 }
             }
-            return `${original}\t${result}`;
-        });
+            if (lines.length > 0) {
+                navigator.clipboard.writeText(lines.join('\n'));
+                setCopySuccess('original');
+                setTimeout(() => setCopySuccess(null), 2000);
+            } else {
+                showToast('没有可复制的结果');
+            }
+        } else {
+            // 标准模式：每张图一行
+            const lines = images.map(img => {
+                const original = getFormula(img);
+                let result = '';
+                if (img.status === 'success' && img.result) {
+                    result = tsvWrap(img.result);
+                }
+                return `${original}\t${result}`;
+            });
 
-        if (lines.length > 0) {
-            navigator.clipboard.writeText(lines.join('\n'));
-            setCopySuccess('original');
-            setTimeout(() => setCopySuccess(null), 2000);
+            if (lines.length > 0) {
+                navigator.clipboard.writeText(lines.join('\n'));
+                setCopySuccess('original');
+                setTimeout(() => setCopySuccess(null), 2000);
+            }
         }
     };
 
@@ -4682,7 +4824,7 @@ ${image.result}
 
 ${text}`;
             const response = await ai.models.generateContent({
-                model: imageModel || 'gemini-3.1-flash-lite-preview',
+                model: imageModel || 'gemini-3-flash-preview',
                 contents: prompt
             });
             return response.text?.trim() || text;
@@ -5118,8 +5260,15 @@ ${text}`;
         setIsPaused(false);
         setIsProcessing(true);
 
-        // 清空之前的创新结果
-        setState(prev => ({ ...prev, creativeResults: [] }));
+        // 清空创新结果：指定了目标卡片时只清除目标卡片的结果，否则清空全部
+        if (targetImageIds && targetImageIds.length > 0) {
+            setState(prev => ({
+                ...prev,
+                creativeResults: (prev.creativeResults || []).filter(r => !targetImageIds.includes(r.imageId))
+            }));
+        } else {
+            setState(prev => ({ ...prev, creativeResults: [] }));
+        }
 
         const ai = getAiInstance();
         const modelId = imageModel;
@@ -5182,7 +5331,9 @@ ${text}`;
                 if (isAdvancedMode) {
                     // 高级创新模式：每个随机组合单独调用AI
                     let combinations: string[];
-                    if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                    if (hasTraverseLibraries(randomLibraryConfigRef.current)) {
+                        combinations = generateTraverseCombinations(randomLibraryConfigRef.current, count);
+                    } else if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                         combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                     } else {
                         combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
@@ -5521,7 +5672,9 @@ ${effectiveInstruction}
                     if (isAdvancedMode) {
                         // 随机库模式
                         let combinations: string[];
-                        if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                        if (hasTraverseLibraries(randomLibraryConfigRef.current)) {
+                            combinations = generateTraverseCombinations(randomLibraryConfigRef.current, count);
+                        } else if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                             combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                         } else {
                             combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
@@ -5679,7 +5832,9 @@ ${effectiveInstruction}
                     if (isAdvancedMode) {
                         // 高级创新模式：每个随机组合单独调用AI
                         let combinations: string[];
-                        if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                        if (hasTraverseLibraries(randomLibraryConfigRef.current)) {
+                            combinations = generateTraverseCombinations(randomLibraryConfigRef.current, count);
+                        } else if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                             combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                         } else {
                             combinations = await generateMultipleUniqueCombinationsAsync(randomLibraryConfigRef.current, count, aiDescribeImageUrl);
@@ -5935,7 +6090,10 @@ ${itemEffectiveInstruction}
                         // 高级创新模式：每个随机组合单独调用AI
                         // 根据组合模式选择不同的生成方式
                         let combinations: string[];
-                        if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
+                        if (hasTraverseLibraries(randomLibraryConfigRef.current)) {
+                            // 遍历模式：标记为遍历的库按顺序使用所有值
+                            combinations = generateTraverseCombinations(randomLibraryConfigRef.current, count);
+                        } else if (randomLibraryConfigRef.current.combinationMode === 'cartesian') {
                             // 笛卡尔积模式：生成所有排列组合
                             combinations = generateCartesianCombinations(randomLibraryConfigRef.current);
                         } else {
@@ -5946,6 +6104,7 @@ ${itemEffectiveInstruction}
                         // 快捷模式：应用用户维度覆盖（支持部分覆盖 + 逐图提取）
                         if (workModeRef.current === 'quick') {
                             let ov = { ...quickOverridesRef.current };
+                            const beforeCombinations = [...combinations]; // 记录覆盖前
                             // 合并卡片级文本覆盖
                             if (item.overrideTextOverrides) {
                                 for (const [dimName, textVal] of Object.entries(item.overrideTextOverrides)) {
@@ -5969,8 +6128,27 @@ ${itemEffectiveInstruction}
                                 ov = resolvedOv;
                                 conversationLog.push(...ovLogs);
                             }
-                            if (Object.values(ov).some(v => v.value?.trim())) {
+                            const activeOv = Object.entries(ov).filter(([, v]) => v.value?.trim());
+                            if (activeOv.length > 0) {
                                 combinations = applyPartialOverrides(combinations, ov);
+                                // 记录覆盖信息到UI日志
+                                const ovInfo = activeOv.map(([name, v]) => `${name}：「${v.value}」(覆盖${v.count || '全部'}条)`).join('\n');
+                                conversationLog.push({
+                                    timestamp: Date.now(),
+                                    prompt: `维度覆盖已应用：\n${ovInfo}\n\n覆盖前组合(第1条)：\n${beforeCombinations[0] || '(空)'}\n\n覆盖后组合(第1条)：\n${combinations[0] || '(空)'}`,
+                                    response: `共 ${activeOv.length} 个维度被覆盖`,
+                                    label: '🔧 维度覆盖'
+                                });
+                            } else {
+                                // 没有有效覆盖时也记录，方便排查
+                                const globalOvKeys = Object.keys(quickOverridesRef.current);
+                                const cardOvKeys = Object.keys(item.overrideTextOverrides || {});
+                                conversationLog.push({
+                                    timestamp: Date.now(),
+                                    prompt: `维度覆盖未生效\n全局覆盖keys: [${globalOvKeys.join(', ')}]\n卡片级覆盖keys: [${cardOvKeys.join(', ')}]\n卡片级覆盖值: ${JSON.stringify(item.overrideTextOverrides || {})}`,
+                                    response: '没有找到有效的覆盖值（value为空）',
+                                    label: '⚠️ 覆盖检查'
+                                });
                             }
                         }
 
@@ -7257,6 +7435,16 @@ ${itemEffectiveInstruction}
                                                                     data-tip="复制全部">
                                                                     {copySuccess === 'creative-all' ? <Check size={12} /> : <Copy size={12} />} 全
                                                                 </button>
+                                                                <button onClick={copyAllFormulas} disabled={images.length === 0}
+                                                                    className={`${btnClass} ${copySuccess === 'formulas' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-800/40 border-orange-700/40'}`}
+                                                                    data-tip="复制全部 IMAGE 公式">
+                                                                    {copySuccess === 'formulas' ? <Check size={12} /> : <FileCode size={12} />} 原始公式
+                                                                </button>
+                                                                <button onClick={copyAllOriginalAndResults} disabled={!hasResults}
+                                                                    className={`${btnClass} ${copySuccess === 'original' ? 'bg-emerald-600 text-white border-emerald-500' : 'text-purple-400 bg-purple-900/20 hover:bg-purple-800/40 border-purple-700/40'}`}
+                                                                    data-tip="复制 公式 + 结果 (Tab分隔)">
+                                                                    {copySuccess === 'original' ? <Check size={12} /> : <LayoutGrid size={12} />} 原+结果
+                                                                </button>
                                                             </>
                                                         );
                                                     })()}
@@ -7267,7 +7455,29 @@ ${itemEffectiveInstruction}
                                                     <div className="flex items-center gap-0.5 bg-zinc-900/60 rounded-md border border-zinc-700/50 px-1.5 py-1">
                                                         <button onClick={() => setCreativeCount(Math.max(1, creativeCount - 1))}
                                                             className="w-4 h-4 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-[10px]">-</button>
-                                                        <span className="text-[11px] font-bold text-purple-300 min-w-[14px] text-center">{creativeCount}</span>
+                                                        <span
+                                                            className="text-[11px] font-bold text-purple-300 min-w-[14px] text-center cursor-text select-none"
+                                                            onDoubleClick={(e) => {
+                                                                const span = e.currentTarget;
+                                                                const input = document.createElement('input');
+                                                                input.type = 'number';
+                                                                input.min = '1';
+                                                                input.max = '999';
+                                                                input.value = String(creativeCount);
+                                                                input.style.cssText = 'width:36px;height:18px;font-size:11px;font-weight:bold;color:#d8b4fe;background:#18181b;border:1px solid #7c3aed;border-radius:4px;text-align:center;outline:none;padding:0;';
+                                                                const commit = () => {
+                                                                    const val = parseInt(input.value) || 1;
+                                                                    setCreativeCount(Math.max(1, Math.min(999, val)));
+                                                                    if (input.parentNode) input.parentNode.replaceChild(span, input);
+                                                                };
+                                                                input.onblur = commit;
+                                                                input.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commit(); } if (ev.key === 'Escape') { if (input.parentNode) input.parentNode.replaceChild(span, input); } };
+                                                                span.parentNode?.replaceChild(input, span);
+                                                                input.focus();
+                                                                input.select();
+                                                            }}
+                                                            title="双击输入数字"
+                                                        >{creativeCount}</span>
                                                         <button onClick={() => setCreativeCount(Math.min(50, creativeCount + 1))}
                                                             className="w-4 h-4 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-[10px]">+</button>
                                                     </div>
@@ -7331,20 +7541,38 @@ ${itemEffectiveInstruction}
                                                         空卡
                                                     </button>
 
-                                                    {/* 开始创新按钮 - 快捷模式下允许无图开始 */}
-                                                    <button
-                                                        onClick={() => runCreativeAnalysis()}
-                                                        disabled={isProcessing || images.length === 0}
-                                                        className={`px-4 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg
-                                                            ${isProcessing
-                                                                ? 'bg-purple-900/30 text-purple-400 animate-pulse border border-purple-700'
-                                                                : images.length === 0
+                                                    {/* 开始创新按钮 / 暂停停止按钮 */}
+                                                    {isProcessing ? (
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={handlePauseResume}
+                                                                className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all ${isPaused
+                                                                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                                                    : 'bg-amber-600 hover:bg-amber-500 text-white'
+                                                                    }`}
+                                                            >
+                                                                {isPaused ? <><Play size={13} fill="currentColor" /> 继续</> : <><Pause size={13} fill="currentColor" /> 暂停</>}
+                                                            </button>
+                                                            <button
+                                                                onClick={handleStop}
+                                                                className="px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all bg-zinc-800 hover:bg-red-600/90 text-zinc-300 hover:text-white"
+                                                            >
+                                                                <Square size={13} fill="currentColor" /> 停止
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => runCreativeAnalysis()}
+                                                            disabled={images.length === 0}
+                                                            className={`px-4 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg
+                                                                ${images.length === 0
                                                                     ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
                                                                     : 'bg-purple-600 hover:bg-purple-500 text-white shadow-purple-900/20'
-                                                            }`}
-                                                    >
-                                                        {isProcessing ? <><Loader2 size={14} className="animate-spin" /> 处理中</> : <><Sparkles size={14} fill="currentColor" /> 创新</>}
-                                                    </button>
+                                                                }`}
+                                                        >
+                                                            <Sparkles size={14} fill="currentColor" /> 创新
+                                                        </button>
+                                                    )}
                                                 </div>
                                                 {/* 维度覆盖标签 + 原描述开关：合并为同一行 */}
                                                 {(() => {
@@ -7426,6 +7654,7 @@ ${itemEffectiveInstruction}
                                                                         (overrideCount > 0) ||
                                                                         isOverrideDirty
                                                                     );
+                                                                    const descriptionText = lib.description?.trim();
 
                                                                     return (
                                                                         <div key={lib.id} className="flex flex-col">
@@ -7449,6 +7678,7 @@ ${itemEffectiveInstruction}
                                                                                             hasOverride ? `${lib.name}: ${override?.value}${overrideCount > 0 ? ` (${overrideCount}个)` : ' (全部)'}` :
                                                                                                 `点击指定${lib.name}的固定值`
                                                                                     }
+                                                                                    title={descriptionText ? `${lib.name}：${descriptionText}` : lib.name}
                                                                                 >
                                                                                     {mode === 'image' && override?.imageData ? (
                                                                                         <span className="relative mr-0.5 inline-block align-middle group/thumb">
@@ -7489,6 +7719,14 @@ ${itemEffectiveInstruction}
                                                                                     <span className="text-[10px] px-0.5 py-0.5 rounded-r border border-l-0 border-zinc-700/50 bg-zinc-800/40 text-zinc-600">·</span>
                                                                                 ) : null}
                                                                             </div>
+                                                                            {descriptionText && (
+                                                                                <div
+                                                                                    className="max-w-[180px] px-1 mt-0.5 text-[9px] text-zinc-500 truncate"
+                                                                                    title={descriptionText}
+                                                                                >
+                                                                                    {descriptionText}
+                                                                                </div>
+                                                                            )}
 
                                                                             {/* 展开的编辑面板 */}
                                                                             {isEditing && (
@@ -7956,7 +8194,29 @@ ${itemEffectiveInstruction}
                                                                     >
                                                                         -
                                                                     </button>
-                                                                    <span className="text-xs font-bold text-purple-300 min-w-[16px] text-center">{creativeCount}</span>
+                                                                    <span
+                                                                        className="text-xs font-bold text-purple-300 min-w-[16px] text-center cursor-text select-none"
+                                                                        onDoubleClick={(e) => {
+                                                                            const span = e.currentTarget;
+                                                                            const input = document.createElement('input');
+                                                                            input.type = 'number';
+                                                                            input.min = '1';
+                                                                            input.max = '999';
+                                                                            input.value = String(creativeCount);
+                                                                            input.style.cssText = 'width:40px;height:20px;font-size:12px;font-weight:bold;color:#d8b4fe;background:#18181b;border:1px solid #7c3aed;border-radius:4px;text-align:center;outline:none;padding:0;';
+                                                                            const commit = () => {
+                                                                                const val = parseInt(input.value) || 1;
+                                                                                setCreativeCount(Math.max(1, Math.min(999, val)));
+                                                                                if (input.parentNode) input.parentNode.replaceChild(span, input);
+                                                                            };
+                                                                            input.onblur = commit;
+                                                                            input.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commit(); } if (ev.key === 'Escape') { if (input.parentNode) input.parentNode.replaceChild(span, input); } };
+                                                                            span.parentNode?.replaceChild(input, span);
+                                                                            input.focus();
+                                                                            input.select();
+                                                                        }}
+                                                                        title="双击输入数字"
+                                                                    >{creativeCount}</span>
                                                                     <button
                                                                         onClick={() => setCreativeCount(Math.min(50, creativeCount + 1))}
                                                                         className="w-5 h-5 flex items-center justify-center rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 text-xs"
@@ -8283,7 +8543,7 @@ ${itemEffectiveInstruction}
                                         }
                                     }
 
-                                    // 更新现有库：保留用户设置，只更新值
+                                    // 更新现有库：保留用户设置，仅更新库数据
                                     const updatedLibraries = randomLibraryConfig.libraries.map(existingLib => {
                                         const key = `${existingLib.sourceSheet || ''}::${existingLib.name}`;
                                         const refreshedLib = refreshedMap.get(key);
@@ -8293,6 +8553,8 @@ ${itemEffectiveInstruction}
                                                 ...existingLib,
                                                 values: refreshedLib.values,
                                                 valuesWithCategory: refreshedLib.valuesWithCategory,
+                                                hasImageUrls: refreshedLib.hasImageUrls,
+                                                description: refreshedLib.description,
                                             };
                                         }
                                         return existingLib;
@@ -8414,7 +8676,8 @@ ${itemEffectiveInstruction}
                             }}
                             isProcessing={isProcessing}
                             onStartInnovation={() => {
-                                if (noImageMode || images.length === 0) {
+                                const hasRealImages = images.some(img => img.base64Data);
+                                if (noImageMode || images.length === 0 || !hasRealImages) {
                                     // 无图模式：自动创建文字卡片并调用无图批量创新
                                     if (!noImageMode) setNoImageMode(true);
                                     // 快捷模式下 topic 只是标签，不参与 AI prompt
@@ -8450,7 +8713,7 @@ ${itemEffectiveInstruction}
                                         }
                                     }
                                 } else {
-                                    // 独立模式：处理当前全部卡片
+                                    // 独立模式：处理当前全部卡片（有实际图片）
                                     runCreativeAnalysis();
                                 }
                             }}
@@ -8481,6 +8744,8 @@ ${itemEffectiveInstruction}
                             onCopyEN={copyCreativeEN}
                             onCopyZH={copyCreativeZH}
                             onCopyAll={copyCreativeResults}
+                            onCopyFormulas={copyAllFormulas}
+                            onCopyOriginalAndResults={copyAllOriginalAndResults}
                             copySuccess={copySuccess}
                             onSwitchToClassic={() => switchQuickViewMode('classic')}
                             onUpdateRefImageConfig={updateRefImageConfig}
@@ -8798,7 +9063,22 @@ ${itemEffectiveInstruction}
                                                                                 ))}
                                                                             </div>
                                                                         ) : card.status === 'error' ? (
-                                                                            <div className="text-sm text-red-400">生成失败</div>
+                                                                            <div className="flex flex-col items-center gap-2 py-3">
+                                                                                <div className="flex items-center gap-1.5 text-sm text-red-400 font-medium">
+                                                                                    <AlertCircle size={14} />
+                                                                                    生成失败
+                                                                                </div>
+                                                                                {card.results.length > 0 && card.results[0] && (
+                                                                                    <div className="text-[10px] text-red-300/60 text-center">{card.results[0]}</div>
+                                                                                )}
+                                                                                <button
+                                                                                    onClick={() => regenerateTextCard(card.id)}
+                                                                                    className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded-lg flex items-center gap-1 transition-colors"
+                                                                                >
+                                                                                    <RotateCcw size={12} />
+                                                                                    重试
+                                                                                </button>
+                                                                            </div>
                                                                         ) : (
                                                                             <div className="text-sm text-zinc-600 italic">等待生成...</div>
                                                                         )}
@@ -8847,8 +9127,21 @@ ${itemEffectiveInstruction}
                                                                 {textCardLogItem.aiConversationLog.map((entry, idx) => (
                                                                     <div key={idx} className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg overflow-hidden">
                                                                         <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-700/30 border-b border-zinc-700/50">
-                                                                            <div className="flex items-center gap-2">
-                                                                                <span className="text-[10px] font-bold text-amber-300">#{idx + 1} {entry.label || '对话'}</span>
+                                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                                <span className="text-[10px] font-bold text-amber-300">#{idx + 1} {(entry.label || '对话').replace(/\s*覆盖:.*$/, '')}</span>
+                                                                                {entry.label?.includes('覆盖:') && (() => {
+                                                                                    const overridePart = entry.label.split('覆盖:')[1];
+                                                                                    const items = overridePart.match(/「[^」]+」/g) || [];
+                                                                                    return items.length > 0 ? (
+                                                                                        <span className="flex items-center gap-1 flex-wrap">
+                                                                                            {items.map((item, i) => (
+                                                                                                <span key={i} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                                                                                                    {item}
+                                                                                                </span>
+                                                                                            ))}
+                                                                                        </span>
+                                                                                    ) : null;
+                                                                                })()}
                                                                                 <span className="text-[10px] text-zinc-500">{new Date(entry.timestamp).toLocaleTimeString()}</span>
                                                                             </div>
                                                                             <button
@@ -9826,7 +10119,22 @@ ${itemEffectiveInstruction}
                                                             })}
                                                         </div>
                                                     ) : liveCard.status === 'error' ? (
-                                                        <div className="text-base text-red-400">生成失败</div>
+                                                        <div className="flex flex-col items-center justify-center gap-3 py-6">
+                                                            <div className="w-10 h-10 rounded-full bg-red-900/30 flex items-center justify-center">
+                                                                <AlertCircle size={20} className="text-red-400" />
+                                                            </div>
+                                                            <div className="text-base text-red-400 font-medium">生成失败</div>
+                                                            {liveCard.results.length > 0 && liveCard.results[0] && (
+                                                                <div className="text-xs text-red-300/60 max-w-[300px] text-center">{liveCard.results[0]}</div>
+                                                            )}
+                                                            <button
+                                                                onClick={() => regenerateTextCard(liveCard.id)}
+                                                                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg flex items-center gap-1.5 transition-colors"
+                                                            >
+                                                                <RotateCcw size={14} />
+                                                                重试
+                                                            </button>
+                                                        </div>
                                                     ) : (
                                                         <div className="text-base text-zinc-600 italic">等待生成...</div>
                                                     )}
@@ -9877,7 +10185,7 @@ ${itemEffectiveInstruction}
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2 mb-2">
                                         <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">2026.02.20</span>
-                                        <span className="text-xs text-zinc-500">v3.0.0</span>
+                                        <span className="text-xs text-zinc-500">v3.8.0</span>
                                     </div>
                                     <div className="bg-zinc-800/50 rounded-lg p-3 border border-cyan-700/30">
                                         <h4 className="text-sm font-semibold text-cyan-300 mb-2">🖼️ 新增拆分模式（split）</h4>

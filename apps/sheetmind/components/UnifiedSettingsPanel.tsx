@@ -3,6 +3,7 @@
  * 改为下拉面板形式，可以边改边看效果
  */
 import React, { useState, useMemo, useRef, useEffect, useTransition, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Settings, Layers, Calendar, Image, Filter,
     ArrowUpDown, Sparkles, ChevronDown, ChevronUp, Plus, Trash2,
@@ -284,6 +285,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
     const [panelPlacement, setPanelPlacement] = useState<'bottom' | 'top'>('bottom');
     const [showTreeGroupModal, setShowTreeGroupModal] = useState(false);
     const [isExpandedModal, setIsExpandedModal] = useState(false);
+    const [fixedPos, setFixedPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
     const filtersEnabled = config.filtersEnabled ?? true;
     const sortEnabled = config.sortEnabled ?? true;
     const highlightEnabled = config.highlightEnabled ?? true;
@@ -320,24 +322,37 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isOpen, onClose, anchorRef, showTreeGroupModal]);
 
+    // Compute fixed position from the parent container or anchorRef
     useEffect(() => {
-        if (!isOpen) return;
-        const anchorEl = anchorRef?.current;
+        if (!isOpen || isExpandedModal) {
+            setFixedPos(null);
+            return;
+        }
+        // Try anchorRef first, then fall back to panelRef's parent
+        const anchorEl = anchorRef?.current || panelRef.current?.parentElement;
         if (!anchorEl) {
             setPanelPlacement('bottom');
+            setFixedPos(null);
             return;
         }
         const rect = anchorEl.getBoundingClientRect();
         const gap = 8;
         const panelHeight = 560;
+        const panelWidth = 420;
         const spaceBelow = window.innerHeight - rect.bottom - gap;
         const spaceAbove = rect.top - gap;
+
+        // Calculate right position: align right edge of panel with right edge of anchor
+        const rightPos = Math.max(8, window.innerWidth - rect.right);
+
         if (spaceBelow >= panelHeight || spaceBelow >= spaceAbove) {
             setPanelPlacement('bottom');
+            setFixedPos({ top: rect.bottom + gap, right: rightPos });
         } else {
             setPanelPlacement('top');
+            setFixedPos({ bottom: window.innerHeight - rect.top + gap, right: rightPos });
         }
-    }, [isOpen, anchorRef]);
+    }, [isOpen, anchorRef, isExpandedModal]);
 
 
     const updateConfig = useCallback((partial: Partial<SharedConfig>) => {
@@ -484,7 +499,7 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
         { id: 'dedup', label: '查重', icon: Copy, color: 'teal' },
     ] as const;
 
-    return (
+    const panelContent = (
         <>
             {/* Modal backdrop when expanded */}
             {isExpandedModal && (
@@ -497,14 +512,18 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                 ref={panelRef}
                 className={isExpandedModal
                     ? "fixed inset-4 md:inset-10 lg:inset-20 bg-white rounded-2xl shadow-2xl border border-slate-200 z-[9999] overflow-hidden sheetmind-light-form unified-settings-panel flex flex-col"
-                    : "absolute top-full right-0 mt-2 w-[420px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden sheetmind-light-form unified-settings-panel flex flex-col"
+                    : "fixed w-[420px] bg-white rounded-xl shadow-2xl border border-slate-200 z-[9999] overflow-hidden sheetmind-light-form unified-settings-panel flex flex-col"
                 }
                 style={isExpandedModal ? {} : {
                     height: '560px',
-                    top: panelPlacement === 'bottom' ? undefined : 'auto',
-                    bottom: panelPlacement === 'top' ? 'calc(100% + 8px)' : undefined,
-                    marginTop: panelPlacement === 'bottom' ? '0.5rem' : undefined,
-                    marginBottom: panelPlacement === 'top' ? '0.5rem' : undefined,
+                    ...(fixedPos ? {
+                        top: fixedPos.top != null ? `${fixedPos.top}px` : undefined,
+                        bottom: fixedPos.bottom != null ? `${fixedPos.bottom}px` : undefined,
+                        right: `${fixedPos.right}px`,
+                    } : {
+                        top: '80px',
+                        right: '16px',
+                    }),
                 }}
             >
                 {/* Tab Header */}
@@ -2700,6 +2719,8 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
             />
         </>
     );
+
+    return createPortal(panelContent, document.body);
 };
 
 export default UnifiedSettingsPanel;

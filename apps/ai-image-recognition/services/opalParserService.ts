@@ -9,6 +9,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
+import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
 import { RandomLibrary, LIBRARY_COLORS, generateLibraryId } from './randomLibraryService';
 
 // ===== 类型定义 =====
@@ -43,6 +44,10 @@ const getAiInstance = (): GoogleGenAI => {
     const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
     if (!cleanKey) {
         throw new Error('API Key 无效。请先在顶部配置 Google AI Key。');
+    }
+    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
+    if (shouldUseAiStudioMode(cleanKey)) {
+        return new GoogleGenAI({ apiKey: cleanKey });
     }
     return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
 };
@@ -145,7 +150,7 @@ async function identifyLibraryStructure(
     const userPrompt = `识别工作流 "${workflowTitle}" 中的随机素材库结构：\n\n${textForAI}`;
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3-flash-preview',
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         config: {
             systemInstruction,
@@ -199,7 +204,7 @@ export async function reorganizeInstructions(rawInstructions: ParsedInstruction[
 }`;
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3-flash-preview',
         contents: [{ role: 'user', parts: [{ text: `请整理以下指令，可以合并重组，但不能少任何一条要求：\n\n${allText}` }] }],
         config: {
             systemInstruction,
@@ -253,7 +258,7 @@ ${ITEM_SEP}
 
     try {
         const resp = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
+            model: 'gemini-3-flash-preview',
             contents: [{ role: 'user', parts: [{ text: libraryText }] }],
             config: { systemInstruction: sysInstr, temperature: 0, maxOutputTokens: 65536 },
         });

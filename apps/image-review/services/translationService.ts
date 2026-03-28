@@ -4,6 +4,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
 import { TranslationResult } from '../types';
 
 // 语气级别类型
@@ -260,11 +261,11 @@ export const translateFeedback = async (
         throw new Error('请先配置 API Key');
     }
 
-    if (key.startsWith('AIza')) {
-        throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
-    }
+    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
     const cleanKey = key.trim().replace(/[^\x20-\x7E]/g, '');
-    const ai = new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+    const ai = shouldUseAiStudioMode(cleanKey)
+        ? new GoogleGenAI({ apiKey: cleanKey })
+        : new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
     const toneInstruction = getToneInstruction(tone);
     const targetConfig = getTranslationTargetConfig(targetLanguage);
 
@@ -285,7 +286,7 @@ ${chineseFeedback}
 Respond with ONLY the ${targetConfig.promptName} translation, nothing else.`;
 
     const translateResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3-flash-preview',
         contents: translatePrompt,
     });
 
@@ -300,7 +301,7 @@ ${targetTranslation}
 Respond with ONLY the Chinese translation, nothing else.`;
 
     const backTranslateResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3-flash-preview',
         contents: backTranslatePrompt,
     });
 
@@ -317,7 +318,7 @@ The tone may differ (the back-translation might be softer), but the main point s
 Respond with ONLY "true" if the core meaning is preserved, or "false" if the meaning is significantly different.`;
 
     const accuracyResponse = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3-flash-preview',
         contents: accuracyPrompt,
     });
 

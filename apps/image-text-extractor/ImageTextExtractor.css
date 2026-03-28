@@ -166,6 +166,47 @@
     margin-bottom: 1rem;
 }
 
+/* Mode Toggle */
+.ite-mode-toggle {
+    display: flex;
+    gap: 0;
+    margin-bottom: 0.85rem;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
+    padding: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    width: fit-content;
+}
+
+.ite-mode-btn {
+    padding: 0.45rem 1.1rem;
+    border-radius: 8px;
+    border: none;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    color: var(--text-secondary, #a1a1aa);
+    background: transparent;
+    white-space: nowrap;
+}
+
+.ite-mode-btn:hover:not(:disabled):not(.ite-mode-btn-active) {
+    color: var(--text-primary, #e4e4e7);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.ite-mode-btn-active {
+    background: linear-gradient(135deg, #7c3aed, #6d28d9);
+    color: white;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+}
+
+.ite-mode-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .ite-settings-row {
     display: flex;
     gap: 1.5rem;
@@ -305,6 +346,14 @@
     transition: all 0.3s ease;
     background: rgba(139, 92, 246, 0.03);
     margin-bottom: 1rem;
+    outline: none;
+}
+
+.ite-dropzone:focus-visible,
+.ite-dropzone:focus {
+    border-color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.08);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
 }
 
 .ite-dropzone:hover {
@@ -922,4 +971,31 @@
     .ite-url-submit-btn {
         min-height: auto;
     }
+}
+
+/* === Prompt Preview Modal === */
+.ite-prompt-preview-modal {
+    width: 680px;
+}
+
+.ite-prompt-preview-text {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    color: var(--text-primary, #e4e4e7);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 60vh;
+    overflow-y: auto;
+    margin: 0 0 1rem;
+    font-family: inherit;
+}
+
+.ite-prompt-preview-footer {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
 }

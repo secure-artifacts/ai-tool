@@ -98,6 +98,16 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
         }
     };
 
+    // === 行分隔符：使用 null 字符避免与单元格内换行冲突 ===
+    const ROW_SEP = '\x00';
+
+    // 将内部格式（ROW_SEP 分隔行，\t 分隔列）转为显示文本
+    // 单元格内换行保留原样，行之间用 ROW_SEP 分隔
+    const internalToDisplay = (text: string): string => {
+        // 显示时把 ROW_SEP 替换为换行符，但单元格内换行用 ↵ 标记
+        return text.replace(/\x00/g, '\n');
+    };
+
     // 处理粘贴事件 - 优先解析 HTML 表格格式
     const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>, target: 'base' | 'match') => {
         const htmlData = e.clipboardData.getData('text/html');
@@ -110,16 +120,17 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
             if (htmlData) {
                 const htmlRows = parseHtmlTable(htmlData);
                 if (htmlRows && htmlRows.length > 0) {
-                    newContent = htmlRows.map(row => row.join('\t')).join('\n');
+                    // 单元格内换行替换为空格，行之间用 ROW_SEP
+                    newContent = htmlRows.map(row => row.map(cell => cell.replace(/\n/g, ' ')).join('\t')).join(ROW_SEP);
                 }
             }
             if (!newContent && plainText) {
-                newContent = plainText;
+                newContent = parseTsvWithQuotes(plainText);
             }
             if (newContent) {
                 setMatchInput(prev => {
                     if (!prev.trim()) return newContent;
-                    return prev.trimEnd() + '\n' + newContent;
+                    return prev.trimEnd() + ROW_SEP + newContent;
                 });
             }
             return;
@@ -130,35 +141,99 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
             if (htmlRows && htmlRows.length > 0) {
                 e.preventDefault();
                 if (target === 'base') {
-                    setBaseColumn(htmlRows.map(row => row[0] || '').join('\n'));
+                    // 基准列：取每行的第一列，单元格内换行替换为空格
+                    setBaseColumn(htmlRows.map(row => (row[0] || '').replace(/\n/g, ' ')).join(ROW_SEP));
                 } else {
-                    setMatchInput(htmlRows.map(row => row.join('\t')).join('\n'));
+                    // 待匹配列：单元格内换行替换为空格
+                    setMatchInput(htmlRows.map(row => row.map(cell => cell.replace(/\n/g, ' ')).join('\t')).join(ROW_SEP));
                 }
                 return;
             }
         }
+
+        // 纯文本粘贴：尝试解析 TSV 带引号字段
+        if (plainText) {
+            e.preventDefault();
+            const parsed = parseTsvWithQuotes(plainText);
+            if (target === 'base') {
+                // 基准列只取第一列
+                const rows = parsed.split(ROW_SEP);
+                setBaseColumn(rows.map(r => r.split('\t')[0] || '').join(ROW_SEP));
+            } else {
+                setMatchInput(parsed);
+            }
+        }
     }, [appendMode]);
 
-    // 解析粘贴的数据 - 保留空行以确保行对齐
-    const parseData = (text: string): string[][] => {
-        if (!text.trim()) return [];
-        const lines = text.split('\n');  // 不 trim，保留空行
-        return lines.map(line => line.split('\t'));
+    // 解析含引号字段的 TSV（Google Sheets 复制多行单元格时，会用引号包裹含换行的字段）
+    const parseTsvWithQuotes = (text: string): string => {
+        const rows: string[][] = [];
+        let currentRow: string[] = [];
+        let currentField = '';
+        let inQuoted = false;
+        let i = 0;
+
+        while (i < text.length) {
+            const ch = text[i];
+
+            if (inQuoted) {
+                if (ch === '"' && i + 1 < text.length && text[i + 1] === '"') {
+                    // 转义引号
+                    currentField += '"';
+                    i += 2;
+                } else if (ch === '"') {
+                    // 结束引号
+                    inQuoted = false;
+                    i++;
+                } else {
+                    // 引号内的换行替换为空格
+                    currentField += ch === '\n' ? ' ' : ch;
+                    i++;
+                }
+            } else {
+                if (ch === '"' && currentField === '') {
+                    // 开始引号字段
+                    inQuoted = true;
+                    i++;
+                } else if (ch === '\t') {
+                    currentRow.push(currentField);
+                    currentField = '';
+                    i++;
+                } else if (ch === '\n' || ch === '\r') {
+                    currentRow.push(currentField);
+                    currentField = '';
+                    rows.push(currentRow);
+                    currentRow = [];
+                    // 跳过 \r\n
+                    if (ch === '\r' && i + 1 < text.length && text[i + 1] === '\n') i++;
+                    i++;
+                } else {
+                    currentField += ch;
+                    i++;
+                }
+            }
+        }
+        // 最后一个字段/行
+        if (currentField || currentRow.length > 0) {
+            currentRow.push(currentField);
+            rows.push(currentRow);
+        }
+
+        return rows.map(row => row.join('\t')).join(ROW_SEP);
     };
 
-    // 获取基准列的行数据 - 保留空行以确保行对齐
+    // 获取基准列的行数据 - 使用 ROW_SEP 分隔
     const baseRows = useMemo(() => {
         if (!baseColumn.trim()) return [];
-        return baseColumn.split('\n');  // 不过滤空行，保持行对齐
+        return baseColumn.split(ROW_SEP);  // 使用安全分隔符
     }, [baseColumn]);
 
-    // 解析待匹配数据 - 保留空行
+    // 解析待匹配数据 - 使用 ROW_SEP 分隔行
     const matchData = useMemo(() => {
         if (!matchInput.trim()) return { columns: 0, rows: [] as string[][] };
-        const lines = matchInput.split('\n');  // 不 trim，保留空行
+        const lines = matchInput.split(ROW_SEP);  // 使用安全分隔符
         const parsed = lines.map(line => line.split('\t'));
         if (parsed.length === 0) return { columns: 0, rows: [] as string[][] };
-        // 获取最大列数
         const maxCols = Math.max(...parsed.map(row => row.length), 1);
         return {
             columns: maxCols,
@@ -282,7 +357,7 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
 
                 try {
                     const response = await ai.models.generateContent({
-                        model: 'gemini-3.1-flash-lite-preview',
+                        model: 'gemini-3-flash-preview',
                         contents: prompt
                     });
 
@@ -456,8 +531,8 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                             <span className="text-xs text-slate-400">{baseRows.length} 行</span>
                         </div>
                         <textarea
-                            value={baseColumn}
-                            onChange={(e) => setBaseColumn(e.target.value)}
+                            value={internalToDisplay(baseColumn)}
+                            onChange={(e) => setBaseColumn(e.target.value.replace(/\n/g, ROW_SEP))}
                             onPaste={(e) => handlePaste(e, 'base')}
                             placeholder="粘贴基准列数据（每行一条）&#10;支持从 Google Sheets 直接粘贴..."
                             className="flex-1 p-3 text-sm resize-none focus:outline-none font-mono"
@@ -488,8 +563,8 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                             </label>
                         </div>
                         <textarea
-                            value={matchInput}
-                            onChange={(e) => setMatchInput(e.target.value)}
+                            value={internalToDisplay(matchInput)}
+                            onChange={(e) => setMatchInput(e.target.value.replace(/\n/g, ROW_SEP))}
                             onPaste={(e) => handlePaste(e, 'match')}
                             placeholder="粘贴待匹配的数据（支持多列，从 Google Sheets 直接粘贴）&#10;可以是原文+翻译，或者只有翻译..."
                             className="flex-1 p-3 text-sm resize-none focus:outline-none font-mono"

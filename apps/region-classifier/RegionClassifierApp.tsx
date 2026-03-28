@@ -13,6 +13,17 @@ const CONFIDENCE_LABELS: Record<string, { label: string; color: string }> = {
     unknown: { label: '未识别', color: 'text-red-400' },
 };
 
+const MODEL_OPTIONS = [
+    { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA·快速)' },
+    { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
+    { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
+    { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview·默认)' },
+    { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
+    { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Preview·Lite⚡)' },
+];
+
+const BATCH_SIZE_OPTIONS = [50, 100, 200, 300, 500, 800, 1000];
+
 interface Props {
     getAiInstance?: () => GoogleGenAI;
 }
@@ -29,6 +40,9 @@ export default function RegionClassifierApp({ getAiInstance }: Props) {
     const [filterCountry, setFilterCountry] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [showStats, setShowStats] = useState(true);
+    const [aiModel, setAiModel] = useState('gemini-3-flash-preview');
+    const [aiBatchSize, setAiBatchSize] = useState(500);
+    const [aiConcurrency, setAiConcurrency] = useState(20);
     const aiAbortRef = useRef(false);
 
     // AI 补全未识别地址
@@ -41,8 +55,8 @@ export default function RegionClassifierApp({ getAiInstance }: Props) {
         setAiProgress({ done: 0, total: unknowns.length });
         aiAbortRef.current = false;
 
-        const BATCH = 500; // AI 每批 500 个
-        const CONCURRENCY = 20; // 付费 API: 同时 20 个请求
+        const BATCH = aiBatchSize;
+        const CONCURRENCY = aiConcurrency;
         let doneCount = 0;
 
         const processBatch = async (batch: GeoResult[], ai: any) => {
@@ -62,7 +76,7 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
             const batchMap = new Map<string, { country: string; continent: string }>();
             try {
                 const response = await ai.models.generateContent({
-                    model: 'gemini-3.1-flash-lite-preview',
+                    model: aiModel,
                     contents: prompt,
                 });
                 const text = response.text || '';
@@ -119,7 +133,7 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
         }
 
         setIsAiProcessing(false);
-    }, [getAiInstance]);
+    }, [getAiInstance, aiModel, aiBatchSize, aiConcurrency]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
         e.preventDefault();
@@ -389,6 +403,53 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
                             </button>
                         </>
                     )}
+                </div>
+            </div>
+
+            {/* AI Settings Row */}
+            <div className="flex items-center gap-4 px-4 py-2 border-b border-zinc-800 bg-zinc-900/30 shrink-0">
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[0.6875rem] text-zinc-500">🤖 AI 模型</span>
+                    <select
+                        className="text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-cyan-500"
+                        value={aiModel}
+                        onChange={e => setAiModel(e.target.value)}
+                        disabled={isAiProcessing}
+                    >
+                        {MODEL_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[0.6875rem] text-zinc-500">📦 批次</span>
+                    <input
+                        type="number"
+                        list="rc-batch-size-options"
+                        className="w-20 text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-cyan-500"
+                        value={aiBatchSize}
+                        onChange={e => setAiBatchSize(Math.max(1, Math.min(1000, parseInt(e.target.value) || 1)))}
+                        min={1}
+                        max={1000}
+                        disabled={isAiProcessing}
+                    />
+                    <datalist id="rc-batch-size-options">
+                        {BATCH_SIZE_OPTIONS.map(size => (
+                            <option key={size} value={size} />
+                        ))}
+                    </datalist>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[0.6875rem] text-zinc-500">⚡ 并发</span>
+                    <input
+                        type="number"
+                        className="w-16 text-xs bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-cyan-500"
+                        value={aiConcurrency}
+                        onChange={e => setAiConcurrency(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+                        min={1}
+                        max={50}
+                        disabled={isAiProcessing}
+                    />
                 </div>
             </div>
 

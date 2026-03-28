@@ -249,7 +249,7 @@ URL: ${urlInput}
 3. 根据实际情况填写，不要编造`;
 
             const response = await ai.models.generateContent({
-                model: textModel || 'gemini-3.1-flash-lite-preview',
+                model: textModel || 'gemini-3-flash-preview',
                 contents: prompt
             });
 

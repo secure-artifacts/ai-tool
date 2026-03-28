@@ -52,7 +52,7 @@ type MagicCanvasAppProps = {
   setState?: React.Dispatch<React.SetStateAction<MagicCanvasState>>;
 };
 
-function AppContent({ presetUser, registerSaveHandler, onSaveStatusChange, textModel = 'gemini-3.1-flash-lite-preview', imageModel = 'gemini-2.5-flash-image', imageResolution = '1K', initialImage, state, setState }: MagicCanvasAppProps) {
+function AppContent({ presetUser, registerSaveHandler, onSaveStatusChange, textModel = 'gemini-3-flash-preview', imageModel = 'gemini-2.5-flash-image', imageResolution = '1K', initialImage, state, setState }: MagicCanvasAppProps) {
   const { t, theme } = useContext(AppContext);
 
   // Local state for transient UI states

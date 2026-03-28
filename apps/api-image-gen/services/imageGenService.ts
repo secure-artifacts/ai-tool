@@ -1,6 +1,7 @@
 // API 生图 - Gemini 服务
 
 import { GoogleGenAI, Modality } from "@google/genai";
+import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
 import { ImageGenModel, ImageSize, GeneratedPrompt } from '../types';
 
 // 获取 AI 实例
@@ -33,11 +34,25 @@ const getAiInstance = (): GoogleGenAI => {
     if (!apiKey) {
         throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
     }
-    if (apiKey.startsWith('AIza')) {
-        throw new Error('⚠️ 旧版 AI Studio API Key（AIza 开头）已被禁止使用。请联系本国技术员注册最新的 Vertex AI API Key。');
-    }
+    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
     const cleanKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
+    if (shouldUseAiStudioMode(cleanKey)) {
+        return new GoogleGenAI({ apiKey: cleanKey });
+    }
     return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+};
+
+// 检测是否为 AI Studio 模式
+const isAiStudioMode = (): boolean => {
+    const apiPool = (window as any).__apiPool;
+    const usePool = (window as any).__usePool;
+    let apiKey = '';
+    if (usePool && apiPool?.hasKeys?.()) {
+        try { apiKey = apiPool.getCurrentKey(); } catch {}
+    }
+    if (!apiKey) apiKey = typeof window !== 'undefined' ? (localStorage.getItem('user_api_key') || '') : '';
+    if (!apiKey) apiKey = process.env.API_KEY || '';
+    return shouldUseAiStudioMode(apiKey.trim());
 };
 
 // 文件转 base64
@@ -67,7 +82,7 @@ export const generatePrompts = async (
     inputImages: File[],
     inputText: string,
     instruction: string,
-    model = 'gemini-3-pro-preview', // Gemini 3 Pro 文本模型
+    model = 'gemini-3.1-pro-preview', // Gemini 3 Pro 文本模型
     count = 4
 ): Promise<GeneratedPrompt[]> => {
     const ai = getAiInstance();
@@ -249,7 +264,9 @@ const generateWithGemini = async (
             parts: contents,
         },
         config: {
-            responseModalities: [Modality.IMAGE],
+            ...(isAiStudioMode()
+                ? { imageConfig: {} }
+                : { responseModalities: [Modality.IMAGE] }),
         } as any
     });
 

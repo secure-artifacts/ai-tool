@@ -3,62 +3,138 @@ import { GoogleGenAI } from "@google/genai";
 import { CopyItem, SimilarCopyItem, SimilarGroup, ExcludePatterns } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
-// Embedding 模型
-const EMBEDDING_MODEL = 'text-embedding-004';
+// Embedding 模型（text-embedding-004 已于 2026/01 弃用）
+const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 // 批量处理配置
 const BATCH_SIZE = 100;        // 每批处理数量
 const BATCH_DELAY_MS = 1000;   // 批次间延迟（避免 API 限流）
 
 /**
- * 获取单个文本的 Embedding
+ * 获取单个文本的 Embedding（含自动重试，应对限速）
  */
 export async function getTextEmbedding(
     text: string,
-    ai: GoogleGenAI
+    ai: GoogleGenAI,
+    maxRetries: number = 3
 ): Promise<number[]> {
-    try {
-        const result = await ai.models.embedContent({
-            model: EMBEDDING_MODEL,
-            contents: text,
-        });
-        return result.embeddings?.[0]?.values || [];
-    } catch (error) {
-        console.error('获取 Embedding 失败:', error);
-        throw error;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const result = await ai.models.embedContent({
+                model: EMBEDDING_MODEL,
+                contents: text,
+            });
+            return result.embeddings?.[0]?.values || [];
+        } catch (error: any) {
+            const status = error?.status || error?.error?.code || error?.code;
+            if ((status === 429 || status === 'RESOURCE_EXHAUSTED') && attempt < maxRetries) {
+                const waitMs = Math.min(2000 * Math.pow(2, attempt), 15000);
+                console.warn(`[Embedding] 限速，${waitMs/1000}s 后重试 (${attempt + 1}/${maxRetries})...`);
+                await new Promise(r => setTimeout(r, waitMs));
+                continue;
+            }
+            console.error('获取 Embedding 失败:', error);
+            throw error;
+        }
     }
+    throw new Error('Embedding 重试次数耗尽');
+}
+/**
+ * 粗估文本的 token 数（与 aiClassifyService 一致）
+ * gemini-embedding-001 每条最多 2048 tokens
+ */
+function estimateEmbedTokens(text: string): number {
+    const zhChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+    const enWords = (text.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, '').match(/[a-zA-Z]+/g) || []).length;
+    return Math.ceil(zhChars * 1.5 + enWords * 1.3) + 10; // +10 开销
 }
 
 /**
- * 批量获取文本的 Embedding
+ * 按 token 预算智能分批（与 AI 分类同逻辑）
+ * - MAX_BATCH_TOKENS: 每批最大 token（embedding 模型上限较小）
+ * - MAX_BATCH_COUNT: 每批最多条数（配额按条数而非请求数计算）
+ */
+function buildEmbedBatches(texts: string[]): string[][] {
+    const MAX_BATCH_TOKENS = 150000;
+    const MAX_BATCH_COUNT = 20;     // 配额按条数计: 20条/批 × ~4批/分 = 80/分(< 100 RPM)
+    const batches: string[][] = [];
+    let currentBatch: string[] = [];
+    let currentTokens = 0;
+
+    for (const text of texts) {
+        const tokenCost = estimateEmbedTokens(text);
+        if (currentBatch.length > 0 && (currentTokens + tokenCost > MAX_BATCH_TOKENS || currentBatch.length >= MAX_BATCH_COUNT)) {
+            batches.push(currentBatch);
+            currentBatch = [];
+            currentTokens = 0;
+        }
+        currentBatch.push(text);
+        currentTokens += tokenCost;
+    }
+    if (currentBatch.length > 0) batches.push(currentBatch);
+    return batches;
+}
+
+/**
+ * 批量获取文本的 Embedding（智能分批）
+ * 免费版配额：100 条/分钟（按条计费，非按请求）
+ * → 20条/批，间隔15秒 ≈ 80条/分钟
+ */
+export async function batchEmbedTexts(
+    texts: string[],
+    ai: GoogleGenAI,
+    onProgress?: (current: number, total: number) => void,
+    maxRetries: number = 3
+): Promise<number[][]> {
+    const allEmbeddings: number[][] = [];
+    const batches = buildEmbedBatches(texts);
+    let processed = 0;
+
+    for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+        const batch = batches[bIdx];
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const result = await ai.models.embedContent({
+                    model: EMBEDDING_MODEL,
+                    contents: batch, // 数组：一次请求多条
+                });
+                const embeddings = result.embeddings?.map(e => e.values || []) || [];
+                allEmbeddings.push(...embeddings);
+                break;
+            } catch (error: any) {
+                const status = error?.status || error?.error?.code || error?.code;
+                if ((status === 429 || status === 'RESOURCE_EXHAUSTED') && attempt < maxRetries) {
+                    const waitMs = Math.min(3000 * Math.pow(2, attempt), 20000);
+                    console.warn(`[BatchEmbed] 限速，${waitMs/1000}s 后重试 (${attempt + 1}/${maxRetries})...`);
+                    await new Promise(r => setTimeout(r, waitMs));
+                    continue;
+                }
+                throw error;
+            }
+        }
+
+        processed += batch.length;
+        if (onProgress) onProgress(processed, texts.length);
+
+        // 批次间延迟（配额按条计费，20条/批需要间隔约15秒）
+        if (bIdx < batches.length - 1) {
+            await new Promise(r => setTimeout(r, 15000));
+        }
+    }
+
+    return allEmbeddings;
+}
+
+/**
+ * 批量获取文本的 Embedding（兼容旧接口）
  */
 export async function batchGetEmbeddings(
     texts: string[],
     ai: GoogleGenAI,
     onProgress?: (current: number, total: number) => void
 ): Promise<number[][]> {
-    const embeddings: number[][] = [];
-
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-        const batch = texts.slice(i, i + BATCH_SIZE);
-
-        // 并行获取当前批次的 embeddings
-        const batchPromises = batch.map(text => getTextEmbedding(text, ai));
-        const batchResults = await Promise.all(batchPromises);
-        embeddings.push(...batchResults);
-
-        // 报告进度
-        if (onProgress) {
-            onProgress(Math.min(i + BATCH_SIZE, texts.length), texts.length);
-        }
-
-        // 批次间延迟，避免 API 限流
-        if (i + BATCH_SIZE < texts.length) {
-            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
-        }
-    }
-
-    return embeddings;
+    return batchEmbedTexts(texts, ai, onProgress);
 }
 
 /**
@@ -140,7 +216,7 @@ ${text}`;
 
     try {
         const result = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite-preview',
+            model: 'gemini-3-flash-preview',
             contents: prompt,
         });
         return result.text?.trim() || text;
@@ -218,15 +294,62 @@ const STOP_WORDS = new Set([
     'thank', 'thanks', 'god', 'jesus', 'lord', 'father', 'amen', 'pray', 'prayer' // 宗教通用词
 ]);
 
+// 惰性初始化中文分词器（浏览器原生 API，零依赖）
+let _simZhSegmenter: Intl.Segmenter | null = null;
+function getSimZhSegmenter(): Intl.Segmenter | null {
+    if (_simZhSegmenter) return _simZhSegmenter;
+    try {
+        _simZhSegmenter = new Intl.Segmenter('zh', { granularity: 'word' });
+        return _simZhSegmenter;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * 提取有意义的词汇（去除停用词和短词）
+ * 支持中文/俄语等非拉丁文字
+ * 中文使用 Intl.Segmenter 分词，比 bi-gram 准确得多
  */
 function extractMeaningfulWords(text: string): Set<string> {
-    const words = text.toLowerCase()
-        .replace(/[^\w\s]/g, ' ')  // 移除标点
+    const result = new Set<string>();
+    const lower = text.toLowerCase();
+
+    // 1. 提取拉丁/西里尔等空格分词语言的单词
+    const spaceWords = lower
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')  // 保留所有 Unicode 字母和数字
         .split(/\s+/)
         .filter(w => w.length > 3 && !STOP_WORDS.has(w));  // 只保留4字符以上且非停用词
-    return new Set(words);
+    spaceWords.forEach(w => result.add(w));
+
+    // 2. 提取中日韩文本 → 使用 Intl.Segmenter 分词
+    const cjkParts = lower.match(/[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]+/g);
+    if (cjkParts && cjkParts.length > 0) {
+        const cjkText = cjkParts.join('');
+        const segmenter = getSimZhSegmenter();
+        if (segmenter) {
+            // 使用分词器提取词汇
+            const words = [...segmenter.segment(cjkText)]
+                .filter(s => s.isWordLike && s.segment.length > 1)  // 过滤单字虚词（的、了、是...）
+                .map(s => s.segment);
+            words.forEach(w => result.add(w));
+            // 词级 bi-gram 作为短语特征
+            for (let i = 0; i < words.length - 1; i++) {
+                result.add(words[i] + words[i + 1]);
+            }
+        } else {
+            // 回退：字符 bi-gram
+            const cjkChars = [...cjkText];
+            for (let i = 0; i < cjkChars.length - 1; i++) {
+                result.add(cjkChars[i] + cjkChars[i + 1]);
+            }
+            if (cjkChars.length <= 4) {
+                cjkChars.forEach(c => result.add(c));
+            }
+        }
+    }
+
+    return result;
 }
 
 /**

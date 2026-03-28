@@ -304,7 +304,7 @@ const ApiImageGenApp: React.FC = () => {
                 inputImages,
                 inputText,
                 state.promptInstruction,
-                'gemini-3-pro-preview',
+                'gemini-3.1-pro-preview',
                 state.promptCount
             );
 

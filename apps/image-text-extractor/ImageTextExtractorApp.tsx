@@ -31,16 +31,26 @@ interface BilingualResult {
 }
 
 const MODEL_OPTIONS = [
-    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash Lite（最新，默认）' },
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（稳定）' },
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（快速）' },
+    // === GA 正式版 ===
+    { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA·快速)' },
+    { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
+    { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
+    // === Preview 预览版 ===
+    { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview·默认)' },
+    { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
+    { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Preview·Lite⚡)' },
 ];
 
-const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInstance, textModel = 'gemini-3.1-flash-lite-preview' }) => {
+const BATCH_SIZE_OPTIONS = [5, 10, 20, 30, 50, 100, 150, 200, 300];
+
+type ExtractMode = 'youtube' | 'fulltext';
+
+const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInstance, textModel = 'gemini-3-flash-preview' }) => {
     const toast = useToast();
     const [images, setImages] = useState<ImageItem[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [model, setModel] = useState(textModel);
+    const [extractMode, setExtractMode] = useState<ExtractMode>('youtube');
     const [customPrompt, setCustomPrompt] = useState('');
     const [showCustomPrompt, setShowCustomPrompt] = useState(false);
     const [batchSize, setBatchSize] = useState(10);
@@ -53,6 +63,7 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
     const [showImportOld, setShowImportOld] = useState(false);
     const [importOldText, setImportOldText] = useState('');
     const [showGuide, setShowGuide] = useState(false);
+    const [showFullPrompt, setShowFullPrompt] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const abortRef = useRef(false);
     const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -473,10 +484,54 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
         throw lastError || new Error('重试次数已耗尽');
     };
 
+    // 构建完整提示词（供 API 调用和界面预览使用）
+    const buildFullPrompt = (imageCount: number = 1): string => {
+        const defaultYoutubePrompt = `提取图片中的文案，不要暗色背景图片中的文字。只保留中间部分清晰的文案，包含标题和内容，标题单独一行，请原样将文案给我。不需要有其他的输出。不需要其他任何多余的内容。`;
+        const defaultFulltextPrompt = `提取图片中的主要文字内容，保持原有排版和段落结构，直接输出文字内容。忽略水印、账号名称、社交媒体标签（如 hashtag）、关注/点赞等非正文内容。不需要有其他多余的输出。`;
+
+        const defaultPrompt = extractMode === 'fulltext' ? defaultFulltextPrompt : defaultYoutubePrompt;
+        const basePrompt = customPrompt.trim() || defaultPrompt;
+
+        const extractTarget = extractMode === 'fulltext' ? '图片中的主要文字内容' : '前景文字';
+        const extraNotes = extractMode === 'fulltext'
+            ? `- 提取图片中的主要文字内容，保持排版结构
+- 忽略水印、账号名称、头像旁的用户名、社交媒体标签（hashtag）、点赞/评论/分享等 UI 元素文字
+- 如果有标题，先输出标题再输出正文`
+            : `- 只提取中间前景区域的文字，忽略外围背景
+- 如果前景区域有标题，先输出标题再输出正文`;
+
+        return `${basePrompt}
+
+【批次处理说明】
+以上共有 ${imageCount} 张图片，已按 [图片 1]、[图片 2]... 编号。
+请对每张图片分别提取${extractTarget}，并严格按以下格式返回结果：
+
+=== [1] ===
+===ORIGINAL===
+（图片1的原文，保持段落结构和换行）
+===CHINESE===
+（图片1的中文翻译，如果原文已经是中文则原样输出）
+=== [2] ===
+===ORIGINAL===
+（图片2的原文）
+===CHINESE===
+（图片2的中文翻译）
+...以此类推
+
+注意：
+- 每张图片的结果必须用 === [编号] === 分隔
+- 编号从 1 开始，与图片顺序一一对应
+${extraNotes}
+- 中文翻译要自然流畅，保持与原文对应的段落结构
+- ===CHINESE=== 必须完整翻译 ===ORIGINAL=== 的所有行（包含标题行），不能漏翻标题
+- 如果原文是中文，===CHINESE=== 部分直接原样输出即可`;
+    };
+
     // 批量处理多张图片（合并成一次 API 请求，带自动重试）
     const processImagesBatch = async (
         items: ImageItem[]
     ): Promise<Map<string, BilingualResult>> => {
+        // 注意：此函数使用 buildFullPrompt 来构建提示词
         const resultMap = new Map<string, BilingualResult>();
 
         // 过滤掉没有 base64 数据的
@@ -501,39 +556,8 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                 parts.push({ text: `[图片 ${index + 1}]` });
             });
 
-            const defaultPrompt = `提取图片中的文案，不要暗色背景图片中的文字。只保留中间部分清晰的文案，包含标题和内容，标题单独一行，请原样将文案给我。不需要有其他的输出。不需要其他任何多余的内容。`;
-
-            const basePrompt = customPrompt.trim() || defaultPrompt;
-
-            // 追加批次处理说明
-            parts.push({
-                text: `${basePrompt}
-
-【批次处理说明】
-以上共有 ${validItems.length} 张图片，已按 [图片 1]、[图片 2]... 编号。
-请对每张图片分别提取前景文字，并严格按以下格式返回结果：
-
-=== [1] ===
-===ORIGINAL===
-（图片1的原文，保持段落结构和换行）
-===CHINESE===
-（图片1的中文翻译，如果原文已经是中文则原样输出）
-=== [2] ===
-===ORIGINAL===
-（图片2的原文）
-===CHINESE===
-（图片2的中文翻译）
-...以此类推
-
-注意：
-- 每张图片的结果必须用 === [编号] === 分隔
-- 编号从 1 开始，与图片顺序一一对应
-- 只提取中间前景区域的文字，忽略外围背景
-- 如果前景区域有标题，先输出标题再输出正文
-- 中文翻译要自然流畅，保持与原文对应的段落结构
-- ===CHINESE=== 必须完整翻译 ===ORIGINAL=== 的所有行（包含标题行），不能漏翻标题
-- 如果原文是中文，===CHINESE=== 部分直接原样输出即可`
-            });
+            const promptText = buildFullPrompt(validItems.length);
+            parts.push({ text: promptText });
 
             // 带重试的 API 调用
             const fullText = await retryWithBackoff(
@@ -1005,11 +1029,14 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
         <div className="ite-app" ref={containerRef} tabIndex={-1}>
             {/* 标题区 */}
             <div className="ite-header">
-                <div className="ite-header-icon">📝</div>
+                <div className="ite-header-icon">{extractMode === 'fulltext' ? '🔍' : '📝'}</div>
                 <div className="ite-header-info">
-                    <h1 className="ite-title">图片前景文字提取器</h1>
+                    <h1 className="ite-title">图片{extractMode === 'fulltext' ? '全文' : '前景'}文字提取器</h1>
                     <p className="ite-subtitle">
-                        专为 YouTube 贴文竖版缩略图设计，提取图片中间前景区域的文案（标题+正文），自动忽略外围暗色/模糊背景，同时输出原文和中文翻译。支持批量处理。
+                        {extractMode === 'fulltext'
+                            ? '直接提取图片中所有可见文字，保持原有排版结构，同时输出原文和中文翻译。支持批量处理。'
+                            : '专为 YouTube 贴文竖版缩略图设计，提取图片中间前景区域的文案（标题+正文），自动忽略外围暗色/模糊背景，同时输出原文和中文翻译。支持批量处理。'
+                        }
                     </p>
                 </div>
                 <button className="ite-help-btn" onClick={() => setShowGuide(true)} title="使用说明">❓</button>
@@ -1026,7 +1053,7 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                         <div className="ite-guide-content">
                             <div className="ite-guide-section">
                                 <h4>🎯 用途</h4>
-                                <p>专为提取 YouTube 贴文竖版缩略图上的前景文案设计。AI 会自动识别图片中间区域的文字（包含标题和正文），忽略外围的暗色/模糊背景。支持任何语言的文字识别。</p>
+                                <p>支持两种模式：<strong>📺 YouTube 前景模式</strong>专为竖版缩略图设计，只提取中间前景区域文字，忽略外围暗色/模糊背景；<strong>🔍 全文提取模式</strong>直接提取图片中所有可见文字，适用于通用 OCR 场景。支持任何语言的文字识别。</p>
                             </div>
                             <div className="ite-guide-section">
                                 <h4>📥 添加图片的方式</h4>
@@ -1061,6 +1088,25 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
 
             {/* 设置区 */}
             <div className="ite-settings-card">
+                {/* 模式切换 */}
+                <div className="ite-mode-toggle">
+                    <button
+                        className={`ite-mode-btn ${extractMode === 'youtube' ? 'ite-mode-btn-active' : ''}`}
+                        onClick={() => setExtractMode('youtube')}
+                        disabled={isProcessing}
+                        title="专为 YouTube 竖版缩略图设计，只提取中间前景区域的文字，忽略外围暗色/模糊背景"
+                    >
+                        📺 YouTube 前景模式
+                    </button>
+                    <button
+                        className={`ite-mode-btn ${extractMode === 'fulltext' ? 'ite-mode-btn-active' : ''}`}
+                        onClick={() => setExtractMode('fulltext')}
+                        disabled={isProcessing}
+                        title="直接提取图片中所有可见文字，不进行裁切，适用于通用图片 OCR"
+                    >
+                        🔍 全文提取模式
+                    </button>
+                </div>
                 <div className="ite-settings-row">
                     <div className="ite-setting-group">
                         <label className="ite-label">
@@ -1085,13 +1131,19 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                         </label>
                         <input
                             type="number"
+                            list="ite-batch-size-options"
                             className="ite-input-small"
                             value={batchSize}
-                            onChange={e => setBatchSize(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                            onChange={e => setBatchSize(Math.max(1, Math.min(500, parseInt(e.target.value) || 1)))}
                             min={1}
-                            max={20}
+                            max={500}
                             disabled={isProcessing}
                         />
+                        <datalist id="ite-batch-size-options">
+                            {BATCH_SIZE_OPTIONS.map(size => (
+                                <option key={size} value={size} />
+                            ))}
+                        </datalist>
                     </div>
                     <div className="ite-setting-group">
                         <label className="ite-label">
@@ -1119,6 +1171,17 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                             </button>
                         </label>
                     </div>
+                    <div className="ite-setting-group">
+                        <label className="ite-label">
+                            <span className="ite-label-icon">👁</span>
+                            <button
+                                className="ite-link-btn"
+                                onClick={() => setShowFullPrompt(true)}
+                            >
+                                查看完整指令
+                            </button>
+                        </label>
+                    </div>
                 </div>
                 {showCustomPrompt && (
                     <div className="ite-custom-prompt">
@@ -1139,14 +1202,41 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                 )}
             </div>
 
+            {/* 完整指令预览弹框 */}
+            {showFullPrompt && (
+                <div className="ite-guide-overlay" onClick={() => setShowFullPrompt(false)}>
+                    <div className="ite-guide-modal ite-prompt-preview-modal" onClick={e => e.stopPropagation()}>
+                        <div className="ite-guide-modal-header">
+                            <h3>👁 完整指令预览（{extractMode === 'fulltext' ? '全文提取模式' : 'YouTube 前景模式'}）</h3>
+                            <button className="ite-guide-close" onClick={() => setShowFullPrompt(false)}>✕</button>
+                        </div>
+                        <pre className="ite-prompt-preview-text">{buildFullPrompt(images.length || 1)}</pre>
+                        <div className="ite-prompt-preview-footer">
+                            <button
+                                className="ite-btn ite-btn-outline"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(buildFullPrompt(images.length || 1));
+                                    toast.success('已复制完整指令');
+                                }}
+                            >
+                                📋 复制指令
+                            </button>
+                            <button className="ite-btn ite-btn-ghost" onClick={() => setShowFullPrompt(false)}>关闭</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* 上传区 */}
             <div
                 ref={dropZoneRef}
                 className="ite-dropzone"
+                tabIndex={0}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onClick={() => !isProcessing && fileInputRef.current?.click()}
+                onClick={() => dropZoneRef.current?.focus()}
+                onDoubleClick={() => !isProcessing && fileInputRef.current?.click()}
             >
                 <input
                     ref={fileInputRef}
@@ -1162,7 +1252,7 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                 <div className="ite-dropzone-content">
                     <span className="ite-dropzone-icon">🖼️</span>
                     <p className="ite-dropzone-text">
-                        点击上传 · 拖放图片 · 粘贴 (Ctrl+V)
+                        单击选中 · 双击上传 · 拖放图片 · 粘贴 (Ctrl+V)
                     </p>
                     <p className="ite-dropzone-hint">支持 JPG、PNG、WebP 等格式，支持粘贴 Google Sheets =IMAGE() 公式和图片链接</p>
                 </div>
@@ -1383,7 +1473,7 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
                             {img.status === 'processing' && (
                                 <div className="ite-result-loading">
                                     <div className="ite-spinner" />
-                                    <span>AI 正在识别中间前景区域文字...</span>
+                                    <span>AI 正在{extractMode === 'fulltext' ? '提取图片文字' : '识别中间前景区域文字'}...</span>
                                 </div>
                             )}
                         </div>
@@ -1394,12 +1484,22 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
             {/* 空状态 */}
             {images.length === 0 && (
                 <div className="ite-empty-state">
-                    <div className="ite-empty-icon">📷</div>
+                    <div className="ite-empty-icon">{extractMode === 'fulltext' ? '🔍' : '📷'}</div>
                     <p className="ite-empty-title">上传图片开始提取</p>
                     <p className="ite-empty-desc">
-                        适用于社交媒体常见的"竖图填充横屏"格式 —— 中间是原图内容，外围是暗色/模糊/放大的背景填充。
-                        <br />
-                        AI 会自动识别并只读取中间前景区域的文字。
+                        {extractMode === 'fulltext' ? (
+                            <>
+                                直接提取图片中所有可见的文字内容，适用于通用图片 OCR 场景。
+                                <br />
+                                AI 会识别图片中所有文字并保持原有排版结构。
+                            </>
+                        ) : (
+                            <>
+                                适用于社交媒体常见的&quot;竖图填充横屏&quot;格式 —— 中间是原图内容，外围是暗色/模糊/放大的背景填充。
+                                <br />
+                                AI 会自动识别并只读取中间前景区域的文字。
+                            </>
+                        )}
                         <br /><br />
                         <strong>支持多种输入方式：</strong>
                         <br />

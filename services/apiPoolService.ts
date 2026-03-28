@@ -83,20 +83,105 @@ export async function fetchUserApiKeys(
 }
 
 /**
+ * 单个 Key 的运行时状态
+ */
+interface KeyStats {
+    failedAt: number | null;  // 额度用完的时间戳（ms），null = 正常
+    failReason: string;       // 失败原因
+}
+
+// ===== 按天持久化调用次数（localStorage） =====
+const DAILY_CALL_PREFIX = 'api_daily_calls_';
+
+function getTodayKey(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getKeyId(apiKey: string): string {
+    // 用 key 的前12位作为标识（避免存完整 key）
+    return apiKey.substring(0, 12);
+}
+
+function getDailyCallCount(apiKey: string): number {
+    try {
+        const stored = localStorage.getItem(`${DAILY_CALL_PREFIX}${getTodayKey()}`);
+        if (!stored) return 0;
+        const data = JSON.parse(stored);
+        return data[getKeyId(apiKey)] || 0;
+    } catch { return 0; }
+}
+
+function incrementDailyCallCount(apiKey: string): number {
+    try {
+        const dateKey = `${DAILY_CALL_PREFIX}${getTodayKey()}`;
+        const stored = localStorage.getItem(dateKey);
+        const data = stored ? JSON.parse(stored) : {};
+        const keyId = getKeyId(apiKey);
+        data[keyId] = (data[keyId] || 0) + 1;
+        localStorage.setItem(dateKey, JSON.stringify(data));
+
+        // 清理旧日期的数据（只保留最近3天）
+        cleanOldDailyData();
+
+        return data[keyId];
+    } catch { return 0; }
+}
+
+function cleanOldDailyData(): void {
+    try {
+        const keys = Object.keys(localStorage).filter(k => k.startsWith(DAILY_CALL_PREFIX));
+        const today = getTodayKey();
+        const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+        keys.forEach(k => {
+            const dateStr = k.replace(DAILY_CALL_PREFIX, '');
+            if (dateStr !== today && dateStr !== yesterday) {
+                localStorage.removeItem(k);
+            }
+        });
+    } catch { /* ignore */ }
+}
+
+/**
  * API密钥池管理类
- * 实现轮询策略和自动切换
+ * 实现轮询策略、调用统计、额度追踪、冷却恢复
  */
 export class ApiKeyPool {
     private keys: string[];
     private nicknames: Map<string, string>;
     private currentIndex: number;
-    private failedKeys: Set<string>;
+    private keyStats: Map<string, KeyStats>;
+    private cooldownMs: number; // 额度用完后的冷却时间（毫秒）
 
-    constructor(keys: string[] = [], nicknames: Map<string, string> = new Map()) {
+    constructor(keys: string[] = [], nicknames: Map<string, string> = new Map(), cooldownMs: number = 60000) {
         this.keys = keys;
         this.nicknames = nicknames;
         this.currentIndex = 0;
-        this.failedKeys = new Set();
+        this.keyStats = new Map();
+        this.cooldownMs = cooldownMs;
+        keys.forEach(k => this.ensureStats(k));
+    }
+
+    private ensureStats(key: string): KeyStats {
+        if (!this.keyStats.has(key)) {
+            this.keyStats.set(key, { failedAt: null, failReason: '' });
+        }
+        return this.keyStats.get(key)!;
+    }
+
+    /**
+     * 判断 key 是否在冷却中（额度用完 + 冷却期未过）
+     */
+    private isKeyExhausted(key: string): boolean {
+        const stats = this.keyStats.get(key);
+        if (!stats || !stats.failedAt) return false;
+        const elapsed = Date.now() - stats.failedAt;
+        if (elapsed >= this.cooldownMs) {
+            stats.failedAt = null;
+            stats.failReason = '';
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -121,31 +206,56 @@ export class ApiKeyPool {
                 .map(r => [r.apiKey, r.nickname!])
         );
         this.currentIndex = 0;
-        this.failedKeys.clear();
-
-        // console.log(`[ApiKeyPool] 加载了 ${this.keys.length} 个API密钥`);
+        this.keys.forEach(k => this.ensureStats(k));
     }
 
     /**
-     * 获取当前API密钥
+     * 记录一次 API 调用（持久化到 localStorage，按天统计）
+     */
+    recordCall(key?: string): number {
+        const k = key || this.keys[this.currentIndex];
+        if (k) {
+            return incrementDailyCallCount(k);
+        }
+        return 0;
+    }
+
+    /**
+     * 获取指定 key 今日调用次数
+     */
+    getTodayCallCount(key?: string): number {
+        const k = key || this.keys[this.currentIndex];
+        return k ? getDailyCallCount(k) : 0;
+    }
+
+    /**
+     * 获取当前API密钥（自动跳过已耗尽的 key）
      */
     getCurrentKey(): string {
         if (this.keys.length === 0) {
             throw new Error('API池中没有可用的密钥');
         }
 
-        // 如果当前key已失败，尝试找到下一个可用的
+        // 跳过已耗尽的 key
         let attempts = 0;
-        while (this.failedKeys.has(this.keys[this.currentIndex]) && attempts < this.keys.length) {
+        while (this.isKeyExhausted(this.keys[this.currentIndex]) && attempts < this.keys.length) {
             this.currentIndex = (this.currentIndex + 1) % this.keys.length;
             attempts++;
         }
 
-        // 如果所有key都失败了，重置失败记录并从头开始
+        // 如果所有 key 都耗尽了，选冷却最早的（即将恢复的）
         if (attempts >= this.keys.length) {
-            console.warn('[ApiKeyPool] 所有API密钥都已失败，重置状态');
-            this.failedKeys.clear();
-            this.currentIndex = 0;
+            let earliestIdx = 0;
+            let earliestTime = Infinity;
+            this.keys.forEach((k, idx) => {
+                const stats = this.keyStats.get(k);
+                if (stats?.failedAt && stats.failedAt < earliestTime) {
+                    earliestTime = stats.failedAt;
+                    earliestIdx = idx;
+                }
+            });
+            this.currentIndex = earliestIdx;
+            console.warn('[ApiKeyPool] 所有 key 都已耗尽，使用冷却最久的 key');
         }
 
         return this.keys[this.currentIndex];
@@ -164,30 +274,53 @@ export class ApiKeyPool {
      */
     rotateToNext(): void {
         if (this.keys.length <= 1) return;
-
         this.currentIndex = (this.currentIndex + 1) % this.keys.length;
-        // console.log(`[ApiKeyPool] 轮换到下一个密钥 (${this.currentIndex + 1}/${this.keys.length})`);
+    }
+
+    /**
+     * 标记 key 为额度耗尽（记录时间和原因）
+     */
+    markKeyAsFailed(key: string, reason: string = '额度用完'): void {
+        if (key) {
+            const stats = this.ensureStats(key);
+            stats.failedAt = Date.now();
+            stats.failReason = reason;
+            const nick = this.nicknames.get(key) || key.substring(0, 10) + '...';
+            console.warn(`[ApiKeyPool] 标记 ${nick} 为耗尽: ${reason}`);
+        }
+        this.rotateToNext();
     }
 
     /**
      * 标记当前key为失败并轮换
      */
-    markCurrentAsFailed(): void {
+    markCurrentAsFailed(reason: string = '额度用完'): void {
         const currentKey = this.keys[this.currentIndex];
-        this.failedKeys.add(currentKey);
-        console.warn(`[ApiKeyPool] 标记密钥为失败: ${currentKey.substring(0, 10)}...`);
-        this.rotateToNext();
+        this.markKeyAsFailed(currentKey, reason);
     }
 
     /**
-     * 标记指定key为失败并轮换
+     * 强制重置指定 key（误报时手动恢复）
      */
-    markKeyAsFailed(key: string): void {
-        if (key) {
-            this.failedKeys.add(key);
-            console.warn(`[ApiKeyPool] 标记密钥为失败: ${key.substring(0, 10)}...`);
+    forceResetKey(key: string): void {
+        const stats = this.keyStats.get(key);
+        if (stats) {
+            stats.failedAt = null;
+            stats.failReason = '';
+            const nick = this.nicknames.get(key) || key.substring(0, 10) + '...';
+            console.log(`[ApiKeyPool] 强制重置 ${nick}，重新启用`);
         }
-        this.rotateToNext();
+    }
+
+    /**
+     * 强制重置所有 key
+     */
+    forceResetAll(): void {
+        this.keyStats.forEach(stats => {
+            stats.failedAt = null;
+            stats.failReason = '';
+        });
+        console.log('[ApiKeyPool] 已强制重置所有 key');
     }
 
     /**
@@ -206,19 +339,58 @@ export class ApiKeyPool {
         failed: number;
         currentNickname?: string;
     } {
+        const exhaustedCount = this.keys.filter(k => this.isKeyExhausted(k)).length;
         return {
             total: this.keys.length,
             current: this.currentIndex + 1,
-            failed: this.failedKeys.size,
+            failed: exhaustedCount,
             currentNickname: this.getCurrentNickname()
         };
     }
 
     /**
-     * 清除失败标记
+     * 获取每个 key 的详细状态
+     */
+    getDetailedStatus(): Array<{
+        index: number;
+        nickname: string;
+        keyPrefix: string;
+        callCount: number;
+        isExhausted: boolean;
+        failedAt: string | null;
+        failReason: string;
+        cooldownRemaining: number; // 剩余冷却秒数
+    }> {
+        return this.keys.map((key, idx) => {
+            const stats = this.keyStats.get(key) || { failedAt: null, failReason: '' };
+            const isExhausted = this.isKeyExhausted(key);
+            const cooldownRemaining = stats.failedAt
+                ? Math.max(0, Math.ceil((this.cooldownMs - (Date.now() - stats.failedAt)) / 1000))
+                : 0;
+            return {
+                index: idx + 1,
+                nickname: this.nicknames.get(key) || `Key ${idx + 1}`,
+                keyPrefix: key.substring(0, 8) + '...',
+                callCount: getDailyCallCount(key),
+                isExhausted,
+                failedAt: stats.failedAt ? new Date(stats.failedAt).toLocaleTimeString() : null,
+                failReason: stats.failReason,
+                cooldownRemaining,
+            };
+        });
+    }
+
+    /**
+     * 设置冷却时间（秒）
+     */
+    setCooldownSeconds(seconds: number): void {
+        this.cooldownMs = seconds * 1000;
+    }
+
+    /**
+     * 清除失败标记（兼容旧接口）
      */
     clearFailedMarks(): void {
-        this.failedKeys.clear();
-        // console.log('[ApiKeyPool] 已清除所有失败标记');
+        this.forceResetAll();
     }
 }

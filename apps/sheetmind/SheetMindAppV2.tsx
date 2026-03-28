@@ -231,6 +231,8 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     const [appendHtmlContent, setAppendHtmlContent] = useState<string | null>(null); // Google Sheets HTML
     const [appendLoading, setAppendLoading] = useState(false);
     const appendTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const settingsBtnRef = useRef<HTMLButtonElement>(null);
+    const sheetSelectorBtnRef = useRef<HTMLButtonElement>(null);
 
     // ==================== Unified Settings State ====================
     const [showUnifiedSettings, setShowUnifiedSettings] = useState(false);
@@ -1657,6 +1659,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                             {/* Sheet Selector (Domain part) */}
                             <div className="relative border-r border-slate-300 pr-2 py-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                                 <button
+                                    ref={sheetSelectorBtnRef}
                                     onClick={() => setSheetSelectorOpen(!sheetSelectorOpen)}
                                     className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-full transition-colors tooltip-bottom ${isMultiSheetMode
                                         ? 'text-purple-700 bg-purple-100/50 hover:bg-purple-100'
@@ -1680,10 +1683,13 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                         </>
                                     )}
                                 </button>
-                                {/* Sheet Selection Dropdown */}
-                                {sheetSelectorOpen && (
+                                {/* Sheet Selection Dropdown - uses fixed positioning to escape overflow-x-auto clipping */}
+                                {sheetSelectorOpen && (() => {
+                                    const rect = sheetSelectorBtnRef.current?.getBoundingClientRect();
+                                    return (
                                     <div
-                                        className="absolute top-10 left-0 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden"
+                                        className="fixed w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-[9999] overflow-hidden"
+                                        style={rect ? { top: rect.bottom + 4, left: rect.left } : {}}
                                         onClick={(e) => e.stopPropagation()}
                                     >
                                         <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
@@ -1739,7 +1745,8 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                             ))}
                                         </div>
                                     </div>
-                                )}
+                                    );
+                                })()}
                             </div>
 
                             {/* View Switcher (Path part) */}
@@ -1877,6 +1884,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
                             <div className="relative">
                                 <button
+                                    ref={settingsBtnRef}
                                     onClick={() => setShowUnifiedSettings(!showUnifiedSettings)}
                                     className={`p-1.5 rounded-full transition-colors flex items-center tooltip-bottom ${showUnifiedSettings
                                         ? 'bg-indigo-100 text-indigo-700 shadow-inner'
@@ -1901,6 +1909,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                     dedupMode={dedupMode}
                                     onDedupModeChange={setDedupMode}
                                     duplicateStats={duplicateStats}
+                                    anchorRef={settingsBtnRef}
                                 />
                             </div>
 

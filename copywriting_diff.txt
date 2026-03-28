@@ -1,0 +1,591 @@
+--- apps/prompt-tool/CopywritingView.tsx	2026-03-26 19:41:14
++++ /Users/ww/.gemini/antigravity/brain/b00b464f-a64b-49eb-b946-74383a586b29/tmp_unzip/apps/prompt-tool/CopywritingView.tsx	2026-03-26 18:21:59
+@@ -123,8 +123,6 @@
+     classifyResults?: Record<string, string>; // classifyColumnId -> 分类结果
+     // 多选
+     selected?: boolean;
+-    // 原始AI返回
+-    rawResponse?: string;
+ }
+ 
+ interface CopywritingPreset {
+@@ -1386,7 +1384,6 @@
+     classifyColumns?: ClassifyColumn[];
+     showBuiltinPresets?: boolean;
+     showCustomPresets?: boolean;
+-    autoTranslate?: boolean;
+ };
+ 
+ // === 文案库模式 ===
+@@ -2113,22 +2110,6 @@
+     const [showCustomPresets, setShowCustomPresets] = useState(true); // 显示自定义预设
+     const [pendingRetryStart, setPendingRetryStart] = useState(false); // 等待重试后开始
+     const [freeformCount, setFreeformCount] = useState(1); // 无文案模式生成数量
+-    const [autoTranslate, setAutoTranslate] = useState(true); // 自动中文翻译开关
+-    const [detailModalItem, setDetailModalItem] = useState<CopywritingItem | null>(null); // 详情弹窗
+-    const [detailShowRaw, setDetailShowRaw] = useState(false); // 详情弹窗-显示原始响应
+-
+-    // Esc 关闭详情弹窗
+-    useEffect(() => {
+-        const handleEsc = (e: KeyboardEvent) => {
+-            if (e.key === 'Escape' && detailModalItem) {
+-                setDetailModalItem(null);
+-                setDetailShowRaw(false);
+-            }
+-        };
+-        window.addEventListener('keydown', handleEsc);
+-        return () => window.removeEventListener('keydown', handleEsc);
+-    }, [detailModalItem]);
+-
+     const [mode, setMode] = useState<CopywritingMode>('standard'); // 模式：标准/人声/分类/拆分
+     const [voiceModeSystemInstruction, setVoiceModeSystemInstruction] = useState(VOICE_MODE_SYSTEM_INSTRUCTION); // 人声模式系统指令（可编辑）
+     const [classifyModeSystemInstruction, setClassifyModeSystemInstruction] = useState(CLASSIFY_MODE_SYSTEM_INSTRUCTION); // 分类模式系统指令（可编辑）
+@@ -2467,7 +2448,6 @@
+         hiddenPresetIds,
+         showBuiltinPresets,
+         showCustomPresets,
+-        autoTranslate,
+         classifyColumns: classifyColumns.map(c => ({ ...c })),
+     });
+ 
+@@ -2523,7 +2503,6 @@
+         setHiddenPresetIds(snapshot?.hiddenPresetIds || []);
+         setShowBuiltinPresets(snapshot?.showBuiltinPresets ?? true);
+         setShowCustomPresets(snapshot?.showCustomPresets ?? true);
+-        setAutoTranslate(snapshot?.autoTranslate ?? true);
+         setClassifyColumns((snapshot?.classifyColumns || DEFAULT_CLASSIFY_COLUMNS).map(c => ({ ...c })));
+     };
+ 
+@@ -2944,7 +2923,7 @@
+ 
+ 
+     // --- Process single item ---
+-    const processItem = async (item: CopywritingItem): Promise<{ foreign: string; chinese: string; rawResponse?: string } | null> => {
++    const processItem = async (item: CopywritingItem): Promise<{ foreign: string; chinese: string } | null> => {
+         try {
+             const inst = mode === 'freeform' ? (instructions[0] || instruction || '').trim() : (instruction || DEFAULT_INSTRUCTION);
+             let systemPrompt: string;
+@@ -2953,16 +2932,11 @@
+             if (mode === 'freeform') {
+                 // 无文案模式 - 纯指令生成，不需要原文
+                 const hasCustomFormat = inst.includes('|||');
+-                if (hasCustomFormat) {
+-                    systemPrompt = `你是一个专业的文案创作助手。\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`;
+-                    userPrompt = inst;
+-                } else if (!autoTranslate) {
+-                    systemPrompt = `你是一个专业的文案创作助手。\n\n【输出规则】\n1. 只输出最终文案，不要任何解释或前缀\n2. 直接输出结果，不需要分隔符`;
+-                    userPrompt = inst;
+-                } else {
+-                    systemPrompt = `你是一个专业的文案创作助手。\n\n【输出规则·分隔层】\n1. 整个输出中有且仅有一个 ||| 分隔符\n2. ||| 左边是外文文案，右边是对应的中文翻译\n3. 不要任何额外解释\n\n【重要】\n- 如果用户指令中有关于内容格式的要求（如分段、编号等），请在 ||| 左边的外文部分和右边的中文部分内分别应用\n- 如果用户指令中要求输出中文或双语，请忽略用户的中文输出要求，统一由 ||| 右边的中文翻译来提供\n- ||| 是语言版本分界符，不是内容格式分隔符`;
+-                    userPrompt = `${inst}\n\n请按以下格式输出：外文文案|||中文文案`;
+-                }
++                systemPrompt = hasCustomFormat
++                    ? `你是一个专业的文案创作助手。\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`
++                    : `你是一个专业的文案创作助手。\n\n【输出规则】\n1. 只输出最终文案，不要任何解释\n2. 输出格式：外文文案|||中文文案\n3. 使用 ||| 作为分隔符`;
++
++                userPrompt = `${inst}\n\n${hasCustomFormat ? '' : '请按以下格式输出：外文文案|||中文文案'}`;
+             } else if (mode === 'prayer') {
+                 // 祷告词提炼改写模式 - 独立系统指令
+                 systemPrompt = `${PRAYER_MODE_SYSTEM_INSTRUCTION}\n\n【输出规则】\n1. 只输出最终文案，不要任何解释\n2. 输出格式：英文三段式文案|||中文三段式文案\n3. 使用 ||| 作为分隔符`;
+@@ -2970,16 +2944,11 @@
+                 userPrompt = `请提炼改写以下祷告词为三段式双语短视频文案：${inst ? `\n\n额外要求：${inst}` : ''}\n\n原始祷告词：\n${item.originalForeign}\n\n输出格式：英文版|||中文版`;
+             } else {
+                 const hasCustomFormat = inst.includes('|||');
+-                if (hasCustomFormat) {
+-                    systemPrompt = `${systemInstruction}\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`;
+-                    userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。`;
+-                } else if (!autoTranslate) {
+-                    systemPrompt = `${systemInstruction}\n\n【输出规则】\n1. 只输出改写后的最终文案，不要任何解释或前缀\n2. 直接输出结果`;
+-                    userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。直接输出改写结果。`;
+-                } else {
+-                    systemPrompt = `${systemInstruction}\n\n【输出规则·分隔层】\n1. 整个输出中有且仅有一个 ||| 分隔符\n2. ||| 左边是改写后的外文，右边是对应的中文翻译\n3. 不要任何额外解释\n\n【重要】\n- 用户指令中的格式要求（如分段、编号、标题等）属于内容层，请在 ||| 的左右两部分中分别应用\n- 如果用户指令中要求输出中文或双语，请忽略用户的中文输出要求，统一由 ||| 右边的中文翻译来提供\n- ||| 是语言版本分界符，不是内容格式分隔符，整个输出中只能出现一次`;
+-                    userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。输出格式：改写后的外文|||中文翻译`;
+-                }
++                systemPrompt = hasCustomFormat
++                    ? `${systemInstruction}\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`
++                    : `${systemInstruction}\n\n【输出规则】\n1. 只输出最终文案，不要任何解释\n2. 输出格式：改写后的外文|||中文翻译\n3. 使用 ||| 作为分隔符`;
++
++                userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。${hasCustomFormat ? '' : '输出格式：改写后的外文|||中文翻译'}`;
+             }
+ 
+             // 429 自动重试
+@@ -3009,24 +2978,18 @@
+             const responseText = result.text?.trim() || '';
+ 
+             // 解析响应
+-            if (!autoTranslate && !inst.includes('|||') && mode !== 'prayer') {
+-                // 关闭自动翻译时，整个输出作为外文
+-                return { foreign: responseText, chinese: '', rawResponse: responseText };
+-            }
+-            // 只在第一个 ||| 处拆分（防止用户内容中包含 ||| 导致多拆）
+-            const sepIdx = responseText.indexOf('|||');
+-            if (sepIdx >= 0) {
++            const parts = responseText.split('|||');
++            if (parts.length >= 2) {
+                 return {
+-                    foreign: responseText.substring(0, sepIdx).trim(),
+-                    chinese: responseText.substring(sepIdx + 3).trim(),
+-                    rawResponse: responseText
++                    foreign: parts[0].trim(),
++                    chinese: parts[1].trim()
+                 };
+             } else {
++                // 如果没有分隔符，尝试其他方式解析或返回原文
+                 console.warn('[CopywritingView] Unexpected response format:', responseText);
+                 return {
+                     foreign: responseText,
+-                    chinese: '(翻译失败)',
+-                    rawResponse: responseText
++                    chinese: '(翻译失败)'
+                 };
+             }
+         } catch (error: any) {
+@@ -3141,34 +3104,13 @@
+ ${numberedInputs}
+ 
+ 按用户指令中的格式输出每条结果，每条以 [编号] 开头`;
+-            } else if (!autoTranslate) {
+-                systemPrompt = `${systemInstruction}
+-
+-【批量处理输出规则】
+-你需要处理多条文案，每条以 [编号] 开头。
+-对于每条文案，只输出改写结果，不需要翻译。
+-每条结果占一行，格式为：[编号] 改写结果`;
+-
+-                userPrompt = `改写指令：
+-${inst}
+-
+-请处理以下每条文案：
+-
+-${numberedInputs}
+-
+-按格式输出每条结果：[编号] 改写结果`;
+             } else {
+                 systemPrompt = `${systemInstruction}
+ 
+ 【批量处理输出规则】
+ 你需要处理多条文案，每条以 [编号] 开头。
+ 对于每条文案，输出格式为：[编号] 改写后的外文|||中文翻译
+-每条结果中有且仅有一个 ||| 分隔符。
+-
+-【重要】
+-- 用户指令中的格式要求属于内容层，在 ||| 的左右两部分中分别应用
+-- 如果用户指令要求输出中文或双语，忽略该要求，统一由 ||| 右侧的中文翻译提供
+-- ||| 是语言版本分界符，每条结果中只能出现一次`;
++每条结果占一行。`;
+ 
+                 userPrompt = `改写指令：
+ ${inst}
+@@ -3302,7 +3244,7 @@
+                         const result = await processItem(item);
+                         if (result) {
+                             setItems(prev => prev.map(i =>
+-                                i.id === item.id ? { ...i, status: 'success' as const, resultForeign: result.foreign, resultChinese: result.chinese, rawResponse: result.rawResponse } : i
++                                i.id === item.id ? { ...i, status: 'success' as const, resultForeign: result.foreign, resultChinese: result.chinese } : i
+                             ));
+                         } else {
+                             setItems(prev => prev.map(i =>
+@@ -4678,8 +4620,7 @@
+                                     ...i,
+                                     instructionResults: [...results],
+                                     resultForeign: lastForeign,
+-                                    resultChinese: lastChinese,
+-                                    rawResponse: responseText
++                                    resultChinese: lastChinese
+                                 } : i
+                             ));
+ 
+@@ -5956,19 +5897,19 @@
+             {/* === 改写指令 + 输入文案 (同一行) === */}
+             <div className="flex gap-3 min-w-0">
+                 {/* 改写指令 (左侧 40%) */}
+-                <div className="flex-[3.5] min-w-0 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+-                    <div className="flex flex-wrap items-center justify-between mb-2 gap-1">
+-                        <div className="flex flex-wrap items-center gap-2">
++                <div className="flex-[1.85] min-w-0 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
++                    <div className="flex items-center justify-between mb-2">
++                        <div className="flex items-center gap-2">
+                             <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : mode === 'social-media' ? 'text-teal-400' : mode === 'parallel' ? 'text-rose-400' : mode === 'cleaner' ? 'text-lime-400' : mode === 'prayer' ? 'text-sky-400' : 'text-amber-400'} />
+                             <span className="text-xs font-medium text-zinc-300">
+                                 {mode === 'freeform' ? '生成指令' : mode === 'voice' ? '人声文案指令' : mode === 'classify' ? (classifySubMode === 'wordcount' ? '字数分类区间' : classifySubMode === 'advanced' ? '高级分类配置' : '分类规则') : mode === 'split' ? '拆分列定义' : mode === 'library' ? '文案库配置' : mode === 'social-media' ? '自媒体改写指令' : mode === 'parallel' ? '排比改写说明' : mode === 'cleaner' ? '文案清理指令' : mode === 'prayer' ? '祷告词提炼改写' : '改写指令'}
+                             </span>
+                             {/* 模式切换按钮组 — 三组排列 */}
+-                            <div className="flex flex-wrap items-center gap-0.5">
++                            <div className="flex items-center gap-0.5">
+                                 {/* ── 标准改写 ── */}
+                                 <button
+                                     onClick={() => handleModeChange('standard')}
+-                                    className={`px-2 py-0.5 text-[10px] rounded-l-full transition-all border whitespace-nowrap ${mode === 'standard'
++                                    className={`px-2 py-0.5 text-[10px] rounded-l-full transition-all border ${mode === 'standard'
+                                         ? 'bg-amber-600 text-white border-amber-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -5978,7 +5919,7 @@
+                                 </button>
+                                 <button
+                                     onClick={() => handleModeChange('freeform')}
+-                                    className={`px-2 py-0.5 text-[10px] transition-all border whitespace-nowrap ${mode === 'freeform'
++                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'freeform'
+                                         ? 'bg-rose-600 text-white border-rose-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -5993,7 +5934,7 @@
+                                 {/* ── 特殊改写：文案库 / 自媒体 / 人声 / 清理 / 祷告 ── */}
+                                 <button
+                                     onClick={() => handleModeChange('library')}
+-                                    className={`px-2 py-0.5 text-[10px] transition-all border whitespace-nowrap ${mode === 'library'
++                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'library'
+                                         ? 'bg-green-600 text-white border-green-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6003,7 +5944,7 @@
+                                 </button>
+                                 <button
+                                     onClick={() => handleModeChange('social-media')}
+-                                    className={`px-2 py-0.5 text-[10px] transition-all border-y whitespace-nowrap ${mode === 'social-media'
++                                    className={`px-2 py-0.5 text-[10px] transition-all border-y ${mode === 'social-media'
+                                         ? 'bg-teal-600 text-white border-teal-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6013,7 +5954,7 @@
+                                 </button>
+                                 <button
+                                     onClick={() => handleModeChange('voice')}
+-                                    className={`px-2 py-0.5 text-[10px] transition-all border whitespace-nowrap ${mode === 'voice'
++                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'voice'
+                                         ? 'bg-purple-600 text-white border-purple-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6024,7 +5965,7 @@
+ 
+                                 <button
+                                     onClick={() => handleModeChange('cleaner')}
+-                                    className={`px-2 py-0.5 text-[10px] transition-all border whitespace-nowrap ${mode === 'cleaner'
++                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'cleaner'
+                                         ? 'bg-lime-600 text-white border-lime-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6035,7 +5976,7 @@
+ 
+                                 <button
+                                     onClick={() => handleModeChange('prayer')}
+-                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border whitespace-nowrap ${mode === 'prayer'
++                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'prayer'
+                                         ? 'bg-sky-600 text-white border-sky-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6050,7 +5991,7 @@
+                                 {/* ── 其他文案操作：分类 / 拆分 ── */}
+                                 <button
+                                     onClick={() => handleModeChange('classify')}
+-                                    className={`px-2 py-0.5 text-[10px] transition-all border whitespace-nowrap ${mode === 'classify'
++                                    className={`px-2 py-0.5 text-[10px] transition-all border ${mode === 'classify'
+                                         ? 'bg-cyan-600 text-white border-cyan-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6094,7 +6035,7 @@
+                                 )}
+                                 <button
+                                     onClick={() => handleModeChange('split')}
+-                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border whitespace-nowrap ${mode === 'split'
++                                    className={`px-2 py-0.5 text-[10px] rounded-r-full transition-all border ${mode === 'split'
+                                         ? 'bg-orange-600 text-white border-orange-500'
+                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                         } tooltip-bottom`}
+@@ -6114,19 +6055,6 @@
+                                     title={showDiff ? '关闭差异高亮' : '显示原文与改写结果的差异'}
+                                 >
+                                     {showDiff ? <><Search size={10} className="inline mr-0.5" /> 差异显示中</> : <><Search size={10} className="inline mr-0.5" /> 显示差异</>}
+-                                </button>
+-                            )}
+-                            {/* 自动中文翻译开关 - 仅标准/无文案模式显示 */}
+-                            {(mode === 'standard' || mode === 'freeform') && (
+-                                <button
+-                                    onClick={() => setAutoTranslate(!autoTranslate)}
+-                                    className={`flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-full transition-all ${autoTranslate
+-                                        ? 'bg-emerald-600 text-white border border-emerald-500'
+-                                        : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+-                                        }`}
+-                                    title={autoTranslate ? '已开启自动中文翻译：结果会分为外文|||中文两列。关闭后结果为单列，用户指令完全自由。' : '已关闭自动中文翻译：结果为单列，用户指令的格式不会被干涉。'}
+-                                >
+-                                    {autoTranslate ? '🌐 中文翻译' : '🚫 无翻译'}
+                                 </button>
+                             )}
+                             {/* 批次处理设置 */}
+@@ -7096,7 +7024,7 @@
+                 </div>
+ 
+                 {/* 输入文案 (右侧 45%) — 无文案模式下替换为生成按钮 */}
+-                <div className={`flex-1 min-w-[180px] bg-zinc-900 border border-zinc-800 rounded-lg p-3 ${mode === 'freeform' ? 'flex flex-col items-center justify-center' : ''}`}>
++                <div className={`flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-lg p-3 ${mode === 'freeform' ? 'flex flex-col items-center justify-center' : ''}`}>
+                     {mode === 'freeform' ? (
+                         /* 无文案模式 - 显示生成按钮 + 数量选择 */
+                         <>
+@@ -7106,7 +7034,7 @@
+                                 <p className="text-[10px] text-zinc-500 mt-1">在左侧写好生成指令，设置数量后点击下方按钮生成</p>
+                             </div>
+                             {/* 生成数量选择 */}
+-                            <div className="flex flex-wrap items-center gap-2 mb-3">
++                            <div className="flex items-center gap-2 mb-3">
+                                 <span className="text-[10px] text-zinc-500">生成数量：</span>
+                                 {[1, 3, 5, 10, 20].map(n => (
+                                     <button
+@@ -7187,23 +7115,23 @@
+             </div>
+ 
+             {/* === 状态栏 + 操作按钮 + 复制导出（自动换行） === */}
+-            <div className="flex flex-wrap items-start gap-2">
++            <div className="flex items-start gap-2">
+                 {/* 状态栏 */}
+                 {items.length > 0 ? (
+-                    <div className="flex items-stretch gap-0 bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden shrink-0" style={{ minWidth: '200px', maxWidth: '320px' }}>
+-                        <div className="flex-1 px-3 py-1.5 border-r border-zinc-800 whitespace-nowrap">
++                    <div className="flex items-stretch gap-0 bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden flex-1">
++                        <div className="flex-1 px-3 py-1.5 border-r border-zinc-800">
+                             <span className="text-zinc-500 text-[10px]">队列</span>
+                             <span className="ml-1.5 text-zinc-200 font-bold text-xs">{stats.total}</span>
+                         </div>
+-                        <div className="flex-1 px-3 py-1.5 border-r border-amber-900/30 bg-amber-900/10 whitespace-nowrap">
++                        <div className="flex-1 px-3 py-1.5 border-r border-amber-900/30 bg-amber-900/10">
+                             <span className="text-amber-400 text-[10px]">待处理</span>
+                             <span className="ml-1.5 text-amber-400 font-bold text-xs">{stats.idle}</span>
+                         </div>
+-                        <div className="flex-1 px-3 py-1.5 border-r border-emerald-900/30 bg-emerald-900/10 whitespace-nowrap">
++                        <div className="flex-1 px-3 py-1.5 border-r border-emerald-900/30 bg-emerald-900/10">
+                             <span className="text-emerald-400 text-[10px]">成功</span>
+                             <span className="ml-1.5 text-emerald-400 font-bold text-xs">{stats.success}</span>
+                         </div>
+-                        <div className="flex-1 px-3 py-1.5 bg-red-900/10 whitespace-nowrap">
++                        <div className="flex-1 px-3 py-1.5 bg-red-900/10">
+                             <span className="text-red-400 text-[10px]">失败</span>
+                             <span className="ml-1.5 text-red-400 font-bold text-xs">{stats.error}</span>
+                         </div>
+@@ -7730,7 +7658,7 @@
+ 
+                                         {/* === 非拆分模式结果渲染 === */}
+                                         {mode !== 'split' && !(mode === 'classify' && classifySubMode === 'advanced' && item.classifyResults && Object.keys(item.classifyResults).length > 0) && (
+-                                            <div className="overflow-x-auto" onDoubleClick={() => setDetailModalItem(item)}>
++                                            <div className="overflow-x-auto">
+                                                 <div
+                                                     className="grid gap-px bg-zinc-800"
+                                                     style={{
+@@ -7747,7 +7675,7 @@
+                                                     }}
+                                                 >
+                                                     {/* 原始外文 */}
+-                                                    <div className="bg-zinc-950 p-3" style={{ maxHeight: '200px', overflowY: 'auto' }}>
++                                                    <div className="bg-zinc-950 p-3">
+                                                         <div className="text-[10px] text-zinc-500 mb-1">
+                                                             原始外文
+                                                             {showDiff && item.status === 'success' && item.resultForeign && (
+@@ -7763,7 +7691,7 @@
+                                                     </div>
+ 
+                                                     {/* 原始中文 */}
+-                                                    <div className="bg-zinc-950 p-3" style={{ maxHeight: '200px', overflowY: 'auto' }}>
++                                                    <div className="bg-zinc-950 p-3">
+                                                         <div className="text-[10px] text-zinc-500 mb-1">原始中文</div>
+                                                         <div className="text-sm text-zinc-400 whitespace-pre-wrap break-words">
+                                                             {item.originalChinese || <span className="italic text-zinc-600">-</span>}
+@@ -7798,7 +7726,7 @@
+                                                                     )}
+                                                                 </div>
+                                                                 {/* 内容行 */}
+-                                                                <div className="px-3 py-2 flex-1" style={{ maxHeight: '200px', overflowY: 'auto' }}>
++                                                                <div className="px-3 py-2 flex-1">
+                                                                     {result.status === 'processing' ? (
+                                                                         <div className="flex items-center gap-2 text-amber-400 text-sm">
+                                                                             <Loader2 size={14} className="animate-spin" />
+@@ -7817,7 +7745,7 @@
+                                                             </div>
+                                                             {/* 指令N - 中文/断句列 - 分类模式不显示 */}
+                                                             {mode !== "classify" && (
+-                                                                <div className="bg-zinc-950 flex flex-col" style={{ maxHeight: '200px', overflowY: 'auto' }}>
++                                                                <div className="bg-zinc-950 flex flex-col">
+                                                                     {/* 标签行：指令N 中文/断句 + 复制按钮 */}
+                                                                     <div className="px-3 py-1 bg-zinc-800/50 flex items-center justify-between border-b border-zinc-700/50">
+                                                                         <span className={`text-[10px] ${mode === "voice" ? 'text-cyan-400' : 'text-blue-400'} font-medium`}>
+@@ -7932,7 +7860,7 @@
+                                                     {(!item.instructionResults || item.instructionResults.length === 0) && (
+                                                         <>
+                                                             {/* 改写后外文 / 加标签结果 */}
+-                                                            <div className="bg-zinc-950 p-3" style={{ maxHeight: '200px', overflowY: 'auto' }}>
++                                                            <div className="bg-zinc-950 p-3">
+                                                                 <div className={`text-[10px] ${mode === "voice" ? 'text-purple-500' : 'text-emerald-500'} mb-1`}>
+                                                                     {mode === "voice" ? '加标签结果' : '改写后外文'}
+                                                                 </div>
+@@ -7958,7 +7886,7 @@
+                                                                 )}
+                                                             </div>
+                                                             {/* 改写后中文 / 断句结果 */}
+-                                                            <div className="bg-zinc-950 p-3" style={{ maxHeight: '200px', overflowY: 'auto' }}>
++                                                            <div className="bg-zinc-950 p-3">
+                                                                 <div className={`text-[10px] ${mode === "voice" ? 'text-cyan-500' : 'text-blue-500'} mb-1`}>
+                                                                     {mode === "voice" ? '断句结果' : '改写后中文'}
+                                                                 </div>
+@@ -9456,165 +9384,6 @@
+                     showCopyToast(`已应用预设: ${preset.name}`);
+                 }}
+             />
+-
+-            {/* === 详情弹窗（双击结果行打开） === */}
+-            {detailModalItem && (
+-                <div
+-                    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+-                    onClick={() => { setDetailModalItem(null); setDetailShowRaw(false); }}
+-                >
+-                    <div
+-                        className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl w-[90vw] max-w-[900px] max-h-[85vh] flex flex-col overflow-hidden"
+-                        onClick={(e) => e.stopPropagation()}
+-                    >
+-                        {/* 标题栏 */}
+-                        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-700 bg-zinc-800/50">
+-                            <div className="flex items-center gap-3">
+-                                <span className="text-lg font-semibold text-zinc-100">📋 结果详情</span>
+-                                <span className="text-[10px] text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">双击结果行打开</span>
+-                            </div>
+-                            <div className="flex items-center gap-2">
+-                                {detailModalItem.rawResponse && (
+-                                    <button
+-                                        onClick={() => setDetailShowRaw(!detailShowRaw)}
+-                                        className={`flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-all ${detailShowRaw
+-                                            ? 'bg-amber-600 text-white'
+-                                            : 'bg-zinc-700 text-zinc-300 hover:bg-zinc-600'
+-                                            }`}
+-                                    >
+-                                        <Eye size={14} /> {detailShowRaw ? '隐藏原始响应' : '查看原始AI响应'}
+-                                    </button>
+-                                )}
+-                                <button
+-                                    onClick={() => { setDetailModalItem(null); setDetailShowRaw(false); }}
+-                                    className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-lg transition-colors"
+-                                >
+-                                    <X size={18} />
+-                                </button>
+-                            </div>
+-                        </div>
+-
+-                        {/* 内容区 */}
+-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+-                            {/* 原始外文 */}
+-                            <div className="bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/50">
+-                                <div className="flex items-center justify-between mb-2">
+-                                    <span className="text-xs text-zinc-400 font-medium">📝 原始外文</span>
+-                                    <button
+-                                        onClick={() => { navigator.clipboard.writeText(detailModalItem.originalForeign); showCopyToast('已复制原始外文'); }}
+-                                        className="text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-0.5 rounded hover:bg-zinc-700/50"
+-                                    >复制</button>
+-                                </div>
+-                                <div className="text-sm text-zinc-300 whitespace-pre-wrap break-words leading-relaxed">{detailModalItem.originalForeign}</div>
+-                            </div>
+-
+-                            {/* 原始中文 */}
+-                            {detailModalItem.originalChinese && (
+-                                <div className="bg-zinc-800/50 rounded-xl p-4 border border-zinc-700/50">
+-                                    <div className="flex items-center justify-between mb-2">
+-                                        <span className="text-xs text-zinc-400 font-medium">📖 原始中文</span>
+-                                        <button
+-                                            onClick={() => { navigator.clipboard.writeText(detailModalItem.originalChinese || ''); showCopyToast('已复制原始中文'); }}
+-                                            className="text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-0.5 rounded hover:bg-zinc-700/50"
+-                                        >复制</button>
+-                                    </div>
+-                                    <div className="text-sm text-zinc-400 whitespace-pre-wrap break-words leading-relaxed">{detailModalItem.originalChinese}</div>
+-                                </div>
+-                            )}
+-
+-                            {/* 改写后外文 */}
+-                            {detailModalItem.resultForeign && (
+-                                <div className="bg-emerald-950/30 rounded-xl p-4 border border-emerald-800/30">
+-                                    <div className="flex items-center justify-between mb-2">
+-                                        <span className="text-xs text-emerald-400 font-medium">✨ 改写后外文</span>
+-                                        <button
+-                                            onClick={() => { navigator.clipboard.writeText(detailModalItem.resultForeign || ''); showCopyToast('已复制改写后外文'); }}
+-                                            className="text-[10px] text-emerald-500 hover:text-emerald-300 px-2 py-0.5 rounded hover:bg-emerald-900/30"
+-                                        >复制</button>
+-                                    </div>
+-                                    <div className="text-sm text-emerald-100 whitespace-pre-wrap break-words leading-relaxed">{detailModalItem.resultForeign}</div>
+-                                </div>
+-                            )}
+-
+-                            {/* 改写后中文 */}
+-                            {detailModalItem.resultChinese && (
+-                                <div className="bg-blue-950/30 rounded-xl p-4 border border-blue-800/30">
+-                                    <div className="flex items-center justify-between mb-2">
+-                                        <span className="text-xs text-blue-400 font-medium">🈶 改写后中文</span>
+-                                        <button
+-                                            onClick={() => { navigator.clipboard.writeText(detailModalItem.resultChinese || ''); showCopyToast('已复制改写后中文'); }}
+-                                            className="text-[10px] text-blue-500 hover:text-blue-300 px-2 py-0.5 rounded hover:bg-blue-900/30"
+-                                        >复制</button>
+-                                    </div>
+-                                    <div className="text-sm text-blue-100 whitespace-pre-wrap break-words leading-relaxed">{detailModalItem.resultChinese}</div>
+-                                </div>
+-                            )}
+-
+-                            {/* 指令结果 */}
+-                            {detailModalItem.instructionResults && detailModalItem.instructionResults.length > 0 && (
+-                                <div className="space-y-3">
+-                                    <div className="text-xs text-zinc-400 font-medium">📊 各指令结果</div>
+-                                    {detailModalItem.instructionResults.map((result, idx) => (
+-                                        <div key={result.id} className="bg-purple-950/20 rounded-xl p-4 border border-purple-800/30">
+-                                            <div className="flex items-center justify-between mb-2">
+-                                                <span className="text-xs text-purple-400 font-medium">指令{idx + 1}: {result.instruction?.substring(0, 50)}{(result.instruction?.length || 0) > 50 ? '...' : ''}</span>
+-                                                <button
+-                                                    onClick={() => { navigator.clipboard.writeText(`${result.resultForeign}\t${result.resultChinese}`); showCopyToast(`已复制指令${idx + 1}结果`); }}
+-                                                    className="text-[10px] text-purple-500 hover:text-purple-300 px-2 py-0.5 rounded hover:bg-purple-900/30"
+-                                                >复制</button>
+-                                            </div>
+-                                            {result.status === 'success' ? (
+-                                                <div className="space-y-2">
+-                                                    <div className="text-sm text-purple-100 whitespace-pre-wrap break-words leading-relaxed">{result.resultForeign}</div>
+-                                                    {result.resultChinese && (
+-                                                        <div className="text-sm text-blue-200/80 whitespace-pre-wrap break-words leading-relaxed border-t border-purple-800/30 pt-2 mt-2">{result.resultChinese}</div>
+-                                                    )}
+-                                                </div>
+-                                            ) : (
+-                                                <div className="text-sm text-red-400">{result.error || '处理失败'}</div>
+-                                            )}
+-                                        </div>
+-                                    ))}
+-                                </div>
+-                            )}
+-
+-                            {/* 原始AI响应 */}
+-                            {detailShowRaw && detailModalItem.rawResponse && (
+-                                <div className="bg-amber-950/20 rounded-xl p-4 border border-amber-800/30">
+-                                    <div className="flex items-center justify-between mb-2">
+-                                        <span className="text-xs text-amber-400 font-medium">🔍 原始AI响应（未经解析的完整输出）</span>
+-                                        <button
+-                                            onClick={() => { navigator.clipboard.writeText(detailModalItem.rawResponse || ''); showCopyToast('已复制原始AI响应'); }}
+-                                            className="text-[10px] text-amber-500 hover:text-amber-300 px-2 py-0.5 rounded hover:bg-amber-900/30"
+-                                        >复制</button>
+-                                    </div>
+-                                    <div className="text-sm text-amber-100/80 whitespace-pre-wrap break-words leading-relaxed font-mono bg-black/30 rounded-lg p-3">{detailModalItem.rawResponse}</div>
+-                                </div>
+-                            )}
+-                        </div>
+-
+-                        {/* 底部操作栏 */}
+-                        <div className="px-6 py-3 border-t border-zinc-700 bg-zinc-800/30 flex items-center justify-between">
+-                            <span className="text-[10px] text-zinc-600">按 Esc 或点击遮罩层关闭</span>
+-                            <button
+-                                onClick={() => {
+-                                    const parts = [
+-                                        detailModalItem.originalForeign,
+-                                        detailModalItem.originalChinese || '',
+-                                        detailModalItem.resultForeign || '',
+-                                        detailModalItem.resultChinese || ''
+-                                    ];
+-                                    navigator.clipboard.writeText(parts.join('\t'));
+-                                    showCopyToast('已复制全部内容（Tab分隔）');
+-                                }}
+-                                className="flex items-center gap-1.5 px-4 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition-colors"
+-                            >
+-                                <Copy size={14} /> 复制全部
+-                            </button>
+-                        </div>
+-                    </div>
+-                </div>
+-            )}
+         </div >
+     );
+ }

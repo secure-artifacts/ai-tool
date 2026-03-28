@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "AI 工具包桥接助手",
+  "description": "将 AI 创作工具包的输出自动填入 Flow、ImageFX 等网站",
+  "version": "1.0.0",
+  "permissions": [
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://labs.google/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:*/*",
+        "https://*.web.app/*",
+        "https://*.firebaseapp.com/*"
+      ],
+      "js": ["content-toolkit.js"],
+      "run_at": "document_end"
+    }
+  ]
+}

@@ -4522,7 +4522,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                     (() => {
                                                                         const creativeResult = creativeResults.find(r => r.imageId === item.id);
                                                                         const showQuickInlineManager = workMode === 'quick';
-                                                                        const hasQuickResult = !!(creativeResult && creativeResult.status === 'success' && creativeResult.innovations.length > 0);
+                                                                        const hasQuickResult = !!(creativeResult && (creativeResult.status === 'processing' || creativeResult.status === 'error' || (creativeResult.status === 'success' && creativeResult.innovations.length > 0)));
                                                                         if (!showQuickInlineManager) {
                                                                             return (
                                                                                 <div
@@ -5218,7 +5218,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     (() => {
                                                         const creativeResult = creativeResults.find(r => r.imageId === item.id);
                                                         const showQuickInlineManager = workMode === 'quick';
-                                                        const hasQuickResult = !!(creativeResult && creativeResult.status === 'success' && creativeResult.innovations.length > 0);
+                                                        const hasQuickResult = !!(creativeResult && (creativeResult.status === 'processing' || creativeResult.status === 'error' || (creativeResult.status === 'success' && creativeResult.innovations.length > 0)));
                                                         if (!showQuickInlineManager) {
                                                             return (
                                                                 <div
