@@ -1,23 +1,43 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { Layer } from '../types';
 import { ChatMessage } from '../AIImageEditorApp';
 
 const getAiInstance = () => {
+  // 优先使用主应用暴露的全局实例（包含 API 池轮换等完整逻辑）
+  if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+    return (window as any).__app_get_ai_instance();
+  }
+
+  // 回退：自行创建实例
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
-  const keyToUse = storedKey || process.env.API_KEY;
-  if (!keyToUse) {
+  const rawKey = storedKey || process.env.API_KEY || '';
+  const cleanKey = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
+
+  // AI Studio 环境：平台内部处理认证
+  if (isRunningInAiStudio()) {
+    if (cleanKey) {
+      return new GoogleGenAI({ apiKey: cleanKey });
+    }
+    // 无 key 时让 SDK 自动使用 AI Studio 内部认证
+    return new GoogleGenAI({});
+  }
+
+  // 非 AI Studio 模式：必须有 key
+  if (!cleanKey) {
     throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
   }
-  const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
-  // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
+  // AIza key → 标准 AI Studio 模式
   if (shouldUseAiStudioMode(cleanKey)) {
     return new GoogleGenAI({ apiKey: cleanKey });
   }
+  // 其他 key → Vertex AI 模式
   return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
 };
 
 const isAiStudioMode = (): boolean => {
+  // AI Studio 环境始终返回 true
+  if (isRunningInAiStudio()) return true;
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
   const keyToUse = storedKey || process.env.API_KEY || '';
   return shouldUseAiStudioMode(keyToUse.trim());

@@ -23,6 +23,9 @@ export const isFacebookCdn = (url: string): boolean =>
     /scontent[\w.-]*\.fbcdn\.net|scontent[\w.-]*\.fna\.fbcdn\.net/i.test(url);
 
 export const processImageUrl = (url: string): string => {
+    // [调试挂钩] 发送原始 URL 到我们的 proxy 后台看一下格式
+    try { if (typeof window !== 'undefined') fetch(`/api/image-proxy?url=RAW_URL_LOG:${encodeURIComponent(url)}`).catch(()=>null); } catch(e){}
+
     try {
         const urlObj = new URL(url);
 
@@ -67,7 +70,23 @@ export const processImageUrl = (url: string): string => {
 
         // 4. Handle Google User Content (lh3.googleusercontent.com etc.)
         if (urlObj.hostname.endsWith('.googleusercontent.com') || urlObj.hostname === 'googleusercontent.com') {
-            // Usually these links work fine, but sometimes =s0 ensures full size
+            // Google Sheets copied images usually have =w100-h125 or =s120 in the pathname.
+            // Replace this with =s0 to fetch the original full-resolution image.
+            urlObj.pathname = urlObj.pathname.replace(/=[wshd]\d+.*$/i, '=s0');
+            
+            // Also clean query params if they restrict size (though less common for these hosts)
+            if (urlObj.searchParams.has('sz')) urlObj.searchParams.set('sz', 's0');
+            urlObj.searchParams.delete('w');
+            urlObj.searchParams.delete('h');
+            return urlObj.toString();
+        }
+
+        // 5. Handle Google Docs/Sheets internal image URLs
+        if (urlObj.hostname === 'docs.google.com' && urlObj.pathname.includes('/image')) {
+            // These URLs limit dimensions via query parameters (e.g. ?w=100&h=120)
+            urlObj.searchParams.delete('w');
+            urlObj.searchParams.delete('h');
+            return urlObj.toString();
         }
 
     } catch (e) {

@@ -1,16 +1,19 @@
 // API 生图 - Gemini 服务
 
 import { GoogleGenAI, Modality } from "@google/genai";
-import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { ImageGenModel, ImageSize, GeneratedPrompt } from '../types';
 
 // 获取 AI 实例
 const getAiInstance = (): GoogleGenAI => {
-    // 尝试从多个位置获取API key，按优先级
-    // 1. 检查是否有API池实例（全局共享）
+    // 优先使用主应用暴露的全局实例（包含 API 池轮换等完整逻辑）
+    if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+        return (window as any).__app_get_ai_instance();
+    }
+
+    // 回退：自行创建实例
     const apiPool = (window as any).__apiPool;
     const usePool = (window as any).__usePool;
-
     let apiKey = '';
 
     if (usePool && apiPool?.hasKeys?.()) {
@@ -20,22 +23,24 @@ const getAiInstance = (): GoogleGenAI => {
             console.error('[ImageGenService] 从API池获取密钥失败:', error);
         }
     }
-
-    // 2. 如果API池没有key，尝试从localStorage获取手动设置的key
     if (!apiKey) {
         apiKey = typeof window !== 'undefined' ? (localStorage.getItem('user_api_key') || '') : '';
     }
-
-    // 3. 最后尝试环境变量
     if (!apiKey) {
         apiKey = process.env.API_KEY || '';
     }
 
-    if (!apiKey) {
+    const cleanKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
+
+    // AI Studio 环境：平台内部处理认证
+    if (isRunningInAiStudio()) {
+        if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
+        return new GoogleGenAI({});
+    }
+
+    if (!cleanKey) {
         throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
     }
-    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
-    const cleanKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
     if (shouldUseAiStudioMode(cleanKey)) {
         return new GoogleGenAI({ apiKey: cleanKey });
     }
@@ -44,6 +49,7 @@ const getAiInstance = (): GoogleGenAI => {
 
 // 检测是否为 AI Studio 模式
 const isAiStudioMode = (): boolean => {
+    if (isRunningInAiStudio()) return true;
     const apiPool = (window as any).__apiPool;
     const usePool = (window as any).__usePool;
     let apiKey = '';

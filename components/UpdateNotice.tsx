@@ -30,11 +30,18 @@ interface UpdateNoticeProps {
 // 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v3.8.1',
+        date: '2026-03-28',
+        description: 'v3.8.1 优化超级改写，启用语义化提取正文，支持纯自定义改写指令',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v3.8.0',
         date: '2026-03-27',
         description: 'v3.8.0 修复 AI Studio 模式 API 认证 + API 池自动轮换无限递归修复',
-        url: '#',
-        isCurrent: true
+        url: 'https://ai-toolkit-b2b78--v3-8-0-zrdvh6h4.web.app',
+        isCurrent: false
     },
     {
         version: 'v3.7.0',
@@ -169,19 +176,37 @@ const versionHistory: VersionInfo[] = [
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v3.8.0',
-    date: '2026-03-27',
+    version: 'v3.8.1',
+    date: '2026-03-28',
     features: {
         en: [
-            'Quick innovation result panel visible during processing and error states',
-            'Pause/Stop controls in quick mode toolbar',
-            'Double-click creative count for manual input',
-            'Single card retry preserves other card results'
+            'Super Rewrite tool optimization',
+            'Semantic-based body extraction',
+            'Full support for custom prompt instructions'
         ],
         zh: [
-            '✨如果更新版本使用有问题可从历史版本切换使用老版本',
+            '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
+            '2026.03.28 v3.8.1',
+            '-',
+            '🚀 提示词工具（超级改写）优化',
+            '• 全面清空强制性的默认指令，支持完全自定义使用',
+            '• 启用全新「语义化提取」引擎，智能识别复杂文案中的标题和连词',
+            '• 修复某些特殊排版下正文提取不全或把结尾当做正文的问题',
+            '-',
+            '-',
+            '-',
+            '',
+            '2026.03.27 v3.8.0',
+            '-',
+            '🚀 AI Studio 更新',
+            '• 修复 AI Studio 模式下 API 认证异常',
+            '• 修复 API 池自动轮换时的无限递归问题',
+            '-',
+            '-',
+            '-',
+            '',
             '2026.03.23 v3.6.0',
             '-',
             '🎯 快捷创新模式增强',

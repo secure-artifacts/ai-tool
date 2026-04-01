@@ -439,6 +439,27 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
         });
     };
 
+    const copyResultFull = () => {
+        if (result.length === 0) return;
+        const lines: string[] = [];
+        // 主体：基准列 + 对齐结果
+        result.forEach((row, idx) => {
+            const baseRow = baseRows[idx] || '';
+            lines.push([baseRow, ...row].join('\t'));
+        });
+        // 追加：待匹配列中未被使用的行（前面加空的基准列占位）
+        if (unmatchedMatch.length > 0) {
+            lines.push(''); // 空行分隔
+            unmatchedMatch.forEach(row => {
+                lines.push(['[未匹配]', row].join('\t'));
+            });
+        }
+        navigator.clipboard.writeText(lines.join('\n')).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        });
+    };
+
     const clearAll = () => {
         setBaseColumn('');
         setMatchInput('');
@@ -608,6 +629,14 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                                 >
                                     <Download size={12} />
                                     含基准列
+                                </button>
+                                <button
+                                    onClick={copyResultFull}
+                                    className="px-2 py-1 text-xs rounded bg-amber-100 text-amber-700 hover:bg-amber-200 flex items-center gap-1"
+                                    title="含基准列 + 末尾追加未匹配的待匹配行"
+                                >
+                                    <Download size={12} />
+                                    完整复制
                                 </button>
                             </div>
                         )}

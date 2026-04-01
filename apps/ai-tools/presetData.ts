@@ -6,6 +6,32 @@ const getFavicon = (domain: string) => `https://www.google.com/s2/favicons?domai
 // 用户提供的工具列表 - 常用工具排在前面
 export const PRESET_AI_TOOLS: AITool[] = [
     // ========== 常用工具 (置顶) ==========
+    // AI多模型对比排行
+    {
+        id: 'arena',
+        name: 'Arena AI',
+        category: 'chatbot',
+        icon: getFavicon('arena.ai'),
+        website: 'https://arena.ai/',
+        description: '多AI模型并排对比，官方LLM排行榜，支持ChatGPT/Claude/Gemini等',
+        pricing: 'free',
+        freeQuota: '免费使用',
+        tags: ['对话', '多模型', '排行榜'],
+        safety: 'safe'
+    },
+    // 其他（AI聊天机器人）
+    {
+        id: 'claude',
+        name: 'Claude',
+        category: 'chatbot',
+        icon: getFavicon('claude.ai'),
+        website: 'https://claude.ai/',
+        description: 'Anthropic 出品的对话AI，擅长长文本分析、写作和代码',
+        pricing: 'freemium',
+        freeQuota: '免费版限量；Pro $20/月',
+        tags: ['对话', '写作', '代码'],
+        safety: 'safe'
+    },
     // 其他（AI聊天机器人）+生图
     {
         id: 'chatgpt',

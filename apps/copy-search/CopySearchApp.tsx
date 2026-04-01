@@ -14,7 +14,7 @@ import {
     RotateCcw, Settings2, Eye, EyeOff, Columns, AlertCircle,
     Sparkles, Bot, Brain,
 } from 'lucide-react';
-import { getTextEmbedding, batchEmbedTexts } from '@/apps/ai-copy-deduplicator/services/similarityService';
+import { localEmbeddingService, embeddingDB } from '../ai-copy-deduplicator/services/localEmbeddingService';
 
 // ===== 类型 =====
 interface CellData {
@@ -38,8 +38,11 @@ interface SearchQuery {
     enabled: boolean;
     isSearching: boolean;
     resultCount: number;
+    searchDone?: boolean;    // 搜索是否已完成（用于 UI 状态标记）
     useAi?: boolean;         // 是否使用 AI 搜索
-    threshold?: number;      // 单独相似度阈值（优先于全局，undefined 则跟随全局）
+    threshold?: number;      // MinHash 单独相似度阈值
+    embeddingThreshold?: number; // AI 语义单独阈值（优先于全局，undefined 则跟随全局）
+    searchMode?: 'contains' | 'similar' | 'embedding';  // 单独搜索模式（不设则跟随全局）
 }
 
 interface TableState {
@@ -206,7 +209,7 @@ function parseHtmlTable(html: string): { headers: string[]; rows: string[][] } |
                 const text = (clone.textContent || '').trim();
                 row.push(text);
             });
-            if (row.length > 0 && row.some(c => c !== '')) {
+            if (row.length > 0) {
                 allRows.push(row);
             }
         });
@@ -226,11 +229,11 @@ function parseHtmlTable(html: string): { headers: string[]; rows: string[][] } |
 
         if (isHeader && allRows.length > 1) {
             const headers = padRow(firstLine);
-            const rows = allRows.slice(1).map(padRow).filter(r => r.some(c => c.trim()));
+            const rows = allRows.slice(1).map(padRow);
             return { headers, rows };
         } else {
             const headers = Array.from({ length: maxCols }, (_, i) => `列${i + 1}`);
-            const rows = allRows.map(padRow).filter(r => r.some(c => c.trim()));
+            const rows = allRows.map(padRow);
             return { headers, rows };
         }
     } catch {
@@ -288,9 +291,7 @@ function parseTableData(text: string): { headers: string[]; rows: string[][] } {
                 // 换行 → 行分隔
                 currentRow.push(currentCell.trim());
                 currentCell = '';
-                if (currentRow.some(c => c !== '')) {
-                    allRows.push(currentRow);
-                }
+                allRows.push(currentRow);
                 currentRow = [];
                 // 跳过 \r\n 组合
                 if (ch === '\r' && i + 1 < raw.length && raw[i + 1] === '\n') i++;
@@ -303,9 +304,7 @@ function parseTableData(text: string): { headers: string[]; rows: string[][] } {
     }
     // 处理最后一个单元格和行
     currentRow.push(currentCell.trim());
-    if (currentRow.some(c => c !== '')) {
-        allRows.push(currentRow);
-    }
+    allRows.push(currentRow);
 
     if (allRows.length === 0) return { headers: [], rows: [] };
 
@@ -322,11 +321,11 @@ function parseTableData(text: string): { headers: string[]; rows: string[][] } {
 
     if (isHeader && allRows.length > 1) {
         const headers = padRow(firstLine);
-        const rows = allRows.slice(1).map(padRow).filter(r => r.some(c => c.trim()));
+        const rows = allRows.slice(1).map(padRow);
         return { headers, rows };
     } else {
         const headers = Array.from({ length: maxCols }, (_, i) => `列${i + 1}`);
-        const rows = allRows.map(padRow).filter(r => r.some(c => c.trim()));
+        const rows = allRows.map(padRow);
         return { headers, rows };
     }
 }
@@ -378,6 +377,9 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     const [pasteInput, setPasteInput] = useState('');
     const [pasteHtml, setPasteHtml] = useState(''); // 保存 HTML 剪贴板数据
     const [showPasteArea, setShowPasteArea] = useState(true);
+    const [appendMode, setAppendMode] = useState(false);  // 追加粘贴模式
+    const [sortMode, setSortMode] = useState<'original' | 'color' | 'match' | 'query'>('original');
+    const originalRowsRef = useRef<CellData[][] | null>(null);  // 存储原始行顺序
 
     // 搜索项
     const [queries, setQueries] = useState<SearchQuery[]>([
@@ -386,14 +388,153 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
 
     // 配置
     const [threshold, setThreshold] = useState(0.45); // MinHash Jaccard 阈值默认 0.45
+    const [embeddingThreshold, setEmbeddingThreshold] = useState(0.90); // AI 语义搜索阈值默认 0.90（余弦相似度量纲远高于 Jaccard）
     const [searchCol, setSearchCol] = useState<number>(-1); // 默认搜索全部列
     const [searchMode, setSearchMode] = useState<'contains' | 'similar' | 'embedding' | 'llm'>('similar'); // 默认相似模式
     const [showSettings, setShowSettings] = useState(false);
+    const [maxBatchChars, setMaxBatchChars] = useState(3000);
     const [searchQueriesCollapsed, setSearchQueriesCollapsed] = useState(false);
     const [globalProgress, setGlobalProgress] = useState('');
+    const [clearConfirm, setClearConfirm] = useState<{ step: number; count: number; countdown: number } | null>(null);
 
     // Embedding 缓存: cellText -> embedding vector
     const embeddingCacheRef = useRef<Map<string, number[]>>(new Map());
+    const [embeddingIndexInfo, setEmbeddingIndexInfo] = useState<{ cached: number; total: number } | null>(null);
+
+    // 重新统计 embedding 索引覆盖率
+    const recountEmbeddingIndex = useCallback(() => {
+        const { rows } = table;
+        if (rows.length === 0) { setEmbeddingIndexInfo(null); return; }
+        const col = searchCol;
+        const allCols = col < 0;
+        const uniqueTexts = new Set<string>();
+        rows.forEach(row => {
+            if (allCols) {
+                row.forEach(cell => { if (cell.value.trim()) uniqueTexts.add(cell.value.trim()); });
+            } else {
+                const val = row[col]?.value?.trim();
+                if (val) uniqueTexts.add(val);
+            }
+        });
+        const total = uniqueTexts.size;
+        const cache = embeddingCacheRef.current;
+        let cached = 0;
+        uniqueTexts.forEach(t => { if (cache.has(t)) cached++; });
+        setEmbeddingIndexInfo({ cached, total });
+    }, [table, searchCol]);
+
+    // 提前建立语义索引
+    const [isPrebuilding, setIsPrebuilding] = useState(false);
+    const prebuildEmbeddingIndex = useCallback(async () => {
+        const { rows } = table;
+        if (rows.length === 0) return;
+        setIsPrebuilding(true);
+        try {
+            // 初始化引擎
+            if (!localEmbeddingService.isReady()) {
+                setGlobalProgress('🧠 加载语义模型...');
+                await localEmbeddingService.initEngine((progress) => {
+                    setGlobalProgress(`🧠 加载模型: ${progress}`);
+                });
+            }
+            // 收集所有需要建索引的文本
+            const col = searchCol;
+            const allCols = col < 0;
+            const uniqueTexts = new Set<string>();
+            rows.forEach(row => {
+                if (allCols) {
+                    row.forEach(cell => { if (cell.value.trim()) uniqueTexts.add(cell.value.trim()); });
+                } else {
+                    const val = row[col]?.value?.trim();
+                    if (val) uniqueTexts.add(val);
+                }
+            });
+            const cache = embeddingCacheRef.current;
+            const needEmbed = Array.from(uniqueTexts).filter(t => !cache.has(t));
+            if (needEmbed.length === 0) {
+                setGlobalProgress('✅ 所有文案均已有索引，无需重建');
+                setTimeout(() => setGlobalProgress(''), 3000);
+                setIsPrebuilding(false);
+                return;
+            }
+            setGlobalProgress(`🧠 建立语义索引 (0/${needEmbed.length})...`);
+            const embeddings = await localEmbeddingService.extractEmbeddings(needEmbed, (done, total) => {
+                setGlobalProgress(`🧠 建立语义索引 (${done}/${total})，剩余 ${total - done} 条...`);
+            });
+            embeddings.forEach((emb: number[], idx: number) => {
+                cache.set(needEmbed[idx], emb);
+            });
+            setGlobalProgress(`✅ 索引建立完成！共 ${uniqueTexts.size} 条文案全部就绪`);
+            // 自动保存到文件夹
+            if (autoSaveIndex && dirHandleRef.current) {
+                await saveIndexToDir();
+                setGlobalProgress(`✅ 索引已建立并自动保存到 ${dirHandleRef.current.name}/`);
+            }
+            setTimeout(() => setGlobalProgress(''), 3000);
+        } catch (err: any) {
+            setGlobalProgress(`❌ 索引建立失败: ${err.message || err}`);
+            setTimeout(() => setGlobalProgress(''), 5000);
+        } finally {
+            setIsPrebuilding(false);
+        }
+    }, [table, searchCol]);
+
+    // 导出语义索引到 JSON 文件
+    const exportEmbeddingIndex = useCallback(async () => {
+        const cache = embeddingCacheRef.current;
+        if (cache.size === 0) {
+            setGlobalProgress('⚠️ 没有可导出的索引');
+            setTimeout(() => setGlobalProgress(''), 3000);
+            return;
+        }
+        setGlobalProgress('📦 正在导出索引...');
+        const entries: { t: string; e: number[] }[] = [];
+        cache.forEach((emb, text) => { entries.push({ t: text, e: emb }); });
+        const json = JSON.stringify({ version: 1, count: entries.length, entries });
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `embedding-index-${new Date().toISOString().slice(0, 10)}-${entries.length}条.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setGlobalProgress(`✅ 已导出 ${entries.length} 条索引`);
+        setTimeout(() => setGlobalProgress(''), 3000);
+    }, []);
+
+    // 导入语义索引（从 JSON 文件）
+    const importEmbeddingIndexRef = useRef<HTMLInputElement | null>(null);
+    const handleImportEmbeddingFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        e.target.value = ''; // 允许重复选择同一文件
+        setGlobalProgress('📥 正在读取索引文件...');
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            const entries: { t: string; e: number[] }[] = data.entries || [];
+            if (entries.length === 0) {
+                setGlobalProgress('⚠️ 索引文件为空');
+                setTimeout(() => setGlobalProgress(''), 3000);
+                return;
+            }
+            const cache = embeddingCacheRef.current;
+            let newCount = 0;
+            for (const item of entries) {
+                if (item.t && item.e && Array.isArray(item.e)) {
+                    if (!cache.has(item.t)) newCount++;
+                    cache.set(item.t, item.e);
+                    // 同时写入 IndexedDB 持久化
+                    embeddingDB.set(item.t, item.e).catch(() => {});
+                }
+            }
+            setGlobalProgress(`✅ 已导入 ${entries.length} 条索引（新增 ${newCount} 条）`);
+            setTimeout(() => setGlobalProgress(''), 4000);
+        } catch (err: any) {
+            setGlobalProgress(`❌ 导入失败: ${err.message || '文件格式错误'}`);
+            setTimeout(() => setGlobalProgress(''), 5000);
+        }
+    }, []);
 
     // 余弦相似度
     const cosineSimilarity = useCallback((a: number[], b: number[]): number => {
@@ -426,36 +567,241 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     // 表格容器
     const tableContainerRef = useRef<HTMLDivElement>(null);
     const tableRef = useRef<TableState>(table);
+    const searchLockRef = useRef<boolean>(false);
 
     useEffect(() => {
         tableRef.current = table;
     }, [table]);
 
+    // ===== 语义索引持久化（File System Access API + IndexedDB 双保险）=====
+    const [autoSaveIndex, setAutoSaveIndex] = useState(() => localStorage.getItem('copy-search-auto-save-index') !== 'false');
+    const [indexLoadStatus, setIndexLoadStatus] = useState<string>('');
+    const [indexSavePath, setIndexSavePath] = useState<string>(''); // 显示用的路径
+    const dirHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+    const INDEX_FILE_NAME = 'copy-search-embedding-index.json';
+
+    // 从 IndexedDB 恢复目录句柄
+    const loadDirHandle = useCallback(async (): Promise<FileSystemDirectoryHandle | null> => {
+        try {
+            const dbReq = indexedDB.open('CopySearchFS', 1);
+            return new Promise((resolve) => {
+                dbReq.onupgradeneeded = (e: any) => {
+                    e.target.result.createObjectStore('handles');
+                };
+                dbReq.onsuccess = async (e: any) => {
+                    const db = e.target.result;
+                    const tx = db.transaction('handles', 'readonly');
+                    const req = tx.objectStore('handles').get('indexDir');
+                    req.onsuccess = async () => {
+                        const handle = req.result as FileSystemDirectoryHandle | undefined;
+                        if (!handle) { resolve(null); return; }
+                        // 检查权限
+                        const perm = await (handle as any).queryPermission?.({ mode: 'readwrite' });
+                        if (perm === 'granted') {
+                            resolve(handle);
+                        } else {
+                            resolve(null); // 需要重新授权
+                        }
+                    };
+                    req.onerror = () => resolve(null);
+                };
+                dbReq.onerror = () => resolve(null);
+            });
+        } catch { return null; }
+    }, []);
+
+    // 保存目录句柄到 IndexedDB
+    const saveDirHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
+        try {
+            const dbReq = indexedDB.open('CopySearchFS', 1);
+            dbReq.onupgradeneeded = (e: any) => {
+                if (!e.target.result.objectStoreNames.contains('handles'))
+                    e.target.result.createObjectStore('handles');
+            };
+            dbReq.onsuccess = (e: any) => {
+                const db = e.target.result;
+                const tx = db.transaction('handles', 'readwrite');
+                tx.objectStore('handles').put(handle, 'indexDir');
+            };
+        } catch {}
+    }, []);
+
+    // 选择保存位置
+    const pickSaveDirectory = useCallback(async () => {
+        try {
+            const handle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+            dirHandleRef.current = handle;
+            setIndexSavePath(handle.name);
+            await saveDirHandle(handle);
+            setGlobalProgress(`✅ 索引保存位置已设为: ${handle.name}/`);
+            setTimeout(() => setGlobalProgress(''), 3000);
+            // 如果已有缓存，立刻保存一份
+            if (embeddingCacheRef.current.size > 0) {
+                await saveIndexToDir(handle);
+            }
+        } catch (err: any) {
+            if (err.name !== 'AbortError') {
+                setGlobalProgress(`❌ 选择文件夹失败: ${err.message}`);
+                setTimeout(() => setGlobalProgress(''), 4000);
+            }
+        }
+    }, []);
+
+    // 保存索引到指定目录
+    const saveIndexToDir = useCallback(async (handle?: FileSystemDirectoryHandle) => {
+        const dir = handle || dirHandleRef.current;
+        if (!dir) return;
+        const cache = embeddingCacheRef.current;
+        if (cache.size === 0) return;
+        try {
+            const entries: { t: string; e: number[] }[] = [];
+            cache.forEach((emb, text) => entries.push({ t: text, e: emb }));
+            const json = JSON.stringify({ version: 1, count: entries.length, ts: Date.now(), entries });
+            const fileHandle = await dir.getFileHandle(INDEX_FILE_NAME, { create: true });
+            const writable = await (fileHandle as any).createWritable();
+            await writable.write(json);
+            await writable.close();
+        } catch (err) {
+            console.warn('保存索引文件失败:', err);
+        }
+    }, []);
+
+    // 从目录加载索引
+    const loadIndexFromDir = useCallback(async (handle: FileSystemDirectoryHandle): Promise<number> => {
+        try {
+            const fileHandle = await handle.getFileHandle(INDEX_FILE_NAME);
+            const file = await fileHandle.getFile();
+            const text = await file.text();
+            const data = JSON.parse(text);
+            const entries: { t: string; e: number[] }[] = data.entries || [];
+            const cache = embeddingCacheRef.current;
+            let loaded = 0;
+            for (const item of entries) {
+                if (item.t && item.e && Array.isArray(item.e)) {
+                    cache.set(item.t, item.e);
+                    loaded++;
+                }
+            }
+            return loaded;
+        } catch {
+            return 0; // 文件不存在或读取失败
+        }
+    }, []);
+
+    // 启动时自动恢复索引
+    useEffect(() => {
+        if (!autoSaveIndex) return;
+        let cancelled = false;
+        (async () => {
+            // 1. 尝试从自定义文件夹恢复
+            const handle = await loadDirHandle();
+            if (handle && !cancelled) {
+                dirHandleRef.current = handle;
+                setIndexSavePath(handle.name);
+                setIndexLoadStatus(`📂 正在从 ${handle.name}/ 恢复索引...`);
+                const loaded = await loadIndexFromDir(handle);
+                if (loaded > 0 && !cancelled) {
+                    setIndexLoadStatus(`✅ 已从 ${handle.name}/ 恢复 ${loaded} 条语义索引`);
+                    setTimeout(() => setIndexLoadStatus(''), 4000);
+                    return; // 文件夹优先，成功就不查 IndexedDB 了
+                }
+            }
+            // 2. 回退：从 IndexedDB 恢复
+            if (cancelled) return;
+            try {
+                const count = await embeddingDB.count();
+                if (count === 0 || cancelled) return;
+                setIndexLoadStatus(`📥 正在从浏览器缓存恢复 ${count} 条索引...`);
+                const entries = await embeddingDB.exportAll();
+                if (cancelled) return;
+                const cache = embeddingCacheRef.current;
+                let loaded = 0;
+                for (const item of entries) {
+                    if (item.text && item.embedding) {
+                        cache.set(item.text, item.embedding);
+                        loaded++;
+                    }
+                }
+                if (loaded > 0) {
+                    setIndexLoadStatus(`✅ 已从浏览器缓存恢复 ${loaded} 条索引`);
+                    setTimeout(() => setIndexLoadStatus(''), 4000);
+                }
+            } catch (err) {
+                console.warn('从 IndexedDB 加载索引失败:', err);
+                setIndexLoadStatus('');
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []); // 只在挂载时执行一次
+
+    // 持久化 autoSaveIndex 开关
+    useEffect(() => {
+        localStorage.setItem('copy-search-auto-save-index', autoSaveIndex ? 'true' : 'false');
+    }, [autoSaveIndex]);
+
     // ===== 粘贴数据 =====
-    const handlePaste = useCallback(() => {
+    const handlePaste = useCallback((append = false) => {
         if (!pasteInput.trim() && !pasteHtml.trim()) return;
 
         // 优先使用 HTML 解析（Google Sheets 粘贴时完美保留单元格边界）
-        let parsed: { headers: string[]; rows: string[][] } | null = null;
+        let parsedHtml: { headers: string[]; rows: string[][] } | null = null;
+        let parsedTsv: { headers: string[]; rows: string[][] } | null = null;
+
         if (pasteHtml.trim()) {
-            parsed = parseHtmlTable(pasteHtml);
+            parsedHtml = parseHtmlTable(pasteHtml);
         }
-        // HTML 解析失败或无 HTML 数据时，回退到 TSV 解析
-        if (!parsed || parsed.headers.length === 0) {
-            parsed = parseTableData(pasteInput);
+        if (pasteInput.trim()) {
+            parsedTsv = parseTableData(pasteInput);
+        }
+
+        // 选择解析结果：如果 HTML 丢了空行（行数少于 TSV），用 TSV 保留原始行位置
+        let parsed: { headers: string[]; rows: string[][] } | null = null;
+        const htmlRows = parsedHtml?.rows?.length || 0;
+        const tsvRows = parsedTsv?.rows?.length || 0;
+        if (parsedHtml && parsedTsv && tsvRows > htmlRows) {
+            parsed = parsedTsv;
+        } else if (parsedHtml && parsedHtml.headers.length > 0) {
+            parsed = parsedHtml;
+        } else {
+            parsed = parsedTsv;
         }
         if (!parsed || parsed.headers.length === 0) return;
 
-        const rows: CellData[][] = parsed.rows.map(row =>
+        const newRows: CellData[][] = parsed.rows.map(row =>
             row.map(val => ({ value: val, highlights: [], note: '' }))
         );
-        setTable({ headers: parsed.headers, rows, noteColumnVisible: true });
+
+        if (append && table.rows.length > 0) {
+            // 追加模式：合并到现有表格
+            const existingColCount = table.headers.length;
+            const newColCount = parsed.headers.length;
+            // 对齐列数：新数据列不够则补空，多了则截断
+            const alignedRows = newRows.map(row => {
+                if (row.length < existingColCount) {
+                    return [...row, ...Array(existingColCount - row.length).fill({ value: '', highlights: [], note: '' })];
+                }
+                return row.slice(0, existingColCount);
+            });
+            setTable(prev => {
+                const merged = [...prev.rows, ...alignedRows];
+                originalRowsRef.current = merged.map(r => r.map(c => ({ ...c })));
+                return { ...prev, rows: merged };
+            });
+            setSortMode('original');
+            setGlobalProgress(`✅ 已追加 ${alignedRows.length} 行数据（总计 ${table.rows.length + alignedRows.length} 行）`);
+            setTimeout(() => setGlobalProgress(''), 3000);
+        } else {
+            // 替换模式
+            setTable({ headers: parsed.headers, rows: newRows, noteColumnVisible: true });
+            originalRowsRef.current = newRows.map(r => r.map(c => ({ ...c })));
+            setSortMode('original');
+            shingleCache.current.clear();
+        }
         setShowPasteArea(false);
         setPasteInput('');
         setPasteHtml('');
         setCurrentPage(0);
-        shingleCache.current.clear();
-    }, [pasteInput, pasteHtml]);
+    }, [pasteInput, pasteHtml, table]);
 
     // ===== 搜索项管理 =====
     const addQuery = () => {
@@ -565,12 +911,18 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
 
     const buildQueryNoteContent = useCallback((
         queryLike: { text?: string; noteText?: string },
-        mode: 'contains' | 'similar',
+        mode: 'contains' | 'similar' | 'embedding',
         similarityPercent?: number,
     ) => {
         const label = getQueryLabel(queryLike);
         if (mode === 'contains') {
             return `🔍 命中 ${label}`;
+        }
+        if (mode === 'embedding') {
+            if (typeof similarityPercent === 'number') {
+                return `🧠 语义 ${similarityPercent}% - ${label}`;
+            }
+            return `🧠 语义 - ${label}`;
         }
         if (typeof similarityPercent === 'number') {
             return `🔍 相似 ${similarityPercent}% - ${label}`;
@@ -609,8 +961,14 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     // ===== 执行搜索 =====
     const executeSearch = (query: SearchQuery) => {
         if (!query.text.trim() || tableRef.current.rows.length === 0) return;
+        if (searchLockRef.current) {
+            setGlobalProgress('请等待当前搜索任务完成...');
+            setTimeout(() => setGlobalProgress(''), 2000);
+            return;
+        }
 
-        updateQuery(query.id, { isSearching: true, resultCount: 0 });
+        searchLockRef.current = true;
+        updateQuery(query.id, { isSearching: true, resultCount: 0, searchDone: false });
         const startTime = performance.now();
 
         // 异步执行以免阻塞 UI
@@ -654,25 +1012,37 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
                         executeAiQuerySearch(query);
                         return; // executeAiQuerySearch 自行处理状态
                     } else if (searchMode === 'embedding') {
-                        // ===== AI 语义搜索：Embedding + 余弦相似度 =====
-                        if (!getAiInstance) throw new Error('AI 语义搜索需要配置 API Key');
-                        const ai = getAiInstance();
-                        if (!ai) throw new Error('请先配置 API Key');
+                        // ===== 本地 AI 语义搜索：Web Worker Embedding + 余弦相似度 =====
+                        if (!localEmbeddingService.isReady()) {
+                            setGlobalProgress('正在初始化本地 AI 引擎，首次下载需等待...');
+                            await localEmbeddingService.initEngine((progress) => {
+                                if (progress.status === 'progress') {
+                                    setGlobalProgress(`下载 AI 模型中: ${progress.file} - ${Math.round(progress.progress || 0)}%`);
+                                } else if (progress.status === 'done') {
+                                    setGlobalProgress(`加载完成: ${progress.file}`);
+                                }
+                            });
+                        }
 
                         setGlobalProgress('🧠 正在分析查询文案...');
-                        const queryEmb = await getTextEmbedding(query.text, ai);
+                        const queryEmbArray = await localEmbeddingService.extractEmbeddings([query.text]);
+                        const queryEmb = queryEmbArray[0];
 
                         // 批量获取单元格 embedding（有缓存就跳过）
                         const cache = embeddingCacheRef.current;
                         const needEmbed = cellsToSearch.filter(c => !cache.has(c.text));
                         if (needEmbed.length > 0) {
+                            setGlobalProgress(`使用本地 GPU/CPU 建立语义索引 (共 ${needEmbed.length} 条缺失索引，已有 ${cellsToSearch.length - needEmbed.length} 条命中缓存)...`);
                             const texts = needEmbed.map(c => c.text);
-                            const embeddings = await batchEmbedTexts(texts, ai, (done: number, total: number) => {
-                                setGlobalProgress(`🧠 建立语义索引 (${done}/${total})...`);
+                            const embeddings = await localEmbeddingService.extractEmbeddings(texts, (done, total) => {
+                                setGlobalProgress(`建立语义索引 (${done}/${total})，缺失 ${total - done} 条...`);
                             });
                             embeddings.forEach((emb: number[], idx: number) => {
                                 cache.set(needEmbed[idx].text, emb);
                             });
+                            setGlobalProgress(`✅ 索引建立完成！共 ${cellsToSearch.length} 条全部就绪，正在计算相似度...`);
+                        } else {
+                            setGlobalProgress(`✅ 全部 ${cellsToSearch.length} 条索引均命中缓存，跳过建立，直接计算相似度...`);
                         }
 
                         setGlobalProgress('🧠 正在计算语义相似度...');
@@ -680,18 +1050,18 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
                             const cellEmb = cache.get(c.text);
                             if (!cellEmb) return;
                             const similarity = cosineSimilarity(queryEmb, cellEmb);
-                            const effectiveThreshold = query.threshold ?? threshold;
+                            const effectiveThreshold = query.embeddingThreshold ?? embeddingThreshold;
                             if (similarity < effectiveThreshold) return;
                             matchedRows.add(c.row);
                             const cell = updatedRows[c.row][c.col];
                             cell.highlights.push({
                                 queryId: query.id,
                                 color: query.color,
-                                similarity: Math.round(similarity * 100),
+                                similarity: Math.floor(similarity * 1000) / 10,
                                 queryText: query.text,
                             });
-                            const similarityPercent = Math.round(similarity * 100);
-                            const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
+                            const similarityPercent = Math.floor(similarity * 1000) / 10;
+                            const noteContent = buildQueryNoteContent(query, 'embedding', similarityPercent);
                             const noteKey = getQueryLabel(query);
                             if (!cell.note) {
                                 cell.note = noteContent;
@@ -745,10 +1115,10 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
                             cell.highlights.push({
                                 queryId: query.id,
                                 color: query.color,
-                                similarity: Math.round(similarity * 100),
+                                similarity: Math.floor(similarity * 1000) / 10,
                                 queryText: query.text,
                             });
-                            const similarityPercent = Math.round(similarity * 100);
+                            const similarityPercent = Math.floor(similarity * 1000) / 10;
                             const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
                             const noteKey = getQueryLabel(query);
                             if (!cell.note) {
@@ -767,13 +1137,17 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
 
                 const elapsed = Math.round(performance.now() - startTime);
                 const modeLabel = searchMode === 'contains' ? '包含搜索' : searchMode === 'embedding' ? 'AI 语义搜索' : searchMode === 'llm' ? 'AI 精判' : 'MinHash + Jaccard';
-                updateQuery(query.id, { isSearching: false, resultCount: matchedRowCount });
+                updateQuery(query.id, { isSearching: false, resultCount: matchedRowCount, searchDone: true });
                 setGlobalProgress(`✅ ${matchedRowCount} 行匹配 (${elapsed}ms, ${modeLabel})`);
                 setTimeout(() => setGlobalProgress(''), 3000);
             } catch (err: any) {
-                console.error('搜索失败:', err);
-                setGlobalProgress(`搜索失败: ${err.message || '未知错误'}`);
+                if (err.message !== 'CANCELLED_BY_USER') {
+                    console.error('搜索失败:', err);
+                    setGlobalProgress(`搜索失败: ${err.message || '未知错误'}`);
+                }
                 updateQuery(query.id, { isSearching: false });
+            } finally {
+                searchLockRef.current = false;
             }
         }, 10);
     };
@@ -949,10 +1323,16 @@ If no matches: []`;
     const executeAllSearches = () => {
         const activeQueries = queries.filter(q => q.enabled && q.text.trim());
         if (activeQueries.length === 0 || tableRef.current.rows.length === 0) return;
+        if (searchLockRef.current) {
+            setGlobalProgress('请等待当前搜索任务完成...');
+            setTimeout(() => setGlobalProgress(''), 2000);
+            return;
+        }
 
+        searchLockRef.current = true;
         const activeIds = new Set(activeQueries.map(q => q.id));
         setQueries(prev => prev.map(q =>
-            activeIds.has(q.id) ? { ...q, isSearching: true, resultCount: 0 } : q
+            activeIds.has(q.id) ? { ...q, isSearching: true, resultCount: 0, searchDone: false } : q
         ));
         const startTime = performance.now();
 
@@ -1007,44 +1387,56 @@ If no matches: []`;
                 } else {
                     // Embedding 模式需要异步获取向量
                     if (searchMode === 'embedding') {
-                        if (!getAiInstance) throw new Error('AI 语义搜索需要配置 API Key');
-                        const ai = getAiInstance();
-                        if (!ai) throw new Error('请先配置 API Key');
+                        if (!localEmbeddingService.isReady()) {
+                            setGlobalProgress('正在初始化本地 AI 引擎，首次下载需等待...');
+                            await localEmbeddingService.initEngine((progress) => {
+                                if (progress.status === 'progress') {
+                                    setGlobalProgress(`下载 AI 模型中: ${progress.file} - ${Math.round(progress.progress || 0)}%`);
+                                } else if (progress.status === 'done') {
+                                    setGlobalProgress(`加载完成: ${progress.file}`);
+                                }
+                            });
+                        }
 
                         // 批量获取单元格 embedding
                         const cache = embeddingCacheRef.current;
                         const needEmbed = cellsToSearch.filter(c => !cache.has(c.text));
                         if (needEmbed.length > 0) {
+                            setGlobalProgress(`建立语义索引: ${needEmbed.length} 条缺失索引，已有 ${cellsToSearch.length - needEmbed.length} 条命中缓存...`);
                             const texts = needEmbed.map(c => c.text);
-                            const embeddings = await batchEmbedTexts(texts, ai, (done: number, total: number) => {
-                                setGlobalProgress(`🧠 建立语义索引 (${done}/${total})...`);
-                            });
+                            const embeddings = await localEmbeddingService.extractEmbeddings(texts, (done, total) => {
+                                setGlobalProgress(`建立语义索引 (${done}/${total})，缺失 ${total - done} 条...`);
+                            }, { maxBatchChars });
                             embeddings.forEach((emb: number[], idx: number) => {
                                 cache.set(needEmbed[idx].text, emb);
                             });
+                            setGlobalProgress(`✅ 索引建立完成！全部 ${cellsToSearch.length} 条就绪，开始语义匹配...`);
+                        } else {
+                            setGlobalProgress(`✅ 全部 ${cellsToSearch.length} 条索引均命中缓存，直接匹配...`);
                         }
 
                         // 逐个查询搜索
                         for (const query of activeQueries) {
                             const matchedRows = new Set<number>();
                             setGlobalProgress(`🧠 ${query.text.substring(0, 20)}... 语义分析中...`);
-                            const queryEmb = await getTextEmbedding(query.text, ai);
+                            const queryEmbArray = await localEmbeddingService.extractEmbeddings([query.text]);
+                            const queryEmb = queryEmbArray[0];
                             cellsToSearch.forEach(c => {
                                 const cellEmb = cache.get(c.text);
                                 if (!cellEmb) return;
                                 const similarity = cosineSimilarity(queryEmb, cellEmb);
-                                const effectiveThreshold = query.threshold ?? threshold;
+                                const effectiveThreshold = query.embeddingThreshold ?? embeddingThreshold;
                                 if (similarity < effectiveThreshold) return;
                                 matchedRows.add(c.row);
                                 const cell = updatedRows[c.row][c.col];
                                 cell.highlights.push({
                                     queryId: query.id,
                                     color: query.color,
-                                    similarity: Math.round(similarity * 100),
+                                    similarity: Math.floor(similarity * 1000) / 10,
                                     queryText: query.text,
                                 });
-                                const similarityPercent = Math.round(similarity * 100);
-                                const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
+                                const similarityPercent = Math.floor(similarity * 1000) / 10;
+                                const noteContent = buildQueryNoteContent(query, 'embedding', similarityPercent);
                                 const noteKey = getQueryLabel(query);
                                 if (!cell.note) {
                                     cell.note = noteContent;
@@ -1093,10 +1485,10 @@ If no matches: []`;
                                     cell.highlights.push({
                                         queryId: query.id,
                                         color: query.color,
-                                        similarity: Math.round(similarity * 100),
+                                        similarity: Math.floor(similarity * 1000) / 10,
                                         queryText: query.text,
                                     });
-                                    const similarityPercent = Math.round(similarity * 100);
+                                    const similarityPercent = Math.floor(similarity * 1000) / 10;
                                     const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
                                     const noteKey = getQueryLabel(query);
                                     if (!cell.note) {
@@ -1116,7 +1508,7 @@ If no matches: []`;
 
                 setQueries(prev => prev.map(q =>
                     activeIds.has(q.id)
-                        ? { ...q, isSearching: false, resultCount: resultCounts.get(q.id) || 0 }
+                        ? { ...q, isSearching: false, resultCount: resultCounts.get(q.id) || 0, searchDone: true }
                         : q
                 ));
 
@@ -1126,13 +1518,32 @@ If no matches: []`;
                 setGlobalProgress(`✅ 已完成 ${activeQueries.length} 项搜索，合计 ${totalRows} 行匹配 (${elapsed}ms, ${modeLabel})`);
                 setTimeout(() => setGlobalProgress(''), 3000);
             } catch (err: any) {
-                console.error('全部搜索失败:', err);
-                setGlobalProgress(`全部搜索失败: ${err.message || '未知错误'}`);
-                setQueries(prev => prev.map(q =>
-                    activeIds.has(q.id) ? { ...q, isSearching: false } : q
-                ));
+                if (err.message === 'CANCELLED_BY_USER') {
+                    setGlobalProgress('⏸️ 搜索已被中断！由于开启了【断点续传】，目前的进度已持久化到浏览器硬盘。');
+                    setQueries(prev => prev.map(q =>
+                        activeIds.has(q.id) ? { ...q, isSearching: false } : q
+                    ));
+                    setTimeout(() => setGlobalProgress(''), 5000);
+                } else {
+                    console.error('全部搜索失败:', err);
+                    setGlobalProgress(`全部搜索失败: ${err.message || '未知错误'}`);
+                    setQueries(prev => prev.map(q =>
+                        activeIds.has(q.id) ? { ...q, isSearching: false } : q
+                    ));
+                }
+            } finally {
+                searchLockRef.current = false;
             }
         }, 10);
+    };
+
+    // ===== 强制中断搜索 =====
+    const cancelAllSearches = async () => {
+        const isAnySearching = queries.some(q => q.isSearching);
+        if (!isAnySearching) return;
+        setGlobalProgress('⏸️ 正在强制刹车关停 AI 引擎...');
+        await localEmbeddingService.cancelSearch();
+        setQueries(prev => prev.map(q => ({ ...q, isSearching: false })));
     };
 
     // ===== 清除所有高亮 =====
@@ -1278,7 +1689,7 @@ If no matches: []`;
             html += `<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">${escHtml(h)}</td>`;
         });
         if (noteColumnVisible) {
-            html += '<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">备注</td>';
+            html += `<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">备注</td>`;
         }
         html += '</tr>';
 
@@ -1319,111 +1730,224 @@ If no matches: []`;
     const copyHighlightedOnly = useCallback(() => copyFilteredTable('highlighted'), [copyFilteredTable]);
     const copyUnhighlightedOnly = useCallback(() => copyFilteredTable('unhighlighted'), [copyFilteredTable]);
 
-    // ===== 自动查重：用 Union-Find 聚类相似文案 =====
-    const autoDedup = useCallback(() => {
+    // ===== 自动查重：用 Union-Find 聚类相似文案（支持 Jaccard / Embedding 两种模式）=====
+    const autoDedup = useCallback(async () => {
         const { rows } = table;
         if (rows.length === 0) return;
 
-        setGlobalProgress('🔍 正在自动查重...');
-        // 延迟执行以让 UI 更新
-        setTimeout(() => {
-            const col = searchCol;
-            // 1. 收集每行的文本和 shingles
-            const texts: { text: string; shingles: Set<string>; rowIdx: number }[] = [];
-            rows.forEach((row, ri) => {
-                const cellVal = row[col]?.value || '';
-                if (cellVal.trim()) {
-                    const key = `auto_${ri}_${col}`;
-                    if (!shingleCache.current.has(key)) {
-                        shingleCache.current.set(key, generateShingles(cellVal));
+        const useEmbedding = searchMode === 'embedding';
+        const col = searchCol;
+        const allCols = col < 0;
+
+        // 1. 收集每行的文本
+        const texts: { text: string; rowIdx: number; highlightCol: number }[] = [];
+        rows.forEach((row, ri) => {
+            let cellVal = '';
+            let firstNonEmptyCol = 0;
+            if (allCols) {
+                const parts: string[] = [];
+                row.forEach((cell, ci) => {
+                    if (cell.value.trim()) {
+                        parts.push(cell.value.trim());
+                        if (firstNonEmptyCol === 0 && parts.length === 1) firstNonEmptyCol = ci;
                     }
-                    texts.push({ text: cellVal, shingles: shingleCache.current.get(key)!, rowIdx: ri });
+                });
+                cellVal = parts.join(' ');
+            } else {
+                cellVal = row[col]?.value || '';
+                firstNonEmptyCol = col;
+            }
+            if (cellVal.trim()) {
+                texts.push({ text: cellVal, rowIdx: ri, highlightCol: firstNonEmptyCol });
+            }
+        });
+
+        if (texts.length < 2) {
+            setGlobalProgress('⚠️ 至少需要 2 行非空文本才能查重');
+            setTimeout(() => setGlobalProgress(''), 3000);
+            return;
+        }
+
+        // 2. Union-Find
+        const parent = new Map<number, number>();
+        const find = (x: number): number => {
+            if (!parent.has(x)) parent.set(x, x);
+            if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!));
+            return parent.get(x)!;
+        };
+        const union = (a: number, b: number) => {
+            const ra = find(a), rb = find(b);
+            if (ra !== rb) parent.set(ra, rb);
+        };
+
+        if (useEmbedding) {
+            // ===== 语义查重模式 =====
+            setGlobalProgress('🧠 初始化语义引擎...');
+            if (!localEmbeddingService.isReady()) {
+                await localEmbeddingService.initEngine((progress) => {
+                    setGlobalProgress(`🧠 加载模型: ${progress}`);
+                });
+            }
+
+            // 计算 embeddings
+            const cache = embeddingCacheRef.current;
+            const needEmbed = texts.filter(t => !cache.has(t.text));
+            if (needEmbed.length > 0) {
+                setGlobalProgress(`🧠 建立语义索引 (${needEmbed.length} 条)...`);
+                const embTexts = needEmbed.map(t => t.text);
+                const embeddings = await localEmbeddingService.extractEmbeddings(embTexts, (done, total) => {
+                    setGlobalProgress(`🧠 建立语义索引 (${done}/${total})...`);
+                });
+                embeddings.forEach((emb: number[], idx: number) => {
+                    cache.set(needEmbed[idx].text, emb);
+                });
+            }
+
+            setGlobalProgress(`🧠 正在两两比对语义相似度 (${texts.length} 条)...`);
+            const effThreshold = embeddingThreshold;
+
+            // 两两比较 cosine similarity
+            for (let i = 0; i < texts.length; i++) {
+                const embA = cache.get(texts[i].text);
+                if (!embA) continue;
+                for (let j = i + 1; j < texts.length; j++) {
+                    const embB = cache.get(texts[j].text);
+                    if (!embB) continue;
+                    const sim = cosineSimilarity(embA, embB);
+                    if (sim >= effThreshold) {
+                        union(texts[i].rowIdx, texts[j].rowIdx);
+                    }
                 }
+                // 每 50 行更新进度
+                if (i % 50 === 0) {
+                    setGlobalProgress(`🧠 语义比对中 (${i}/${texts.length})...`);
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+        } else {
+            // ===== Jaccard 查重模式 =====
+            setGlobalProgress('🔍 正在自动查重 (Jaccard)...');
+
+            // 生成 shingles
+            const shingleList: Set<string>[] = texts.map((t, idx) => {
+                const key = `auto_${t.rowIdx}_${allCols ? 'all' : col}`;
+                if (!shingleCache.current.has(key)) {
+                    shingleCache.current.set(key, generateShingles(t.text));
+                }
+                return shingleCache.current.get(key)!;
             });
 
-            // 2. Union-Find
-            const parent = new Map<number, number>();
-            const find = (x: number): number => {
-                if (!parent.has(x)) parent.set(x, x);
-                if (parent.get(x) !== x) parent.set(x, find(parent.get(x)!));
-                return parent.get(x)!;
-            };
-            const union = (a: number, b: number) => {
-                const ra = find(a), rb = find(b);
-                if (ra !== rb) parent.set(ra, rb);
-            };
-
-            // 3. 两两比较
             for (let i = 0; i < texts.length; i++) {
                 for (let j = i + 1; j < texts.length; j++) {
-                    const sim = exactJaccard(texts[i].shingles, texts[j].shingles);
+                    const sim = exactJaccard(shingleList[i], shingleList[j]);
                     if (sim >= threshold) {
                         union(texts[i].rowIdx, texts[j].rowIdx);
                     }
                 }
             }
+        }
 
-            // 4. 分组
-            const groups = new Map<number, number[]>();
-            texts.forEach(t => {
-                const root = find(t.rowIdx);
-                if (!groups.has(root)) groups.set(root, []);
-                groups.get(root)!.push(t.rowIdx);
-            });
-
-            // 5. 过滤出有重复的组（>1条），分配颜色
-            const dupGroups = Array.from(groups.values()).filter(g => g.length > 1);
-            if (dupGroups.length === 0) {
-                setGlobalProgress('✅ 没有发现重复文案');
-                setTimeout(() => setGlobalProgress(''), 3000);
-                return;
-            }
-
-            // 6. 清除旧高亮，分配颜色
-            const newRows = rows.map(row => row.map(cell => ({ ...cell, highlights: [], note: '' })));
-            dupGroups.forEach((group, gi) => {
-                const color = PRESET_COLORS[gi % PRESET_COLORS.length];
-                group.forEach(rowIdx => {
-                    const cell = newRows[rowIdx][col];
-                    cell.highlights = [{ queryId: `auto_group_${gi}`, color, similarity: 100, queryText: `重复组${gi + 1}` }];
-                    cell.note = `🔁 重复组 ${gi + 1}（共 ${group.length} 条）`;
-                });
-            });
-
-            setTable(prev => ({ ...prev, rows: newRows }));
-            const totalDups = dupGroups.reduce((a, g) => a + g.length, 0);
-            setGlobalProgress(`✅ 发现 ${dupGroups.length} 组重复，共 ${totalDups} 条文案`);
-            setTimeout(() => setGlobalProgress(''), 4000);
-        }, 50);
-    }, [table, searchCol, threshold]);
-
-    // ===== 排序功能 =====
-    const sortTable = useCallback((mode: 'color' | 'match') => {
-        setTable(prev => {
-            const sorted = [...prev.rows];
-            if (mode === 'color') {
-                // 按颜色分组排序：同颜色的排在一起，有高亮的在前
-                sorted.sort((a, b) => {
-                    const aColor = a.find(c => c.highlights.length > 0)?.highlights[0].color || '';
-                    const bColor = b.find(c => c.highlights.length > 0)?.highlights[0].color || '';
-                    if (aColor && !bColor) return -1;
-                    if (!aColor && bColor) return 1;
-                    if (aColor !== bColor) return aColor.localeCompare(bColor);
-                    return 0;
-                });
-            } else {
-                // 按匹配度排序：最高相似度降序
-                sorted.sort((a, b) => {
-                    const aMax = Math.max(0, ...a.flatMap(c => c.highlights.map(h => h.similarity)));
-                    const bMax = Math.max(0, ...b.flatMap(c => c.highlights.map(h => h.similarity)));
-                    return bMax - aMax;
-                });
-            }
-            return { ...prev, rows: sorted };
+        // 3. 分组
+        const groups = new Map<number, number[]>();
+        texts.forEach(t => {
+            const root = find(t.rowIdx);
+            if (!groups.has(root)) groups.set(root, []);
+            groups.get(root)!.push(t.rowIdx);
         });
-        setGlobalProgress(mode === 'color' ? '✅ 已按颜色分组排序' : '✅ 已按匹配度排序');
+
+        // 4. 过滤出有重复的组
+        const dupGroups = Array.from(groups.values()).filter(g => g.length > 1);
+        if (dupGroups.length === 0) {
+            setGlobalProgress('✅ 没有发现重复文案');
+            setTimeout(() => setGlobalProgress(''), 3000);
+            return;
+        }
+
+        // 5. 清除旧高亮，分配颜色
+        const rowHighlightColMap = new Map<number, number>();
+        texts.forEach(t => rowHighlightColMap.set(t.rowIdx, t.highlightCol));
+
+        const modeLabel = useEmbedding ? '🧠 语义重复' : '🔁 重复';
+        const newRows = rows.map(row => row.map(cell => ({ ...cell, highlights: [], note: '' })));
+        dupGroups.forEach((group, gi) => {
+            const color = PRESET_COLORS[gi % PRESET_COLORS.length];
+            group.forEach(rowIdx => {
+                const targetCol = allCols ? (rowHighlightColMap.get(rowIdx) ?? 0) : col;
+                const cell = newRows[rowIdx][targetCol];
+                if (cell) {
+                    cell.highlights = [{ queryId: `auto_group_${gi}`, color, similarity: 100, queryText: `重复组${gi + 1}` }];
+                    const tag = `DUP-${String(gi + 1).padStart(3, '0')}`;
+                    cell.note = `${tag} | ${modeLabel}组 ${gi + 1}（共 ${group.length} 条）`;
+                }
+            });
+        });
+
+        setTable(prev => ({ ...prev, rows: newRows }));
+        const totalDups = dupGroups.reduce((a, g) => a + g.length, 0);
+        const modeStr = useEmbedding ? '语义' : 'Jaccard';
+        setGlobalProgress(`✅ [${modeStr}] 发现 ${dupGroups.length} 组重复，共 ${totalDups} 条文案`);
+        setTimeout(() => setGlobalProgress(''), 4000);
+    }, [table, searchCol, threshold, searchMode, embeddingThreshold]);
+
+    const sortTable = useCallback((mode: 'original' | 'color' | 'match' | 'query') => {
+        setSortMode(mode);
+        if (mode === 'original') {
+            if (originalRowsRef.current) {
+                setTable(prev => {
+                    const restored: CellData[][] = [];
+                    const used = new Set<number>();
+                    for (const origRow of originalRowsRef.current!) {
+                        const key = origRow.map(c => c.value).join('\t');
+                        const idx = prev.rows.findIndex((r, i) => !used.has(i) && r.map(c => c.value).join('\t') === key);
+                        if (idx >= 0) { restored.push(prev.rows[idx]); used.add(idx); }
+                    }
+                    prev.rows.forEach((r, i) => { if (!used.has(i)) restored.push(r); });
+                    return { ...prev, rows: restored };
+                });
+            }
+            setGlobalProgress('\u2705 \u5df2\u6062\u590d\u539f\u59cb\u987a\u5e8f');
+        } else {
+            setTable(prev => {
+                const sorted = [...prev.rows];
+                if (mode === 'color') {
+                    sorted.sort((a, b) => {
+                        const aColor = a.find(c => c.highlights.length > 0)?.highlights[0].color || '';
+                        const bColor = b.find(c => c.highlights.length > 0)?.highlights[0].color || '';
+                        if (aColor && !bColor) return -1;
+                        if (!aColor && bColor) return 1;
+                        if (aColor !== bColor) return aColor.localeCompare(bColor);
+                        return 0;
+                    });
+                } else if (mode === 'match') {
+                    sorted.sort((a, b) => {
+                        const aMax = Math.max(0, ...a.flatMap(c => c.highlights.map(h => h.similarity)));
+                        const bMax = Math.max(0, ...b.flatMap(c => c.highlights.map(h => h.similarity)));
+                        return bMax - aMax;
+                    });
+                } else if (mode === 'query') {
+                    const queryOrder = queries.map(q => q.id);
+                    sorted.sort((a, b) => {
+                        const aFirst = Math.min(...a.flatMap(c => c.highlights.map(h => {
+                            const idx = queryOrder.indexOf(h.queryId);
+                            return idx >= 0 ? idx : 999;
+                        })), 999);
+                        const bFirst = Math.min(...b.flatMap(c => c.highlights.map(h => {
+                            const idx = queryOrder.indexOf(h.queryId);
+                            return idx >= 0 ? idx : 999;
+                        })), 999);
+                        if (aFirst !== bFirst) return aFirst - bFirst;
+                        const aMax = Math.max(0, ...a.flatMap(c => c.highlights.map(h => h.similarity)));
+                        const bMax = Math.max(0, ...b.flatMap(c => c.highlights.map(h => h.similarity)));
+                        return bMax - aMax;
+                    });
+                }
+                return { ...prev, rows: sorted };
+            });
+            const labels: Record<string, string> = { color: '\u2705 \u5df2\u6309\u989c\u8272\u5206\u7ec4\u6392\u5e8f', match: '\u2705 \u5df2\u6309\u5339\u914d\u5ea6\u6392\u5e8f', query: '\u2705 \u5df2\u6309\u641c\u7d22\u9879\u987a\u5e8f\u6392\u5e8f' };
+            setGlobalProgress(labels[mode] || '');
+        }
         setTimeout(() => setGlobalProgress(''), 2000);
-    }, []);
+    }, [queries]);
 
     // ===== AI 智能搜索 =====
     const executeAiSearch = useCallback(async () => {
@@ -1621,7 +2145,7 @@ If no matches: []`;
     }, []);
 
     // ===== 辅助 =====
-    const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
 
     const getContrastColor = (hex: string): string => {
         const r = parseInt(hex.slice(1, 3), 16);
@@ -1746,9 +2270,13 @@ If no matches: []`;
                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {table.rows.length > 0 && (
                             <>
-                                <button onClick={() => setShowPasteArea(!showPasteArea)}
-                                    style={btnStyle('#27272a')} data-tip="重新导入表格数据">
-                                    <Upload size={14} /> 重新粘贴
+                                <button onClick={() => { setShowPasteArea(!showPasteArea); setAppendMode(false); }}
+                                    style={btnStyle('#27272a')} data-tip={'重新导入表格数据（替换现有）'}>
+                                    <Upload size={14} /> {'重新粘贴'}
+                                </button>
+                                <button onClick={() => { setShowPasteArea(true); setAppendMode(true); }}
+                                    style={btnStyle('#1e3a5f')} data-tip={'在现有数据后追加新数据（不清空已有行）'}>
+                                    <Plus size={14} /> {'补充粘贴'}
                                 </button>
                                 {table.headers.length >= 2 && (
                                     <button onClick={() => {
@@ -1800,15 +2328,24 @@ If no matches: []`;
                                     <Copy size={14} /> 仅未高亮
                                 </button>
                                 <span style={{ width: '1px', height: '20px', background: '#3f3f46' }} />
-                                <button onClick={autoDedup} style={btnStyle('#5b21b6')} data-tip="自动比对所有行，将相似文案按颜色分组">
-                                    <Search size={14} /> 自动查重
+                                <button onClick={autoDedup} style={btnStyle('#5b21b6')} data-tip={searchMode === 'embedding' ? '使用语义相似度自动查重（基于 Embedding 余弦相似度）' : '自动比对所有行，将相似文案按颜色分组（基于 Jaccard）'}>
+                                    <Search size={14} /> {searchMode === 'embedding' ? '🧠 语义查重' : '自动查重'}
                                 </button>
-                                <button onClick={() => sortTable('color')} style={btnStyle('#374151')} data-tip="按高亮颜色分组排列，同色放一起">
-                                    ↕ 按颜色排序
-                                </button>
-                                <button onClick={() => sortTable('match')} style={btnStyle('#374151')} data-tip="按匹配相似度从高到低排序">
-                                    ↕ 按匹配排序
-                                </button>
+                                <select
+                                    value={sortMode}
+                                    onChange={e => sortTable(e.target.value as 'original' | 'color' | 'match' | 'query')}
+                                    style={{
+                                        background: '#27272a', color: '#e4e4e7',
+                                        border: '1px solid #3f3f46', borderRadius: '6px',
+                                        padding: '5px 8px', fontSize: '12px', fontWeight: 600,
+                                        cursor: 'pointer', outline: 'none',
+                                    }}
+                                >
+                                    <option value="original">{'↕ 原始顺序'}</option>
+                                    <option value="color">{'🎨 按颜色排序'}</option>
+                                    <option value="match">{'🎯 按匹配度排序'}</option>
+                                    <option value="query">{'📝 按搜索项顺序'}</option>
+                                </select>
                                 <span style={{ width: '1px', height: '20px', background: '#3f3f46' }} />
                                 <button onClick={clearAllHighlights} style={btnStyle('#7f1d1d')} data-tip="清除所有搜索项的高亮标记，保留数据">
                                     <RotateCcw size={14} /> 清除高亮
@@ -1840,6 +2377,151 @@ If no matches: []`;
                     </div>
                 )}
 
+                {/* 语义索引状态 - 固定显示 */}
+                {searchMode === 'embedding' && table.rows.length > 0 && (() => {
+                    const cache = embeddingCacheRef.current;
+                    const col = searchCol;
+                    const allCols = col < 0;
+                    const uniqueTexts = new Set<string>();
+                    table.rows.forEach(row => {
+                        if (allCols) {
+                            row.forEach(cell => { if (cell.value.trim()) uniqueTexts.add(cell.value.trim()); });
+                        } else {
+                            const val = row[col]?.value?.trim();
+                            if (val) uniqueTexts.add(val);
+                        }
+                    });
+                    const total = uniqueTexts.size;
+                    let cached = 0;
+                    uniqueTexts.forEach(t => { if (cache.has(t)) cached++; });
+                    const percent = total > 0 ? Math.round(cached / total * 100) : 0;
+                    const isFull = cached === total && total > 0;
+                    const isEmpty = cached === 0;
+                    return (
+                        <div style={{
+                            padding: '4px 16px',
+                            background: isFull ? 'rgba(52,211,153,0.06)' : isEmpty ? 'rgba(113,113,122,0.06)' : 'rgba(251,191,36,0.06)',
+                            borderBottom: `1px solid ${isFull ? 'rgba(52,211,153,0.15)' : isEmpty ? 'rgba(113,113,122,0.1)' : 'rgba(251,191,36,0.15)'}`,
+                            fontSize: '11px',
+                            color: isFull ? '#34d399' : isEmpty ? '#71717a' : '#fbbf24',
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                        }}>
+                            <span style={{
+                                display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
+                                background: isFull ? '#34d399' : isEmpty ? '#52525b' : '#fbbf24',
+                                boxShadow: isFull ? '0 0 6px rgba(52,211,153,0.5)' : 'none',
+                            }} />
+                            <span>
+                                {isFull
+                                    ? `✅ 语义索引已就绪（${cached} 条全部缓存）`
+                                    : isEmpty
+                                        ? `⚠️ 尚未建立语义索引（共 ${total} 条文案）— 搜索时自动建立`
+                                        : `🟡 语义索引: ${cached}/${total} 条已缓存（${percent}%）— 缺少 ${total - cached} 条`
+                                }
+                            </span>
+                            {/* 进度条 */}
+                            {!isEmpty && (
+                                <div style={{
+                                    flex: 1, maxWidth: '120px', height: '3px', borderRadius: '2px',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        width: `${percent}%`, height: '100%', borderRadius: '2px',
+                                        background: isFull ? '#34d399' : '#fbbf24',
+                                        transition: 'width 0.3s',
+                                    }} />
+                                </div>
+                            )}
+                            {/* 建立索引按钮 */}
+                            {!isFull && (
+                                <button
+                                    onClick={prebuildEmbeddingIndex}
+                                    disabled={isPrebuilding}
+                                    style={{
+                                        padding: '2px 10px', fontSize: '11px', fontWeight: 600,
+                                        background: isPrebuilding ? '#27272a' : 'rgba(52,211,153,0.15)',
+                                        color: isPrebuilding ? '#71717a' : '#34d399',
+                                        border: `1px solid ${isPrebuilding ? '#3f3f46' : 'rgba(52,211,153,0.3)'}`,
+                                        borderRadius: '4px', cursor: isPrebuilding ? 'not-allowed' : 'pointer',
+                                        whiteSpace: 'nowrap', flexShrink: 0,
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    {isPrebuilding ? '⚙️ 建立中...' : `🚀 建立索引${!isEmpty ? ` (剩余 ${total - cached})` : ''}`}
+                                </button>
+                            )}
+                            {/* 导出/导入索引 */}
+                            <span style={{ width: '1px', height: '12px', background: '#3f3f46', flexShrink: 0 }} />
+                            {cached > 0 && (
+                                <button onClick={exportEmbeddingIndex} style={{
+                                    padding: '2px 8px', fontSize: '10px', fontWeight: 500,
+                                    background: 'transparent', color: '#71717a',
+                                    border: '1px solid #3f3f46', borderRadius: '3px',
+                                    cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                                }}>
+                                    {'💾 导出索引'}
+                                </button>
+                            )}
+                            <button onClick={() => importEmbeddingIndexRef.current?.click()} style={{
+                                padding: '2px 8px', fontSize: '10px', fontWeight: 500,
+                                background: 'transparent', color: '#71717a',
+                                border: '1px solid #3f3f46', borderRadius: '3px',
+                                cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                            }}>
+                                {'📂 导入索引'}
+                            </button>
+                            <input
+                                ref={importEmbeddingIndexRef}
+                                type="file" accept=".json"
+                                onChange={handleImportEmbeddingFile}
+                                style={{ display: 'none' }}
+                            />
+                            {/* 自动保存开关 */}
+                            <span style={{ width: '1px', height: '12px', background: '#3f3f46', flexShrink: 0 }} />
+                            <label
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '4px',
+                                    fontSize: '10px', color: autoSaveIndex ? '#34d399' : '#52525b',
+                                    cursor: 'pointer', flexShrink: 0, userSelect: 'none',
+                                }}
+                                data-tip={autoSaveIndex ? '已开启：索引自动保存到浏览器，下次打开自动恢复' : '已关闭：索引不会持久化，刷新后丢失'}
+                            >
+                                <input
+                                    type="checkbox" checked={autoSaveIndex}
+                                    onChange={e => setAutoSaveIndex(e.target.checked)}
+                                    style={{ accentColor: '#34d399', width: '12px', height: '12px' }}
+                                />
+                                {'自动保存'}
+                            </label>
+                            <button onClick={pickSaveDirectory} style={{
+                                padding: '2px 8px', fontSize: '10px', fontWeight: 500,
+                                background: indexSavePath ? 'rgba(52,211,153,0.1)' : 'transparent',
+                                color: indexSavePath ? '#34d399' : '#71717a',
+                                border: `1px solid ${indexSavePath ? 'rgba(52,211,153,0.2)' : '#3f3f46'}`,
+                                borderRadius: '3px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                            }}
+                                data-tip={indexSavePath ? `当前保存位置: ${indexSavePath}/\n点击更换` : '选择一个本地文件夹保存索引，清理浏览器缓存也不会丢失'}
+                            >
+                                {indexSavePath ? `📁 ${indexSavePath}` : '📁 选择保存位置'}
+                            </button>
+                        </div>
+                    );
+                })()}
+
+                {/* 索引加载状态 */}
+                {indexLoadStatus && (
+                    <div style={{
+                        padding: '3px 16px', fontSize: '11px', color: '#71717a',
+                        background: 'rgba(113,113,122,0.04)',
+                        borderBottom: '1px solid rgba(113,113,122,0.08)',
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                    }}>
+                        {indexLoadStatus.includes('...') && <Loader2 size={12} className="animate-spin" />}
+                        {indexLoadStatus}
+                    </div>
+                )}
+
                 {/* 粘贴区域 */}
                 {showPasteArea && (
                     <div style={{ padding: '16px', borderBottom: '1px solid #27272a' }}>
@@ -1849,7 +2531,7 @@ If no matches: []`;
                         <textarea
                             value={pasteInput}
                             onChange={e => setPasteInput(e.target.value)}
-                            placeholder="在此粘贴表格数据…&#10;支持 Tab 分隔的多列数据&#10;第一行会被自动识别为表头"
+                            placeholder={"在此粘贴表格数据…\n支持 Tab 分隔的多列数据\n第一行会被自动识别为表头"}
                             style={{
                                 width: '100%', minHeight: '120px', resize: 'vertical',
                                 background: '#18181b', border: '1px solid #3f3f46',
@@ -1860,18 +2542,20 @@ If no matches: []`;
                                 e.preventDefault();
                                 const text = e.clipboardData.getData('text/plain');
                                 const html = e.clipboardData.getData('text/html');
-                                if (text) {
-                                    setPasteInput(text);
-                                }
-                                if (html) {
-                                    setPasteHtml(html);
-                                }
+                                if (text) { setPasteInput(text); }
+                                if (html) { setPasteHtml(html); }
                             }}
                         />
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                            <button onClick={handlePaste} style={{ ...btnStyle('#854d0e'), padding: '8px 20px' }}>
-                                <Check size={14} /> 载入数据
-                            </button>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
+                            {appendMode && table.rows.length > 0 ? (
+                                <button onClick={() => handlePaste(true)} style={{ ...btnStyle('#1e3a5f'), padding: '8px 20px' }}>
+                                    <Plus size={14} /> {`追加到现有 ${table.rows.length} 行后`}
+                                </button>
+                            ) : (
+                                <button onClick={() => handlePaste(false)} style={{ ...btnStyle('#854d0e'), padding: '8px 20px' }}>
+                                    <Check size={14} /> {'载入数据'}
+                                </button>
+                            )}
                             {table.rows.length > 0 && (
                                 <button onClick={() => { setShowPasteArea(false); setPasteInput(''); }}
                                     style={btnStyle('#27272a')}>
@@ -1929,7 +2613,7 @@ If no matches: []`;
                                 {getAiInstance && (
                                     <button
                                         onClick={() => setSearchMode('embedding')}
-                                        data-tip="AI 语义匹配：使用 Gemini Embedding 理解文案含义（中文精准度最高）"
+                                        data-tip="AI 语义匹配：使用本地 Embedding 理解文案含义（中文精准度最高）"
                                         style={{
                                             padding: '3px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
                                             border: 'none', cursor: 'pointer', transition: 'all 0.15s',
@@ -1972,25 +2656,74 @@ If no matches: []`;
                             >
                                 <Search size={14} /> 全部搜索
                             </button>
+                            {queries.some(q => q.isSearching) && (
+                                <button
+                                    onClick={cancelAllSearches}
+                                    style={{ ...btnStyle('#991b1b'), padding: '5px 14px', fontSize: '12px' }}
+                                    data-tip="强行中断并且保存断点记录（只对 AI 模型有效）"
+                                >
+                                    <Trash2 size={14} /> 停止搜索
+                                </button>
+                            )}
                         </div>
 
                         {!searchQueriesCollapsed && (
                             <>
-                                {/* 设置面板 */}
+                                {/* 设置面板 - 根据搜索模式自动切换阈值 */}
                                 {showSettings && (
                                     <div style={{
                                         padding: '10px 12px', background: '#18181b', borderRadius: '8px',
                                         border: '1px solid #3f3f46', marginBottom: '10px',
                                         display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap',
                                     }}>
+                                        {searchMode === 'similar' && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                                <span style={{ color: '#a1a1aa' }}>MinHash阈值:</span>
+                                                <input
+                                                    type="range" min={0.2} max={0.8} step={0.05} value={threshold}
+                                                    onChange={e => setThreshold(Number(e.target.value))}
+                                                    style={{ width: '100px' }}
+                                                />
+                                                <span style={{ color: '#fbbf24', fontWeight: 600 }}>{Math.round(threshold * 100)}%</span>
+                                            </div>
+                                        )}
+                                        {searchMode === 'embedding' && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                                                <span style={{ color: '#a1a1aa' }}>🧠AI语义阈值:</span>
+                                                <input
+                                                    type="range" min={0.70} max={0.999} step={0.001} value={embeddingThreshold}
+                                                    onChange={e => setEmbeddingThreshold(Number(e.target.value))}
+                                                    style={{ width: '120px' }}
+                                                />
+                                                <input
+                                                    type="number" min={70} max={99.9} step={0.1}
+                                                    value={(embeddingThreshold * 100).toFixed(1)}
+                                                    onChange={e => {
+                                                        const v = Number(e.target.value);
+                                                        if (!isNaN(v) && v >= 0 && v <= 100) setEmbeddingThreshold(v / 100);
+                                                    }}
+                                                    style={{
+                                                        width: '58px', background: '#27272a', color: '#34d399', border: '1px solid #3f3f46',
+                                                        borderRadius: '4px', padding: '1px 4px', fontSize: '12px', fontWeight: 600, textAlign: 'center',
+                                                    }}
+                                                />
+                                                <span style={{ color: '#34d399', fontSize: '12px' }}>%</span>
+                                            </div>
+                                        )}
+                                        {searchMode === 'contains' && (
+                                            <div style={{ fontSize: '12px', color: '#a1a1aa' }}>包含模式无需设置阈值</div>
+                                        )}
+                                        {searchMode === 'llm' && (
+                                            <div style={{ fontSize: '12px', color: '#a1a1aa' }}>AI精判模式由模型自行判断，无需阈值</div>
+                                        )}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                                            <span style={{ color: '#a1a1aa' }}>相似度阈值:</span>
+                                            <span style={{ color: '#a1a1aa' }}>并发单批字符:</span>
                                             <input
-                                                type="range" min={0.2} max={0.8} step={0.05} value={threshold}
-                                                onChange={e => setThreshold(Number(e.target.value))}
+                                                type="range" min={1000} max={200000} step={500} value={maxBatchChars}
+                                                onChange={e => setMaxBatchChars(Number(e.target.value))}
                                                 style={{ width: '100px' }}
                                             />
-                                            <span style={{ color: '#fbbf24', fontWeight: 600 }}>{Math.round(threshold * 100)}%</span>
+                                            <span style={{ color: '#a1a1aa' }}>{maxBatchChars.toLocaleString()}</span>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
                                             <span style={{ color: '#a1a1aa' }}>搜索列:</span>
@@ -2031,7 +2764,6 @@ If no matches: []`;
                                         </div>
                                     </div>
                                 )}
-
                                 {/* 搜索项列表 */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {queries.map((q, idx) => (
@@ -2124,6 +2856,17 @@ If no matches: []`;
                                                             .filter(Boolean)
                                                             .map(cell => ({ text: cell, noteText: '' }));
 
+                                                    // 单行两列特殊处理：直接更新当前搜索项的文本和备注
+                                                    if (bulkQueries.length === 1 && hasSecondColumn) {
+                                                        e.preventDefault();
+                                                        updateQuery(q.id, {
+                                                            text: bulkQueries[0].text,
+                                                            noteText: bulkQueries[0].noteText,
+                                                        });
+                                                        setGlobalProgress(`\u2705 \u5df2\u81ea\u52a8\u586b\u5145: \u641c\u7d22\u8bcd + \u4e2d\u6587\u5907\u6ce8`);
+                                                        setTimeout(() => setGlobalProgress(''), 2000);
+                                                        return;
+                                                    }
                                                     if (bulkQueries.length <= 1) return; // 单个值，正常粘贴
 
                                                     e.preventDefault();
@@ -2173,8 +2916,25 @@ If no matches: []`;
                                                     fontSize: '12px', outline: 'none', flexShrink: 0,
                                                 }}
                                             />
-                                            {/* 单独相似度阈值 */}
-                                            {searchMode === 'similar' && (
+                                            {/* 每条搜索项的独立模式选择 */}
+                                            <select
+                                                value={q.searchMode || searchMode}
+                                                onChange={e => updateQuery(q.id, { searchMode: e.target.value as any })}
+                                                style={{
+                                                    background: q.searchMode ? 'rgba(139,92,246,0.1)' : '#27272a',
+                                                    color: q.searchMode ? '#c4b5fd' : '#71717a',
+                                                    border: `1px solid ${q.searchMode ? 'rgba(139,92,246,0.3)' : '#3f3f46'}`,
+                                                    borderRadius: '5px', padding: '4px 4px', fontSize: '11px',
+                                                    cursor: 'pointer', outline: 'none', flexShrink: 0,
+                                                }}
+                                                data-tip={q.searchMode ? `单独模式: ${q.searchMode}` : `跟随全局: ${searchMode}`}
+                                            >
+                                                <option value="contains">{'🔍 包含'}</option>
+                                                <option value="similar">{'✨ 相似'}</option>
+                                                <option value="embedding">{'🧠 语义'}</option>
+                                            </select>
+                                            {/* 单独 MinHash 阈值 */}
+                                            {(q.searchMode || searchMode) === 'similar' && (
                                                 <div style={{
                                                     display: 'flex', alignItems: 'center', gap: '3px',
                                                     background: q.threshold !== undefined ? 'rgba(251,191,36,0.08)' : 'transparent',
@@ -2205,17 +2965,50 @@ If no matches: []`;
                                                     </span>
                                                 </div>
                                             )}
+                                            {/* 单独 AI 语义阈值 */}
+                                            {(q.searchMode || searchMode) === 'embedding' && (
+                                                <div style={{
+                                                    display: 'flex', alignItems: 'center', gap: '3px',
+                                                    background: q.embeddingThreshold !== undefined ? 'rgba(52,211,153,0.08)' : 'transparent',
+                                                    border: q.embeddingThreshold !== undefined ? '1px solid rgba(52,211,153,0.2)' : '1px solid transparent',
+                                                    borderRadius: '6px', padding: '2px 6px', flexShrink: 0,
+                                                    transition: 'all 0.15s',
+                                                }}
+                                                    data-tip={q.embeddingThreshold !== undefined
+                                                        ? `单独语义阈值: ${(q.embeddingThreshold * 100).toFixed(1)}%（点击百分比重置为跟随全局）`
+                                                        : `跟随全局语义阈值: ${(embeddingThreshold * 100).toFixed(1)}%（拖动设置单独阈值）`
+                                                    }
+                                                >
+                                                    <input
+                                                        type="range" min={0.70} max={0.999} step={0.001}
+                                                        value={q.embeddingThreshold ?? embeddingThreshold}
+                                                        onChange={e => updateQuery(q.id, { embeddingThreshold: Number(e.target.value) })}
+                                                        style={{ width: '55px', accentColor: q.embeddingThreshold !== undefined ? '#34d399' : '#52525b' }}
+                                                    />
+                                                    <span
+                                                        onClick={() => updateQuery(q.id, { embeddingThreshold: undefined })}
+                                                        style={{
+                                                            fontSize: '10px', fontWeight: 600, minWidth: '36px', textAlign: 'center',
+                                                            color: q.embeddingThreshold !== undefined ? '#34d399' : '#52525b',
+                                                            cursor: q.embeddingThreshold !== undefined ? 'pointer' : 'default',
+                                                        }}
+                                                    >
+                                                        {((q.embeddingThreshold ?? embeddingThreshold) * 100).toFixed(1)}%
+                                                    </span>
+                                                </div>
+                                            )}
                                             {/* 结果数量指示器 */}
                                             {q.text.trim() !== '' && (
                                                 <div style={{
                                                     fontSize: '11px', flexShrink: 0,
-                                                    color: q.isSearching ? '#71717a' : (q.resultCount > 0 ? '#10b981' : '#71717a'),
-                                                    background: q.resultCount > 0 ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
+                                                    color: q.isSearching ? '#fbbf24' : (q.searchDone ? (q.resultCount > 0 ? '#10b981' : '#ef4444') : '#71717a'),
+                                                    background: q.isSearching ? 'rgba(251,191,36,0.1)' : (q.searchDone ? (q.resultCount > 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.1)') : 'rgba(255,255,255,0.05)'),
                                                     padding: '2px 8px', borderRadius: '4px',
-                                                    minWidth: '40px', textAlign: 'center',
-                                                    border: q.resultCount > 0 ? '1px solid rgba(16,185,129,0.3)' : '1px solid transparent'
+                                                    minWidth: '50px', textAlign: 'center',
+                                                    border: q.isSearching ? '1px solid rgba(251,191,36,0.3)' : (q.searchDone && q.resultCount > 0 ? '1px solid rgba(16,185,129,0.3)' : '1px solid transparent'),
+                                                    transition: 'all 0.3s',
                                                 }}>
-                                                    {q.isSearching ? '...' : `${q.resultCount} 行`}
+                                                    {q.isSearching ? '⚙️ 搜索中...' : (q.searchDone ? (q.resultCount > 0 ? `✅ ${q.resultCount} 行` : '✅ 0 行') : `${q.resultCount} 行`)}
                                                 </div>
                                             )}
                                             <button
@@ -2239,42 +3032,72 @@ If no matches: []`;
                                             >
                                                 {q.isSearching ? <Loader2 size={14} className="animate-spin" /> : (searchMode === 'llm' || q.useAi ? <Bot size={14} /> : <Search size={14} />)}
                                             </button>
-                                            {q.resultCount > 0 && (
-                                                <>
-                                                    <span
-                                                        onClick={() => {
-                                                            const firstMatch = table.rows.findIndex(row =>
-                                                                row.some(cell => cell.highlights.some(h => h.queryId === q.id))
-                                                            );
-                                                            if (firstMatch >= 0) {
-                                                                const navIdx = matchedRowIndices.indexOf(firstMatch);
-                                                                if (navIdx >= 0) setFocusedMatchIdx(navIdx);
-                                                                const el = tableContainerRef.current?.querySelector(`[data-row-idx="${firstMatch}"]`);
+                                            {q.resultCount > 0 && (() => {
+                                                // 该搜索项的匹配行索引列表
+                                                const qMatchRows: number[] = [];
+                                                table.rows.forEach((row, ri) => {
+                                                    if (row.some(cell => cell.highlights.some(h => h.queryId === q.id))) qMatchRows.push(ri);
+                                                });
+                                                return (
+                                                    <>
+                                                        <span style={{
+                                                            fontSize: '11px', padding: '2px 8px', borderRadius: '10px',
+                                                            background: `${q.color}22`, color: q.color, fontWeight: 600,
+                                                        }}>
+                                                            {q.resultCount}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => {
+                                                                // 往上跳
+                                                                const curFocus = focusedMatchIdx >= 0 ? matchedRowIndices[focusedMatchIdx] : -1;
+                                                                const curQIdx = qMatchRows.indexOf(curFocus);
+                                                                const prevIdx = curQIdx > 0 ? curQIdx - 1 : qMatchRows.length - 1;
+                                                                const targetRow = qMatchRows[prevIdx];
+                                                                const globalIdx = matchedRowIndices.indexOf(targetRow);
+                                                                if (globalIdx >= 0) setFocusedMatchIdx(globalIdx);
+                                                                const el = tableContainerRef.current?.querySelector(`[data-row-idx="${targetRow}"]`);
                                                                 el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                                                 if (el instanceof HTMLElement) {
                                                                     el.style.outline = `2px solid ${q.color}`;
                                                                     setTimeout(() => { el.style.outline = ''; }, 1500);
                                                                 }
-                                                            }
-                                                        }}
-                                                        style={{
-                                                            fontSize: '11px', padding: '2px 8px', borderRadius: '10px',
-                                                            background: `${q.color}22`, color: q.color, fontWeight: 600,
-                                                            cursor: 'pointer',
-                                                        }}
-                                                        data-tip="点击定位到第一条匹配"
-                                                    >
-                                                        {q.resultCount}
-                                                    </span>
-                                                    <button
-                                                        onClick={() => copyQueryResults(q.id)}
-                                                        style={{ ...btnSmStyle, color: q.color }}
-                                                        data-tip={`复制该搜索项的 ${q.resultCount} 条匹配结果`}
-                                                    >
-                                                        <Copy size={13} />
-                                                    </button>
-                                                </>
-                                            )}
+                                                            }}
+                                                            style={{ ...btnSmStyle, color: q.color, padding: '1px' }}
+                                                            data-tip="上一个匹配"
+                                                        >
+                                                            <ChevronUp size={13} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                // 往下跳
+                                                                const curFocus = focusedMatchIdx >= 0 ? matchedRowIndices[focusedMatchIdx] : -1;
+                                                                const curQIdx = qMatchRows.indexOf(curFocus);
+                                                                const nextIdx = curQIdx < qMatchRows.length - 1 ? curQIdx + 1 : 0;
+                                                                const targetRow = qMatchRows[nextIdx];
+                                                                const globalIdx = matchedRowIndices.indexOf(targetRow);
+                                                                if (globalIdx >= 0) setFocusedMatchIdx(globalIdx);
+                                                                const el = tableContainerRef.current?.querySelector(`[data-row-idx="${targetRow}"]`);
+                                                                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                                if (el instanceof HTMLElement) {
+                                                                    el.style.outline = `2px solid ${q.color}`;
+                                                                    setTimeout(() => { el.style.outline = ''; }, 1500);
+                                                                }
+                                                            }}
+                                                            style={{ ...btnSmStyle, color: q.color, padding: '1px' }}
+                                                            data-tip="下一个匹配"
+                                                        >
+                                                            <ChevronDown size={13} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => copyQueryResults(q.id)}
+                                                            style={{ ...btnSmStyle, color: q.color }}
+                                                            data-tip={`复制该搜索项的 ${q.resultCount} 条匹配结果`}
+                                                        >
+                                                            <Copy size={13} />
+                                                        </button>
+                                                    </>
+                                                );
+                                            })()}
                                             {queries.length > 1 && (
                                                 <button onClick={() => removeQuery(q.id)} style={{ ...btnSmStyle, color: '#ef4444' }} data-tip="删除">
                                                     <Trash2 size={13} />
@@ -2288,8 +3111,8 @@ If no matches: []`;
                     </div>
                 )}
 
-                {/* AI 智能搜索区域 */}
-                {table.rows.length > 0 && (
+                {/* AI 智能搜索区域 - 暂时隐藏 */}
+                {false && table.rows.length > 0 && (
                     <div style={{
                         borderBottom: '1px solid #27272a',
                         background: showAiSearch ? '#0c0a14' : '#09090b',
@@ -2804,6 +3627,93 @@ If no matches: []`;
                             }}>
                                 {expandedModal.text}
                             </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* ===== 清空索引确认弹窗 ===== */}
+            {clearConfirm && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+                }} onClick={() => setClearConfirm(null)}>
+                    <div style={{
+                        background: '#1c1c1e', border: '2px solid #dc2626', borderRadius: '16px',
+                        padding: '28px 32px', maxWidth: '420px', width: '90%',
+                        boxShadow: '0 20px 60px rgba(220,38,38,0.3)',
+                    }} onClick={e => e.stopPropagation()}>
+                        {clearConfirm.step === 1 ? (
+                            <>
+                                <div style={{ fontSize: '32px', textAlign: 'center', marginBottom: '12px' }}>⚠️</div>
+                                <h3 style={{ color: '#fca5a5', fontSize: '18px', fontWeight: 700, textAlign: 'center', margin: '0 0 16px' }}>
+                                    {'\u4e25\u91cd\u8b66\u544a'}
+                                </h3>
+                                <p style={{ color: '#d4d4d8', fontSize: '14px', lineHeight: 1.7, margin: '0 0 8px' }}>
+                                    {'\u4f60\u5373\u5c06\u6c38\u4e45\u5220\u9664'} <span style={{ color: '#f87171', fontWeight: 700, fontSize: '20px' }}>{clearConfirm.count}</span> {'\u6761\u5411\u91cf\u7d22\u5f15\u6570\u636e\uff01'}
+                                </p>
+                                <p style={{ color: '#a1a1aa', fontSize: '13px', lineHeight: 1.6, margin: '0 0 20px' }}>
+                                    {'\u8fd9\u4e9b\u6570\u636e\u662f AI \u5f15\u64ce\u82b1\u8d39\u5927\u91cf\u65f6\u95f4\u8ba1\u7b97\u51fa\u6765\u7684\uff0c\u6e05\u7a7a\u540e\u5fc5\u987b\u4ece\u96f6\u91cd\u65b0\u8dd1\u3002\u5efa\u8bae\u5148\u70b9 \u300c\ud83d\udce4 \u5bfc\u51fa\u7d22\u5f15\u300d \u5907\u4efd\uff01'}
+                                </p>
+                                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                                    <button onClick={() => setClearConfirm(null)} style={{
+                                        padding: '8px 24px', borderRadius: '8px', fontSize: '14px', fontWeight: 600,
+                                        background: '#27272a', color: '#e4e4e7', border: '1px solid #3f3f46', cursor: 'pointer',
+                                    }}>{'\u53d6\u6d88'}</button>
+                                    <button disabled={clearConfirm.countdown > 0} onClick={() => {
+                                        setClearConfirm(prev => prev ? { ...prev, step: 2, countdown: 3 } : null);
+                                        let t = 3;
+                                        const iv = setInterval(() => {
+                                            t--;
+                                            setClearConfirm(prev => prev ? { ...prev, countdown: t } : null);
+                                            if (t <= 0) clearInterval(iv);
+                                        }, 1000);
+                                    }} style={{
+                                        padding: '8px 24px', borderRadius: '8px', fontSize: '14px', fontWeight: 600,
+                                        background: clearConfirm.countdown > 0 ? '#3f3f46' : '#991b1b', color: clearConfirm.countdown > 0 ? '#71717a' : '#fca5a5',
+                                        border: '1px solid #dc2626', cursor: clearConfirm.countdown > 0 ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.3s',
+                                    }}>
+                                        {clearConfirm.countdown > 0 ? `${'\u8bf7\u7b49\u5f85'} ${clearConfirm.countdown}s` : '\u786e\u8ba4\u5220\u9664'}
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div style={{ fontSize: '32px', textAlign: 'center', marginBottom: '12px' }}>🔴</div>
+                                <h3 style={{ color: '#f87171', fontSize: '18px', fontWeight: 700, textAlign: 'center', margin: '0 0 16px' }}>
+                                    {'\u6700\u7ec8\u786e\u8ba4'}
+                                </h3>
+                                <p style={{ color: '#d4d4d8', fontSize: '14px', textAlign: 'center', margin: '0 0 20px' }}>
+                                    {'\u518d\u6b21\u786e\u8ba4\uff1a\u5220\u9664\u5168\u90e8'} <span style={{ color: '#f87171', fontWeight: 700 }}>{clearConfirm.count}</span> {'\u6761\u7d22\u5f15\uff0c\u6b64\u64cd\u4f5c\u4e0d\u53ef\u64a4\u9500\uff01'}
+                                </p>
+                                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                                    <button onClick={() => setClearConfirm(null)} style={{
+                                        padding: '8px 24px', borderRadius: '8px', fontSize: '14px', fontWeight: 600,
+                                        background: '#27272a', color: '#e4e4e7', border: '1px solid #3f3f46', cursor: 'pointer',
+                                    }}>{'\u53d6\u6d88'}</button>
+                                    <button disabled={clearConfirm.countdown > 0} onClick={async () => {
+                                        try {
+                                            await embeddingDB.clearAll();
+                                            embeddingCacheRef.current.clear();
+                                            setClearConfirm(null);
+                                            setGlobalProgress('\ud83d\uddd1\ufe0f \u5411\u91cf\u7d22\u5f15\u5df2\u5168\u90e8\u6e05\u7a7a\uff01');
+                                            setTimeout(() => setGlobalProgress(''), 3000);
+                                        } catch (e: any) {
+                                            setGlobalProgress(`\u6e05\u9664\u5931\u8d25: ${e.message}`);
+                                            setClearConfirm(null);
+                                        }
+                                    }} style={{
+                                        padding: '8px 24px', borderRadius: '8px', fontSize: '14px', fontWeight: 700,
+                                        background: clearConfirm.countdown > 0 ? '#3f3f46' : '#b91c1c', color: clearConfirm.countdown > 0 ? '#71717a' : '#ffffff',
+                                        border: '2px solid #ef4444', cursor: clearConfirm.countdown > 0 ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.3s',
+                                    }}>
+                                        {clearConfirm.countdown > 0 ? `${'\u8bf7\u7b49\u5f85'} ${clearConfirm.countdown}s` : '\u2757 \u6c38\u4e45\u5220\u9664'}
+                                    </button>
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>

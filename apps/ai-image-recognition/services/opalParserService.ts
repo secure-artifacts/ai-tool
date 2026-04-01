@@ -9,7 +9,7 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { RandomLibrary, LIBRARY_COLORS, generateLibraryId } from './randomLibraryService';
 
 // ===== 类型定义 =====
@@ -36,16 +36,25 @@ export interface ParsedLibrary {
 // ===== 获取 AI 实例 =====
 
 const getAiInstance = (): GoogleGenAI => {
+    // 优先使用主应用暴露的全局实例（包含 API 池轮换等完整逻辑）
+    if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+        return (window as any).__app_get_ai_instance();
+    }
+
+    // 回退：自行创建实例
     const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
-    const keyToUse = storedKey || (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    if (!keyToUse) {
+    const rawKey = storedKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
+    const cleanKey = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
+
+    // AI Studio 环境：平台内部处理认证
+    if (isRunningInAiStudio()) {
+        if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
+        return new GoogleGenAI({});
+    }
+
+    if (!cleanKey) {
         throw new Error('API Key 未设置。请先在顶部配置 Google AI Key。');
     }
-    const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
-    if (!cleanKey) {
-        throw new Error('API Key 无效。请先在顶部配置 Google AI Key。');
-    }
-    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
     if (shouldUseAiStudioMode(cleanKey)) {
         return new GoogleGenAI({ apiKey: cleanKey });
     }

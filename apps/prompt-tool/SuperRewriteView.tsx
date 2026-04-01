@@ -27,7 +27,7 @@ import {
     X,
     Clock,
     Settings2,
-    RotateCcw,
+
     FileText,
     Type,
     AlignLeft,
@@ -112,62 +112,12 @@ interface SuperRewriteViewProps {
 }
 
 // --- Default Instructions ---
+// 标题和结尾指令默认为空，用户必须自行输入
+// 正文指令默认为空，关闭正文改写时使用内置的智能提取逻辑
 
-const DEFAULT_TITLE_INSTRUCTION = `你是一名短视频标题专家。请根据以下原始文案生成标题。
-
-## 输出要求
-- 悬念型标题：5个
-- 数字型标题：3个
-- 反问型标题：3个
-- 痛点型标题：3个
-
-## 输出格式（严格遵守）
-每个标题独占一行，格式如下：
-[类型标签] 标题内容
-
-示例：
-[悬念] 这个秘密，99%的人不知道
-[数字] 3个改变人生的习惯
-[反问] 你真的以为努力就够了吗？
-[痛点] 焦虑到失眠？试试这个方法
-
-不要输出任何其他内容，只输出标题列表。
-
-## 原始文案
-{{ORIGINAL_TEXT}}`;
-
-const DEFAULT_BODY_INSTRUCTION = `你是一名专业短视频文案改写人。请改写以下原始文案。
-
-## 改写规则
-- 口语化、适合短视频口播
-- 150-300字
-- 保留核心信息，重新组织表达
-- 语气温暖、有力
-
-## 输出格式（严格遵守）
-直接输出改写后的正文，不要包含标题、结尾、序号或任何标记。
-
-## 原始文案
-{{ORIGINAL_TEXT}}`;
-
-const DEFAULT_ENDING_INSTRUCTION = `你是一名短视频结尾文案专家。请根据以下原始文案生成结尾。
-
-## 输出要求
-- 互动型结尾：3个
-- 情感共鸣结尾：3个
-
-## 输出格式（严格遵守）
-每个结尾独占一行，格式如下：
-[类型标签] 结尾内容
-
-示例：
-[互动] 如果你也有同感，请留下"阿们"。
-[情感] 无论多难，你不是一个人在走。
-
-不要输出任何其他内容，只输出结尾列表。
-
-## 原始文案
-{{ORIGINAL_TEXT}}`;
+const DEFAULT_TITLE_INSTRUCTION = '';
+const DEFAULT_BODY_INSTRUCTION = '';
+const DEFAULT_ENDING_INSTRUCTION = '';
 
 // --- Storage Keys ---
 const STORAGE_KEY = 'super_rewrite_state_v1';
@@ -440,6 +390,11 @@ export function SuperRewriteView({ getAiInstance, textModel }: SuperRewriteViewP
     // --- Generate handler ---
     const handleGenerate = useCallback(async () => {
         if ((!inputText.trim() && pendingInputs.length === 0) || isProcessing) return;
+        // 验证：标题和结尾指令不能为空
+        if (!titleInstruction.trim() || !endingInstruction.trim()) {
+            alert('请先填写「标题指令」和「结尾指令」后再开始改写');
+            return;
+        }
 
         stopRef.current = false;
         setIsProcessing(true);
@@ -492,7 +447,7 @@ export function SuperRewriteView({ getAiInstance, textModel }: SuperRewriteViewP
 注意事项：
 1. 仔细阅读【原始文案】
 2. 执行【标题指令】，提炼或生成出所有满足要求的标题（需包含对应的分类标签）
-${enableBodyRewrite ? '3. 执行【正文指令】，对原始文案的主体部分进行改写（不包含标题和结尾）' : '3. 【正文智能提取】：请仔细分析原始文案结构，智能识别并提取出"纯正文主体"部分。你需要去除以下内容：\n   - 开头的标题行（通常是第一行或前几行的简短句子，具有标题特征如吸引注意力、悬念、号召停留等）\n   - 结尾的互动语/号召语（如"写下阿们""分享给你爱的人""请留言""点赞转发"等引导互动的句子）\n   - 结尾的祝福/收尾短句（如"愿主保佑你""阿们"等结束性语句）\n   注意：只去除明显的标题和结尾互动语，正文中间的祷告内容、叙述内容要完整保留，不要删改任何正文段落。\n   ⚠️ 语言一致性要求：提取后的正文必须与你生成的标题和结尾使用相同的语言！请根据【标题指令】和【结尾指令】中要求的输出语言，将正文也翻译为对应语言。翻译时保留原文的语义、语气和段落结构，只改变语言，不改变内容'}
+${enableBodyRewrite ? '3. 执行【正文指令】，对原始文案的主体部分进行改写（不包含标题和结尾）' : '3. 【正文智能提取】：请通读整篇原始文案，基于完整的语义分析，智能识别并提取出"纯正文主体"部分。\\n\\n   ⚠️【核心原则：基于语义分析，而非行数或位置】\\n   你必须通读整篇文案，理解其完整的语义结构后，再判断哪些内容属于"标题钩子"、哪些是"正文主体"、哪些是"结尾互动语"。绝不能简单地按行数或位置来切割。\\n\\n   【需要去除的内容】：\\n   - 标题/钩子部分：文案中起"吸引停留、制造悬念、命运感暗示、号召停下"作用的引导性语句。这些句子的语义功能是"抓住读者注意力"，而非传递正文的核心信息。它们不一定在第一行——需要根据语义功能来判断。\\n   - 结尾互动语/号召语：语义功能是"引导读者行动"的句子（如写下阿们、分享给你爱的人、请留言、点赞转发等）。\\n   - 结尾祝福/收尾短句：语义功能是"结束和祝愿"的句子（如愿主保佑你、阿们等简短收尾语）。\\n\\n   【正文主体的语义特征】：\\n   正文主体是文案的核心内容承载部分，其语义功能是"传递信息、讲述故事、表达祷告、阐述道理"。具体包括：\\n   - 祷告/祈祷的实质内容（向神倾诉、祈求、感恩、宣告等）\\n   - 故事叙述、道理阐述、信仰教导\\n   - 情感表达的主体段落\\n   当你发现内容从"抓注意力的钩子语义"转变为"实质性的内容表达"时，正文就开始了。\\n\\n   【关键判断要点】：\\n   - 按语义功能区分，不按行数位置切割。同样的句子在不同文案中可能是标题也可能是正文，取决于它在整篇文案中的语义角色。\\n   - 宁多勿少：如果某段内容你不确定是标题钩子还是正文，将它保留在正文中。\\n   - 无标题的情况：如果文案一开头就直接进入实质内容（祷告正文、故事叙述等），没有钩子引导句，则body应包含从头开始的全部核心内容。\\n   - 正文中间的祷告内容、叙述内容要完整保留，不要删改任何正文段落。\\n\\n   ⚠️ 语言一致性要求：提取后的正文必须与你生成的标题和结尾使用相同的语言！请根据【标题指令】和【结尾指令】中要求的输出语言，将正文也翻译为对应语言。翻译时保留原文的语义、语气和段落结构，只改变语言，不改变内容'}
 4. 执行【结尾指令】，生成出所有满足要求的结尾文案（需包含对应的分类标签）
 
 【输出格式：强制 JSON】
@@ -898,8 +853,10 @@ ${endingList}
                 <div className="flex items-center gap-2">
                     <span className={color}>{icon}</span>
                     <span className="text-xs font-medium text-zinc-300">{title}</span>
-                    {value !== defaultValue && (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-400">已修改</span>
+                    {value.trim() ? (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-400">已配置</span>
+                    ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-red-500/20 text-red-400">未配置</span>
                     )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -914,17 +871,18 @@ ${endingList}
                             使用 {'{{ORIGINAL_TEXT}}'} 占位符引用原始文案
                         </span>
                         <button
-                            onClick={() => onChange(defaultValue)}
-                            className="text-[10px] text-zinc-500 hover:text-amber-400 flex items-center gap-1 transition-colors"
+                            onClick={() => onChange('')}
+                            className="text-[10px] text-zinc-500 hover:text-red-400 flex items-center gap-1 transition-colors"
                         >
-                            <RotateCcw className="w-3 h-3" />
-                            重置默认
+                            <Trash2 className="w-3 h-3" />
+                            清空
                         </button>
                     </div>
                     <textarea
                         value={value}
                         onChange={e => onChange(e.target.value)}
                         rows={12}
+                        placeholder="请输入指令..."
                         className={`w-full bg-zinc-950/50 border border-zinc-700/50 rounded-lg px-3 py-2.5 text-xs text-zinc-300 placeholder:text-zinc-600 resize-y focus:outline-none focus:ring-1 focus:ring-${color.includes('amber') ? 'amber' : color.includes('emerald') ? 'emerald' : 'violet'}-500/30 font-mono leading-relaxed`}
                         style={{ minHeight: '180px' }}
                     />
@@ -988,10 +946,10 @@ ${endingList}
                                     <AlignLeft className="w-4 h-4 text-emerald-400" />
                                     <span className="text-xs font-medium text-zinc-300">正文指令</span>
                                     {!enableBodyRewrite && (
-                                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-zinc-700 text-zinc-400">已跳过·用原文</span>
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-zinc-700 text-zinc-400">已跳过·智能提取</span>
                                     )}
-                                    {enableBodyRewrite && bodyInstruction !== DEFAULT_BODY_INSTRUCTION && (
-                                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-400">已修改</span>
+                                    {enableBodyRewrite && bodyInstruction.trim() && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-400">已配置</span>
                                     )}
                                 </button>
                                 <div className="flex items-center gap-3">
@@ -1017,17 +975,18 @@ ${endingList}
                                             使用 {'{{ORIGINAL_TEXT}}'} 占位符引用原始文案
                                         </span>
                                         <button
-                                            onClick={() => setBodyInstruction(DEFAULT_BODY_INSTRUCTION)}
-                                            className="text-[10px] text-zinc-500 hover:text-amber-400 flex items-center gap-1 transition-colors"
+                                            onClick={() => setBodyInstruction('')}
+                                            className="text-[10px] text-zinc-500 hover:text-red-400 flex items-center gap-1 transition-colors"
                                         >
-                                            <RotateCcw className="w-3 h-3" />
-                                            重置默认
+                                            <Trash2 className="w-3 h-3" />
+                                            清空
                                         </button>
                                     </div>
                                     <textarea
                                         value={bodyInstruction}
                                         onChange={e => setBodyInstruction(e.target.value)}
                                         rows={10}
+                                        placeholder="请输入正文改写指令..."
                                         className="w-full bg-zinc-950/50 border border-zinc-700/50 rounded-lg px-3 py-2.5 text-xs text-zinc-300 placeholder:text-zinc-600 resize-y focus:outline-none focus:ring-1 focus:ring-emerald-500/30 font-mono leading-relaxed"
                                         style={{ minHeight: '150px' }}
                                     />
@@ -1165,8 +1124,8 @@ ${endingList}
                             ) : (
                                 <button
                                     onClick={handleGenerate}
-                                    disabled={!inputText.trim() && pendingInputs.length === 0}
-                                    className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium text-sm transition-all ${(inputText.trim() || pendingInputs.length > 0)
+                                    disabled={(!inputText.trim() && pendingInputs.length === 0) || !titleInstruction.trim() || !endingInstruction.trim()}
+                                    className={`flex items-center gap-2 px-5 py-2 rounded-xl font-medium text-sm transition-all ${(inputText.trim() || pendingInputs.length > 0) && titleInstruction.trim() && endingInstruction.trim()
                                         ? 'bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white shadow-lg shadow-orange-500/20'
                                         : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                                         }`}

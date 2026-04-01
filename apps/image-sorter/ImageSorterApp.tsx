@@ -16,12 +16,30 @@ import {
     fetchImageBlob,
     convertBlobToBase64
 } from '@/apps/ai-image-recognition/utils';
+import { base64ToFile, uploadToGyazo, getGyazoToken } from '../image-review/services/gyazoService';
+import JSZip from 'jszip';
 import './ImageSorter.css';
+
+// Native saveAs implementation (replaces file-saver dependency for AI Studio compatibility)
+const saveAs = (blob: Blob, filename: string) => {
+    if (typeof window === 'undefined') return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
+};
 
 // ========== Types ==========
 interface ClassificationDimension {
     id: string;
     name: string;          // Dimension name, e.g. "场景", "风格"
+    description: string;   // Criteria/standard for judging this dimension
     categories: string[];  // Category options for this dimension
     inputValue: string;    // Current input value for chip input
 }
@@ -37,6 +55,8 @@ interface SorterImage {
     classified: boolean;
     originalIndex: number; // preserve insertion order
     loadFailed?: boolean; // true if image failed to load (placeholder)
+    isBlankRow?: boolean; // true if it's an empty structural row
+    isGyazoUploading?: boolean; // true while background uploading
     aspectRatio?: string; // e.g. '9:16', '4:5', '1:1'
     width?: number;
     height?: number;
@@ -139,6 +159,49 @@ const CATEGORY_PRESETS: CategoryPreset[] = [
         label: '空白（自定义）',
         emoji: '📋',
         categories: [],
+    },
+];
+
+// ========== Multi-dimension Presets ==========
+interface DimensionPreset {
+    id: string;
+    label: string;
+    emoji: string;
+    dimensions: { name: string; categories: string[]; description: string }[];
+}
+
+const DIMENSION_PRESETS: DimensionPreset[] = [
+    {
+        id: 'person_reference',
+        label: '人物参考分类预设',
+        emoji: '👤',
+        dimensions: [
+            {
+                name: '参考筛选',
+                categories: ['可以参考', '不可参考'],
+                description: '可以参考：凡是画面中人物面部清晰，服装清晰，不妖艳，衣服不暴露，不奇装异服。不可参考：画面中没有人物或者画面中人物非常模糊，画面中人物服装暴露',
+            },
+            {
+                name: '人物特征',
+                categories: ['黑人', '牧师'],
+                description: '黑人：凡是黑人皮肤的人种。牧师：服装是牧师或者神父服装',
+            },
+            {
+                name: '性别',
+                categories: ['男性', '女性'],
+                description: '男性：男性。女性：女性',
+            },
+            {
+                name: '年龄',
+                categories: ['年轻人', '中年', '老年'],
+                description: '年轻人：年龄大概在40岁以下。中年：年龄在40-60岁。老年：年龄大于60',
+            },
+            {
+                name: '场景',
+                categories: ['教堂内', '教堂外', '室内', '室外'],
+                description: '教堂内：背景是在教堂内。教堂外：背景是在教堂外，背景有教堂。室内：背景是在室内。室外：背景是在室外',
+            },
+        ],
     },
 ];
 
@@ -326,6 +389,9 @@ const fileToBase64 = (file: File): Promise<string> => {
 const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textModel }) => {
     // Turbo 模式
     const [turboMode, setTurboMode] = useState(true);
+    const [uploadingGyazo, setUploadingGyazo] = useState<{ done: number; total: number } | null>(null);
+    const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number; status: string } | null>(null);
+    const [confirmDownloadState, setConfirmDownloadState] = useState<{ total: number, onlySelected: boolean } | null>(null);
     const [turboModel, setTurboModel] = useState<string>(() => {
         if (typeof window === 'undefined') return TURBO_MODEL_DEFAULT;
         return localStorage.getItem('is-turbo-model') || TURBO_MODEL_DEFAULT;
@@ -365,6 +431,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         return [{
             id: 'dim-default',
             name: '分类',
+            description: '',
             categories: [...preset.categories],
             inputValue: '',
         }];
@@ -567,9 +634,65 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         if (fileInputRef.current) fileInputRef.current.value = '';
     }, [addImages]);
 
+    // Auto background Gyazo uploader for newly pasted base64 images
+    // Uses a ref to track already-queued IDs to prevent infinite re-render loops
+    const gyazoQueuedRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        let mounted = true;
+        const uploadQueue = images.filter(img => 
+            !img.isBlankRow && 
+            !img.loadFailed && 
+            img.originalUrl && 
+            img.originalUrl.startsWith('data:image') &&
+            !img.isGyazoUploading &&
+            !gyazoQueuedRef.current.has(img.id)
+        );
+
+        if (uploadQueue.length === 0) return;
+
+        // Mark all as queued immediately to prevent re-entry
+        for (const img of uploadQueue) {
+            gyazoQueuedRef.current.add(img.id);
+        }
+
+        const token = getGyazoToken();
+        setImages(prev => prev.map(img => 
+            uploadQueue.find(q => q.id === img.id) ? { ...img, isGyazoUploading: true } : img
+        ));
+        
+        (async () => {
+             for (const target of uploadQueue) {
+                  if (!mounted) break;
+                  const file = base64ToFile(target.originalUrl!, `sorter_${Date.now()}.png`);
+                  if (file) {
+                      try {
+                          const gyazoUrl = await uploadToGyazo(file, token);
+                          if (gyazoUrl && mounted) {
+                              setImages(prev => prev.map(img => 
+                                  img.id === target.id ? { ...img, originalUrl: gyazoUrl, isGyazoUploading: false } : img
+                              ));
+                          }
+                      } catch (e) {
+                          console.warn('[Gyazo auto-upload] failed for', target.id, e);
+                          if (mounted) {
+                              setImages(prev => prev.map(img => img.id === target.id ? { ...img, isGyazoUploading: false } : img));
+                          }
+                      }
+                  } else {
+                      if (mounted) {
+                          setImages(prev => prev.map(img => img.id === target.id ? { ...img, isGyazoUploading: false } : img));
+                      }
+                  }
+             }
+        })();
+
+        return () => { mounted = false; };
+    }, [images]);
+
     // Paste - rewritten to match AI Image Recognition tool logic exactly
     // Helper: load URLs concurrently and add to gallery
-    const loadUrlsToGallery = useCallback(async (urlItems: { url: string; content?: string }[]) => {
+    const loadUrlsToGallery = useCallback(async (urlItems: { url: string; content?: string; isBlankRow?: boolean }[]) => {
         if (urlItems.length === 0) return;
 
         // Keep duplicates to preserve 1:1 row alignment with pasted sheet data.
@@ -589,7 +712,26 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         const worker = async () => {
             while (queueIdx < queue.length) {
                 const job = queue[queueIdx++];
-                const { url: fetchUrl, content: origContent } = job.item;
+                const { url: fetchUrl, content: origContent, isBlankRow } = job.item;
+
+                if (isBlankRow) {
+                    const placeholder: SorterImage = {
+                        id: `img-blank-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+                        originalUrl: '',
+                        name: `[空白行 ${baseIdx + job.index + 1}]`,
+                        classified: true, // skip AI processing
+                        category: '-',
+                        tags: ['-'],
+                        originalIndex: baseIdx + job.index,
+                        isBlankRow: true,
+                    };
+                    setImages(prev => [...prev, placeholder]);
+                    loaded++;
+                    setProgress({ done: loaded + failed, total });
+                    continue;
+                }
+
                 // Extract raw URL from =IMAGE("url") formula to prevent double-wrapping
                 const formulaExtract = origContent?.match(/=IMAGE\s*\(\s*["']([^"']+)["']/i);
                 const displayUrl = formulaExtract ? formulaExtract[1] : (origContent || fetchUrl);
@@ -678,56 +820,74 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 return;
             }
 
-            // 2. 优先检查纯文本中是否有 =IMAGE() 公式
-            // Google Sheets 复制单元格时，纯文本中的 URL 才是原始可用的 URL
-            // HTML 中的 URL 通常是 Google 代理过的
-            if (plainText && plainText.includes('=IMAGE')) {
-                e.preventDefault();
-                const parsed = parsePasteInput(plainText);
-                if (parsed.length > 0) {
-                    console.log('[ImageSorter Paste] =IMAGE() formulas found:', parsed.length);
-                    await loadUrlsToGallery(parsed);
-                    return;
+            // 2 & 3: Structural Extraction for HTML (Handles empty cell rows perfectly)
+            const extractRowsForSorter = (htmlString: string, textString: string) => {
+                const results: { url: string; content?: string; isBlankRow?: boolean }[] = [];
+                const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']/gi;
+                const formulaUrls: string[] = [];
+                if (textString) {
+                    for (const m of textString.matchAll(formulaRegex)) {
+                        formulaUrls.push(m[1]); // capturing pure decoded original urls
+                    }
                 }
-            }
+                
+                let formulaCursor = 0;
 
-            // 3. HTML <img> 标签（Google Sheets 渲染的图片）
-            if (html) {
-                const extractedUrls = extractUrlsFromHtml(html);
-                if (extractedUrls.length > 0) {
-                    e.preventDefault();
-
-                    // 从纯文本中提取 =IMAGE() 公式的 URL（更优，因为是原始 URL）
-                    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']/gi;
-                    const textLines = plainText ? plainText.split(/\r?\n/).filter(l => l.trim() !== '') : [];
-                    const formulaUrls: string[] = [];
-                    for (const line of textLines) {
-                        const cells = line.split('\t');
-                        for (const cell of cells) {
-                            formulaRegex.lastIndex = 0;
-                            const matches = [...cell.matchAll(formulaRegex)];
-                            for (const m of matches) {
-                                formulaUrls.push(m[1]);
+                // Priority A: HTML tables (Google Sheets cells copy)
+                if (htmlString && htmlString.includes('<table') && htmlString.includes('<tr')) {
+                    const doc = new DOMParser().parseFromString(htmlString, 'text/html');
+                    const trs = Array.from(doc.querySelectorAll('tr'));
+                    for (const tr of trs) {
+                        const trUrls = extractUrlsFromHtml(tr.outerHTML);
+                        if (trUrls.length > 0) {
+                            for (const { originalUrl, fetchUrl } of trUrls) {
+                                let actualFetchUrl = fetchUrl;
+                                if (formulaCursor < formulaUrls.length) {
+                                    actualFetchUrl = formulaUrls[formulaCursor];
+                                    formulaCursor++;
+                                }
+                                results.push({ url: actualFetchUrl, content: `=IMAGE("${originalUrl}")` });
                             }
+                        } else {
+                            results.push({ url: '', isBlankRow: true });
                         }
                     }
-
-                    const urlItems = extractedUrls.map(({ originalUrl, fetchUrl }: { originalUrl: string; fetchUrl: string }, index: number) => {
-                        // 优先使用公式中的 URL（原始 URL 比 Google 代理 URL 更好）
-                        let actualFetchUrl = fetchUrl;
-                        if (index < formulaUrls.length) {
-                            actualFetchUrl = formulaUrls[index];
-                        }
-                        return {
-                            url: actualFetchUrl,
-                            content: `=IMAGE("${originalUrl}")`
-                        };
-                    });
-
-                    console.log('[ImageSorter Paste] HTML <img> with formula cross-ref:', urlItems.length);
-                    await loadUrlsToGallery(urlItems);
-                    return;
+                    return results;
                 }
+
+                // Priority B: Plaintext parsing with line tracking
+                if (textString && textString.includes('=IMAGE')) {
+                     const lines = textString.split(/\r?\n/);
+                     for (const line of lines) {
+                          const cells = line.split('\t');
+                          let hasUrl = false;
+                          for (const cell of cells) {
+                               formulaRegex.lastIndex = 0;
+                               const matches = [...cell.matchAll(formulaRegex)];
+                               for (const m of matches) {
+                                   hasUrl = true;
+                                   // Keep original un-processed URL for formula writing, but processed url for fetching internally
+                                   let fetchUrl = m[1];
+                                   if (!fetchUrl.startsWith('http') && !fetchUrl.startsWith('data:')) fetchUrl = `https://${fetchUrl}`;
+                                   results.push({ url: fetchUrl, content: m[0] });
+                               }
+                          }
+                          // Maintain exact row count structure
+                          if (!hasUrl && line.trim() === '') {
+                               results.push({ url: '', isBlankRow: true });
+                          }
+                     }
+                     return results;
+                }
+                return null;
+            };
+
+            const structuredRows = extractRowsForSorter(html, plainText);
+            if (structuredRows && structuredRows.some(r => !r.isBlankRow)) { // Ensure at least 1 image
+                e.preventDefault();
+                console.log('[ImageSorter Paste] Structural parsed rows:', structuredRows.length);
+                await loadUrlsToGallery(structuredRows);
+                return;
             }
 
             // 4. 纯文本 URL（非公式）
@@ -768,6 +928,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             setDimensions(prev => [...prev, {
                 id: `dim-${Date.now()}`,
                 name: dimName,
+                description: '',
                 categories: newValues,
                 inputValue: '',
             }]);
@@ -791,6 +952,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 return [...prev, {
                     id: `dim-auto-${Date.now()}`,
                     name: '分类',
+                    description: '',
                     categories: [...uniqueCats].filter(c => c !== '其他' && c !== '未识别'),
                     inputValue: '',
                 }];
@@ -843,6 +1005,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         const newDim: ClassificationDimension = {
             id: `dim-${Date.now()}`,
             name,
+            description: '',
             categories: [...uniqueCats].filter(c => c !== '其他' && c !== '未识别'),
             inputValue: '',
         };
@@ -929,14 +1092,23 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                 if (activeDims.length > 0) {
                     // Multi-dimension prompt
-                    prompt += `请按以下 ${activeDims.length} 个维度分别分类：\n\n`;
+                    prompt += `请按以下 ${activeDims.length} 个维度分别分析：\n\n`;
                     activeDims.forEach((dim, i) => {
                         prompt += `【维度${i + 1}: ${dim.name}】`;
                         if (dim.categories.length > 0) {
+                            // Fixed categories mode
+                            if (dim.description?.trim()) {
+                                prompt += `\n判断标准：${dim.description.trim()}\n`;
+                            }
                             prompt += `请从以下分类中选择一个，必须逐字匹配：\n`;
                             prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
                             prompt += `不匹配时返回"其他"。\n\n`;
+                        } else if (dim.description?.trim()) {
+                            // Open-ended mode with question/requirement
+                            prompt += `\n问题/要求：${dim.description.trim()}\n`;
+                            prompt += `请根据以上问题/要求回答。\n\n`;
                         } else {
+                            // Fully automatic mode
                             prompt += `请自动判断最合适的分类。\n\n`;
                         }
                     });
@@ -1047,14 +1219,23 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                     if (activeDims.length > 0) {
                         // Multi-dimension prompt
-                        prompt += `请按以下 ${activeDims.length} 个维度分别分类：\n\n`;
+                        prompt += `请按以下 ${activeDims.length} 个维度分别分析：\n\n`;
                         activeDims.forEach((dim, i) => {
                             prompt += `【维度${i + 1}: ${dim.name}】`;
                             if (dim.categories.length > 0) {
+                                // Fixed categories mode
+                                if (dim.description?.trim()) {
+                                    prompt += `\n判断标准：${dim.description.trim()}\n`;
+                                }
                                 prompt += `请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
                                 prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
                                 prompt += `⚠️ 分类名必须与上面完全一致，逐字匹配。不属于以上任何分类，使用"其他"。\n\n`;
+                            } else if (dim.description?.trim()) {
+                                // Open-ended mode with question/requirement
+                                prompt += `\n问题/要求：${dim.description.trim()}\n`;
+                                prompt += `请根据以上问题/要求回答。\n\n`;
                             } else {
+                                // Fully automatic mode
                                 prompt += `请根据图片内容自动判断一个最合适的分类。\n\n`;
                             }
                         });
@@ -1287,8 +1468,133 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         setSelectedIds(new Set());
     };
 
+    // ======== Download Images as ZIP ========
+    const handleDownloadClick = (onlySelected: boolean) => {
+        const pool = onlySelected
+            ? images.filter(img => selectedIds.has(img.id))
+            : images;
+
+        const toDownload = pool.filter(img => !img.isBlankRow && !img.loadFailed);
+
+        if (toDownload.length === 0) {
+            toast.warning('没有可下载的有效图片');
+            return;
+        }
+
+        setConfirmDownloadState({ total: toDownload.length, onlySelected });
+    };
+
+    const executeDownload = async () => {
+        if (!confirmDownloadState) return;
+        const { onlySelected } = confirmDownloadState;
+        setConfirmDownloadState(null); // 立即关闭弹窗
+
+        const pool = onlySelected
+            ? images.filter(img => selectedIds.has(img.id))
+            : images;
+
+        const toDownload = pool.filter(img => !img.isBlankRow && !img.loadFailed);
+
+        if (toDownload.length === 0) {
+            toast.warning('没有可下载的有效图片');
+            return;
+        }
+
+        const zip = new JSZip();
+        let completed = 0;
+        let failed = 0;
+        const total = toDownload.length;
+        const concurrency = 5;
+
+        setDownloadProgress({ current: 0, total, status: '准备下载...' });
+
+        // Helper to get extension from base64 matching what fetchImageBlob gives
+        const getExtFromSrc = (src: string) => {
+            const match = src.match(/^data:image\/([a-zA-Z0-9]+);base64,/);
+            if (match) {
+                const ext = match[1].toLowerCase();
+                return ext === 'jpeg' ? 'jpg' : ext;
+            }
+            return 'jpg';
+        };
+
+        const downloadOne = async (img: SorterImage, index: number) => {
+            try {
+                let blob: Blob;
+                let ext: string;
+
+                if (img.src.startsWith('data:image')) {
+                    // It's a base64 Data URL, we can convert it directly
+                    const res = await fetch(img.src);
+                    blob = await res.blob();
+                    ext = getExtFromSrc(img.src);
+                } else if (img.originalUrl) {
+                    // Try to fetch from external URL (may have CORS issues)
+                    const res = await fetch(img.originalUrl);
+                    blob = await res.blob();
+                    ext = 'jpg';
+                    const contentType = res.headers.get('content-type');
+                    if (contentType) {
+                         if (contentType.includes('png')) ext = 'png';
+                         if (contentType.includes('webp')) ext = 'webp';
+                         if (contentType.includes('gif')) ext = 'gif';
+                    }
+                } else {
+                    throw new Error('No valid image source');
+                }
+
+                // Make a safe filename using the AI classification or original name
+                // To avoid name collisions, append the index
+                let safeName = (img.name || `图片_${index + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+                
+                // If the user wants categorical folders, we could implement it here.
+                // For now, let's just make it flat or use the first category as folder if available.
+                let folderName = '';
+                if (img.categories && Object.values(img.categories).length > 0) {
+                    folderName = Object.values(img.categories)[0].replace(/[\\/:*?"<>|]/g, '_');
+                } else if (img.category) {
+                    folderName = img.category.replace(/[\\/:*?"<>|]/g, '_');
+                }
+
+                const filename = `${safeName}_${index + 1}.${ext}`;
+                const path = folderName ? `${folderName}/${filename}` : filename;
+
+                zip.file(path, blob);
+                completed++;
+                setDownloadProgress({ current: completed, total, status: `下载中 ${completed}/${total}` });
+            } catch (err) {
+                console.warn(`[下载失败] ${img.id}`, err);
+                failed++;
+                completed++;
+                setDownloadProgress({ current: completed, total, status: `下载中 ${completed}/${total} (${failed} 失败)` });
+            }
+        };
+
+        // Process in batches
+        for (let i = 0; i < toDownload.length; i += concurrency) {
+            const batch = toDownload.slice(i, i + concurrency);
+            await Promise.all(batch.map((img, idx) => downloadOne(img, i + idx)));
+        }
+
+        setDownloadProgress({ current: total, total, status: '正在打包 ZIP 文件...' });
+
+        try {
+            const content = await zip.generateAsync({ type: 'blob' });
+            const prefix = onlySelected ? '部分' : '全部';
+            const zipName = `图片分拣_${prefix}_${new Date().toISOString().slice(0, 10)}_${toDownload.length}张.zip`;
+            saveAs(content, zipName);
+            toast.success(`✅ 成功下载 ${toDownload.length - failed} 张图片${failed > 0 ? `（${failed} 张失败）` : ''}`);
+        } catch (err) {
+            console.error('ZIP 生成失败:', err);
+            toast.error('❌ ZIP 打包失败，请重试');
+        } finally {
+            setDownloadProgress(null);
+        }
+    };
+
     // ======== Copy to Sheets ========
-    const copyToSheets = async () => {
+    const copyToSheets = async (options: { withImage?: boolean; uploadGyazo?: boolean } = {}) => {
+        const { withImage = true, uploadGyazo = false } = options;
         // If user selected specific images, copy those; otherwise copy ALL images
         const hasSelection = selectedIds.size > 0;
         const pool = hasSelection
@@ -1310,20 +1616,58 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             })
             .sort((a, b) => a.originalIndex - b.originalIndex);
 
+        if (uploadGyazo) {
+            const token = getGyazoToken();
+            const toUpload = ordered.filter(img => !img.loadFailed && img.originalUrl && img.originalUrl.startsWith('data:image'));
+            if (toUpload.length > 0) {
+                setUploadingGyazo({ done: 0, total: toUpload.length });
+                let doneCounter = 0;
+                for (const img of toUpload) {
+                    const file = base64ToFile(img.originalUrl!, `sorter_${Date.now()}.png`);
+                    if (file) {
+                        try {
+                            const gyazoUrl = await uploadToGyazo(file, token);
+                            if (gyazoUrl) {
+                                img.originalUrl = gyazoUrl;
+                                // Force render update
+                                setImages(prev => [...prev]);
+                            }
+                        } catch (e) {
+                            console.warn("Gyazo upload failed", e);
+                        }
+                    }
+                    doneCounter++;
+                    setUploadingGyazo({ done: doneCounter, total: toUpload.length });
+                }
+                setUploadingGyazo(null);
+            }
+        }
+
         const lines: string[] = [];
         // Build header with per-dimension category columns
         const dimNames = effectiveDimNames;
-        const header = ['序号', '图片'];
+        const header = ['序号'];
+        if (withImage) header.push('图片');
         if (dimNames.length > 0) {
             dimNames.forEach(name => header.push(name));
         } else {
             header.push('分类');
         }
-        header.push('标签', '比例', '尺寸', '状态', '文件名', '来源链接');
+        header.push('标签', '比例', '尺寸', '状态', '文件名');
+        if (withImage) header.push('来源链接');
         lines.push(header.join('\t'));
         let hasUrl = false;
         for (let i = 0; i < ordered.length; i++) {
             const img = ordered[i];
+            
+            if (img.isBlankRow) {
+                // Push completely empty row with matching column count for perfect Google Sheets structural pasting
+                const emptyRow = Array(header.length).fill('');
+                // Still put the index so it doesn't look totally weird, or leave blank? Leave blank is safest for Google Sheets overrides.
+                lines.push(emptyRow.join('\t'));
+                continue;
+            }
+
             const imageFormula = img.originalUrl
                 ? `=IMAGE("${img.originalUrl.replace(/"/g, '""')}")`
                 : (img.loadFailed ? '[加载失败]' : `[\u672c\u5730\u56fe\u7247: ${img.name}]`);
@@ -1334,8 +1678,10 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             const status = img.loadFailed ? '加载失败' : (img.classified ? '已分类' : '未分类');
             const row: string[] = [
                 String(i + 1),
-                imageFormula,
             ];
+            if (withImage) {
+                row.push(imageFormula);
+            }
             // Add per-dimension category values
             if (dimNames.length > 0) {
                 dimNames.forEach(name => {
@@ -1351,9 +1697,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 escapeTsvCell(ratio),
                 escapeTsvCell(size),
                 escapeTsvCell(status),
-                escapeTsvCell(img.name || ''),
-                escapeTsvCell(img.originalUrl || '-'),
+                escapeTsvCell(img.name || '')
             );
+            if (withImage) {
+                row.push(escapeTsvCell(img.originalUrl || '-'));
+            }
             lines.push(row.join('\t'));
         }
         const tsv = lines.join('\n');
@@ -1402,6 +1750,14 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     if (images.length === 0) {
         return (
             <div className="image-sorter">
+                {uploadingGyazo && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ background: '#222', padding: 20, borderRadius: 8, color: '#fff', textAlign: 'center' }}>
+                            <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 10px' }} />
+                            <div>正在上传云端 ({uploadingGyazo.done}/{uploadingGyazo.total})</div>
+                        </div>
+                    </div>
+                )}
                 <div className="is-toolbar">
                     <div className="is-toolbar-title">
                         <Grid3x3 size={18} />
@@ -1461,7 +1817,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                     // Replace the first dimension's categories with the preset
                                     setDimensions(prev => {
                                         if (prev.length === 0) {
-                                            return [{ id: 'dim-default', name: '分类', categories: [...preset.categories], inputValue: '' }];
+                                            return [{ id: 'dim-default', name: '分类', description: '', categories: [...preset.categories], inputValue: '' }];
                                         }
                                         return prev.map((d, i) => i === 0 ? { ...d, categories: [...preset.categories] } : d);
                                     });
@@ -1495,7 +1851,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         </div>
                     </div>
                     {dimensions.map((dim, dimIdx) => (
-                        <div key={dim.id} className="is-config-row" style={{ marginBottom: dimensions.length > 1 ? 6 : 0 }}>
+                        <div key={dim.id} style={{ marginBottom: dimensions.length > 1 ? 8 : 0 }}>
+                            <div className="is-config-row">
                             <input
                                 className="is-chips-input"
                                 style={{ width: 70, flexShrink: 0, fontWeight: 600, borderRight: '1px solid rgba(255,255,255,0.1)', marginRight: 6, fontSize: 11 }}
@@ -1519,7 +1876,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 ))}
                                 <input
                                     className="is-chips-input"
-                                    placeholder={dim.categories.length === 0 ? '输入分类按回车' : '添加...'}
+                                    placeholder={dim.categories.length === 0 ? '输入分类按回车（可选，留空=开放式问答）' : '添加...'}
                                     value={dim.inputValue}
                                     onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, inputValue: e.target.value } : d))}
                                     disabled={classifying}
@@ -1549,6 +1906,15 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 disabled={classifying}
                                 title="删除此维度"
                             >×</button>
+                            </div>
+                            <input
+                                className="is-chips-input"
+                                style={{ width: '100%', marginTop: 3, fontSize: 10, color: '#aaa', padding: '3px 6px' }}
+                                placeholder={dim.categories.length === 0 ? '问题/要求（如：这是什么服装？这是什么地方？）' : '判断标准（可选，如：画面有人物归为\u201C有人\u201D，没有人物归为\u201C没人\u201D）'}
+                                value={dim.description}
+                                disabled={classifying}
+                                onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, description: e.target.value } : d))}
+                            />
                         </div>
                     ))}
                     {dimensions.length === 0 && (
@@ -1556,15 +1922,130 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             <span className="is-config-hint" style={{ opacity: 0.6, fontSize: 11 }}>🤖 未配置维度，AI 将自动判断</span>
                         </div>
                     )}
-                    <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         <button
                             className="is-btn is-btn-sm"
-                            onClick={() => setDimensions(prev => [...prev, { id: `dim-${Date.now()}`, name: '', categories: [], inputValue: '' }])}
+                            onClick={() => setDimensions(prev => [...prev, { id: `dim-${Date.now()}`, name: '', description: '', categories: [], inputValue: '' }])}
                             disabled={classifying}
                             style={{ fontSize: 11 }}
                         >
                             <Plus size={12} /> 添加分类维度
                         </button>
+
+                        {/* Multi-dimension preset dropdown */}
+                        {DIMENSION_PRESETS.length > 0 && (
+                            <select
+                                value=""
+                                onChange={e => {
+                                    const presetId = e.target.value;
+                                    const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
+                                    if (!preset) return;
+                                    const newDims: ClassificationDimension[] = preset.dimensions.map((d, i) => ({
+                                        id: `dim-preset-${Date.now()}-${i}`,
+                                        name: d.name,
+                                        description: d.description,
+                                        categories: [...d.categories],
+                                        inputValue: '',
+                                    }));
+                                    setDimensions(newDims);
+                                }}
+                                disabled={classifying}
+                                style={{
+                                    fontSize: 10,
+                                    padding: '3px 20px 3px 6px',
+                                    borderRadius: 5,
+                                    border: '1px solid rgba(255,255,255,0.12)',
+                                    background: 'rgba(255,255,255,0.06)',
+                                    color: '#ccc',
+                                    cursor: 'pointer',
+                                    appearance: 'none',
+                                    WebkitAppearance: 'none',
+                                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                                    backgroundRepeat: 'no-repeat',
+                                    backgroundPosition: 'right 4px center',
+                                }}
+                            >
+                                <option value="" disabled>📦 加载多维度预设...</option>
+                                {DIMENSION_PRESETS.map(preset => (
+                                    <option key={preset.id} value={preset.id}>
+                                        {preset.emoji} {preset.label} ({preset.dimensions.length}个维度)
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                    {/* Batch paste: 1col=categories, 2col=category+desc, 3col=dim+categories+desc */}
+                    <div style={{ marginTop: 2 }}>
+                        <div style={{ fontSize: 10, color: '#666', marginBottom: 3 }}>📋 批量粘贴（1列=分类名 · 2列=分类+说明 · 3列=维度名+分类+说明）</div>
+                        <textarea
+                            className="is-chips-input"
+                            style={{ width: '100%', minHeight: 28, maxHeight: 80, resize: 'vertical', fontSize: 10, lineHeight: 1.4, padding: '4px 6px' }}
+                            placeholder="粘贴分类名 / 分类[TAB]说明 / 维度名[TAB]分类1,分类2[TAB]说明"
+                            disabled={classifying}
+                            onPaste={e => {
+                                const text = e.clipboardData.getData('text/plain');
+                                if (!text.trim()) return;
+                                e.preventDefault();
+
+                                const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
+                                if (lines.length === 0) return;
+
+                                // Detect mode by max column count
+                                const maxCols = Math.max(...lines.map(l => l.split('\t').length));
+
+                                if (maxCols >= 3) {
+                                    // ===== 3 columns: each row = a new dimension =====
+                                    // col1=dimension name, col2=categories (comma-separated), col3=description
+                                    const newDims: ClassificationDimension[] = [];
+                                    for (const line of lines) {
+                                        const cols = line.split('\t');
+                                        const dimName = cols[0]?.trim();
+                                        if (!dimName) continue;
+                                        const catStr = cols[1]?.trim() || '';
+                                        const desc = cols[2]?.trim() || '';
+                                        const cats = catStr.split(/[,，、;；]/).map(c => c.trim()).filter(Boolean);
+                                        newDims.push({ id: `dim-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, name: dimName, description: desc, categories: cats, inputValue: '' });
+                                    }
+                                    if (newDims.length > 0) {
+                                        setDimensions(prev => [...prev, ...newDims]);
+                                    }
+                                } else {
+                                    // ===== 1 or 2 columns: all rows → categories of ONE dimension =====
+                                    // col1=category name, col2=description (optional)
+                                    const cats: string[] = [];
+                                    const descParts: string[] = [];
+                                    for (const line of lines) {
+                                        const cols = line.split('\t');
+                                        const catName = cols[0]?.trim();
+                                        if (!catName) continue;
+                                        cats.push(catName);
+                                        const desc = cols[1]?.trim();
+                                        if (desc) descParts.push(`${catName}：${desc}`);
+                                    }
+                                    if (cats.length > 0) {
+                                        // Add to the last dimension, or create a new one
+                                        setDimensions(prev => {
+                                            if (prev.length === 0 || (prev[prev.length - 1].categories.length > 0 && prev[prev.length - 1].name)) {
+                                                // Create a new dimension
+                                                return [...prev, {
+                                                    id: `dim-${Date.now()}`,
+                                                    name: '',
+                                                    description: descParts.join('。'),
+                                                    categories: cats,
+                                                    inputValue: '',
+                                                }];
+                                            }
+                                            // Add to the last empty dimension
+                                            const last = prev[prev.length - 1];
+                                            const merged = [...last.categories, ...cats.filter(c => !last.categories.includes(c))];
+                                            const mergedDesc = [last.description, descParts.join('。')].filter(Boolean).join('。');
+                                            return prev.map((d, i) => i === prev.length - 1 ? { ...d, categories: merged, description: mergedDesc } : d);
+                                        });
+                                    }
+                                }
+                                (e.target as HTMLTextAreaElement).value = '';
+                            }}
+                        />
                     </div>
                 </div>
 
@@ -1634,6 +2115,9 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             preview += `请按以下 ${activeDims.length} 个维度分别分类：\n\n`;
                             activeDims.forEach((dim, i) => {
                                 preview += `【维度${i + 1}: ${dim.name}】`;
+                                if (dim.description?.trim()) {
+                                    preview += `\n判断标准：${dim.description.trim()}\n`;
+                                }
                                 if (dim.categories.length > 0) {
                                     preview += `请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
                                     preview += dim.categories.map(c => `"${c}"`).join('、') + '\n';
@@ -2029,44 +2513,61 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             onClick={() => toggleSelect(img.id)}
                             style={{ animationDelay: `${Math.min(idx * 20, 500)}ms` }}
                         >
-                            <img src={img.src} alt={img.name} loading="lazy" />
-
-                            <span className="is-gallery-index">#{img.originalIndex + 1}</span>
-
-                            {img.aspectRatio && (
-                                <span className="is-gallery-ratio">
-                                    {img.aspectRatio}
-                                    {img.width && img.height && (
-                                        <span style={{ opacity: 0.7, marginLeft: 3, fontSize: '8px' }}>{img.width}×{img.height}</span>
-                                    )}
-                                </span>
-                            )}
-
-                            <div className="is-gallery-check">
-                                {selectedIds.has(img.id) && <Check size={12} />}
-                            </div>
-
-                            {img.classified && (
-                                <div className="is-gallery-overlay">
-                                    {img.categories && Object.keys(img.categories).length > 0 ? (
-                                        <div className="is-gallery-category" style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                            {Object.entries(img.categories).map(([dimName, catVal]) => (
-                                                <span key={dimName} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                                                    <span style={{ opacity: 0.7, fontSize: '9px' }}>{dimName}:</span>{catVal}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    ) : img.category ? (
-                                        <div className="is-gallery-category">{img.category}</div>
-                                    ) : null}
-                                    {img.tags && img.tags.length > 0 && (
-                                        <div className="is-gallery-tags">
-                                            {img.tags.slice(0, 4).map((tag, i) => (
-                                                <span key={i} className="is-gallery-tag">{tag}</span>
-                                            ))}
-                                        </div>
-                                    )}
+                            {img.isBlankRow ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '20px', textAlign: 'center', color: '#666', fontSize: '12px', border: '1px dashed #444', borderRadius: 6, background: 'rgba(255,255,255,0.02)' }}>
+                                    <div style={{ opacity: 0.5 }}>空白行</div>
+                                    <div style={{ fontSize: '9px', opacity: 0.3, marginTop: '4px' }}>保持原始表格行结构</div>
                                 </div>
+                            ) : (
+                                <>
+                                    <img src={img.src} alt={img.name} loading="lazy" />
+
+                                    <span className="is-gallery-index">#{img.originalIndex + 1}</span>
+
+                                    {img.aspectRatio && (
+                                        <span className="is-gallery-ratio">
+                                            {img.aspectRatio}
+                                            {img.width && img.height && (
+                                                <span style={{ opacity: 0.7, marginLeft: 3, fontSize: '8px' }}>{img.width}×{img.height}</span>
+                                            )}
+                                        </span>
+                                    )}
+
+                                    <div className="is-gallery-check">
+                                        {selectedIds.has(img.id) && <Check size={12} />}
+                                    </div>
+
+                                    {/* Gyazo uploading overlay */}
+                                    {img.isGyazoUploading && (
+                                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '10px', zIndex: 5, borderRadius: 'inherit' }}>
+                                            <Loader2 className="animate-spin" size={18} style={{ marginBottom: '4px' }} />
+                                            <span>上传中</span>
+                                        </div>
+                                    )}
+
+                                    {img.classified && !img.isBlankRow && (
+                                        <div className="is-gallery-overlay">
+                                            {img.categories && Object.keys(img.categories).length > 0 ? (
+                                                <div className="is-gallery-category" style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                                    {Object.entries(img.categories).map(([dimName, catVal]) => (
+                                                        <span key={dimName} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                                            <span style={{ opacity: 0.7, fontSize: '9px' }}>{dimName}:</span>{catVal}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            ) : img.category ? (
+                                                <div className="is-gallery-category">{img.category}</div>
+                                            ) : null}
+                                            {img.tags && img.tags.length > 0 && (
+                                                <div className="is-gallery-tags">
+                                                    {img.tags.slice(0, 4).map((tag, i) => (
+                                                        <span key={i} className="is-gallery-tag">{tag}</span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     ))}
@@ -2077,6 +2578,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     <span className="is-action-bar-info">
                         显示 {filteredImages.length} 张
                         {selectedIds.size > 0 && ` · 已选 ${selectedIds.size} 张`}
+                        {images.some(img => img.isGyazoUploading) && (
+                            <span style={{ color: '#a78bfa', marginLeft: 8 }}>
+                                <Loader2 className="animate-spin" size={11} style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 3 }} />
+                                云端上传中 {images.filter(img => img.isGyazoUploading).length} 张
+                            </span>
+                        )}
                     </span>
 
                     <button className="is-btn is-btn-sm" onClick={selectAll}>
@@ -2088,13 +2595,85 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                     <button
                         className="is-btn is-btn-primary"
-                        onClick={copyToSheets}
+                        onClick={() => copyToSheets({ withImage: false })}
                         disabled={images.length === 0}
                     >
-                        <Copy size={14} /> {selectedIds.size > 0 ? `复制到表格 (${selectedIds.size})` : `复制全部 (${images.length})`}
+                        <Copy size={14} /> {selectedIds.size > 0 ? `仅复制分类结果 (${selectedIds.size})` : `仅复制分类结果 (${images.length})`}
+                    </button>
+                    <button
+                        className="is-btn is-btn-primary"
+                        onClick={() => handleDownloadClick(selectedIds.size > 0)}
+                        disabled={images.length === 0}
+                    >
+                        <Download size={14} /> {selectedIds.size > 0 ? `下载选中图片 (${selectedIds.size})` : `下载全部图片 (${images.filter(i => !i.isBlankRow && !i.loadFailed).length})`}
+                    </button>
+                    <button
+                        className="is-btn is-btn-primary"
+                        onClick={() => copyToSheets({ withImage: true, uploadGyazo: true })}
+                        disabled={images.length === 0}
+                    >
+                        <Copy size={14} /> {selectedIds.size > 0 ? `复制图片公式+结果 (${selectedIds.size})` : `复制图片公式+结果 (${images.length})`}
                     </button>
                 </div>
             </div>
+            {uploadingGyazo && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: '#222', padding: 20, borderRadius: 8, color: '#fff', textAlign: 'center' }}>
+                        <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 10px' }} />
+                        <div>正在上传到 Gyazo ({uploadingGyazo.done}/{uploadingGyazo.total})</div>
+                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 5 }}>速度取决于图片大小和网络，请稍候...</div>
+                    </div>
+                </div>
+            )}
+
+            {/* Custom Confirm Download Modal */}
+            {confirmDownloadState && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: '#1c1c1c', padding: '24px', borderRadius: '12px', color: '#fff', textAlign: 'center', width: '320px', boxShadow: '0 10px 30px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ fontSize: '18px', fontWeight: 600, marginBottom: '12px' }}>确认打包下载</div>
+                        <div style={{ fontSize: '14px', opacity: 0.8, color: '#ccc', marginBottom: '24px', lineHeight: '1.5' }}>
+                            即将下载 {confirmDownloadState.total} 张{confirmDownloadState.onlySelected ? '选中的' : '全部'}图片并打包为本地 ZIP 文件。
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                            <button
+                                style={{ flex: 1, padding: '10px 0', borderRadius: '8px', background: 'rgba(255,255,255,0.08)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '14px', transition: 'background 0.2s' }}
+                                onClick={() => setConfirmDownloadState(null)}
+                                onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
+                                onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                            >
+                                取消
+                            </button>
+                            <button
+                                style={{ flex: 1, padding: '10px 0', borderRadius: '8px', background: '#a78bfa', color: '#111', border: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 600, transition: 'background 0.2s' }}
+                                onClick={executeDownload}
+                                onMouseOver={(e) => e.currentTarget.style.background = '#b79bfb'}
+                                onMouseOut={(e) => e.currentTarget.style.background = '#a78bfa'}
+                            >
+                                确定下载
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Download Progress Modal */}
+            {downloadProgress && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: '#222', padding: '24px', borderRadius: '12px', color: '#fff', textAlign: 'center', width: '320px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+                        <Loader2 className="animate-spin" size={36} style={{ margin: '0 auto 16px', color: '#a78bfa' }} />
+                        <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>{downloadProgress.status}</div>
+                        <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', margin: '16px 0' }}>
+                            <div style={{ 
+                                height: '100%', 
+                                background: '#a78bfa', 
+                                width: `${downloadProgress.total > 0 ? (downloadProgress.current / downloadProgress.total) * 100 : 0}%`,
+                                transition: 'width 0.2s ease-out'
+                            }} />
+                        </div>
+                        <div style={{ fontSize: '13px', opacity: 0.7 }}>打包过程可能需要一段时间请勿关闭窗口</div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

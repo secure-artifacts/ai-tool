@@ -15,7 +15,8 @@ import {
   Zap,
   Sparkles,
   LayoutGrid,
-  Eraser
+  Eraser,
+  Combine
 } from 'lucide-react';
 import {
   processGrid,
@@ -66,6 +67,93 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
   const [customPrefix, setCustomPrefix] = useState('prompt'); // 自定义前缀内容
   const [copiedSelection, setCopiedSelection] = useState(false);
   const [aiSplitting, setAiSplitting] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeCycle, setMergeCycle] = useState(1); // 循环列数
+
+  // ===== 合并列：将所有列按循环数合并 =====
+  const handleMergeColumns = () => {
+    if (!selection) {
+      setStatusMsg('请先用鼠标框选要合并的区域');
+      return;
+    }
+    setShowMergeModal(true);
+  };
+
+  const doMergeColumns = () => {
+    setShowMergeModal(false);
+    if (!selection) return;
+
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+    const totalCols = maxC - minC + 1;
+    const totalRows = maxR - minR + 1;
+    const cycle = Math.max(1, Math.min(mergeCycle, totalCols));
+
+    if (totalCols <= cycle) {
+      setStatusMsg(`选区只有 ${totalCols} 列，不需要合并（循环列数 = ${cycle}）`);
+      return;
+    }
+
+    // 计算有多少组
+    const groupCount = Math.ceil(totalCols / cycle);
+
+    // 收集每组的行数据
+    const mergedRows: string[][] = [];
+    for (let g = 0; g < groupCount; g++) {
+      const startCol = minC + g * cycle;
+      for (let r = minR; r <= maxR; r++) {
+        const row: string[] = [];
+        let hasContent = false;
+        for (let c = 0; c < cycle; c++) {
+          const actualCol = startCol + c;
+          const val = actualCol <= maxC ? (gridData[r]?.[actualCol] || '') : '';
+          row.push(val);
+          if (val.trim()) hasContent = true;
+        }
+        if (hasContent) mergedRows.push(row);
+      }
+    }
+
+    // 构建新的 grid
+    const newGrid = gridData.map(row => [...row]);
+
+    // 先清空选区
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        if (newGrid[r]) newGrid[r][c] = '';
+      }
+    }
+
+    // 确保有足够的行
+    const neededRows = minR + mergedRows.length;
+    while (newGrid.length < neededRows) {
+      newGrid.push(Array(newGrid[0]?.length || DEFAULT_COLS).fill(''));
+    }
+
+    // 写入合并后的数据
+    for (let i = 0; i < mergedRows.length; i++) {
+      const targetRow = minR + i;
+      for (let c = 0; c < cycle; c++) {
+        if (!newGrid[targetRow]) newGrid[targetRow] = Array(newGrid[0]?.length || DEFAULT_COLS).fill('');
+        newGrid[targetRow][minC + c] = mergedRows[i][c] || '';
+      }
+    }
+
+    setGridData(newGrid);
+
+    // 更新选区
+    const newSelection = {
+      start: { row: minR, col: minC },
+      end: { row: minR + mergedRows.length - 1, col: minC + cycle - 1 }
+    };
+    setForceSelection(newSelection);
+    setSelection(newSelection);
+
+    const colStr = Array.from({ length: cycle }, (_, i) => colToLetter(minC + i)).join(', ');
+    setStatusMsg(`✅ 已将 ${totalCols} 列（${groupCount} 组 × ${cycle} 列）合并为 ${mergedRows.length} 行，结果在列: ${colStr}`);
+  };
 
   // AI 智能拆分：用 Gemini 识别标题，substring 截取原文保证零修改
   const handleAiSplit = async () => {
@@ -499,19 +587,19 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
   };
 
   return (
-    <div className="script-tool-app tool-container">
+    <div className="script-tool-app tool-container" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '0' }}>
       {/* Toolbar */}
-      <header className="bg-[#f9fbfd] border-b border-slate-200 px-4 py-3 flex-none">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <header className="bg-[#f9fbfd] border-b border-slate-200 px-4 py-2 flex-none" style={{ overflow: 'visible' }}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
 
           {/* Title & Logo */}
-          <div className="flex items-center gap-3">
-            <div className="bg-[#107c41] p-2 rounded text-white shadow-sm">
-              <Grid3X3 className="w-6 h-6" />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="bg-[#107c41] p-1.5 rounded text-white shadow-sm">
+              <Grid3X3 className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-lg font-medium text-slate-800 leading-tight">文案拆分表</h1>
-              <p className="text-xs text-slate-500">类 Google Sheets 编辑器</p>
+              <h1 className="text-sm font-medium text-slate-800 leading-tight">文案拆分表</h1>
+              <p className="text-[10px] text-slate-500">类 Google Sheets 编辑器</p>
             </div>
           </div>
 
@@ -540,7 +628,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
             <div className="w-px h-6 bg-slate-300 mx-1"></div>
 
             {/* 拆分工具 */}
-            <div className="flex bg-white border border-slate-300 rounded-md shadow-sm divide-x divide-slate-300">
+            <div className="flex flex-wrap gap-1">
               <ToolButton
                 icon={<Columns className="w-4 h-4" />}
                 label="拆分三段 (标/内/尾)"
@@ -611,6 +699,13 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 onClick={() => handleProcess(ToolType.AddPromptPrefix)}
                 disabled={!selection}
               />
+              <ToolButton
+                icon={<Combine className="w-4 h-4" />}
+                label="合并列"
+                tooltip="将多列数据按循环数合并（如3列一循环：D-F并入A-C下方）"
+                onClick={handleMergeColumns}
+                disabled={!selection}
+              />
             </div>
 
             <div className="w-px h-6 bg-slate-300 mx-1"></div>
@@ -653,7 +748,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
         </div>
 
         {/* Status Bar / Hints */}
-        <div className="mt-3 flex items-center justify-between text-xs">
+        <div className="mt-1 flex items-center justify-between text-xs">
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded transition-colors ${statusMsg || selection ? 'bg-blue-600 text-white' : 'bg-slate-700 text-white'}`}>
             {selection ? <MousePointer2 className="w-3.5 h-3.5" /> : <Info className="w-3.5 h-3.5" />}
             <span className="font-medium">
@@ -666,7 +761,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
       </header>
 
       {/* Main Grid Area */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+      <main className="flex-1 flex flex-col overflow-hidden relative" style={{ minHeight: 0 }}>
         <SpreadsheetGrid
           data={gridData}
           onChange={setGridData}
@@ -715,6 +810,42 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
           </div>
         </div>
       )}
+
+      {/* 合并列弹窗 */}
+      {showMergeModal && (
+        <div className="prefix-modal-overlay" onClick={() => setShowMergeModal(false)}>
+          <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="prefix-modal-title">合并列</h3>
+            <p className="prefix-modal-desc">
+              设置循环列数。例如：
+              <br />• 设为 <b>1</b>：所有列合并到第一列（纵向堆叠）
+              <br />• 设为 <b>3</b>：每 3 列为一组，后续组追加到前 3 列下方
+              <br />
+              <br />选区共 <b>{selection ? Math.abs(selection.end.col - selection.start.col) + 1 : 0}</b> 列，
+              将分为 <b>{selection ? Math.ceil((Math.abs(selection.end.col - selection.start.col) + 1) / Math.max(1, mergeCycle)) : 0}</b> 组
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <span className="text-sm text-slate-600">循环列数：</span>
+              <input
+                type="number"
+                min={1}
+                max={selection ? Math.abs(selection.end.col - selection.start.col) + 1 : 100}
+                value={mergeCycle}
+                onChange={(e) => setMergeCycle(Math.max(1, parseInt(e.target.value) || 1))}
+                className="prefix-modal-input"
+                style={{ width: '80px', textAlign: 'center' }}
+                onKeyDown={(e) => { if (e.key === 'Enter') doMergeColumns(); }}
+                autoFocus
+              />
+              <span className="text-xs text-slate-400">列为一组</span>
+            </div>
+            <div className="prefix-modal-actions">
+              <button onClick={() => setShowMergeModal(false)} className="prefix-modal-btn-cancel">取消</button>
+              <button onClick={doMergeColumns} className="prefix-modal-btn-confirm">确定合并</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -725,10 +856,11 @@ const ToolButton: React.FC<{ icon: React.ReactNode; label: string; tooltip?: str
     disabled={disabled}
     data-tip={tooltip || label}
     className={`
-      tooltip-bottom flex items-center gap-2 px-3 py-2 transition-colors text-xs font-medium whitespace-nowrap
+      tooltip-bottom flex items-center gap-1.5 px-2.5 py-1.5 transition-colors text-xs font-medium whitespace-nowrap
+      border rounded-md
       ${disabled
-        ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400'
-        : 'hover:bg-green-50 text-slate-700 hover:text-green-700'
+        ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200'
+        : 'hover:bg-green-50 text-slate-700 hover:text-green-700 border-slate-300 bg-white'
       }
     `}
   >

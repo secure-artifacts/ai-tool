@@ -1905,7 +1905,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     // Save note (to Firebase and optionally to Google Sheets)
     const saveNote = useCallback(async (syncToSheet: boolean = true) => {
         if (!noteModal.imageUrl || noteModal.rowIndex <= 0) {
-            alert('无法确定行位置，请稍后重试');
+            setCopyFeedback('⚠️ 无法确定行位置，请稍后重试'); setTimeout(() => setCopyFeedback(null), 3000);
             return;
         }
 
@@ -2033,7 +2033,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     // Save category
     const saveCategory = useCallback(async (selectedCategory: string, syncToSheet: boolean = true) => {
         if (!categoryModal.imageUrl || categoryModal.rowIndex <= 0) {
-            alert('无法确定行位置，请稍后重试');
+            setCopyFeedback('⚠️ 无法确定行位置，请稍后重试'); setTimeout(() => setCopyFeedback(null), 3000);
             return;
         }
 
@@ -2779,7 +2779,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const { saveGalleryConfig } = await import('@/services/firestoreService');
             const email = localStorage.getItem('cloud_sync_email');
             if (!email) {
-                alert('请先在云同步面板登录');
+                setCopyFeedback('⚠️ 请先在云同步面板登录'); setTimeout(() => setCopyFeedback(null), 3000);
                 setCloudSyncStatus('error');
                 return;
             }
@@ -2804,7 +2804,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const { loadGalleryConfig } = await import('@/services/firestoreService');
             const email = localStorage.getItem('cloud_sync_email');
             if (!email) {
-                alert('请先在云同步面板登录');
+                setCopyFeedback('⚠️ 请先在云同步面板登录'); setTimeout(() => setCopyFeedback(null), 3000);
                 setCloudSyncStatus('error');
                 return;
             }
@@ -4851,7 +4851,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         const { headers, rows } = generateExportData();
         const text = headers.join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
         navigator.clipboard.writeText(text).then(() => {
-            alert(`已复制 ${rows.length} 行数据到剪贴板 (${config.viewMode}视图)`);
+            setCopyFeedback(`✅ 已复制 ${rows.length} 行数据到剪贴板 (${config.viewMode}视图)`); setTimeout(() => setCopyFeedback(null), 3000);
         });
     }, [generateExportData, config.viewMode]);
 
@@ -4865,7 +4865,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     const downloadAllThumbnails = useCallback(async () => {
         if (!effectiveImageColumn) {
-            alert('请先配置图片列');
+            setCopyFeedback('⚠️ 请先配置图片列'); setTimeout(() => setCopyFeedback(null), 3000);
             return;
         }
 
@@ -4882,7 +4882,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         });
 
         if (allImages.length === 0) {
-            alert('没有找到可下载的图片');
+            setCopyFeedback('⚠️ 没有找到可下载的图片'); setTimeout(() => setCopyFeedback(null), 3000);
             return;
         }
 
@@ -4982,7 +4982,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         } catch (err) {
             console.error('ZIP 生成失败:', err);
             setDownloadProgress(null);
-            alert('ZIP 打包失败，请重试');
+            setCopyFeedback('❌ ZIP 打包失败，请重试'); setTimeout(() => setCopyFeedback(null), 3000);
         }
     }, [processedRows, effectiveImageColumn, effectiveGroupColumns, extractImageUrl]);
 
@@ -5293,7 +5293,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             await createSheetTab(sheetsSpreadsheetId, sheetName, token);
             await writeToGoogleSheet(sheetsSpreadsheetId, sheetName, sheetData, token);
 
-            alert(`同步成功！已创建分页: ${sheetName}`);
+            setCopyFeedback(`✅ 同步成功！已创建分页: ${sheetName}`); setTimeout(() => setCopyFeedback(null), 4000);
         } catch (e: any) {
             console.error('Failed to sync to Google Sheets:', e);
             setSheetsError(e.message || '同步失败');
@@ -8716,7 +8716,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             return;
                                                                                         }
                                                                                         if (!isUserLoggedIn()) {
-                                                                                            alert('要同步到表格，请先登录 Google 账号。');
+                                                                                            setCopyFeedback('⚠️ 要同步到表格，请先登录 Google 账号'); setTimeout(() => setCopyFeedback(null), 3000);
                                                                                             return;
                                                                                         }
                                                                                     }
@@ -11769,7 +11769,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 loginBtn.click();
                                             } else {
                                                 // Fallback: show a message
-                                                alert('请点击右上角的登录按钮登录您的 Google 账号');
+                                                setCopyFeedback('⚠️ 请点击右上角的登录按钮登录 Google 账号'); setTimeout(() => setCopyFeedback(null), 4000);
                                             }
                                             setShowLoginPrompt(null);
                                         }}

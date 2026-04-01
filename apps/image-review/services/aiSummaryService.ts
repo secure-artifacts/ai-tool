@@ -2,17 +2,29 @@
  * AI 汇总服务 - 使用 Gemini 自动生成问题汇总
  */
 import { GoogleGenAI } from "@google/genai";
-import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { ImageReview, ImageGroup, FeedbackItem, SEVERITY_CONFIG } from '../types';
 
 const getAiInstance = () => {
+    // 优先使用主应用暴露的全局实例（包含 API 池轮换等完整逻辑）
+    if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+        return (window as any).__app_get_ai_instance();
+    }
+
+    // 回退：自行创建实例
     const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
-    const keyToUse = storedKey || import.meta.env.VITE_GOOGLE_API_KEY;
-    if (!keyToUse) {
+    const rawKey = storedKey || import.meta.env.VITE_GOOGLE_API_KEY || '';
+    const cleanKey = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
+
+    // AI Studio 环境：平台内部处理认证
+    if (isRunningInAiStudio()) {
+        if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
+        return new GoogleGenAI({});
+    }
+
+    if (!cleanKey) {
         throw new Error('API key is not set. 请先在顶部的 API Key 按钮中配置可用的 Google AI Key。');
     }
-    const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
-    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
     if (shouldUseAiStudioMode(cleanKey)) {
         return new GoogleGenAI({ apiKey: cleanKey });
     }

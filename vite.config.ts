@@ -18,6 +18,7 @@ function imageProxyPlugin(): Plugin {
           res.end('Missing url parameter');
           return;
         }
+        console.log('[DEBUG PROXY URL] ->', url);
         try {
           const response = await fetch(url);
           if (!response.ok) {

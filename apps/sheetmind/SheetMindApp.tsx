@@ -8,11 +8,12 @@ import Dashboard, { GenericChart } from './components/Dashboard';
 import TransposePanel from './components/TransposePanel';
 import ColumnAlignPanel from './components/ColumnAlignPanel';
 import ImageFormulaPanel from './components/ImageFormulaPanel';
+import ReferenceLibraryPanel from './components/ReferenceLibraryPanel';
 import MediaGalleryPanel from './components/MediaGalleryPanel';
 import DataSourceManager, { addDataSource, loadDataSources, DataSource } from './components/DataSourceManager';
 import UnifiedSettingsPanel from './components/UnifiedSettingsPanel';
 import { SharedConfig, getDefaultSharedConfig } from './types/sharedConfig';
-import { Table, BarChart4, ChevronDown, RotateCw, X, MessageSquare, GalleryHorizontalEnd, PanelRightClose, PanelRightOpen, BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Trash2, FolderOpen, ArrowRightLeft, Image, Database, Cloud, Loader2, Filter, Copy, Eye, EyeOff, Layers, Check, HardDrive, Settings, MoveVertical, ClipboardPlus, Plus, BarChart2, Lightbulb } from 'lucide-react';
+import { Table, BarChart4, ChevronDown, RotateCw, X, MessageSquare, GalleryHorizontalEnd, PanelRightClose, PanelRightOpen, BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Trash2, FolderOpen, ArrowRightLeft, Image, Database, Cloud, Loader2, Filter, Copy, Eye, EyeOff, Layers, Check, HardDrive, Settings, MoveVertical, ClipboardPlus, Plus, BarChart2, Lightbulb, BookOpen } from 'lucide-react';
 import { parseSheetAsync, parseMultipleSheetsAsync, fetchWorkbookFromUrl, fetchWorkbookWithAuth, fetchWorkbookSmart, filterWorkbook, getServiceAccountEmail } from './utils/parser';
 import { getGoogleAccessToken } from '@/services/authService';
 import { GoogleGenAI } from "@google/genai";
@@ -203,7 +204,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
 
 
-    const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula'>(state.view || 'grid');
+    const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library'>(state.view || 'grid');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadProgress, setLoadProgress] = useState<string | null>(null); // Progress message for large file loading
     const [needsReload, setNeedsReload] = useState(false); // Flag for large data that needs reload
@@ -1655,6 +1656,12 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                             >
                                 <Image size={14} /> <span className="hidden sm:inline">图片公式</span>
                             </button>
+                            <button
+                                onClick={() => setView('reference-library')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'reference-library' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                <BookOpen size={14} /> <span className="hidden sm:inline">参考库</span>
+                            </button>
                         </div>
 
                         {/* Unified Settings Button with Dropdown */}
@@ -1907,6 +1914,10 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         <div className="flex-1 p-4 lg:p-6 overflow-hidden flex flex-col min-w-0 relative">
                             <ImageFormulaPanel onBack={() => setView(data ? 'grid' : 'grid')} />
                         </div>
+                    ) : view === 'reference-library' ? (
+                        <div className="flex-1 overflow-hidden flex flex-col min-w-0 relative">
+                            <ReferenceLibraryPanel onBack={() => setView(data ? 'grid' : 'grid')} />
+                        </div>
                     ) : !data ? (
                         <div className="flex-1 flex flex-col items-center pt-8 p-8 overflow-y-auto bg-slate-50">
                             <div className="max-w-4xl w-full">
@@ -1968,6 +1979,18 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                         <div className="text-left">
                                             <div className="font-semibold text-slate-700">图片公式生成器</div>
                                             <div className="text-xs text-slate-500">批量图片链接转 =IMAGE() 公式，横版排列直接粘贴到 Google Sheets</div>
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={() => setView('reference-library')}
+                                        className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-100 rounded-xl hover:from-amber-100 hover:to-orange-100 transition-all group"
+                                    >
+                                        <div className="bg-white p-2 rounded-lg shadow-sm group-hover:shadow-md transition-shadow">
+                                            <BookOpen className="w-5 h-5 text-amber-600" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="font-semibold text-slate-700">参考库</div>
+                                            <div className="text-xs text-slate-500">从 Google Sheets 加载图片/生成词/参考数据，画廊模式浏览</div>
                                         </div>
                                     </button>
                                 </div>

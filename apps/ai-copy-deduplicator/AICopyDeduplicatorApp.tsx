@@ -15,7 +15,8 @@ import {
     CheckCircle,
     Loader2,
     Copy,
-    X
+    X,
+    Square
 } from 'lucide-react';
 import {
     CopyItem,
@@ -110,6 +111,7 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
     const [toast, setToast] = useState<string | null>(null);
 
     const processingRef = useRef(false);
+    const judgeAbortRef = useRef<AbortController | null>(null);
 
     // Toast 提示
     const showToast = useCallback((msg: string) => {
@@ -183,6 +185,9 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                 chineseText: item.chineseText,
             }));
 
+            const abortController = new AbortController();
+            judgeAbortRef.current = abortController;
+
             const aiResult = await judgeWithAI(
                 aiItems,
                 ai,
@@ -194,7 +199,8 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                         processingProgress: progress,
                         processingStatus: status,
                     });
-                }
+                },
+                abortController.signal
             );
 
             updateState({
@@ -279,16 +285,33 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                 isProcessing: false,
             });
 
-        } catch (error) {
-            console.error('处理失败:', error);
-            updateState({
-                isProcessing: false,
-                processingStatus: `处理失败: ${error instanceof Error ? error.message : '未知错误'}`,
-            });
+        } catch (error: any) {
+            if (error?.name === 'AbortError') {
+                updateState({
+                    isProcessing: false,
+                    processingStatus: '已停止 AI 精判',
+                });
+                showToast('已停止 AI 精判');
+            } else {
+                console.error('处理失败:', error);
+                updateState({
+                    isProcessing: false,
+                    processingStatus: `处理失败: ${error instanceof Error ? error.message : '未知错误'}`,
+                });
+            }
         } finally {
             processingRef.current = false;
+            judgeAbortRef.current = null;
         }
     };
+
+    // 停止 AI 精判
+    const cancelProcessing = useCallback(() => {
+        if (judgeAbortRef.current) {
+            judgeAbortRef.current.abort();
+            judgeAbortRef.current = null;
+        }
+    }, []);
 
     // 保存新文案到库
     const saveToLibrary = () => {
@@ -609,24 +632,25 @@ export default function AICopyDeduplicatorApp({ getAiInstance, textModel = 'gemi
                         )}
                     </div>
 
-                    {/* 右侧：开始按钮 */}
-                    <button
-                        className="copy-dedup-btn primary compact"
-                        onClick={processDeduplication}
-                        disabled={state.isProcessing || !state.inputText.trim()}
-                    >
-                        {state.isProcessing ? (
-                            <>
-                                <Loader2 size={14} className="spinning" />
-                                {state.processingProgress}%
-                            </>
-                        ) : (
-                            <>
-                                <Search size={14} />
-                                开始检测
-                            </>
-                        )}
-                    </button>
+                    {/* 右侧：开始/停止按钮 */}
+                    {state.isProcessing ? (
+                        <button
+                            className="copy-dedup-btn danger compact"
+                            onClick={cancelProcessing}
+                        >
+                            <Square size={14} fill="currentColor" />
+                            停止 ({state.processingProgress}%)
+                        </button>
+                    ) : (
+                        <button
+                            className="copy-dedup-btn primary compact"
+                            onClick={processDeduplication}
+                            disabled={!state.inputText.trim()}
+                        >
+                            <Search size={14} />
+                            开始检测
+                        </button>
+                    )}
                 </div>
 
                 {/* 进度状态（紧凑） */}

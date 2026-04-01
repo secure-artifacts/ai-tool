@@ -21,7 +21,9 @@ import {
     ChevronLeft, ChevronRight, Loader2, Copy, Check, X,
     Sparkles, RotateCcw, PanelLeftClose, PanelLeftOpen,
     Bot, User, Pencil, Download, ChevronDown, Eraser, Upload,
+    Wand2,
 } from 'lucide-react';
+import SkillBuilderApp from '../skill-builder/SkillBuilderApp';
 
 // ====== Types ======
 interface ChatMessage {
@@ -44,6 +46,7 @@ interface Conversation {
 
 interface Props {
     getAiInstance: () => any;
+    textModel?: string;
 }
 
 // ====== Constants ======
@@ -159,7 +162,7 @@ const CodeBlock = memo(({ children, className }: { children: React.ReactNode; cl
 });
 
 // ====== Main Component ======
-const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
+const GeminiChatApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
     // State
     const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
     const [activeConvId, setActiveConvId] = useState<string | null>(() => {
@@ -171,7 +174,7 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
     const [isStreaming, setIsStreaming] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
-    const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+    const [selectedModel, setSelectedModel] = useState(textModel || 'gemini-2.5-flash');
     const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT_TEMPLATES[0].value);
     const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
@@ -194,6 +197,11 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
     useEffect(() => {
         saveConversations(conversations);
     }, [conversations]);
+
+    // Sync with global textModel
+    useEffect(() => {
+        if (textModel) setSelectedModel(textModel);
+    }, [textModel]);
 
     // Auto scroll
     useEffect(() => {
@@ -644,13 +652,55 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
         hr: () => <hr style={{ border: 'none', borderTop: '1px solid #3f3f46', margin: '12px 0' }} />,
     }), []);
 
+    // ====== Tab state ======
+    type TabId = 'chat' | 'skillBuilder';
+    const [activeTab, setActiveTab] = useState<TabId>('chat');
+
     // ====== Render ======
     return (
         <div style={{
-            display: 'flex', height: '100%', width: '100%',
+            display: 'flex', flexDirection: 'column', height: '100%', width: '100%',
             background: '#09090b', color: '#e4e4e7', fontFamily: "'Inter', system-ui, sans-serif",
             overflow: 'hidden',
         }}>
+            {/* ====== Tab Bar ====== */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: '2px',
+                padding: '6px 16px', borderBottom: '1px solid #1f1f23',
+                background: '#0c0c0f', flexShrink: 0,
+            }}>
+                <button onClick={() => setActiveTab('chat')} style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    padding: '7px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                    fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
+                    background: activeTab === 'chat' ? 'rgba(139,92,246,0.15)' : 'transparent',
+                    color: activeTab === 'chat' ? '#c4b5fd' : '#71717a',
+                }}>
+                    <MessageSquare size={14} /> 对话
+                </button>
+                <button onClick={() => setActiveTab('skillBuilder')} style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    padding: '7px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                    fontSize: '13px', fontWeight: 600, transition: 'all 0.15s',
+                    background: activeTab === 'skillBuilder' ? 'rgba(139,92,246,0.15)' : 'transparent',
+                    color: activeTab === 'skillBuilder' ? '#c4b5fd' : '#71717a',
+                }}>
+                    <Wand2 size={14} /> Skill 训练
+                </button>
+            </div>
+
+            {/* ====== Skill Builder Tab ====== */}
+            {activeTab === 'skillBuilder' && (
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <SkillBuilderApp getAiInstance={getAiInstance} textModel={textModel} />
+                </div>
+            )}
+
+            {/* ====== Chat Tab ====== */}
+            <div style={{
+                display: activeTab === 'chat' ? 'flex' : 'none',
+                flex: 1, overflow: 'hidden',
+            }}>
             {/* ====== Sidebar ====== */}
             <div style={{
                 width: sidebarOpen ? '280px' : '0px',
@@ -835,29 +885,6 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
                     </div>
 
                     <div style={{ flex: 1 }} />
-
-                    {/* Model selector */}
-                    <select
-                        value={activeConv?.model || selectedModel}
-                        onChange={e => {
-                            const model = e.target.value;
-                            setSelectedModel(model);
-                            if (activeConv) {
-                                setConversations(prev => prev.map(c =>
-                                    c.id === activeConvId ? { ...c, model } : c
-                                ));
-                            }
-                        }}
-                        style={{
-                            background: '#18181b', color: '#a1a1aa', border: '1px solid #27272a',
-                            borderRadius: '6px', padding: '5px 8px', fontSize: '12px',
-                            cursor: 'pointer', outline: 'none',
-                        }}
-                    >
-                        {MODEL_OPTIONS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                    </select>
 
                     {/* Settings */}
                     <button onClick={() => setShowSettings(!showSettings)} style={{
@@ -1198,12 +1225,12 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
                             onDragOver={e => e.preventDefault()}
                             onDrop={handleDrop}
                             placeholder="发送消息... (Shift+Enter 换行，粘贴/拖拽图片)"
-                            rows={1}
+                            rows={2}
                             style={{
                                 flex: 1, background: 'transparent', border: 'none', outline: 'none',
                                 color: '#e4e4e7', fontSize: '14px', resize: 'none',
                                 fontFamily: 'inherit', lineHeight: '1.5', padding: '4px 0',
-                                maxHeight: '200px',
+                                minHeight: '42px', maxHeight: '200px',
                             }}
                         />
 
@@ -1242,7 +1269,7 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
                         textAlign: 'center', fontSize: '11px', color: '#3f3f46',
                         marginTop: '6px',
                     }}>
-                        {activeConv?.model || selectedModel} · {activeConv?.messages.length || 0} 条消息
+                        {activeConv?.messages.length || 0} 条消息
                     </div>
                 </div>
             </div>
@@ -1254,6 +1281,7 @@ const GeminiChatApp: React.FC<Props> = ({ getAiInstance }) => {
                     40% { transform: scale(1); opacity: 1; }
                 }
             `}</style>
+            </div> {/* end chat tab wrapper */}
         </div>
     );
 };

@@ -74,9 +74,10 @@ export async function judgeWithAI(
     ai: GoogleGenAI,
     textModel: string,
     customPrompt: string,
-    onProgress?: (current: number, total: number, status: string) => void
+    onProgress?: (current: number, total: number, status: string) => void,
+    signal?: AbortSignal
 ): Promise<AIJudgeResult> {
-    const BATCH_SIZE = 20; // 每批处理20条
+    const BATCH_SIZE = 50; // 每批处理50条（Gemini Flash 支持大上下文）
 
     // 如果文案数量较少，直接一次性处理
     if (items.length <= BATCH_SIZE) {
@@ -103,6 +104,9 @@ export async function judgeWithAI(
         const batch = items.slice(i, i + BATCH_SIZE);
 
         onProgress?.(batchIndex, totalBatches, `AI 分析中 (${batchIndex + 1}/${totalBatches})...`);
+
+        // 检查是否被取消
+        if (signal?.aborted) throw new DOMException('AI judge cancelled', 'AbortError');
 
         try {
             const batchResult = await judgeBatch(batch, ai, textModel, customPrompt);

@@ -76,7 +76,7 @@ export interface SheetMindState {
     sourceUrl?: string;
     currentSheetName: string;
     // View state
-    view: 'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula';
+    view: 'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library';
     isSidebarOpen: boolean;
     sidebarTab: 'chat' | 'gallery';
     // Snapshots

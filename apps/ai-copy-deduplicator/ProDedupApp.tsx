@@ -12,11 +12,12 @@ import { createPortal } from 'react-dom';
 import {
     Zap, Database, Download, Copy, Trash2, Search, Settings, X, Check, Link,
     Cloud, CloudOff, Loader2, FolderPlus, Edit2, Plus, FileCode, Tag, ArrowUpDown,
-    ChevronDown, ChevronUp, Sparkles, Eye, Brain
+    ChevronDown, ChevronUp, Sparkles, Eye, Brain, Square
 } from 'lucide-react';
 import { appendToSheet, getSheetsSyncConfig } from '@/services/sheetsSyncService';
 import { dedupEngine, TextItem, DedupResult, DuplicateGroup } from './services/minHashEngine';
-import { parseInputText, parseInputFromHtml, getTextEmbedding, batchEmbedTexts } from './services/similarityService';
+import { parseInputText, parseInputFromHtml } from './services/similarityService';
+import { localEmbeddingService } from './services/localEmbeddingService';
 import type { GoogleGenAI } from '@google/genai';
 import {
     classifyWithAI,
@@ -108,7 +109,7 @@ interface ProDedupState {
     aiClassifyInputText: string;
     aiClassifyResults: AiClassifyResult[];
     aiClassifyBatchSize: number;
-    aiClassifyDepth: 'full' | 'major';
+    aiClassifyDepth: 'full' | 'major' | 'custom';
     aiClassifyProgress: AiClassifyProgress | null;
     aiClassifyActiveCategories: Set<string>;
     aiClassifySortBy: 'original' | 'major' | 'middle' | 'minor' | 'chars-asc' | 'chars-desc';
@@ -123,9 +124,9 @@ interface ProDedupState {
 interface CustomClassifyRule {
     id: string;
     name: string;
-    level: 'major' | 'middle' | 'minor';
+    level: string; // Dynamic levels like "分类", "平台", "情绪", or legacy "major"
     criteria: string;
-    parentCategory: string; // 归属哪个上级类别 (中类需指定大类，小类需指定中类)
+    parentCategory: string; // 归属哪个上级类别 (可选条件，如需绑定)
 }
 
 const LIBRARY_STORAGE_KEY = 'pro_dedup_library';
@@ -349,6 +350,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
     const embeddingCacheRef = useRef<Map<string, number[]>>(new Map());
     const [embeddingProgress, setEmbeddingProgress] = useState<string>('');
     const [isEmbeddingSearching, setIsEmbeddingSearching] = useState(false);
+    const embeddingAbortRef = useRef<AbortController | null>(null);
 
     // 余弦相似度
     const cosineSimilarity = (a: number[], b: number[]): number => {
@@ -362,19 +364,18 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         return dot / (Math.sqrt(magA) * Math.sqrt(magB) || 1);
     };
 
+    // 停止 AI 语义搜索
+    const cancelEmbeddingSearch = useCallback(() => {
+        if (embeddingAbortRef.current) {
+            embeddingAbortRef.current.abort();
+            embeddingAbortRef.current = null;
+        }
+    }, []);
+
     // AI 语义搜索
     const handleEmbeddingSearch = useCallback(async () => {
         if (!state.searchQuery.trim()) {
             showToast('请输入要搜索的文案');
-            return;
-        }
-        if (!getAiInstance) {
-            showToast('AI 语义搜索需要配置 API Key');
-            return;
-        }
-        const ai = getAiInstance();
-        if (!ai) {
-            showToast('请先配置 API Key');
             return;
         }
 
@@ -384,31 +385,47 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             return;
         }
 
+        // 创建 AbortController
+        const abortController = new AbortController();
+        embeddingAbortRef.current = abortController;
+
         setIsEmbeddingSearching(true);
         try {
+            // 初始化本地模型（带有下载进度条）
+            if (!localEmbeddingService.isReady()) {
+                setEmbeddingProgress('正在初始化本地 AI 引擎，首次下载需等待...');
+                await localEmbeddingService.initEngine((progress) => {
+                    if (progress.status === 'progress') {
+                        setEmbeddingProgress(`下载 AI 模型: ${progress.file} - ${Math.round(progress.progress || 0)}%`);
+                    } else if (progress.status === 'done') {
+                        setEmbeddingProgress(`加载完成: ${progress.file}`);
+                    }
+                });
+            }
+
             // 1. 获取查询文本的 embedding
             setEmbeddingProgress('正在分析查询文案...');
-            // 优先用中文搜索（如果输入含中文），也合并英文
-            const queryEmb = await getTextEmbedding(state.searchQuery, ai);
+            const queryEmbArray = await localEmbeddingService.extractEmbeddings([state.searchQuery]);
+            const queryEmb = queryEmbArray[0];
 
             // 2. 批量获取库中文案的 embedding（有缓存就跳过）
             const cache = embeddingCacheRef.current;
             const needEmbed: { id: string; text: string }[] = [];
             for (const item of libraryItems) {
                 if (!cache.has(item.id)) {
-                    // 合并英文和中文，让 embedding 覆盖两种语言的语义
-                    const fullText = item.chineseText ? `${item.text}\n${item.chineseText}` : item.text;
-                    needEmbed.push({ id: item.id, text: fullText });
+                    // 仅使用外文建立索引（以外文为准）
+                    needEmbed.push({ id: item.id, text: item.text });
                 }
             }
 
             if (needEmbed.length > 0) {
-                setEmbeddingProgress(`正在建立语义索引 (0/${needEmbed.length})...`);
-                // 一次请求100条，极大加速
+                setEmbeddingProgress(`使用本地算力建立语义索引 (共 ${needEmbed.length} 条)...`);
+                // 批量处理，由于是 Worker，我们可以一次性发过去
                 const texts = needEmbed.map(item => item.text);
-                const embeddings = await batchEmbedTexts(texts, ai, (done, total) => {
-                    setEmbeddingProgress(`正在建立语义索引 (${done}/${total})...`);
+                const embeddings = await localEmbeddingService.extractEmbeddings(texts, (done, total) => {
+                    setEmbeddingProgress(`使用本地算力建立语义索引 (${done}/${total})...`);
                 });
+                
                 embeddings.forEach((emb, idx) => {
                     cache.set(needEmbed[idx].id, emb);
                 });
@@ -447,15 +464,21 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             });
 
             setEmbeddingProgress('');
-            showToast(`🧠 AI 语义搜索完成，找到 ${topResults.length} 条相似文案`);
+            showToast(`🚀 本地AI搜索完成，找到 ${topResults.length} 条文案，不消耗API算力`);
         } catch (e: any) {
-            console.error('Embedding search failed:', e);
-            showToast('AI 语义搜索失败: ' + (e.message || '未知错误'));
-            setEmbeddingProgress('');
+            if (e?.name === 'AbortError') {
+                showToast('已停止 AI 语义搜索');
+                setEmbeddingProgress('');
+            } else {
+                console.error('Embedding search failed:', e);
+                showToast('本地AI搜索失败: ' + (e.message || '未知错误'));
+                setEmbeddingProgress('');
+            }
         } finally {
             setIsEmbeddingSearching(false);
+            embeddingAbortRef.current = null;
         }
-    }, [state.searchQuery, state.threshold, getAiInstance]);
+    }, [state.searchQuery, state.threshold]);
 
     // 相似文案弹框状态
     const [similarModal, setSimilarModal] = useState<{
@@ -639,10 +662,8 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                     return;
                 }
 
-                // 使用 MinHash 引擎搜索库（合并中英文作为查询，确保中文也能匹配）
-                const queries = validParsed.map(item =>
-                    item.chinese ? `${item.foreign} ${item.chinese}` : item.foreign
-                );
+                // 仅使用外文进行匹配（以外文为准）
+                const queries = validParsed.map(item => item.foreign);
                 const engineResults = dedupEngine.searchLibrary(queries, {
                     threshold: state.threshold,
                     maxResults: 50
@@ -1092,6 +1113,37 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             return;
         }
 
+        // 识别已分类的项（非失败状态，且有主分类）
+        const alreadyClassified = state.aiClassifyResults.filter(r => r.major && r.major !== '❌ 失败');
+        const classifiedIndices = new Set(alreadyClassified.map(r => r.index));
+        
+        // 只过滤出还未成功分类的项（断点续传）
+        const itemsToClassify = validRows
+            .filter((_, i) => !classifiedIndices.has(i + 1))
+            .map((r, i) => ({
+                index: r.rowIndex + 1, // original index relative to input text start
+                originalRowIndex: r.rowIndex,
+                text: r.text,
+                zhText: r.zhText,
+                enText: r.enText,
+            }));
+
+        // 但是为了保持 index 一致性，我们需要确保 index 是对的。
+        // 原有代码中：index: i + 1, 是按照 validRows 的顺序。
+        // 为了安全起见我们要准确映射。
+        const items = validRows.map((r, i) => ({
+            index: i + 1,
+            originalRowIndex: r.rowIndex, // 保留原始行号，用于对齐复制
+            text: r.text,
+            zhText: r.zhText,
+            enText: r.enText,
+        })).filter(item => !classifiedIndices.has(item.index));
+
+        if (items.length === 0 && alreadyClassified.length > 0) {
+            showToast('所有文案已分类完毕，无需重复操作');
+            return;
+        }
+
         // 取消之前的请求
         aiClassifyAbortRef.current?.abort();
         const controller = new AbortController();
@@ -1099,29 +1151,29 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
 
         updateState({
             isProcessing: true,
-            aiClassifyResults: [],
-            aiClassifyStats: null,
+            // 如果是首次或重新（没有保留的项），则清空结果
+            aiClassifyResults: alreadyClassified,
+            aiClassifyStats: computeClassifyStats(alreadyClassified),
             aiClassifyActiveCategories: new Set<string>(),
-            aiClassifyProgress: { current: 0, total: 1, status: '准备中…' },
+            aiClassifyProgress: { current: 0, total: 1, status: `准备中${alreadyClassified.length > 0 ? ` (已恢复 ${alreadyClassified.length} 条已分类的记录)` : '…'}` },
         });
 
         try {
             const totalInputRows = inputRows.length; // 含空行的总行数
-            const items = validRows.map((r, i) => ({
-                index: i + 1,
-                originalRowIndex: r.rowIndex, // 保留原始行号，用于对齐复制
-                text: r.text,
-                zhText: r.zhText,
-                enText: r.enText,
-            }));
-
+            
             // 将结构化规则转为文本
             const rulesText = state.aiClassifyCustomRules.length > 0
                 ? state.aiClassifyCustomRules.map(r => {
-                    const levelLabel = r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : '小类';
+                    const levelLabel = r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level;
                     const parentHint = r.parentCategory ? ` → 归属「${r.parentCategory}」` : '';
                     return `${levelLabel}「${r.name}」${parentHint} | 判断标准：${r.criteria}`;
                 }).join('\n')
+                : undefined;
+
+            const customLevels = state.aiClassifyCustomRules.length > 0
+                ? Array.from(new Set(state.aiClassifyCustomRules.map(r =>
+                    r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level
+                  )))
                 : undefined;
 
             const results = await classifyWithAI(items, {
@@ -1129,6 +1181,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                 batchSize: state.aiClassifyBatchSize,
                 concurrency: 2,
                 customRules: rulesText,
+                customLevels,
                 systemPromptOverride: state.aiClassifySystemPromptEdit || undefined,
                 model: classifyEffectiveModel,
                 signal: controller.signal,
@@ -1201,10 +1254,16 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         try {
             const rulesText = state.aiClassifyCustomRules.length > 0
                 ? state.aiClassifyCustomRules.map(r => {
-                    const levelLabel = r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : '小类';
+                    const levelLabel = r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level;
                     const parentHint = r.parentCategory ? ` → 归属「${r.parentCategory}」` : '';
                     return `${levelLabel}「${r.name}」${parentHint} | 判断标准：${r.criteria}`;
                 }).join('\n')
+                : undefined;
+
+            const customLevels = state.aiClassifyCustomRules.length > 0
+                ? Array.from(new Set(state.aiClassifyCustomRules.map(r =>
+                    r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level
+                  )))
                 : undefined;
 
             const retryResults = await classifyWithAI(failedItems, {
@@ -1212,6 +1271,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                 batchSize: Math.min(state.aiClassifyBatchSize, failedItems.length),
                 concurrency: 1, // 重试用较低并发
                 customRules: rulesText,
+                customLevels,
                 systemPromptOverride: state.aiClassifySystemPromptEdit || undefined,
                 signal: controller.signal,
                 onProgress: (progress) => {
@@ -1293,7 +1353,14 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             if (t.includes('\t') || t.includes('\n') || t.includes('"')) return `"${t.replace(/"/g, '""')}"`;
             return t;
         };
-        const header = '文案\t大类\t中类\t小类';
+
+        const isCustomModel = state.aiClassifyDepth === 'custom' && state.aiClassifyCustomRules.length > 0;
+        const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(r => 
+            r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level
+        ))) : ['大类', '中类', '小类'];
+
+        const header = `文案\t${customLevels.join('\t')}`;
+        const emptyRow = '\t' + customLevels.map(() => '').join('\t');
         const inputRows = parseClassifyInputRows(state.aiClassifyInputText);
 
         const rows: string[] = [];
@@ -1321,24 +1388,26 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             for (const row of inputRows) {
                 const r = resultMap.get(row.rowIndex);
                 if (r) {
-                    rows.push(`${esc(r.text)}\t${esc(r.major)}\t${esc(r.middle)}\t${esc(r.minor)}`);
+                    const rowVals = customLevels.map(lvl => esc(r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')));
+                    rows.push(`${esc(r.text)}\t${rowVals.join('\t')}`);
                 } else if ((row.text || '').trim()) {
-                    rows.push(`${esc(row.text)}\t\t\t`);
+                    rows.push(`${esc(row.text)}\t${customLevels.map(() => '').join('\t')}`);
                 } else {
-                    rows.push('\t\t\t');
+                    rows.push(emptyRow);
                 }
             }
         } else {
             // 兜底：无输入文本时仍按结果序号导出
             const sorted = [...state.aiClassifyResults].sort((a, b) => a.index - b.index);
             for (const r of sorted) {
-                rows.push(`${esc(r.text)}\t${esc(r.major)}\t${esc(r.middle)}\t${esc(r.minor)}`);
+                const rowVals = customLevels.map(lvl => esc(r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')));
+                rows.push(`${esc(r.text)}\t${rowVals.join('\t')}`);
             }
         }
 
         navigator.clipboard.writeText([header, ...rows].join('\n'));
         showToast(`已复制全部 ${rows.length} 行（含空行，原始顺序）`);
-    }, [state.aiClassifyResults, state.aiClassifyInputText, parseClassifyInputRows]);
+    }, [state.aiClassifyResults, state.aiClassifyInputText, parseClassifyInputRows, state.aiClassifyDepth, state.aiClassifyCustomRules]);
 
     // AI 分类: 复制当前视图 (TSV) — 受筛选+排序影响
     const copyAiClassifyCurrentView = useCallback(() => {
@@ -1349,28 +1418,39 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             if (t.includes('\t') || t.includes('\n') || t.includes('"')) return `"${t.replace(/"/g, '""')}"`;
             return t;
         };
-        const header = '文案\t大类\t中类\t小类';
-        const rows = results.map(r =>
-            `${esc(r.text)}\t${esc(r.major)}\t${esc(r.middle)}\t${esc(r.minor)}`
-        );
+        const isCustomModel = state.aiClassifyDepth === 'custom' && state.aiClassifyCustomRules.length > 0;
+        const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(rule => 
+            rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level
+        ))) : ['大类', '中类', '小类'];
+
+        const header = `文案\t${customLevels.join('\t')}`;
+        const rows = results.map(r => {
+            const rowVals = customLevels.map(lvl => esc(r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')));
+            return `${esc(r.text)}\t${rowVals.join('\t')}`;
+        });
         navigator.clipboard.writeText([header, ...rows].join('\n'));
         const isFiltered = state.aiClassifyActiveCategories.size > 0;
         const isSorted = state.aiClassifySortBy !== 'original';
         const hint = isFiltered ? '（已筛选）' : isSorted ? '（已排序）' : '';
         showToast(`已复制 ${rows.length} 条${hint}`);
-    }, [getFilteredAiResults, state.aiClassifyActiveCategories, state.aiClassifySortBy]);
+    }, [getFilteredAiResults, state.aiClassifyActiveCategories, state.aiClassifySortBy, state.aiClassifyDepth, state.aiClassifyCustomRules]);
 
     // AI 分类: 仅复制分类列 — 受筛选+排序影响
     const copyAiClassifyColumnsOnly = useCallback(() => {
         const results = getFilteredAiResults();
         if (results.length === 0) return;
-        const header = '大类\t中类\t小类';
-        const rows = results.map(r =>
-            `${r.major}\t${r.middle}\t${r.minor}`
-        );
+        const isCustomModel = state.aiClassifyDepth === 'custom' && state.aiClassifyCustomRules.length > 0;
+        const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(rule => 
+            rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level
+        ))) : ['大类', '中类', '小类'];
+
+        const header = customLevels.join('\t');
+        const rows = results.map(r => {
+            return customLevels.map(lvl => r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')).join('\t');
+        });
         navigator.clipboard.writeText([header, ...rows].join('\n'));
         showToast(`已复制分类列 ${rows.length} 条`);
-    }, [getFilteredAiResults]);
+    }, [getFilteredAiResults, state.aiClassifyDepth, state.aiClassifyCustomRules]);
 
     // AI 分类: 粘贴解析结果（供预览表和输入区共用）
     const aiClassifyParsedItems = React.useMemo(() => {
@@ -2572,20 +2652,22 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                 搜索
                             </button>
                             {getAiInstance && (
+                                <>
                                 <button
                                     className="topbar-btn"
-                                    onClick={handleEmbeddingSearch}
-                                    disabled={state.isProcessing || isEmbeddingSearching || !state.searchQuery.trim()}
-                                    title="使用 AI Embedding 语义搜索，理解文案含义而非仅匹配关键词"
+                                    onClick={isEmbeddingSearching ? cancelEmbeddingSearch : handleEmbeddingSearch}
+                                    disabled={state.isProcessing || (!isEmbeddingSearching && !state.searchQuery.trim())}
+                                    title={isEmbeddingSearching ? '停止 AI 语义搜索' : '使用 AI Embedding 语义搜索，理解文案含义而非仅匹配关键词'}
                                     style={{
-                                        background: isEmbeddingSearching ? 'rgba(168,85,247,0.3)' : 'rgba(168,85,247,0.15)',
-                                        color: '#c084fc',
-                                        borderColor: 'rgba(168,85,247,0.3)',
+                                        background: isEmbeddingSearching ? 'rgba(239,68,68,0.25)' : 'rgba(168,85,247,0.15)',
+                                        color: isEmbeddingSearching ? '#f87171' : '#c084fc',
+                                        borderColor: isEmbeddingSearching ? 'rgba(239,68,68,0.4)' : 'rgba(168,85,247,0.3)',
                                     }}
                                 >
-                                    {isEmbeddingSearching ? <Loader2 size={14} className="animate-spin" /> : <Brain size={14} />}
-                                    {isEmbeddingSearching ? (embeddingProgress || 'AI 搜索中...') : 'AI 语义搜索'}
+                                    {isEmbeddingSearching ? <Square size={14} fill="currentColor" /> : <Brain size={14} />}
+                                    {isEmbeddingSearching ? (embeddingProgress || '停止') : 'AI 语义搜索'}
                                 </button>
+                                </>
                             )}
                             {(state.searchQuery.trim() || state.searchGroups.length > 0) && (
                                 <button
@@ -2828,6 +2910,10 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                         <input type="radio" name="aiDepth" checked={state.aiClassifyDepth === 'major'} onChange={() => updateState({ aiClassifyDepth: 'major' })} />
                                         仅大类
                                     </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                        <input type="radio" name="aiDepth" checked={state.aiClassifyDepth === 'custom'} onChange={() => updateState({ aiClassifyDepth: 'custom' })} />
+                                        <span style={{ color: state.aiClassifyDepth === 'custom' ? '#22c55e' : 'inherit' }}>完全自定义(不限层级)</span>
+                                    </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         AI模型:
                                         <select
@@ -2864,20 +2950,19 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 12px', borderTop: '1px solid var(--border-color, #333)', fontSize: '11px' }}>
                                     {state.aiClassifyCustomRules.map((rule, idx) => (
                                         <div key={rule.id} style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '3px 0', borderBottom: '1px solid var(--border-color, #222)' }}>
-                                            <select
-                                                value={rule.level}
+                                            <input
+                                                type="text"
+                                                placeholder="维度 (如: 大类/平台/情绪)"
+                                                title="定义你想要的任何分类维度或层级"
+                                                value={rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level}
                                                 onChange={e => {
                                                     const updated = [...state.aiClassifyCustomRules];
-                                                    updated[idx] = { ...rule, level: e.target.value as 'major' | 'middle' | 'minor' };
+                                                    updated[idx] = { ...rule, level: e.target.value };
                                                     updateState({ aiClassifyCustomRules: updated });
                                                     localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
                                                 }}
-                                                style={{ background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 4px', fontSize: '10px', width: '60px' }}
-                                            >
-                                                <option value="major">大类</option>
-                                                <option value="middle">中类</option>
-                                                <option value="minor">小类</option>
-                                            </select>
+                                                style={{ background: 'var(--control-bg-color, #27272a)', color: '#3b82f6', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '100px' }}
+                                            />
                                             <input
                                                 type="text"
                                                 placeholder="类别名称"
@@ -2890,20 +2975,19 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                                 }}
                                                 style={{ background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '90px' }}
                                             />
-                                            {rule.level !== 'major' && (
-                                                <input
-                                                    type="text"
-                                                    placeholder={rule.level === 'middle' ? '归属大类' : '归属中类'}
-                                                    value={rule.parentCategory}
-                                                    onChange={e => {
-                                                        const updated = [...state.aiClassifyCustomRules];
-                                                        updated[idx] = { ...rule, parentCategory: e.target.value };
-                                                        updateState({ aiClassifyCustomRules: updated });
-                                                        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                    }}
-                                                    style={{ background: 'var(--control-bg-color, #27272a)', color: '#f59e0b', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '80px' }}
-                                                />
-                                            )}
+                                            <input
+                                                type="text"
+                                                placeholder="归属限制(可选)"
+                                                title="如果它仅在某个其他标签触发时才生效，写在这里"
+                                                value={rule.parentCategory}
+                                                onChange={e => {
+                                                    const updated = [...state.aiClassifyCustomRules];
+                                                    updated[idx] = { ...rule, parentCategory: e.target.value };
+                                                    updateState({ aiClassifyCustomRules: updated });
+                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                }}
+                                                style={{ background: 'var(--control-bg-color, #27272a)', color: '#f59e0b', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '90px' }}
+                                            />
                                             <input
                                                 type="text"
                                                 placeholder="判断标准（什么内容属于这个类别）"
@@ -2927,17 +3011,63 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                             >×</button>
                                         </div>
                                     ))}
-                                    <button
-                                        onClick={() => {
-                                            const newRule: CustomClassifyRule = { id: Date.now().toString(), name: '', level: 'middle', criteria: '', parentCategory: '' };
-                                            const updated = [...state.aiClassifyCustomRules, newRule];
-                                            updateState({ aiClassifyCustomRules: updated });
-                                            localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                        }}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#22c55e', border: '1px dashed #22c55e44', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
-                                    >
-                                        <Plus size={12} /> 添加自定义分类
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                        <button
+                                            onClick={() => {
+                                                const newRule: CustomClassifyRule = { id: Date.now().toString(), name: '', level: '大类', criteria: '', parentCategory: '' };
+                                                const updated = [...state.aiClassifyCustomRules, newRule];
+                                                updateState({ aiClassifyCustomRules: updated });
+                                                localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                            }}
+                                            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#22c55e', border: '1px dashed #22c55e44', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
+                                        >
+                                            <Plus size={12} /> 添加自定义分类
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                let text = '';
+                                                try {
+                                                    text = await navigator.clipboard.readText();
+                                                } catch {
+                                                    showToast('无法读取剪贴板，请先复制表格内容再点击');
+                                                    return;
+                                                }
+                                                if (!text || !text.trim()) {
+                                                    showToast('剪贴板为空，请先从 Excel/Google Sheets 复制内容');
+                                                    return;
+                                                }
+                                                const rows = text.split(/\r?\n/).filter(r => r.trim());
+                                                const newRules: CustomClassifyRule[] = [];
+                                                rows.forEach(row => {
+                                                    const cols = row.split('\t');
+                                                    if (cols.length >= 1) {
+                                                        const name = cols[0].trim();
+                                                        const criteria = cols[1] ? cols[1].trim() : '';
+                                                        if (name) {
+                                                            newRules.push({
+                                                                id: Date.now().toString() + Math.random().toString(),
+                                                                name,
+                                                                level: '大类',
+                                                                criteria,
+                                                                parentCategory: ''
+                                                            });
+                                                        }
+                                                    }
+                                                });
+                                                if (newRules.length > 0) {
+                                                    const updated = [...state.aiClassifyCustomRules, ...newRules];
+                                                    updateState({ aiClassifyCustomRules: updated });
+                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                    showToast(`成功批量导入 ${newRules.length} 条分类规则`);
+                                                } else {
+                                                    showToast('未解析出有效的分类规则数据');
+                                                }
+                                            }}
+                                            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#3b82f6', border: '1px dashed #3b82f644', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
+                                        >
+                                            <Copy size={12} /> 批量粘贴 (从表格)
+                                        </button>
+                                    </div>
                                 </div>
                                 )}
                             </div>
@@ -3006,62 +3136,80 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
 
                         {/* 结果表格 */}
                         {state.aiClassifyResults.length > 0 ? (
-                            <div style={{ flex: 1, overflow: 'auto' }}>
-                                <table className="results-table" style={{ fontSize: '12px' }}>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ width: '40px', textAlign: 'center' }}>#</th>
-                                            <th style={{ minWidth: '200px' }}>文案</th>
-                                            <th style={{ width: '50px', textAlign: 'center' }}>字数</th>
-                                            <th style={{ width: '90px' }}>大类</th>
-                                            <th style={{ width: '130px' }}>中类</th>
-                                            <th style={{ width: '160px' }}>小类</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {getFilteredAiResults().map((r, i) => (
-                                            <tr key={r.index} onContextMenu={(e) => {
-                                                e.preventDefault();
-                                                // 右键修改分类 (simplified: copy text)
-                                                const text = `${r.text}\t${r.major}\t${r.middle}\t${r.minor}`;
-                                                navigator.clipboard.writeText(text);
-                                                showToast('已复制该行');
-                                            }}>
-                                                <td style={{ textAlign: 'center', color: 'var(--text-muted, #666)' }}>{r.index}</td>
-                                                <td>
-                                                    {r.zhText && r.enText ? (
-                                                        <>
-                                                            <div style={{ fontSize: '12px', marginBottom: '2px', lineHeight: 1.4 }}>{r.zhText.length > 80 ? r.zhText.slice(0, 80) + '…' : r.zhText}</div>
-                                                            <div style={{ fontSize: '10px', color: 'var(--text-muted, #888)', lineHeight: 1.3 }}>{r.enText.length > 100 ? r.enText.slice(0, 100) + '…' : r.enText}</div>
-                                                        </>
-                                                    ) : (
-                                                        <div style={{ fontSize: '12px', lineHeight: 1.4 }}>{r.text.length > 120 ? r.text.slice(0, 120) + '…' : r.text}</div>
-                                                    )}
-                                                </td>
-                                                <td style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-muted, #888)', fontVariantNumeric: 'tabular-nums' }}>{r.text.length}</td>
-                                                <td>
-                                                    <span style={{
-                                                        display: 'inline-block', padding: '2px 6px', borderRadius: '4px',
-                                                        fontSize: '11px', fontWeight: 600,
-                                                        background: `${MAJOR_CATEGORY_COLORS[r.major] || '#6b7280'}22`,
-                                                        color: MAJOR_CATEGORY_COLORS[r.major] || '#6b7280',
-                                                        border: `1px solid ${MAJOR_CATEGORY_COLORS[r.major] || '#6b7280'}44`,
-                                                    }}>
-                                                        {r.major}
-                                                    </span>
-                                                </td>
-                                                <td style={{ fontSize: '11px', color: 'var(--text-color, #ddd)' }}>{r.middle}</td>
-                                                <td style={{ fontSize: '11px' }}>
-                                                    {r.minor}
-                                                    {r.isManual && (
-                                                        <span style={{ marginLeft: '4px', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', background: '#22c55e22', color: '#22c55e', fontWeight: 600 }}>人工</span>
-                                                    )}
-                                                </td>
+                            (() => {
+                                const isCustomModel = state.aiClassifyDepth === 'custom' && state.aiClassifyCustomRules.length > 0;
+                                const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(r => 
+                                    r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level
+                                ))) : ['大类', '中类', '小类'];
+
+                                return (
+                                <div style={{ flex: 1, overflow: 'auto' }}>
+                                    <table className="results-table" style={{ fontSize: '12px' }}>
+                                        <thead>
+                                            <tr>
+                                                <th style={{ width: '40px', textAlign: 'center' }}>#</th>
+                                                <th style={{ minWidth: '200px' }}>文案</th>
+                                                <th style={{ width: '50px', textAlign: 'center' }}>字数</th>
+                                                {customLevels.map(lvl => (
+                                                    <th key={lvl} style={{ width: lvl === '大类' ? '90px' : lvl === '中类' ? '130px' : '160px' }}>{lvl}</th>
+                                                ))}
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        </thead>
+                                        <tbody>
+                                            {getFilteredAiResults().map((r, i) => (
+                                                <tr key={r.index} onContextMenu={(e) => {
+                                                    e.preventDefault();
+                                                    // 右键修改分类 (simplified: copy text)
+                                                    const rowVals = customLevels.map(lvl => r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : ''));
+                                                    const text = `${r.text}\t${rowVals.join('\t')}`;
+                                                    navigator.clipboard.writeText(text);
+                                                    showToast('已复制该行');
+                                                }}>
+                                                    <td style={{ textAlign: 'center', color: 'var(--text-muted, #666)' }}>{r.index}</td>
+                                                    <td>
+                                                        {r.zhText && r.enText ? (
+                                                            <>
+                                                                <div style={{ fontSize: '12px', marginBottom: '2px', lineHeight: 1.4 }}>{r.zhText.length > 80 ? r.zhText.slice(0, 80) + '…' : r.zhText}</div>
+                                                                <div style={{ fontSize: '10px', color: 'var(--text-muted, #888)', lineHeight: 1.3 }}>{r.enText.length > 100 ? r.enText.slice(0, 100) + '…' : r.enText}</div>
+                                                            </>
+                                                        ) : (
+                                                            <div style={{ fontSize: '12px', lineHeight: 1.4 }}>{r.text.length > 120 ? r.text.slice(0, 120) + '…' : r.text}</div>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-muted, #888)', fontVariantNumeric: 'tabular-nums' }}>{r.text.length}</td>
+                                                    {customLevels.map(lvl => {
+                                                        const val = r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '');
+                                                        if (lvl === '大类') {
+                                                            return (
+                                                                <td key={lvl}>
+                                                                    <span style={{
+                                                                        display: 'inline-block', padding: '2px 6px', borderRadius: '4px',
+                                                                        fontSize: '11px', fontWeight: 600,
+                                                                        background: `${MAJOR_CATEGORY_COLORS[val] || '#6b7280'}22`,
+                                                                        color: MAJOR_CATEGORY_COLORS[val] || '#6b7280',
+                                                                        border: `1px solid ${MAJOR_CATEGORY_COLORS[val] || '#6b7280'}44`,
+                                                                    }}>
+                                                                        {val}
+                                                                    </span>
+                                                                </td>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <td key={lvl} style={{ fontSize: '11px', color: lvl === '中类' ? 'var(--text-color, #ddd)' : undefined }}>
+                                                                {val}
+                                                                {lvl === '小类' && r.isManual && (
+                                                                    <span style={{ marginLeft: '4px', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', background: '#22c55e22', color: '#22c55e', fontWeight: 600 }}>人工</span>
+                                                                )}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                );
+                            })()
                         ) : aiClassifyParsedItems.length > 0 ? (
                                 /* 粘贴预览 或 处理中等待结果：显示预览表格 */
                                 <div style={{ flex: 1, overflow: 'auto' }}>

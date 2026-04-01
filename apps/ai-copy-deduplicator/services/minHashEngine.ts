@@ -469,38 +469,27 @@ export class MinHashDedupEngine {
                 return { query: queryText, matches: [] };
             }
 
-            // 生成查询的 shingles
+            // 生成查询的 shingles（以外文为准）
             const queryShingles = generateShingles(processed, this.config.shingleSize);
             if (queryShingles.size === 0) {
                 return { query: queryText, matches: [] };
             }
 
-            // 检测查询语言
-            const queryCJK = CJK_REGEX.test(queryText);
-
-            // 与库中每个项目比较 — 分语言独立比对取最高分
+            // 与库中每个项目比较 — 仅比对外文 shingles
             const matches: Array<{ item: TextItem; similarity: number }> = [];
 
             for (const [id, libSig] of this.librarySignatures) {
-                let bestSim = 0;
+                // 优先和纯外文 shingles 比对（最精确）
+                const targetShingles = (libSig.shinglesText && libSig.shinglesText.size > 0)
+                    ? libSig.shinglesText
+                    : libSig.shingles;  // 兜底用合并 shingles
 
-                if (queryCJK && libSig.shinglesChinese && libSig.shinglesChinese.size > 0) {
-                    // 中文查询 → 优先和中文 shingles 比对
-                    bestSim = Math.max(bestSim, exactJaccard(queryShingles, libSig.shinglesChinese));
-                }
-                if (!queryCJK && libSig.shinglesText && libSig.shinglesText.size > 0) {
-                    // 英文查询 → 优先和英文 shingles 比对
-                    bestSim = Math.max(bestSim, exactJaccard(queryShingles, libSig.shinglesText));
-                }
-                if (bestSim < threshold) {
-                    // 如果优先语言没达标，也试试合并 shingles（混合语言查询）
-                    bestSim = Math.max(bestSim, exactJaccard(queryShingles, libSig.shingles));
-                }
+                const sim = exactJaccard(queryShingles, targetShingles);
 
-                if (bestSim >= threshold) {
+                if (sim >= threshold) {
                     const item = this.libraryItems.get(id);
                     if (item) {
-                        matches.push({ item, similarity: bestSim });
+                        matches.push({ item, similarity: sim });
                     }
                 }
             }

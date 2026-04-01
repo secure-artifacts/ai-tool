@@ -8,7 +8,7 @@ const EMBEDDING_MODEL = 'gemini-embedding-001';
 
 // 批量处理配置
 const BATCH_SIZE = 100;        // 每批处理数量
-const BATCH_DELAY_MS = 1000;   // 批次间延迟（避免 API 限流）
+const BATCH_DELAY_MS = 2000;   // 批次间延迟（避免 API 限流）
 
 /**
  * 获取单个文本的 Embedding（含自动重试，应对限速）
@@ -56,7 +56,7 @@ function estimateEmbedTokens(text: string): number {
  */
 function buildEmbedBatches(texts: string[]): string[][] {
     const MAX_BATCH_TOKENS = 150000;
-    const MAX_BATCH_COUNT = 20;     // 配额按条数计: 20条/批 × ~4批/分 = 80/分(< 100 RPM)
+    const MAX_BATCH_COUNT = 100;    // Gemini Embedding 一次请求支持多条 content
     const batches: string[][] = [];
     let currentBatch: string[] = [];
     let currentTokens = 0;
@@ -77,20 +77,22 @@ function buildEmbedBatches(texts: string[]): string[][] {
 
 /**
  * 批量获取文本的 Embedding（智能分批）
- * 免费版配额：100 条/分钟（按条计费，非按请求）
- * → 20条/批，间隔15秒 ≈ 80条/分钟
+ * 100条/批，间隔2秒，极速建索引
  */
 export async function batchEmbedTexts(
     texts: string[],
     ai: GoogleGenAI,
     onProgress?: (current: number, total: number) => void,
-    maxRetries: number = 3
+    maxRetries: number = 3,
+    signal?: AbortSignal
 ): Promise<number[][]> {
     const allEmbeddings: number[][] = [];
     const batches = buildEmbedBatches(texts);
     let processed = 0;
 
     for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+        // 检查是否被取消
+        if (signal?.aborted) throw new DOMException('Embedding cancelled', 'AbortError');
         const batch = batches[bIdx];
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -117,9 +119,9 @@ export async function batchEmbedTexts(
         processed += batch.length;
         if (onProgress) onProgress(processed, texts.length);
 
-        // 批次间延迟（配额按条计费，20条/批需要间隔约15秒）
+        // 极短间隔：付费 Key 全速跑，免费 Key 触发限流后自动退避重试
         if (bIdx < batches.length - 1) {
-            await new Promise(r => setTimeout(r, 15000));
+            await new Promise(r => setTimeout(r, 500));
         }
     }
 

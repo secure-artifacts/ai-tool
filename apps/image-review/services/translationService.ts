@@ -4,7 +4,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { TranslationResult } from '../types';
 
 // 语气级别类型
@@ -257,15 +257,24 @@ export const translateFeedback = async (
     targetLanguage: TranslationTargetLanguage = 'en'
 ): Promise<TranslationResult> => {
     const key = apiKey || getApiKey();
-    if (!key) {
-        throw new Error('请先配置 API Key');
-    }
 
-    // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
-    const cleanKey = key.trim().replace(/[^\x20-\x7E]/g, '');
-    const ai = shouldUseAiStudioMode(cleanKey)
-        ? new GoogleGenAI({ apiKey: cleanKey })
-        : new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+    // 优先使用主应用暴露的全局实例
+    let ai: GoogleGenAI;
+    if (!apiKey && typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+        ai = (window as any).__app_get_ai_instance();
+    } else {
+        if (!key && !isRunningInAiStudio()) {
+            throw new Error('请先配置 API Key');
+        }
+        const cleanKey = (key || '').trim().replace(/[^\x20-\x7E]/g, '');
+        if (isRunningInAiStudio()) {
+            ai = cleanKey ? new GoogleGenAI({ apiKey: cleanKey }) : new GoogleGenAI({});
+        } else if (shouldUseAiStudioMode(cleanKey)) {
+            ai = new GoogleGenAI({ apiKey: cleanKey });
+        } else {
+            ai = new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+        }
+    }
     const toneInstruction = getToneInstruction(tone);
     const targetConfig = getTranslationTargetConfig(targetLanguage);
 

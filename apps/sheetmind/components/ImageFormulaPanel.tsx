@@ -21,6 +21,7 @@ import {
     Grid,
     ArrowDown,
     ArrowRight,
+    ArrowLeft,
     ChevronDown,
     ChevronUp,
     Plus,
@@ -605,6 +606,15 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50 shrink-0">
                 <div className="flex items-center gap-3">
+                    {onBack && (
+                        <button
+                            onClick={onBack}
+                            className="p-1.5 rounded-lg text-slate-500 hover:bg-white hover:text-slate-700 hover:shadow-sm transition-all"
+                            title="返回"
+                        >
+                            <ArrowLeft size={18} />
+                        </button>
+                    )}
                     <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-lg shadow-sm">
                         <Image className="text-white" size={18} />
                     </div>

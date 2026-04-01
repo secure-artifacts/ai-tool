@@ -391,10 +391,39 @@ main {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.25rem;
+  gap: 0;
+  padding: 0;
+  /* 让滚动条只在滚动时显示，不占据布局空间 */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+main:hover {
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+
+main::-webkit-scrollbar {
+  width: 6px;
+}
+
+main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+main::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+main:hover::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+}
+
+main::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.3);
 }
 
 .title-bar {
@@ -1161,8 +1190,24 @@ nav button.active {
   color: #06b6d4;
 }
 
+.collapsed-nav-btn .nav-icon-sceneBrainstorm {
+  color: #a3e635;
+}
+
+.collapsed-nav-btn .nav-icon-hookScript {
+  color: #f472b6;
+}
+
 .collapsed-nav-btn .nav-icon-skillGenerator {
   color: #f97316;
+}
+
+.collapsed-nav-btn .nav-icon-geminiChat {
+  color: #818cf8;
+}
+
+.collapsed-nav-btn .nav-icon-workflowEditor {
+  color: #2dd4bf;
 }
 
 .collapsed-nav-btn.active .material-icons {
@@ -9153,6 +9198,16 @@ nav button.active:active,
 .start-btn:active {
   transform: translateY(0) scale(0.98);
   box-shadow: 0 2px 8px -4px rgba(13, 148, 136, 0.4);
+}
+
+/* Gemini Chat - Indigo/Purple accent */
+nav button.active[data-tool="geminiChat"] {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border-color: #6366f1;
+  box-shadow: 0 4px 14px -4px rgba(99, 102, 241, 0.5);
+}
+nav button.active[data-tool="geminiChat"]:hover {
+  box-shadow: 0 8px 25px -8px rgba(99, 102, 241, 0.6), 0 0 20px rgba(139, 92, 246, 0.3);
 }
 
 /* CTA Button - Orange for key actions */

@@ -29,6 +29,8 @@ import WorkflowEditorApp from '@/apps/workflow-editor/WorkflowEditorApp';
 import ImageTextExtractorApp from '@/apps/image-text-extractor/ImageTextExtractorApp';
 import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
 import GeminiChatApp from '@/apps/gemini-chat/GeminiChatApp';
+import SceneBrainstormApp from '@/apps/scene-brainstorm/SceneBrainstormApp';
+import HookScriptApp from '@/apps/hook-script/HookScriptApp';
 import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
@@ -192,8 +194,11 @@ const translations = {
     navImageTextExtractor: "Image Text Extractor",
     navTutorialHub: "Tutorial Hub",
     navGeminiChat: "Gemini Chat",
+    navSceneBrainstorm: "Scene Brainstorm",
+    navHookScript: "Golden 3s Hook",
+    navSkillBuilder: "Skill Builder",
     navOpalBatch: "Opal Batch Image",
-    navWorkflowEditor: "Workflow Editor",
+    navWorkflowEditor: "Node Workflow",
     // Prompt Tool
     promptTitle: "Image to Prompt",
     promptDescription: "Batch upload images and use multi-turn chat to refine prompts for each image independently.",
@@ -452,8 +457,11 @@ const translations = {
     navImageTextExtractor: "图片前景文字提取",
     navTutorialHub: "教程检索台",
     navGeminiChat: "Gemini 对话",
+    navSceneBrainstorm: "画面思路扩展器",
+    navHookScript: "黄金三秒",
+    navSkillBuilder: "Skill 训练器",
     navOpalBatch: "Opal 批量生图",
-    navWorkflowEditor: "工作流编排",
+    navWorkflowEditor: "节点工作流",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
     promptDescription: "支持批量上传图片，对每张图的提示词进行独立的多轮对话修改",
@@ -1245,7 +1253,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7159,6 +7167,8 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   tutorialHub: 'school',
   geminiChat: 'chat',
   workflowEditor: 'account_tree',
+  sceneBrainstorm: 'movie_filter',
+  hookScript: 'slow_motion_video',
 };
 
 const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: string }[] = [
@@ -7178,6 +7188,10 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: s
   { tool: 'skillGenerator', labelKey: 'navSkillGenerator', group: '新工具' },
   { tool: 'sheetMind', labelKey: 'navSheetMind' },
   { tool: 'imageSorter', labelKey: 'navImageSorter' },
+  { tool: 'geminiChat', labelKey: 'navGeminiChat' },
+  { tool: 'sceneBrainstorm', labelKey: 'navSceneBrainstorm' },
+  { tool: 'hookScript', labelKey: 'navHookScript' },
+  { tool: 'workflowEditor', labelKey: 'navWorkflowEditor' },
   { tool: 'imageTextExtractor', labelKey: 'navImageTextExtractor' },
   { tool: 'regionClassifier', labelKey: 'navRegionClassifier' },
   { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
@@ -7189,9 +7203,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: s
   // === 实验工具 ===
   { tool: 'mindMap', labelKey: 'navMindMap', group: '实验工具' },
   { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
-  { tool: 'geminiChat', labelKey: 'navGeminiChat' },
   { tool: 'copyDedup', labelKey: 'navCopyDedup' },
-  { tool: 'workflowEditor', labelKey: 'navWorkflowEditor' },
   { tool: 'copywritingLibrary', labelKey: 'navCopywritingLibrary' },
 ];
 
@@ -7252,7 +7264,9 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '3.8.0', date: '2026-03-27', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.2', date: '2026-03-31', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.1', date: '2026-03-28', url: 'https://ai-toolkit-b2b78--v3-8-1.web.app', isCurrent: false },
+  { version: '3.8.0', date: '2026-03-27', url: 'https://ai-toolkit-b2b78--v3-8-0-zrdvh6h4.web.app', isCurrent: false },
   { version: '3.7.0', date: '2026-03-26', url: 'https://ai-toolkit-b2b78--v3-7-0.web.app', isCurrent: false },
   { version: '3.6.0', date: '2026-03-23', url: 'https://ai-toolkit-b2b78--v3-6-0-2qgu9tdy.web.app', isCurrent: false },
   { version: '3.5.0', date: '2026-03-20', url: 'https://ai-toolkit-b2b78--v3-5-0-c3rakrg9.web.app', isCurrent: false },
@@ -8912,6 +8926,7 @@ const App = () => {
                     onClick={() => setActiveTool(item.tool)}
                     className={`collapsed-nav-btn tooltip-bottom ${activeTool === item.tool ? 'active' : ''}`}
                     data-tip={t(item.labelKey)}
+                    data-tool={item.tool}
                   >
                     <span className={`material-icons nav-icon-${item.tool}`}>{NAV_ICON_NAMES[item.tool]}</span>
                   </button>
@@ -9089,7 +9104,7 @@ const App = () => {
                           fontSize: '0.8rem'
                         }}>
                           <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500 }}>
-                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v3.8.0
+                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v3.8.2
                           </div>
                           <div style={{ color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                             <div style={{ marginBottom: '0.25rem' }}>
@@ -9708,6 +9723,7 @@ const App = () => {
                 <button
                   onClick={() => setActiveTool(item.tool)}
                   className={activeTool === item.tool ? 'active' : ''}
+                  data-tool={item.tool}
                 >
                   <span aria-hidden="true" className="nav-icon material-icons">
                     {NAV_ICON_NAMES[item.tool]}
@@ -9853,7 +9869,15 @@ const App = () => {
           </div>
           {/* Gemini Chat - 完整多轮对话 */}
           <div className={`gemini-chat-wrapper ${activeTool === 'geminiChat' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'geminiChat' ? '100%' : '0', display: activeTool === 'geminiChat' ? 'flex' : 'none' }}>
-            <GeminiChatApp getAiInstance={getAiInstance} />
+            <GeminiChatApp getAiInstance={getAiInstance} textModel={textModel} />
+          </div>
+          {/* AI 画面思路扩展器 */}
+          <div className={`scene-brainstorm-wrapper ${activeTool === 'sceneBrainstorm' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'sceneBrainstorm' ? '100%' : '0', display: activeTool === 'sceneBrainstorm' ? 'flex' : 'none', marginTop: activeTool === 'sceneBrainstorm' ? '-12px' : '0' }}>
+            <SceneBrainstormApp getAiInstance={getAiInstance} textModel={textModel} />
+          </div>
+          {/* 黄金三秒 · 短视频脚本生成器 */}
+          <div className={`hook-script-wrapper ${activeTool === 'hookScript' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'hookScript' ? '100%' : '0', display: activeTool === 'hookScript' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
+            <HookScriptApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
 
         </main>
@@ -9861,7 +9885,7 @@ const App = () => {
 
       {/* 版本号显示与选择器 */}
       <VersionSelector
-        currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.8.0'}
+        currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.8.2'}
         buildTime={typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : ''}
       />
     </>

@@ -26,6 +26,7 @@ export interface AiClassifyResult {
     major: string;
     middle: string;
     minor: string;
+    customCategories?: Record<string, string>;
     confidence: number;
     isManual: boolean;
 }
@@ -595,18 +596,19 @@ function buildSmartBatches(items: AiClassifyItem[], maxCount: number): AiClassif
 export async function classifyWithAI(
     items: AiClassifyItem[],
     options: {
-        depth: 'full' | 'major';
+        depth: 'full' | 'major' | 'custom';
         batchSize: number;
         concurrency?: number;
         customRules?: string;
         systemPromptOverride?: string;
+        customLevels?: string[];
         model?: string;
         signal?: AbortSignal;
         onProgress?: (progress: AiClassifyProgress) => void;
         onBatchDone?: (results: AiClassifyResult[]) => void;  // 每批完成立即回调
     }
 ): Promise<AiClassifyResult[]> {
-    const { depth, batchSize, customRules, systemPromptOverride, onProgress, onBatchDone, signal } = options;
+    const { depth, batchSize, customRules, systemPromptOverride, customLevels, onProgress, onBatchDone, signal } = options;
     const concurrency = options.concurrency ?? 3;
     const model = options.model ?? 'gemini-3-flash-preview';
 
@@ -630,7 +632,7 @@ export async function classifyWithAI(
 
         try {
             // 自动重试（最多 2 次）
-            const batchResults = await retryClassifyBatch(batchItems, model, depth, customRules, systemPromptOverride, signal);
+            const batchResults = await retryClassifyBatch(batchItems, model, depth, customRules, systemPromptOverride, signal, customLevels);
             allResults.push(...batchResults);
             onBatchDone?.(batchResults);
         } catch (error: any) {
@@ -693,10 +695,11 @@ export async function classifyWithAI(
 async function retryClassifyBatch(
     items: AiClassifyItem[],
     model: string,
-    depth: 'full' | 'major',
+    depth: 'full' | 'major' | 'custom',
     customRules?: string,
     systemPromptOverride?: string,
     signal?: AbortSignal,
+    customLevels?: string[],
     maxRetries = 2
 ): Promise<AiClassifyResult[]> {
     let lastError: Error | null = null;
@@ -706,7 +709,7 @@ async function retryClassifyBatch(
         if (signal?.aborted) throw new Error('已取消');
 
         try {
-            return await classifyBatch(items, model, depth, customRules, systemPromptOverride);
+            return await classifyBatch(items, model, depth, customRules, systemPromptOverride, customLevels);
         } catch (error: any) {
             lastError = error;
             const errMsg = (error?.message || '').toLowerCase();
@@ -740,15 +743,18 @@ async function retryClassifyBatch(
 async function classifyBatch(
     items: AiClassifyItem[],
     model: string,
-    depth: 'full' | 'major',
+    depth: 'full' | 'major' | 'custom',
     customRules?: string,
-    systemPromptOverride?: string
+    systemPromptOverride?: string,
+    customLevels?: string[]
 ): Promise<AiClassifyResult[]> {
     const ai = getAiInstance();
 
     // 构建用户提示
     const depthHint = depth === 'major'
         ? '\n\n注意：本次只需分到大类即可，中类和小类可以填空字符串。'
+        : depth === 'custom'
+        ? '\n\n注意：当前为"完全自定义"模式，请仔细阅读【用户提供的分类规则】，从中选出最匹配的大类、中类和小类。如果用户没有提供中类或小类的规则，对应的字段请直接留空。'
         : '';
 
     const userPrompt = `请对以下 ${items.length} 条文案进行分类。${depthHint}
@@ -761,12 +767,39 @@ ${items.map(item => {
         return textDisplay;
     }).join('\n\n')}
 
-请严格按照 JSON 格式返回结果，不要有任何其他内容。`;
+请严格按照 JSON 格式返回结果（包含 results 数组），不要有任何其他内容。`;
 
     // 拼接自定义规则
     let systemPrompt = systemPromptOverride || CLASSIFY_SYSTEM_PROMPT;
-    if (customRules && customRules.trim()) {
-        systemPrompt += `\n\n## 五、用户自定义分类规则（优先级高于内置规则）\n\n以下是用户追加的自定义分类。如果文案符合这些规则，优先使用自定义分类。自定义分类可以是新的大类、中类或小类。\n\n${customRules.trim()}`;
+    
+    if (depth === 'custom') {
+        const levelsJSON = customLevels && customLevels.length > 0
+            ? customLevels.map(lvl => `      "${lvl}": "填入符合的名称，无则留空"`).join(',\n')
+            : `      "分类名称": "填入符合的名称，无则留空"`;
+
+        systemPrompt = `你是一名专业的文案分类专家。
+任务：请完全根据下方【用户提供的分类类别/规则】，为用户的每一条文案挑选出最符合每个维度的标签。
+规则说明：你可以完全无视传统的树状从属关系，只需判断文案内容符合哪些你手头的标签即可。如果用户提供了不同层级/维度的类别名称，请分别为每个维度分配一个标签。
+如果对于某一个层级，用户并没有提供对应的类别/规则，或者没有合适匹配项，该字段请留空。
+
+${customRules && customRules.trim() ? `## 用户分类规则与维度列表\n\n${customRules}` : '## 用户分类规则与维度列表\n\n（无）'}
+
+返回格式：
+请严格按照以下 JSON 输出格式。不可加入任何其他代码块、文本说明或注释。只输出 JSON 对象：
+{
+  "results": [
+    {
+      "index": 0, // 对应输入文案的 index
+      "categories": {
+${levelsJSON}
+      }
+    }
+  ]
+}`;
+    } else {
+        if (customRules && customRules.trim()) {
+            systemPrompt += `\n\n## 五、用户自定义分类规则（优先级高于内置规则）\n\n以下是用户追加的自定义分类。如果文案符合这些规则，优先使用自定义分类。自定义分类可以是新的大类、中类或小类。\n\n${customRules.trim()}`;
+        }
     }
 
     const result = await ai.models.generateContent({
@@ -799,16 +832,51 @@ ${items.map(item => {
     // 映射回原始 items
     for (const item of items) {
         const aiResult = aiResults.find((r: any) => r.index === item.index);
+        const isCustom = depth === 'custom';
+        
+        let customCategories: Record<string, string> = {};
+        let major = '其他';
+        let middle = '其他类';
+        let minor = '';
+
         if (aiResult) {
+            if (isCustom && aiResult.categories) {
+                customCategories = typeof aiResult.categories === 'object' ? aiResult.categories : {};
+                major = customCategories['大类'] || customCategories['major'] || '';
+                middle = customCategories['中类'] || customCategories['middle'] || '';
+                minor = customCategories['小类'] || customCategories['minor'] || '';
+                if (customLevels && customLevels.length > 0) {
+                    major = customCategories[customLevels[0]] || major || '';
+                    middle = customLevels.length > 1 ? customCategories[customLevels[1]] || middle || '' : middle;
+                    minor = customLevels.length > 2 ? customCategories[customLevels[2]] || minor || '' : minor;
+                } else if (!major && Object.keys(customCategories).length > 0) {
+                    const keys = Object.keys(customCategories);
+                    major = customCategories[keys[0]] || major || '';
+                    middle = keys.length > 1 ? customCategories[keys[1]] || middle || '' : middle;
+                    minor = keys.length > 2 ? customCategories[keys[2]] || minor || '' : minor;
+                }
+            } else {
+                major = aiResult.major || '其他';
+                middle = aiResult.middle || '其他类';
+                minor = aiResult.minor || '';
+            }
+
+            // 确保 customCategories 始终包含 major/middle/minor 映射
+            // 这样复制函数无论用 customCategories 还是 major/middle/minor 都能拿到值
+            if (!customCategories['大类'] && major) customCategories['大类'] = major;
+            if (!customCategories['中类'] && middle) customCategories['中类'] = middle;
+            if (!customCategories['小类'] && minor) customCategories['小类'] = minor;
+
             results.push({
                 index: item.index,
                 originalRowIndex: item.originalRowIndex,
                 text: item.text,
                 zhText: item.zhText,
                 enText: item.enText,
-                major: aiResult.major || '其他',
-                middle: aiResult.middle || '其他类',
-                minor: aiResult.minor || '',
+                major,
+                middle,
+                minor,
+                customCategories,
                 confidence: Math.min(1, Math.max(0, aiResult.confidence || 0.5)),
                 isManual: false,
             });
@@ -819,6 +887,7 @@ ${items.map(item => {
                 major: '其他',
                 middle: '其他类',
                 minor: '未匹配',
+                customCategories: {},
                 confidence: 0,
                 isManual: false,
             });
