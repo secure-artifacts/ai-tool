@@ -342,6 +342,20 @@ function InstructionEditor({
         const items = parsed.filter(p => p.prompt?.trim()).map(p => ({ name: p.name, prompt: p.prompt }));
         if (items.length > 0) groups.push({ label: 'Hook Script', icon: '📝', items });
       }
+      // 5. 祷告词改写预设 (prayer_rewrite_presets_v1) — {name, content}
+      const prayerRaw = localStorage.getItem('prayer_rewrite_presets_v1');
+      if (prayerRaw) {
+        const parsed = JSON.parse(prayerRaw) as Array<{ name: string; content: string }>;
+        const items = parsed.filter(p => p.content?.trim()).map(p => ({ name: p.name, prompt: p.content }));
+        if (items.length > 0) groups.push({ label: '提示词工具', icon: '🪶', items });
+      }
+      // 6. API 生图预设 (api_gen_instruction_presets) — {name, content}
+      const apiGenRaw = localStorage.getItem('api_gen_instruction_presets');
+      if (apiGenRaw) {
+        const parsed = JSON.parse(apiGenRaw) as Array<{ name: string; content: string }>;
+        const items = parsed.filter(p => p.content?.trim()).map(p => ({ name: p.name, prompt: p.content }));
+        if (items.length > 0) groups.push({ label: 'API 生图', icon: '🪄', items });
+      }
     } catch { /* ignore parse errors */ }
     return groups;
   }, [showPromptPresets]); // re-read when dropdown opens
