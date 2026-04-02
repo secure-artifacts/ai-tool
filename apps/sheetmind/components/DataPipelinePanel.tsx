@@ -673,6 +673,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   // ── Google-Sheets-like cell interaction ──
   const [focusCell, setFocusCell] = useState<{ rowId: string; col: string } | null>(null);
   const [editingCell, setEditingCell] = useState<{ rowId: string; col: string } | null>(null);
+  const [expandedCell, setExpandedCell] = useState<{ rowId: string; col: string; value: string; isOutput: boolean } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [selectionAnchor, setSelectionAnchor] = useState<{ rowIdx: number; colIdx: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ rowIdx: number; colIdx: number } | null>(null);
@@ -765,15 +766,14 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
     setEditingCell(null);
   }, [editingCell, editValue, config.rawColumns]);
 
-  // Double-click to edit
+  // Double-click to expand and view/edit cell
   const handleCellDoubleClick = useCallback((rowId: string, col: string) => {
     const row = activeRows.find((r) => r.id === rowId);
     if (!row) return;
-    const val = row.raw[col] ?? row.ai[col] ?? '';
-    setEditingCell({ rowId, col });
-    setEditValue(val);
-    setTimeout(() => editInputRef.current?.focus(), 0);
-  }, [activeRows]);
+    const isOutput = aiOutputColumns.includes(col);
+    const val = isOutput ? (row.ai[col] ?? '') : (row.raw[col] ?? '');
+    setExpandedCell({ rowId, col, value: val, isOutput });
+  }, [activeRows, aiOutputColumns]);
 
   // Cell mousedown — focus + start drag
   const handleCellMouseDown = useCallback((rowId: string, col: string, e: React.MouseEvent) => {
@@ -2186,6 +2186,79 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
             <RotateCcw size={12} /> 重置并重跑
           </button>
         </div>
+      )}
+
+      {/* ─── Expanded Cell View Modal ── */}
+      {expandedCell && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setExpandedCell(null)}>
+          <div style={{ background: 'var(--surface-color)', borderRadius: 12, padding: 20, width: '80%', maxWidth: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.4)', position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>
+                查看单元格: <span style={{ color: 'var(--text-muted-color)' }}>{expandedCell.col}</span>
+              </div>
+              <button 
+                onClick={async () => {
+                   try {
+                     await navigator.clipboard.writeText(expandedCell.value);
+                   } catch { /* ignore */ }
+                }}
+                className="dp-btn" style={{ padding: '4px 8px', fontSize: 11, background: 'none' }} title="复制内容">
+                <Copy size={12} /> 复制
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              className="dp-input"
+              style={{ flex: 1, minHeight: 200, fontSize: 13, lineHeight: '1.5', padding: 12, resize: 'none' }}
+              value={expandedCell.value}
+              onChange={(e) => setExpandedCell({ ...expandedCell, value: e.target.value })}
+              onKeyDown={(e) => {
+                // Ignore usual table shortcuts inside this textarea
+                e.stopPropagation();
+                if (e.key === 'Escape') setExpandedCell(null);
+                // Ctrl+Enter or Cmd+Enter to save
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                   setRows((prev) => prev.map((r) => {
+                     if (r.id !== expandedCell.rowId) return r;
+                     if (!expandedCell.isOutput) {
+                       return { ...r, raw: { ...r.raw, [expandedCell.col]: expandedCell.value } };
+                     } else {
+                       return { ...r, ai: { ...r.ai, [expandedCell.col]: expandedCell.value } };
+                     }
+                   }));
+                   setExpandedCell(null);
+                }
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted-color)' }}>
+                按 <kbd style={{ background: 'var(--control-bg-color)', padding: '2px 4px', borderRadius: 4 }}>Esc</kbd> 关闭，
+                按 <kbd style={{ background: 'var(--control-bg-color)', padding: '2px 4px', borderRadius: 4 }}>Cmd/Ctrl+Enter</kbd> 保存
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="dp-btn" onClick={() => setExpandedCell(null)}>取消</button>
+                <button className="dp-btn dp-btn-orange" onClick={() => {
+                  setRows((prev) => prev.map((r) => {
+                    if (r.id !== expandedCell.rowId) return r;
+                    if (!expandedCell.isOutput) {
+                       return { ...r, raw: { ...r.raw, [expandedCell.col]: expandedCell.value } };
+                    } else {
+                       return { ...r, ai: { ...r.ai, [expandedCell.col]: expandedCell.value } };
+                    }
+                  }));
+                  setExpandedCell(null);
+                }}>保存</button>
+              </div>
+            </div>
+            <button style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)' }}
+              onClick={() => setExpandedCell(null)}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
