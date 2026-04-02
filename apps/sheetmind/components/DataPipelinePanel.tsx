@@ -306,6 +306,7 @@ function InstructionEditor({
   const [showCustomCol, setShowCustomCol] = useState(false);
   const [showPromptPresets, setShowPromptPresets] = useState(false);
   const [showExpandedEdit, setShowExpandedEdit] = useState(false);
+  const presetBtnRef = useRef<HTMLButtonElement>(null);
   const allSourceCols = [...rawColumns, ...aiOutputCols];
   const existingOutputCols = [...new Set([...rawColumns, ...aiOutputCols, inst.outputColumn].filter(Boolean))];
 
@@ -352,7 +353,13 @@ function InstructionEditor({
         {/* Source column */}
         <select className="dp-input" style={{ width: 100, flexShrink: 0, cursor: 'pointer', fontSize: 11 }}
           value={inst.sourceColumn}
-          onChange={(e) => onChange({ ...inst, sourceColumn: e.target.value })}
+          onChange={(e) => {
+            const newSrc = e.target.value;
+            const autoOut = newSrc ? `${newSrc}_ai处理` : inst.outputColumn;
+            // Auto-rename output if it still follows the default pattern
+            const isDefaultPattern = /^(AI处理_\d+|.*_ai处理)$/.test(inst.outputColumn);
+            onChange({ ...inst, sourceColumn: newSrc, ...(isDefaultPattern ? { outputColumn: autoOut } : {}) });
+          }}
           title="处理数据列">
           {!allSourceCols.includes(inst.sourceColumn) && inst.sourceColumn && <option value={inst.sourceColumn}>{inst.sourceColumn}</option>}
           {allSourceCols.map((col) => <option key={col} value={col}>{col}</option>)}
@@ -394,56 +401,63 @@ function InstructionEditor({
             title={inst.prompt || '双击展开编辑'}
           />
           {/* Template button */}
-          <button style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+          <button ref={presetBtnRef} style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
             background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)', padding: 2 }}
             onClick={() => setShowPromptPresets((v) => !v)}
             title="指令模板">
             <FolderOpen size={12} />
           </button>
-          {/* Preset dropdown */}
-          {showPromptPresets && (
-            <div style={{
-              position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 100,
-              background: 'var(--surface-color)', border: '1px solid var(--border-color)',
-              borderRadius: 8, padding: 8, width: 280, maxHeight: 300, overflowY: 'auto',
-              boxShadow: '0 6px 16px rgba(0,0,0,0.3)',
-            }} onClick={(e) => e.stopPropagation()}>
-              {/* Local presets */}
-              {promptPresets.length > 0 && (
-                <div style={{ marginBottom: 6 }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>📌 本地模板</div>
-                  {promptPresets.map((pp) => (
-                    <div key={pp.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
-                      onClick={() => { onChange({ ...inst, prompt: pp.prompt }); setShowPromptPresets(false); }} title={pp.prompt}>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{pp.name}</span>
-                      <button onClick={(e) => { e.stopPropagation(); onDeletePromptPreset(pp.id); }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, color: 'var(--text-muted-color)' }}><X size={10} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {/* Global presets from all app modules */}
-              {globalPresetGroups.map((group, gi) => (
-                <div key={gi} style={{ marginBottom: 6 }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>{group.icon} {group.label}</div>
-                  {group.items.map((gs, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
-                      onClick={() => { onChange({ ...inst, prompt: gs.prompt }); setShowPromptPresets(false); }} title={gs.prompt.substring(0, 200)}>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{gs.name}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-              {promptPresets.length === 0 && globalPresetGroups.length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text-muted-color)', padding: '8px 0', textAlign: 'center' }}>暂无指令模板</div>
-              )}
-              <button className="dp-btn dp-btn-orange" style={{ width: '100%', fontSize: 10, marginTop: 4, justifyContent: 'center' }}
-                onClick={() => {
-                  if (!inst.prompt.trim()) return;
-                  const name = window.prompt('指令模板名称：', inst.name || `模板 ${promptPresets.length + 1}`);
-                  if (name?.trim()) { onSavePromptPreset(name.trim(), inst.prompt); setShowPromptPresets(false); }
-                }}><Save size={10} /> 保存当前指令为模板</button>
-            </div>
+          {/* Preset dropdown — rendered via portal to avoid clipping */}
+          {showPromptPresets && createPortal(
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowPromptPresets(false)} />
+              <div style={{
+                position: 'fixed',
+                top: (presetBtnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                left: Math.min((presetBtnRef.current?.getBoundingClientRect().right ?? 280) - 300, window.innerWidth - 310),
+                zIndex: 9999,
+                background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                borderRadius: 8, padding: 8, width: 300, maxHeight: 360, overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              }} onClick={(e) => e.stopPropagation()}>
+                {/* Local presets */}
+                {promptPresets.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>📌 本地模板</div>
+                    {promptPresets.map((pp) => (
+                      <div key={pp.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
+                        onClick={() => { onChange({ ...inst, prompt: pp.prompt }); setShowPromptPresets(false); }} title={pp.prompt}>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{pp.name}</span>
+                        <button onClick={(e) => { e.stopPropagation(); onDeletePromptPreset(pp.id); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, color: 'var(--text-muted-color)' }}><X size={10} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Global presets from all app modules */}
+                {globalPresetGroups.map((group, gi) => (
+                  <div key={gi} style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>{group.icon} {group.label}</div>
+                    {group.items.map((gs, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
+                        onClick={() => { onChange({ ...inst, prompt: gs.prompt }); setShowPromptPresets(false); }} title={gs.prompt.substring(0, 200)}>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{gs.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                {promptPresets.length === 0 && globalPresetGroups.length === 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted-color)', padding: '8px 0', textAlign: 'center' }}>暂无指令模板</div>
+                )}
+                <button className="dp-btn dp-btn-orange" style={{ width: '100%', fontSize: 10, marginTop: 4, justifyContent: 'center' }}
+                  onClick={() => {
+                    if (!inst.prompt.trim()) return;
+                    const name = window.prompt('指令模板名称：', inst.name || `模板 ${promptPresets.length + 1}`);
+                    if (name?.trim()) { onSavePromptPreset(name.trim(), inst.prompt); setShowPromptPresets(false); }
+                  }}><Save size={10} /> 保存当前指令为模板</button>
+              </div>
+            </>,
+            document.body
           )}
         </div>
 
@@ -1539,7 +1553,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button className="dp-btn dp-btn-orange" style={{ flex: 1 }}
-                  onClick={() => setConfig((c) => ({ ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: c.rawColumns[0] || '' }] }))}>
+                  onClick={() => setConfig((c) => { const src = c.rawColumns[0] || ''; return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: src ? `${src}_ai处理` : `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: src }] }; })}>
                   <Plus size={12} /> 添加指令
                 </button>
                 <button className="dp-btn dp-btn-orange" onClick={() => { setBatchInstText(''); setShowBatchInstModal(true); }}>
@@ -1742,7 +1756,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                   <button className="dp-btn dp-btn-orange" style={{ flex: 1 }}
-                    onClick={() => setConfig((c) => ({ ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: c.rawColumns[0] || '' }] }))}>
+                    onClick={() => setConfig((c) => { const src = c.rawColumns[0] || ''; return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: src ? `${src}_ai处理` : `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: src }] }; })}>
                     <Plus size={12} /> 添加指令
                   </button>
                   <button className="dp-btn dp-btn-orange" onClick={() => { setBatchInstText(''); setShowBatchInstModal(true); }}>
