@@ -31,6 +31,7 @@ import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
 import GeminiChatApp from '@/apps/gemini-chat/GeminiChatApp';
 import SceneBrainstormApp from '@/apps/scene-brainstorm/SceneBrainstormApp';
 import HookScriptApp from '@/apps/hook-script/HookScriptApp';
+import DataPipelinePanel from '@/apps/sheetmind/components/DataPipelinePanel';
 import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
@@ -182,6 +183,7 @@ const translations = {
     navImageRecognition: "AI Image Recognition",
     navImageReview: "Image Review",
     navSheetMind: "SheetMind",
+    navDataPipeline: "Data Pipeline",
     navCopyDedup: "AI Copy Deduplicator",
     navProDedup: "Pro Dedup Search",
     navCopywritingLibrary: "Copywriting Library",
@@ -445,6 +447,7 @@ const translations = {
     navImageRecognition: "AI 图片识别",
     navImageReview: "图片审核",
     navSheetMind: "表格数据分析",
+    navDataPipeline: "数据整理",
     navCopyDedup: "AI 文案去重",
     navProDedup: "专业文案查重",
     navCopywritingLibrary: "超级文案库",
@@ -1253,7 +1256,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript' | 'dataPipeline';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7154,6 +7157,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   imageRecognition: 'center_focus_weak',
   imageReview: 'fact_check',
   sheetMind: 'table_chart',
+  dataPipeline: 'bolt',
   copyDedup: 'content_copy',
   proDedup: 'fingerprint',
   copywritingLibrary: 'library_books',
@@ -7187,6 +7191,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: s
   // === 新工具 ===
   { tool: 'skillGenerator', labelKey: 'navSkillGenerator', group: '新工具' },
   { tool: 'sheetMind', labelKey: 'navSheetMind' },
+  { tool: 'dataPipeline', labelKey: 'navDataPipeline' },
   { tool: 'imageSorter', labelKey: 'navImageSorter' },
   { tool: 'geminiChat', labelKey: 'navGeminiChat' },
   { tool: 'sceneBrainstorm', labelKey: 'navSceneBrainstorm' },
@@ -7264,7 +7269,8 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '3.8.2', date: '2026-03-31', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.3', date: '2026-04-01', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.2', date: '2026-03-31', url: 'https://ai-toolkit-b2b78--v3-8-2.web.app', isCurrent: false },
   { version: '3.8.1', date: '2026-03-28', url: 'https://ai-toolkit-b2b78--v3-8-1.web.app', isCurrent: false },
   { version: '3.8.0', date: '2026-03-27', url: 'https://ai-toolkit-b2b78--v3-8-0-zrdvh6h4.web.app', isCurrent: false },
   { version: '3.7.0', date: '2026-03-26', url: 'https://ai-toolkit-b2b78--v3-7-0.web.app', isCurrent: false },
@@ -8545,6 +8551,9 @@ const App = () => {
       case 'sheetMind':
         // Rendered outside of renderTool to keep mounted
         return null;
+      case 'dataPipeline':
+        // Rendered outside of renderTool to keep mounted
+        return null;
       case 'mindMap':
         // Rendered outside of renderTool to keep mounted and preserve state
         return null;
@@ -9104,7 +9113,7 @@ const App = () => {
                           fontSize: '0.8rem'
                         }}>
                           <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500 }}>
-                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v3.8.2
+                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v3.8.3
                           </div>
                           <div style={{ color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                             <div style={{ marginBottom: '0.25rem' }}>
@@ -9779,14 +9788,23 @@ const App = () => {
                 getAiInstance={getAiInstance}
                 state={sheetMindState}
                 setState={setSheetMindState}
+                textModel={textModel}
               />
             ) : (
               <SheetMindAppV1
                 getAiInstance={getAiInstance}
                 state={sheetMindState}
                 setState={setSheetMindState}
+                textModel={textModel}
               />
             )}
+          </div>
+          {/* Data Pipeline stays mounted to preserve state */}
+          <div className={`datapipeline-page-wrapper ${activeTool === 'dataPipeline' ? 'visible' : 'hidden'}`} style={{ position: 'relative', padding: 0, overflow: 'hidden', height: activeTool === 'dataPipeline' ? '100%' : '0' }}>
+            <DataPipelinePanel
+              getAiInstance={getAiInstance}
+              modelId={textModel}
+            />
           </div>
           {/* Copy Dedup stays mounted to preserve library state */}
           <div className={`copydedup-page-wrapper ${activeTool === 'copyDedup' ? 'visible' : 'hidden'}`} style={{ padding: '1rem', overflow: 'auto', height: activeTool === 'copyDedup' ? '100%' : '0' }}>
@@ -9885,7 +9903,7 @@ const App = () => {
 
       {/* 版本号显示与选择器 */}
       <VersionSelector
-        currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.8.2'}
+        currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.8.3'}
         buildTime={typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : ''}
       />
     </>

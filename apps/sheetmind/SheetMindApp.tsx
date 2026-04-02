@@ -204,7 +204,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
 
 
-    const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library'>(state.view || 'grid');
+    const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library' | 'data-pipeline'>(state.view || 'grid');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadProgress, setLoadProgress] = useState<string | null>(null); // Progress message for large file loading
     const [needsReload, setNeedsReload] = useState(false); // Flag for large data that needs reload

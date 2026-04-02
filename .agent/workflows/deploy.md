@@ -49,9 +49,9 @@ grep -n '当前版本' index.tsx | head -3
 
 // turbo
 ```bash
-rm ~/Desktop/ai-toolkit-源码-v3.8.2.zip 2>/dev/null; \
+rm ~/Desktop/ai-toolkit-源码-v3.8.3.zip 2>/dev/null; \
 cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
-zip -r ~/Desktop/ai-toolkit-源码-v3.8.2.zip . \
+zip -r ~/Desktop/ai-toolkit-源码-v3.8.3.zip . \
     -x "node_modules/*" \
     -x ".git/*" \
     -x "dist/*" \
@@ -74,7 +74,7 @@ zip -r ~/Desktop/ai-toolkit-源码-v3.8.2.zip . \
 ```
 
 ### 输出位置
-- `~/Desktop/ai-toolkit-源码-v3.8.2.zip`
+- `~/Desktop/ai-toolkit-源码-v3.8.3.zip`
 
 ### 包含内容
 - ✅ 所有源代码（`apps/`, `services/`, `components/`）
@@ -90,7 +90,7 @@ zip -r ~/Desktop/ai-toolkit-源码-v3.8.2.zip . \
 - ❌ 各种 `.zip`, `.dmg` 文件
 
 ### 注意事项
-- **版本号更新**：每次打包前请更新命令中的版本号（如 `v3.8.2` → `v3.8.2`）
+- **版本号更新**：每次打包前请更新命令中的版本号（如 `v3.8.3` → `v3.8.3`）
 - **AI Studio 识别**：压缩包根目录必须包含 `package.json`，这是 AI Studio 识别项目的关键
 
 ---

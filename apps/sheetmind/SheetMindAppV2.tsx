@@ -9,11 +9,12 @@ import TransposePanel from './components/TransposePanel';
 import ColumnAlignPanel from './components/ColumnAlignPanel';
 import ImageFormulaPanel from './components/ImageFormulaPanel';
 import ReferenceLibraryPanel from './components/ReferenceLibraryPanel';
+
 import MediaGalleryPanel from './components/MediaGalleryPanelV2';
 import DataSourceManager, { addDataSource, loadDataSources, DataSource } from './components/DataSourceManager';
 import UnifiedSettingsPanel from './components/UnifiedSettingsPanel';
 import { SharedConfig, getDefaultSharedConfig } from './types/sharedConfig';
-import { Table, BarChart4, ChevronDown, RotateCw, X, MessageSquare, GalleryHorizontalEnd, PanelRightClose, PanelRightOpen, BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Trash2, FolderOpen, ArrowRightLeft, Image, Database, Cloud, Loader2, Filter, Copy, Eye, EyeOff, Layers, Check, HardDrive, Settings, MoveVertical, ClipboardPlus, Plus, BarChart2, Lightbulb, BookOpen } from 'lucide-react';
+import { Table, BarChart4, ChevronDown, RotateCw, X, MessageSquare, GalleryHorizontalEnd, PanelRightClose, PanelRightOpen, BarChart3, PieChart as PieChartIcon, LineChart as LineChartIcon, Trash2, FolderOpen, ArrowRightLeft, Image, Database, Cloud, Loader2, Filter, Copy, Eye, EyeOff, Layers, Check, HardDrive, Settings, MoveVertical, ClipboardPlus, Plus, BarChart2, Lightbulb, BookOpen, Sparkles } from 'lucide-react';
 import { parseSheetAsync, parseMultipleSheetsAsync, fetchWorkbookFromUrl, fetchWorkbookWithAuth, fetchWorkbookSmart, filterWorkbook, getServiceAccountEmail } from './utils/parser';
 import { getGoogleAccessToken } from '@/services/authService';
 import { GoogleGenAI } from "@google/genai";
@@ -29,6 +30,7 @@ interface SheetMindAppProps {
     getAiInstance: () => GoogleGenAI;
     state: SheetMindState;
     setState: React.Dispatch<React.SetStateAction<SheetMindState>>;
+    textModel?: string;
 }
 
 const STORAGE_KEY = 'sheetmind_workbook_cache';
@@ -77,7 +79,7 @@ const normalizeSharedConfig = (config?: SharedConfig | null): SharedConfig => {
 };
 
 
-const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setState }) => {
+const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setState, textModel = 'gemini-2.0-flash' }) => {
     // --- STATE ---
     const [workbook, setWorkbook] = useState<Workbook | null>(() => {
         // Try to restore workbook from localStorage on mount
@@ -204,7 +206,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
 
 
-    const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library'>(state.view || 'grid');
+    const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library'>(state.view === 'data-pipeline' ? 'grid' : (state.view || 'grid'));
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadProgress, setLoadProgress] = useState<string | null>(null); // Progress message for large file loading
     const [needsReload, setNeedsReload] = useState(false); // Flag for large data that needs reload
