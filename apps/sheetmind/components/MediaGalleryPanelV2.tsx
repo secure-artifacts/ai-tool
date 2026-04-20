@@ -16,6 +16,7 @@ import { BatchCategoryModal, BatchNoteModal } from './gallery/BatchModals';
 import { PresetEditorModal } from './gallery/PresetEditorModal';
 import { LoginPromptModal } from './gallery/LoginPromptModal';
 import { CopyViewModal } from './gallery/CopyViewModal';
+import { FolderSelectionMenu, BatchFolderMenu } from './gallery/FolderMenus';
 import {
     savePresetToCloud,
     loadPresetsFromCloud,
@@ -11413,122 +11414,62 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             />
 
             {/* Folder Selection Menu (收藏夹选择菜单) */}
-            {
-                showFolderMenu && (
-                    <div
-                        className="fixed inset-0 z-[100] pointer-events-none"
-                    >
-                        <div
-                            ref={folderMenuRef}
-                            className="absolute bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[180px] animate-in fade-in zoom-in-95 duration-150 pointer-events-auto"
-                            style={{
-                                left: Math.min(showFolderMenu.x, window.innerWidth - 200),
-                                top: Math.min(showFolderMenu.y, window.innerHeight - 300)
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                                选择收藏夹
-                            </div>
-                            {favoriteFolders.map(folder => (
-                                <button
-                                    key={folder.id}
-                                    onClick={() => {
-                                        addToFolder(showFolderMenu.imageUrl, showFolderMenu.row, folder.id);
-                                        setShowFolderMenu(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-amber-50 hover:text-amber-600 flex items-center gap-2"
-                                >
-                                    <span>{folder.emoji || '📁'}</span>
-                                    <span className="truncate flex-1">{folder.name}</span>
-                                    <span className="text-[10px] text-slate-400">
-                                        {favorites.filter(f => f.folderId === folder.id).length}
-                                    </span>
-                                </button>
-                            ))}
-                            <div className="border-t border-slate-100 mt-1 pt-1">
-                                <button
-                                    onClick={() => {
-                                        const imageUrl = showFolderMenu.imageUrl;
-                                        const row = showFolderMenu.row;
-                                        setShowFolderMenu(null);
-                                        setNewFolderModal({
-                                            isOpen: true,
-                                            name: '收藏夹 ' + (favoriteFolders.length + 1),
-                                            emoji: '📂',
-                                            onSuccess: (folderId) => {
-                                                addToFolder(imageUrl, row, folderId);
-                                            }
-                                        });
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
-                                >
-                                    <Plus size={12} />
-                                    <span>新建收藏夹</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <FolderSelectionMenu
+                isOpen={!!showFolderMenu}
+                x={showFolderMenu?.x || 0}
+                y={showFolderMenu?.y || 0}
+                menuRef={folderMenuRef}
+                folders={favoriteFolders}
+                favorites={favorites}
+                onSelectFolder={(folderId) => {
+                    if (showFolderMenu) {
+                        addToFolder(showFolderMenu.imageUrl, showFolderMenu.row, folderId);
+                        setShowFolderMenu(null);
+                    }
+                }}
+                onCreateFolder={() => {
+                    if (showFolderMenu) {
+                        const imageUrl = showFolderMenu.imageUrl;
+                        const row = showFolderMenu.row;
+                        setShowFolderMenu(null);
+                        setNewFolderModal({
+                            isOpen: true,
+                            name: '收藏夹 ' + (favoriteFolders.length + 1),
+                            emoji: '📂',
+                            onSuccess: (folderId) => {
+                                addToFolder(imageUrl, row, folderId);
+                            }
+                        });
+                    }
+                }}
+                onClose={() => setShowFolderMenu(null)}
+            />
 
             {/* Batch Folder Selection Menu (批量收藏夹选择菜单) */}
-            {
-                showBatchFolderMenu && (
-                    <div
-                        className="fixed inset-0 z-[100] pointer-events-none"
-                    >
-                        <div
-                            ref={batchFolderMenuRef}
-                            className="absolute bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[180px] animate-in fade-in zoom-in-95 duration-150 pointer-events-auto"
-                            style={{
-                                left: Math.min(showBatchFolderMenu.x, window.innerWidth - 200),
-                                top: Math.min(showBatchFolderMenu.y, window.innerHeight - 300)
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="px-3 py-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                                选择收藏夹 ({selectedThumbnails.size} 项)
-                            </div>
-                            {favoriteFolders.map(folder => (
-                                <button
-                                    key={folder.id}
-                                    onClick={() => {
-                                        addSelectedToFavorites(processedRows, folder.id);
-                                        setShowBatchFolderMenu(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-amber-50 hover:text-amber-600 flex items-center gap-2"
-                                >
-                                    <span>{folder.emoji || '📁'}</span>
-                                    <span className="truncate flex-1">{folder.name}</span>
-                                    <span className="text-[10px] text-slate-400">
-                                        {favorites.filter(f => f.folderId === folder.id).length}
-                                    </span>
-                                </button>
-                            ))}
-                            <div className="border-t border-slate-100 mt-1 pt-1">
-                                <button
-                                    onClick={() => {
-                                        setShowBatchFolderMenu(null);
-                                        setNewFolderModal({
-                                            isOpen: true,
-                                            name: '收藏夹 ' + (favoriteFolders.length + 1),
-                                            emoji: '📂',
-                                            onSuccess: (folderId) => {
-                                                addSelectedToFavorites(processedRows, folderId);
-                                            }
-                                        });
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
-                                >
-                                    <Plus size={12} />
-                                    <span>新建收藏夹并添加</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <BatchFolderMenu
+                isOpen={!!showBatchFolderMenu}
+                x={showBatchFolderMenu?.x || 0}
+                y={showBatchFolderMenu?.y || 0}
+                menuRef={batchFolderMenuRef}
+                selectedCount={selectedThumbnails.size}
+                folders={favoriteFolders}
+                favorites={favorites}
+                onSelectFolder={(folderId) => {
+                    addSelectedToFavorites(processedRows, folderId);
+                    setShowBatchFolderMenu(null);
+                }}
+                onCreateFolder={() => {
+                    setShowBatchFolderMenu(null);
+                    setNewFolderModal({
+                        isOpen: true,
+                        name: '收藏夹 ' + (favoriteFolders.length + 1),
+                        emoji: '📂',
+                        onSuccess: (folderId) => {
+                            addSelectedToFavorites(processedRows, folderId);
+                        }
+                    });
+                }}
+            />
 
             {/* Login Prompt Modal (登录提示弹窗) */}
             <LoginPromptModal
