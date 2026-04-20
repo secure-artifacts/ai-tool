@@ -11,6 +11,8 @@ import { SheetData, DataRow } from '../types';
 import { ImageCard } from './gallery/ImageCard';
 import { NoteModal } from './gallery/NoteModal';
 import { CategoryModal } from './gallery/CategoryModal';
+import { NewFolderModal } from './gallery/NewFolderModal';
+import { BatchCategoryModal, BatchNoteModal } from './gallery/BatchModals';
 import {
     savePresetToCloud,
     loadPresetsFromCloud,
@@ -11306,94 +11308,25 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             />
 
             {/* New Folder Modal (新建收藏夹弹窗) */}
-            {
-                newFolderModal.isOpen && (
-                    <div
-                        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110]"
-                        onClick={() => setNewFolderModal({ isOpen: false, name: '', emoji: '📂', onSuccess: undefined })}
-                    >
-                        <div
-                            className="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 animate-in fade-in zoom-in-95 duration-200"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Modal Header */}
-                            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                                        <FolderPlus size={18} className="text-green-600" />
-                                    </div>
-                                    <h3 className="font-bold text-slate-800">新建收藏夹</h3>
-                                </div>
-                                <button
-                                    onClick={() => setNewFolderModal({ isOpen: false, name: '', emoji: '📂', onSuccess: undefined })}
-                                    className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-
-                            {/* Modal Body */}
-                            <div className="p-5 space-y-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1.5">收藏夹名称</label>
-                                    <input
-                                        type="text"
-                                        value={newFolderModal.name}
-                                        onChange={(e) => setNewFolderModal(prev => ({ ...prev, name: e.target.value }))}
-                                        placeholder="输入收藏夹名称"
-                                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
-                                        autoFocus
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1.5">选择图标</label>
-                                    <div className="flex flex-wrap gap-1.5 items-center">
-                                        {['📂', '⭐', '❤️', '💼', '🎯', '🔥', '💎', '🎨', '📸', '🎬', '🎵', '📚'].map(emoji => (
-                                            <button
-                                                key={emoji}
-                                                onClick={() => setNewFolderModal(prev => ({ ...prev, emoji }))}
-                                                className={`w-10 h-10 rounded-lg text-xl flex items-center justify-center transition-all ${newFolderModal.emoji === emoji
-                                                    ? 'bg-green-100 border-2 border-green-500'
-                                                    : 'bg-slate-100 border border-slate-200 hover:bg-slate-200'
-                                                    }`}
-                                            >
-                                                {emoji}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Modal Footer */}
-                            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
-                                <button
-                                    onClick={() => setNewFolderModal({ isOpen: false, name: '', emoji: '📂', onSuccess: undefined })}
-                                    className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                                >
-                                    取消
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        if (newFolderModal.name.trim()) {
-                                            const folderId = createFolder(newFolderModal.name.trim(), newFolderModal.emoji);
-                                            if (newFolderModal.onSuccess) {
-                                                newFolderModal.onSuccess(folderId);
-                                            }
-                                            setNewFolderModal({ isOpen: false, name: '', emoji: '📂', onSuccess: undefined });
-                                            setCopyFeedback(`✅ 收藏夹 "${newFolderModal.name.trim()}" 创建成功`);
-                                            setTimeout(() => setCopyFeedback(null), 2000);
-                                        }
-                                    }}
-                                    disabled={!newFolderModal.name.trim()}
-                                    className="px-4 py-2 text-sm font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    创建
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <NewFolderModal
+                isOpen={newFolderModal.isOpen}
+                name={newFolderModal.name}
+                emoji={newFolderModal.emoji}
+                onNameChange={(name) => setNewFolderModal(prev => ({ ...prev, name }))}
+                onEmojiChange={(emoji) => setNewFolderModal(prev => ({ ...prev, emoji }))}
+                onCreate={() => {
+                    if (newFolderModal.name.trim()) {
+                        const folderId = createFolder(newFolderModal.name.trim(), newFolderModal.emoji);
+                        if (newFolderModal.onSuccess) {
+                            newFolderModal.onSuccess(folderId);
+                        }
+                        setNewFolderModal({ isOpen: false, name: '', emoji: '📂', onSuccess: undefined });
+                        setCopyFeedback(`✅ 收藏夹 "${newFolderModal.name.trim()}" 创建成功`);
+                        setTimeout(() => setCopyFeedback(null), 2000);
+                    }
+                }}
+                onClose={() => setNewFolderModal({ isOpen: false, name: '', emoji: '📂', onSuccess: undefined })}
+            />
 
             {/* Folder Context Menu (收藏夹右键菜单) */}
             {folderContextMenu && (
@@ -11734,169 +11667,26 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             />
 
             {/* Batch Category Modal (批量分类弹窗) */}
-            {
-                batchCategoryModal.isOpen && (
-                    <div
-                        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110]"
-                        onClick={() => setBatchCategoryModal({ isOpen: false, isSaving: false })}
-                    >
-                        <div
-                            className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Modal Header */}
-                            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                                        <Tag size={18} className="text-purple-600" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-800">批量分类</h3>
-                                        <p className="text-[11px] text-slate-400">
-                                            为 {selectedThumbnails.size} 张图片设置分类
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => setBatchCategoryModal({ isOpen: false, isSaving: false })}
-                                    className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-
-                            {/* Modal Body */}
-                            <div className="p-5">
-                                <label className="block text-xs font-medium text-slate-600 mb-3">
-                                    选择要应用的分类
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {config.categoryOptions.map((cat) => (
-                                        <button
-                                            key={cat}
-                                            onClick={() => batchApplyCategory(cat, processedRows)}
-                                            disabled={batchCategoryModal.isSaving}
-                                            className="px-4 py-3 text-sm font-medium rounded-lg border-2 bg-white text-slate-700 border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-all disabled:opacity-50"
-                                        >
-                                            {cat}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {/* Clear category button */}
-                                <button
-                                    onClick={() => batchApplyCategory('', processedRows)}
-                                    disabled={batchCategoryModal.isSaving}
-                                    className="w-full mt-3 px-4 py-2 text-sm text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
-                                >
-                                    ✕ 清除分类
-                                </button>
-                            </div>
-
-                            {/* Modal Footer */}
-                            <div className="flex items-center justify-between px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
-                                <div className="text-[11px] text-slate-400">
-                                    {batchCategoryModal.isSaving ? (
-                                        <span className="flex items-center gap-1">
-                                            <Loader2 size={12} className="animate-spin text-purple-500" />
-                                            正在批量设置...
-                                        </span>
-                                    ) : (
-                                        <span>点击分类选项即可批量应用</span>
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => setBatchCategoryModal({ isOpen: false, isSaving: false })}
-                                    disabled={batchCategoryModal.isSaving}
-                                    className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
-                                >
-                                    取消
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <BatchCategoryModal
+                isOpen={batchCategoryModal.isOpen}
+                isSaving={batchCategoryModal.isSaving}
+                selectedCount={selectedThumbnails.size}
+                categoryOptions={config.categoryOptions}
+                onSelectCategory={(cat) => batchApplyCategory(cat, processedRows)}
+                onClearCategory={() => batchApplyCategory('', processedRows)}
+                onClose={() => setBatchCategoryModal({ isOpen: false, isSaving: false })}
+            />
 
             {/* Batch Note Modal (批量备注弹窗) */}
-            {
-                batchNoteModal.isOpen && (
-                    <div
-                        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110]"
-                        onClick={() => setBatchNoteModal({ isOpen: false, isSaving: false, note: '', imageUrls: [] })}
-                    >
-                        <div
-                            className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Modal Header */}
-                            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                                        <MessageSquare size={18} className="text-blue-600" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-800">批量备注</h3>
-                                        <p className="text-[11px] text-slate-400">
-                                            为 {batchNoteModal.imageUrls.length} 张图片设置备注
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => setBatchNoteModal({ isOpen: false, isSaving: false, note: '', imageUrls: [] })}
-                                    className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-
-                            {/* Modal Body */}
-                            <div className="p-5">
-                                <label className="block text-xs font-medium text-slate-600 mb-2">
-                                    输入备注内容
-                                </label>
-                                <textarea
-                                    value={batchNoteModal.note}
-                                    onChange={(e) => setBatchNoteModal(prev => ({ ...prev, note: e.target.value }))}
-                                    placeholder="输入要批量添加的备注..."
-                                    className="w-full h-32 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent resize-none"
-                                    disabled={batchNoteModal.isSaving}
-                                />
-                            </div>
-
-                            {/* Modal Footer */}
-                            <div className="flex items-center justify-between px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
-                                <div className="text-[11px] text-slate-400">
-                                    {batchNoteModal.isSaving ? (
-                                        <span className="flex items-center gap-1">
-                                            <Loader2 size={12} className="animate-spin text-blue-500" />
-                                            正在批量设置...
-                                        </span>
-                                    ) : (
-                                        <span>输入备注后点击确定即可批量应用</span>
-                                    )}
-                                </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => setBatchNoteModal({ isOpen: false, isSaving: false, note: '', imageUrls: [] })}
-                                        disabled={batchNoteModal.isSaving}
-                                        className="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
-                                    >
-                                        取消
-                                    </button>
-                                    <button
-                                        onClick={() => batchApplyNote(batchNoteModal.note, batchNoteModal.imageUrls, processedRows)}
-                                        disabled={batchNoteModal.isSaving}
-                                        className="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
-                                    >
-                                        {batchNoteModal.isSaving ? '应用中...' : '确定'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <BatchNoteModal
+                isOpen={batchNoteModal.isOpen}
+                isSaving={batchNoteModal.isSaving}
+                note={batchNoteModal.note}
+                imageCount={batchNoteModal.imageUrls.length}
+                onNoteChange={(note) => setBatchNoteModal(prev => ({ ...prev, note }))}
+                onSave={() => batchApplyNote(batchNoteModal.note, batchNoteModal.imageUrls, processedRows)}
+                onClose={() => setBatchNoteModal({ isOpen: false, isSaving: false, note: '', imageUrls: [] })}
+            />
 
             {/* Preset Editor Modal (自定义预设编辑器) */}
             {
