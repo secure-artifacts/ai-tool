@@ -21,6 +21,8 @@ import { ConfirmDialog } from './gallery/ConfirmDialog';
 import { HoverPreview } from './gallery/HoverPreview';
 import { DragDropSidebar } from './gallery/DragDropSidebar';
 import { ThumbnailContextMenu } from './gallery/ThumbnailContextMenu';
+import { ImageModal, RowDetailModal } from './gallery/DetailModals';
+import { FolderContextMenu } from './gallery/FolderContextMenu';
 import {
     savePresetToCloud,
     loadPresetsFromCloud,
@@ -10785,94 +10787,19 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             />
 
             {/* Image Modal */}
-            {
-                selectedImage && (
-                    <div
-                        className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-                        onClick={() => setSelectedImage(null)}
-                    >
-                        <div className="relative max-w-[90vw] max-h-[90vh]">
-                            <img
-                                src={selectedImage}
-                                alt=""
-                                className="max-w-full max-h-[90vh] object-contain rounded-lg"
-                            />
-                            <button
-                                onClick={() => setSelectedImage(null)}
-                                className="absolute -top-4 -right-4 p-2 bg-white rounded-full shadow-lg hover:bg-slate-100"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                    </div>
-                )
-            }
+            <ImageModal
+                imageUrl={selectedImage}
+                onClose={() => setSelectedImage(null)}
+            />
 
             {/* Row Detail Modal */}
-            {
-                selectedRow && (
-                    <div
-                        className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-                        onClick={() => setSelectedRow(null)}
-                    >
-                        <div
-                            className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Header */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50">
-                                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1"><Info size={14} /> 数据详情</h3>
-                                <button
-                                    onClick={() => setSelectedRow(null)}
-                                    className="p-1 hover:bg-slate-200 rounded"
-                                >
-                                    <X size={18} />
-                                </button>
-                            </div>
-                            {/* Image preview */}
-                            {extractImageUrl(selectedRow[effectiveImageColumn]) && (
-                                <div className="p-4 border-b border-slate-200 bg-slate-100 flex justify-center">
-                                    <img
-                                        src={extractImageUrl(selectedRow[effectiveImageColumn])!}
-                                        alt=""
-                                        className="max-h-48 object-contain rounded-lg shadow"
-                                    />
-                                </div>
-                            )}
-                            {/* Data table */}
-                            <div className="overflow-y-auto max-h-[50vh] p-4">
-                                <table className="w-full text-sm">
-                                    <tbody>
-                                        {effectiveData.columns.map(col => {
-                                            const value = selectedRow[col];
-                                            if (value === undefined || value === null || value === '') return null;
-                                            return (
-                                                <tr key={col} className="border-b border-slate-100 hover:bg-slate-50">
-                                                    <td className="py-2 pr-4 text-slate-500 font-medium whitespace-nowrap align-top" style={{ width: '35%' }}>
-                                                        {col}
-                                                    </td>
-                                                    <td className="py-2 text-slate-800 break-words">
-                                                        {String(value)}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {/* Footer */}
-                            <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
-                                <button
-                                    onClick={() => setSelectedRow(null)}
-                                    className="px-4 py-1.5 text-sm bg-slate-600 text-white rounded hover:bg-slate-700"
-                                >
-                                    关闭
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            <RowDetailModal
+                row={selectedRow}
+                columns={effectiveData.columns}
+                imageColumn={effectiveImageColumn}
+                extractImageUrl={extractImageUrl}
+                onClose={() => setSelectedRow(null)}
+            />
 
             {/* Context Menu for Thumbnail */}
             <ThumbnailContextMenu
@@ -10947,67 +10874,35 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             />
 
             {/* Folder Context Menu (收藏夹右键菜单) */}
-            {folderContextMenu && (
-                <div
-                    className="fixed inset-0 z-[120]"
-                    onClick={() => setFolderContextMenu(null)}
-                >
-                    <div
-                        className="absolute bg-white rounded-lg shadow-xl border border-slate-200 py-1 w-36"
-                        style={{ left: folderContextMenu.x, top: folderContextMenu.y }}
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <button
-                            onClick={() => {
-                                const folder = favoriteFolders.find(f => f.id === folderContextMenu.folderId);
-                                if (folder) {
-                                    setEditFolderModal({
-                                        isOpen: true,
-                                        folderId: folder.id,
-                                        name: folder.name,
-                                        emoji: folder.emoji || '📁'
-                                    });
-                                }
-                                setFolderContextMenu(null);
-                            }}
-                            className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2"
-                        >
-                            <Edit3 size={14} /> 编辑
-                        </button>
-                        <button
-                            onClick={() => {
-                                clearFavoritesInFolder(folderContextMenu.folderId);
-                                setFolderContextMenu(null);
-                            }}
-                            className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                        >
-                            <Trash2 size={14} /> 清空此收藏夹
-                        </button>
-                        {folderContextMenu.folderId !== DEFAULT_FOLDER_ID && (
-                            <button
-                                onClick={() => {
-                                    setConfirmDialog({
-                                        isOpen: true,
-                                        title: '删除收藏夹',
-                                        message: '确定要删除这个收藏夹吗？文件夹内的收藏将移到默认收藏夹。',
-                                        type: 'danger',
-                                        confirmText: '删除',
-                                        cancelText: '取消',
-                                        onConfirm: () => {
-                                            deleteFolder(folderContextMenu.folderId);
-                                            setConfirmDialog(null);
-                                        }
-                                    });
-                                    setFolderContextMenu(null);
-                                }}
-                                className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
-                            >
-                                <Trash2 size={14} /> 删除
-                            </button>
-                        )}
-                    </div>
-                </div>
-            )}
+            <FolderContextMenu
+                menu={folderContextMenu}
+                folders={favoriteFolders}
+                defaultFolderId={DEFAULT_FOLDER_ID}
+                onClose={() => setFolderContextMenu(null)}
+                onEdit={(folder) => {
+                    setEditFolderModal({
+                        isOpen: true,
+                        folderId: folder.id,
+                        name: folder.name,
+                        emoji: folder.emoji || '📁'
+                    });
+                }}
+                onClearFolder={clearFavoritesInFolder}
+                onDeleteFolder={(folderId) => {
+                    setConfirmDialog({
+                        isOpen: true,
+                        title: '删除收藏夹',
+                        message: '确定要删除这个收藏夹吗？文件夹内的收藏将移到默认收藏夹。',
+                        type: 'danger',
+                        confirmText: '删除',
+                        cancelText: '取消',
+                        onConfirm: () => {
+                            deleteFolder(folderId);
+                            setConfirmDialog(null);
+                        }
+                    });
+                }}
+            />
 
             {/* Edit Folder Modal (编辑收藏夹弹窗) */}
             <EditFolderModal
