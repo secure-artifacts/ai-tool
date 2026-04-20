@@ -8,6 +8,7 @@ import {
     FileText, FolderOpen, Lightbulb, AlertCircle, BookOpen, ClipboardList, BarChart2, Video
 } from 'lucide-react';
 import { SheetData, DataRow } from '../types';
+import { ImageCard } from './gallery/ImageCard';
 import {
     savePresetToCloud,
     loadPresetsFromCloud,
@@ -6544,7 +6545,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         });
     }, [effectiveGroupColumn, effectiveGroupBinning, effectiveGroupBins, effectiveTextGrouping, effectiveTextGroupBins, getRowGroupKey, effectiveSortRules, sortRowsByRules]);
 
-    // Render thumbnail with actions
+    // Render thumbnail with actions — delegates to memoized ImageCard component
     const renderThumbnail = (row: DataRow, idx: number, options?: { size?: number; showMeta?: boolean; compact?: boolean }) => {
         const url = extractImageUrl(row[effectiveImageColumn]);
         if (!url) return null;
@@ -6557,123 +6558,35 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         const link = effectiveLinkColumn ? String(row[effectiveLinkColumn] || '') : '';
         const labels = effectiveLabelColumns.map(col => String(row[col] || '')).filter(Boolean);
         const highlight = checkHighlight(row, effectiveHighlightRules);
-
-        const buttonSize = compact ? 12 : 16;
-        const buttonPadding = compact ? 'p-1' : 'p-2';
-        const overlayGap = compact ? 'gap-1' : 'gap-2';
-        const title = showMeta ? '' : [account, ...labels].filter(Boolean).join(' · ');
-
         const rowId = String(row._rowId || '');
-        const isSelected = gallerySelectMode && selectedThumbnails.has(rowId);
 
         return (
-            <div
-                key={idx}
-                className="relative group"
-                style={{ width: size }}
-                title={title || undefined}
-                onClick={(e) => {
-                    if (!gallerySelectMode) return;
-                    if ((e.target as HTMLElement).closest('button')) return;
-                    scheduleThumbnailSelect(rowId);
-                }}
-                onDoubleClick={(e) => handleThumbnailDoubleClick(e, rowId, link)}
-            >
-                <div
-                    className={`relative overflow-hidden rounded-lg bg-slate-50 transition-all ${isSelected ? 'ring-2 ring-blue-500 ring-offset-1' : ''}`}
-                    style={{
-                        height: size,
-                        border: isSelected ? '2px solid #3b82f6' : (highlight ? `${highlight.borderWidth}px solid ${highlight.color}` : '1px solid #e2e8f0'),
-                        boxShadow: highlight ? `0 0 ${highlight.borderWidth * 2}px ${highlight.color}80` : 'none'
-                    }}
-                >
-                    <img
-                        src={url}
-                        alt=""
-                        className="w-full h-full object-contain cursor-pointer"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-
-                    {/* Selection checkbox - clickable in select mode */}
-                    {gallerySelectMode && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); toggleThumbnailSelection(rowId); }}
-                            className={`absolute top-1 left-1 z-20 w-6 h-6 rounded border-2 flex items-center justify-center transition-all cursor-pointer hover:scale-110 ${isSelected
-                                ? 'bg-blue-500 border-blue-500 text-white'
-                                : 'bg-white/90 border-slate-400 hover:border-blue-400'
-                                }`}
-                        >
-                            {isSelected && <Check size={14} />}
-                        </button>
-                    )}
-
-                    {/* Highlight badge - only show when not in select mode */}
-                    {!gallerySelectMode && highlight && (
-                        <div
-                            className="absolute top-1 left-1 w-3 h-3 rounded-full"
-                            style={{ backgroundColor: highlight.color }}
-                        />
-                    )}
-
-                    {/* Favorite button - visible on hover, stays above overlay (hidden in select mode) */}
-                    {!gallerySelectMode && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                toggleFavorite(url, row);
-                            }}
-                            className={`absolute top-1 right-1 p-1 rounded-full transition-all z-10 ${isFavorited(url)
-                                ? 'bg-amber-400 text-white opacity-100'
-                                : 'bg-black/40 text-white opacity-0 group-hover:opacity-100 hover:bg-amber-400'
-                                }`}
-                            title={isFavorited(url) ? '取消收藏' : '添加收藏'}
-                        >
-                            <Star size={compact ? 10 : 12} fill={isFavorited(url) ? 'currentColor' : 'none'} />
-                        </button>
-                    )}
-
-                    {/* Hover overlay - hidden in select mode */}
-                    {!gallerySelectMode && (
-                        <div className={`absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center ${overlayGap}`}>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedRow(row); }}
-                                className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40 tooltip-bottom`}
-                                data-tip="查看详情"
-                            >
-                                <Info size={buttonSize} className="text-white" />
-                            </button>
-                            {link && (
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); openExternalUrl(link); }}
-                                    className={`${buttonPadding} bg-white/20 rounded-full hover:bg-white/40 tooltip-bottom`}
-                                    data-tip="打开链接"
-                                >
-                                    <ExternalLink size={buttonSize} className="text-white" />
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    {labels.length > 0 && (
-                        <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-1 rounded-b-lg transition-opacity ${config.showLabelOverlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                            <div className="text-[11px] text-white truncate">
-                                {labels.join(' · ')}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Info overlay */}
-                {showMeta && (
-                    <div className="mt-1 space-y-0.5">
-                        {account && (
-                            <div className="text-[9px] text-slate-600 truncate">👤 {account}</div>
-                        )}
-                        {labels.slice(0, 2).map((label, i) => (
-                            <div key={i} className="text-[11px] text-slate-400 truncate">{label}</div>
-                        ))}
-                    </div>
-                )}
-            </div>
+            <ImageCard
+                key={rowId || idx}
+                row={row}
+                imageUrl={url}
+                rowId={rowId}
+                size={size}
+                showMeta={showMeta}
+                compact={compact}
+                isSelected={gallerySelectMode && selectedThumbnails.has(rowId)}
+                favorited={isFavorited(url)}
+                selectMode={gallerySelectMode}
+                highlight={highlight}
+                labels={labels}
+                account={account}
+                link={link}
+                showLabelOverlay={config.showLabelOverlay}
+                thumbnailFit={config.thumbnailFit}
+                onSelect={scheduleThumbnailSelect}
+                onToggleSelect={toggleThumbnailSelection}
+                onDoubleClick={handleThumbnailDoubleClick}
+                onToggleFavorite={toggleFavorite}
+                onViewDetail={setSelectedRow}
+                onOpenLink={openExternalUrl}
+                onContextMenu={handleContextMenu}
+                onDragStart={(e, r, imgUrl) => handleThumbnailDragStart(e, imgUrl, r, rowId)}
+            />
         );
     };
 
