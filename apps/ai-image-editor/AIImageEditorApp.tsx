@@ -8,6 +8,7 @@ import { RightPanel } from './components/RightPanel';
 import { geminiService } from './services/geminiService';
 // FIX: Import TranslationKey and translations to fix undefined variable errors.
 import { TranslationKey, translations } from './i18n';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 type CropBox = { x: number; y: number; width: number; height: number };
 type CanvasSize = { width: number; height: number };
@@ -338,7 +339,8 @@ function AppContent({ presetUser, registerSaveHandler, onSaveStatusChange, textM
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
       }
-      if (!target.closest('.magic-canvas-root')) {
+      const container = document.querySelector('.magic-canvas-root');
+      if (container && container.getBoundingClientRect().width === 0) {
         return;
       }
 
@@ -482,6 +484,7 @@ function AppContent({ presetUser, registerSaveHandler, onSaveStatusChange, textM
       console.error(e);
     } finally {
       setIsGenerating(false);
+      playCompletionSound();
     }
   }, [activeLayer, layers, activeLayerId, t]);
 
@@ -537,6 +540,7 @@ function AppContent({ presetUser, registerSaveHandler, onSaveStatusChange, textM
       console.error(e);
     } finally {
       setIsSynthesizing(false);
+      playCompletionSound();
     }
   }, [layers, canvasSize, t]);
 

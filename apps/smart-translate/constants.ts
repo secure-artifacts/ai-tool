@@ -110,3 +110,95 @@ export const allLanguages = [
     { code: 'yo', name: 'Yorùbá (Yoruba)' },
     { code: 'zu', name: 'isiZulu (Zulu)' }
 ];
+
+export function getLanguageName(code: string): string {
+    const lang = allLanguages.find(l => l.code === code);
+    return lang ? lang.name : code;
+}
+
+// ─── 多引擎模型定义 ──────────────────────────────────────────────────────
+
+export type EngineType = 'google' | 'groq';
+
+export interface ModelDef {
+    id: string;
+    label: string;
+    engine: EngineType;
+    estimatedRPM: number;
+    description: string;
+    supportsVision: boolean;
+}
+
+/** Google 引擎可选模型（共用 AIza Key） */
+export const GOOGLE_MODELS: ModelDef[] = [
+    {
+        id: 'gemini-3.1-flash-preview-06-24',
+        label: 'Gemini 3.1 Flash',
+        engine: 'google',
+        estimatedRPM: 15,
+        description: '最高质量，推荐',
+        supportsVision: true,
+    },
+    {
+        id: 'gemini-3.1-lite-preview-06-24',
+        label: 'Gemini 3.1 Lite',
+        engine: 'google',
+        estimatedRPM: 15,
+        description: '质量好，省额度',
+        supportsVision: true,
+    },
+    {
+        id: 'gemma-4-31b-it',
+        label: 'Gemma 4 31B',
+        engine: 'google',
+        estimatedRPM: 30,
+        description: '31B Dense · 256K · 30RPM',
+        supportsVision: true,
+    },
+    {
+        id: 'gemma-4-26b-a4b-it',
+        label: 'Gemma 4 26B MoE',
+        engine: 'google',
+        estimatedRPM: 30,
+        description: '26B MoE · 256K · 30RPM',
+        supportsVision: true,
+    },
+];
+
+/** Groq 引擎可选模型（独立 gsk_ Key 池） */
+export const GROQ_MODELS: ModelDef[] = [
+    {
+        id: 'qwen3-32b',
+        label: 'Qwen3 32B',
+        engine: 'groq',
+        estimatedRPM: 30,
+        description: '中文能力强，推荐翻译',
+        supportsVision: false,
+    },
+    {
+        id: 'llama-3.3-70b-versatile',
+        label: 'Llama 3.3 70B',
+        engine: 'groq',
+        estimatedRPM: 30,
+        description: '通用能力强',
+        supportsVision: false,
+    },
+    {
+        id: 'llama-3.1-8b-instant',
+        label: 'Llama 3.1 8B',
+        engine: 'groq',
+        estimatedRPM: 30,
+        description: '极速轻量',
+        supportsVision: false,
+    },
+];
+
+/** 所有模型合集 */
+export const ALL_MODELS: ModelDef[] = [...GOOGLE_MODELS, ...GROQ_MODELS];
+
+/** Groq API 端点 */
+export const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+/** 默认并发数 */
+export const DEFAULT_CONCURRENCY = 10;
+export const MAX_CONCURRENCY = 200;

@@ -24,7 +24,8 @@ export const isFacebookCdn = (url: string): boolean =>
 
 export const processImageUrl = (url: string): string => {
     // [调试挂钩] 发送原始 URL 到我们的 proxy 后台看一下格式
-    try { if (typeof window !== 'undefined') fetch(`/api/image-proxy?url=RAW_URL_LOG:${encodeURIComponent(url)}`).catch(()=>null); } catch(e){}
+    try { if (typeof window !== 'undefined') fetch(`/api/image-proxy?url=RAW_URL_LOG:${encodeURIComponent(url)}`).catch(() => null); } catch (e) { }
+
 
     try {
         const urlObj = new URL(url);
@@ -73,7 +74,7 @@ export const processImageUrl = (url: string): string => {
             // Google Sheets copied images usually have =w100-h125 or =s120 in the pathname.
             // Replace this with =s0 to fetch the original full-resolution image.
             urlObj.pathname = urlObj.pathname.replace(/=[wshd]\d+.*$/i, '=s0');
-            
+
             // Also clean query params if they restrict size (though less common for these hosts)
             if (urlObj.searchParams.has('sz')) urlObj.searchParams.set('sz', 's0');
             urlObj.searchParams.delete('w');
@@ -273,6 +274,104 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
     return results;
 };
 
+// 提取横向多维大表（矩阵模式）：同一列下，以图片为锚点，其下方的格子为它的附属 metadata
+export const parseMatrixHtmlTable = (html: string): { originalUrl: string; fetchUrl: string; matrixColumnIndex: number; metadataRows: string[] }[] => {
+    try {
+        if (typeof DOMParser === 'undefined') return [];
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const tables = Array.from(doc.querySelectorAll('table'));
+        if (tables.length === 0) return [];
+        
+        const results: { originalUrl: string; fetchUrl: string; matrixColumnIndex: number; metadataRows: string[] }[] = [];
+
+        for (const table of tables) {
+            const rows = Array.from(table.querySelectorAll('tr'));
+            const grid: HTMLTableCellElement[][] = rows.map(tr => Array.from(tr.querySelectorAll('td, th')));
+            if (grid.length === 0) continue;
+
+            const maxCols = Math.max(...grid.map(row => row.length));
+
+            for (let c = 0; c < maxCols; c++) {
+                // 1. Identify all rows in this column that contain an anchor (image)
+                const imgIndices: number[] = [];
+                const anchorUrls: string[] = [];
+
+                for (let r = 0; r < grid.length; r++) {
+                    const cell = grid[r][c];
+                    let anchorUrl = '';
+                    if (cell) {
+                        const img = cell.querySelector('img');
+                        if (img && img.getAttribute('src')) {
+                            anchorUrl = decodeHtmlEntities(img.getAttribute('src') || '');
+                        } else {
+                            const f = cell.getAttribute('data-sheets-formula');
+                            if (f && f.includes('IMAGE(')) {
+                                const urls = collectUrlsFromString(decodeHtmlEntities(f));
+                                if (urls.length > 0) anchorUrl = urls[0];
+                            }
+                        }
+                    }
+                    if (anchorUrl) {
+                        imgIndices.push(r);
+                        anchorUrls.push(anchorUrl);
+                    }
+                }
+
+                if (imgIndices.length === 0) continue;
+
+                // 2. Determine layout pattern for this column
+                // If the last row is an image and the first is not, it is likely an "Image at Bottom" pattern
+                let isBottomPattern = false;
+                if (imgIndices[imgIndices.length - 1] === grid.length - 1 && imgIndices[0] !== 0) {
+                    isBottomPattern = true;
+                }
+
+                // 3. Extract metadata according to the pattern
+                for (let i = 0; i < imgIndices.length; i++) {
+                    const rAnchor = imgIndices[i];
+                    const anchorUrl = anchorUrls[i];
+                    const prevAnchor = i > 0 ? imgIndices[i - 1] : -1;
+                    const nextAnchor = i < imgIndices.length - 1 ? imgIndices[i + 1] : grid.length;
+
+                    const metadataRows: string[] = [];
+                    
+                    if (isBottomPattern) {
+                        // Gather rows STRICTLY ABOVE the image
+                        for (let z = prevAnchor + 1; z < rAnchor; z++) {
+                            const metaCell = grid[z][c];
+                            metadataRows.push(metaCell ? (metaCell.textContent || '').trim() : '');
+                        }
+                    } else {
+                        // Top pattern: Gather rows STRICTLY BELOW the image
+                        // For the very first image, also gather any loose heading rows ABOVE it
+                        if (i === 0) {
+                            for (let z = 0; z < rAnchor; z++) {
+                                const metaCell = grid[z][c];
+                                metadataRows.push(metaCell ? (metaCell.textContent || '').trim() : '');
+                            }
+                        }
+                        for (let z = rAnchor + 1; z < nextAnchor; z++) {
+                            const metaCell = grid[z][c];
+                            metadataRows.push(metaCell ? (metaCell.textContent || '').trim() : '');
+                        }
+                    }
+
+                    results.push({
+                        originalUrl: anchorUrl,
+                        fetchUrl: processImageUrl(anchorUrl),
+                        matrixColumnIndex: c,
+                        metadataRows
+                    });
+                }
+            }
+        }
+        return results;
+    } catch (e) {
+        console.error("Error parsing html for matrix extraction:", e);
+        return [];
+    }
+};
+
 // 按表格行分组：同一 <tr> 内的图片归为一组（一张卡片）
 export const extractUrlsFromHtmlGrouped = (html: string): { originalUrl: string; fetchUrl: string }[][] => {
     try {
@@ -383,10 +482,38 @@ export const fetchImageBlob = async (url: string): Promise<{ blob: Blob; mimeTyp
                 const blob = await response.blob();
                 // Some upstreams return application/octet-stream for valid images.
                 // Only reject clear non-image responses.
-                const type = (blob.type || '').toLowerCase();
+                let type = (blob.type || '').toLowerCase();
+                
+                // --- 核心优化：Magic Numbers 魔数探测 ---
+                // 解决 Google Drive 返回 application/octet-stream 导致无法区分图视的问题
+                if (!type || type === 'application/octet-stream') {
+                    const headerBuffer = await blob.slice(0, 16).arrayBuffer();
+                    const header = new Uint8Array(headerBuffer);
+                    
+                    // 常见的视频头探测
+                    const isMp4 = header[4] === 0x66 && header[5] === 0x74 && header[6] === 0x79 && header[7] === 0x70; // 'ftyp'
+                    const isWebm = header[0] === 0x1A && header[1] === 0x45 && header[2] === 0xDF && header[3] === 0xA3; // EBML
+                    const isMov = header[4] === 0x6d && header[5] === 0x6f && header[6] === 0x6f && header[7] === 0x76; // 'moov'
+                    
+                    // 常见的图片头探测
+                    const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47;
+                    const isJpg = header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF;
+                    const isGif = header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46;
+
+                    if (isMp4 || isWebm || isMov) {
+                        type = 'video/mp4'; // 强制修正为视频
+                    } else if (isPng) {
+                        type = 'image/png';
+                    } else if (isJpg) {
+                        type = 'image/jpeg';
+                    } else if (isGif) {
+                        type = 'image/gif';
+                    }
+                }
+
                 const looksInvalidText = type.startsWith('text/') || type.includes('html') || type.includes('xml') || type.includes('json');
                 if (blob.size > 100 && !looksInvalidText) {
-                    return { blob, mimeType: blob.type };
+                    return { blob, mimeType: type };
                 }
             }
         } catch (e) {

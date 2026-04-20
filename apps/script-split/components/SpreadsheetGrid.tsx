@@ -654,7 +654,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
   return (
     <div
-      className="flex-1 overflow-auto relative bg-slate-200 outline-none select-none"
+      className="flex-1 overflow-auto relative bg-slate-950 outline-none select-none"
       ref={containerRef}
       tabIndex={0}
       onKeyDown={handleKeyDown}
@@ -694,13 +694,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       )}
       {/* The Grid Canvas */}
       <div
-        className="inline-block bg-white relative"
+        className="inline-block bg-[#0b1220] relative"
         style={{ minWidth: '100%', minHeight: '100%' }}
       >
         {/* Column Headers */}
-        <div className="flex sticky top-0 z-20 bg-slate-50 shadow-sm">
+        <div className="flex sticky top-0 z-20 bg-[#0b1528] shadow-sm">
           <div
-            className="w-10 h-8 flex-shrink-0 border-r border-b border-slate-300 bg-slate-100 z-30 sticky left-0 cursor-pointer tooltip-bottom"
+            className="w-10 h-8 flex-shrink-0 border-r border-b border-slate-700 bg-[#0f1b33] z-30 sticky left-0 cursor-pointer tooltip-bottom"
             onClick={selectAllGrid}
             data-tip="全选"
           ></div>
@@ -712,8 +712,8 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
               <div
                 key={c}
                 className={`
-                  h-8 flex-shrink-0 border-r border-b border-slate-300 flex items-center justify-center text-xs font-bold select-none cursor-pointer transition-colors relative
-                  ${isColActive ? 'bg-[#107c41] text-white' : (isColInRange ? 'bg-green-100 text-[#107c41]' : 'text-slate-600 hover:bg-slate-100')}
+                  h-8 flex-shrink-0 border-r border-b border-slate-700 flex items-center justify-center text-xs font-bold select-none cursor-pointer transition-colors relative
+                  ${isColActive ? 'bg-[#107c41] text-white' : (isColInRange ? 'bg-emerald-900/55 text-emerald-200' : 'text-slate-200 hover:bg-slate-800')}
                 `}
                 style={{ width: colWidths[c] || DEFAULT_COL_WIDTH, minWidth: 60 }}
                 onClick={(e) => handleColumnHeaderClick(c, e)}
@@ -734,7 +734,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
             <div key={r} className="flex" style={{ height: rowHeights[r] || DEFAULT_ROW_HEIGHT, minHeight: 22 }}>
               {/* Row Header */}
               <div
-                className="w-10 flex-shrink-0 sticky left-0 z-10 bg-slate-50 border-r border-b border-slate-300 flex items-center justify-center text-xs text-slate-500 font-medium select-none cursor-pointer"
+                className="w-10 flex-shrink-0 sticky left-0 z-10 bg-[#0f1b33] border-r border-b border-slate-700 flex items-center justify-center text-xs text-slate-300 font-medium select-none cursor-pointer"
                 onClick={(e) => handleRowHeaderClick(r, e)}
               >
                 <div className="relative w-full h-full flex items-center justify-center">
@@ -753,20 +753,21 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                 const editing = editingCell?.row === r && editingCell?.col === c;
 
                 // Determine borders for selection range outline
-                let borderClasses = "border-r border-b border-slate-200";
+                let borderClasses = "border-r border-b border-slate-700/90";
                 if (selected && !editing) {
                   const { minR, maxR, minC, maxC } = getSelectionBounds(selection!);
-                  if (r === minR) borderClasses += " border-t-2 border-t-blue-500";
-                  if (r === maxR) borderClasses += " border-b-2 border-b-blue-500";
-                  if (c === minC) borderClasses += " border-l-2 border-l-blue-500";
-                  if (c === maxC) borderClasses += " border-r-2 border-r-blue-500";
+                  if (r === minR) borderClasses += " border-t-2 border-t-cyan-400";
+                  if (r === maxR) borderClasses += " border-b-2 border-b-cyan-400";
+                  if (c === minC) borderClasses += " border-l-2 border-l-cyan-400";
+                  if (c === maxC) borderClasses += " border-r-2 border-r-cyan-400";
                 }
 
                 // Get cell background color from styles
                 const cellStyle = cellStyles?.get(cellKey(r, c));
                 const bgColor = cellStyle?.bgColor;
                 // 选中时保持橙色背景，只用边框表示选中
-                const finalBgColor = bgColor || (selected ? '#EFF6FF' : 'white');
+                const finalBgColor = bgColor || (selected ? '#1e3a5f' : '#0f172a');
+                const cellTextColor = bgColor ? '#111827' : '#e5e7eb';
 
                 return (
                   <div
@@ -790,7 +791,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                       <textarea
                         ref={editorRef}
                         autoFocus
-                        className="absolute left-0 top-0 resize-none p-2 text-sm text-slate-900 bg-white focus:outline-none z-50 border-2 border-blue-500 shadow-xl rounded"
+                        className="absolute left-0 top-0 resize-none p-2 text-sm text-slate-100 bg-slate-900 focus:outline-none z-50 border-2 border-cyan-400 shadow-xl rounded"
                         style={{
                           minWidth: Math.max(colWidths[c] || DEFAULT_COL_WIDTH, 300),
                           minHeight: Math.max(rowHeights[r] || DEFAULT_ROW_HEIGHT, 150),
@@ -810,7 +811,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                         }}
                       />
                     ) : (
-                      <div className="w-full h-full px-2 py-1 overflow-hidden pointer-events-none" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#000000' }}>
+                      <div className="w-full h-full px-2 py-1 overflow-hidden pointer-events-none" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: cellTextColor }}>
                         {cellValue}
                       </div>
                     )}

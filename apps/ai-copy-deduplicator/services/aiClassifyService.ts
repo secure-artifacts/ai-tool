@@ -5,7 +5,7 @@
  * 调用 Gemini API 对信仰类短视频文案进行语义分类。
  */
 import { GoogleGenAI } from "@google/genai";
-import { shouldUseAiStudioMode } from '../../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 
 // ==================== 类型 ====================
 
@@ -29,12 +29,19 @@ export interface AiClassifyResult {
     customCategories?: Record<string, string>;
     confidence: number;
     isManual: boolean;
+    extraResults?: Record<string, string>; // 多个自定义指令返回结果（label → result）
 }
 
 export interface AiClassifyProgress {
     current: number;
     total: number;
     status: string;
+}
+
+export interface ExtraInstruction {
+    id: string;
+    label: string;       // 列名（如“关键词”、“改写”）
+    instruction: string; // 指令内容
 }
 
 // ==================== 大类颜色映射 ====================
@@ -60,15 +67,27 @@ function getAiInstance(): GoogleGenAI {
     }
     // 回退：自行创建实例
     const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
-    const keyToUse = storedKey || process.env.API_KEY;
-    if (!keyToUse) {
+    const rawKey = storedKey || (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '';
+    const cleanKey = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
+
+    // AI Studio 环境无需检查 key 即返回实例
+    if (isRunningInAiStudio()) {
+        if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
+        return new GoogleGenAI({ apiKey: cleanKey || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER' });
+    }
+
+    if (!cleanKey) {
         throw new Error('API key 未设置。请先在顶部配置 Google AI API Key。');
     }
-    const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
+    
     if (shouldUseAiStudioMode(cleanKey)) {
         return new GoogleGenAI({ apiKey: cleanKey });
     }
-    return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+    const isVertex = !shouldUseAiStudioMode(cleanKey);
+    if (isVertex) {
+        return new GoogleGenAI({ apiKey: cleanKey, vertexai: true, httpOptions: { baseUrl: 'https://aiplatform.googleapis.com/' } });
+    }
+    return new GoogleGenAI({ apiKey: cleanKey });
 }
 
 // ==================== System Prompt ====================
@@ -601,6 +620,7 @@ export async function classifyWithAI(
         concurrency?: number;
         customRules?: string;
         systemPromptOverride?: string;
+        extraInstructions?: ExtraInstruction[];
         customLevels?: string[];
         model?: string;
         signal?: AbortSignal;
@@ -608,7 +628,7 @@ export async function classifyWithAI(
         onBatchDone?: (results: AiClassifyResult[]) => void;  // 每批完成立即回调
     }
 ): Promise<AiClassifyResult[]> {
-    const { depth, batchSize, customRules, systemPromptOverride, customLevels, onProgress, onBatchDone, signal } = options;
+    const { depth, batchSize, customRules, systemPromptOverride, customLevels, extraInstructions, onProgress, onBatchDone, signal } = options;
     const concurrency = options.concurrency ?? 3;
     const model = options.model ?? 'gemini-3-flash-preview';
 
@@ -632,21 +652,25 @@ export async function classifyWithAI(
 
         try {
             // 自动重试（最多 2 次）
-            const batchResults = await retryClassifyBatch(batchItems, model, depth, customRules, systemPromptOverride, signal, customLevels);
+            const batchResults = await retryClassifyBatch(batchItems, model, depth, customRules, systemPromptOverride, signal, customLevels, extraInstructions);
             allResults.push(...batchResults);
             onBatchDone?.(batchResults);
         } catch (error: any) {
             if (signal?.aborted) return;
             console.error(`批次 ${batchIdx + 1} 分类失败:`, error);
-            // 失败的批次标记为错误
-            const failedResults = batchItems.map((item: AiClassifyItem) => ({
-                ...item,
-                major: '❌ 失败',
-                middle: '分类失败',
-                minor: error?.message?.substring(0, 80) || '未知错误',
-                confidence: 0,
-                isManual: false,
-            }));
+            // 失败的批次标记为错误，在界面大类中直接展示具体原因
+            const failedResults = batchItems.map((item: AiClassifyItem) => {
+                const errMsg = error?.message ? error.message.split('\n')[0].substring(0, 40) : '未知报错原因';
+                return {
+                    ...item,
+                    major: `❌ 失败: ${errMsg}`,
+                    middle: errMsg,
+                    minor: '请查看详细报错或精简内容',
+                    rationale: error?.message || '未知报错原因',
+                    confidence: 0,
+                    isManual: false,
+                };
+            });
             allResults.push(...failedResults);
             onBatchDone?.(failedResults);
         }
@@ -700,6 +724,7 @@ async function retryClassifyBatch(
     systemPromptOverride?: string,
     signal?: AbortSignal,
     customLevels?: string[],
+    extraInstructions?: ExtraInstruction[],
     maxRetries = 2
 ): Promise<AiClassifyResult[]> {
     let lastError: Error | null = null;
@@ -709,7 +734,7 @@ async function retryClassifyBatch(
         if (signal?.aborted) throw new Error('已取消');
 
         try {
-            return await classifyBatch(items, model, depth, customRules, systemPromptOverride, customLevels);
+            return await classifyBatch(items, model, depth, customRules, systemPromptOverride, customLevels, extraInstructions);
         } catch (error: any) {
             lastError = error;
             const errMsg = (error?.message || '').toLowerCase();
@@ -746,7 +771,8 @@ async function classifyBatch(
     depth: 'full' | 'major' | 'custom',
     customRules?: string,
     systemPromptOverride?: string,
-    customLevels?: string[]
+    customLevels?: string[],
+    extraInstructions?: ExtraInstruction[]
 ): Promise<AiClassifyResult[]> {
     const ai = getAiInstance();
 
@@ -792,7 +818,7 @@ ${customRules && customRules.trim() ? `## 用户分类规则与维度列表\n\n$
       "index": 0, // 对应输入文案的 index
       "categories": {
 ${levelsJSON}
-      }
+      }${extraInstructions && extraInstructions.length > 0 ? ',\n      "extras": {\n' + extraInstructions.map(ei => `        "${ei.label}": "根据指令生成的结果"`).join(',\n') + '\n      }' : ''}
     }
   ]
 }`;
@@ -800,6 +826,10 @@ ${levelsJSON}
         if (customRules && customRules.trim()) {
             systemPrompt += `\n\n## 五、用户自定义分类规则（优先级高于内置规则）\n\n以下是用户追加的自定义分类。如果文案符合这些规则，优先使用自定义分类。自定义分类可以是新的大类、中类或小类。\n\n${customRules.trim()}`;
         }
+    }
+    // 添加额外自定义指令
+    if (extraInstructions && extraInstructions.length > 0) {
+        systemPrompt += `\n\n## 额外指令（每条文案都需要执行）\n\n除了分类之外，你还需要对每条文案执行以下指令，将结果放入 extras 对象中对应的键内：\n\n${extraInstructions.map(ei => `[${ei.label}]: ${ei.instruction}`).join('\n\n')}\n\n请修改你的输出格式，确保返回的 JSON 中每一个结果对象都包含 "extras" 对象，如：\n{\n  "index": 1,\n  ...(原分类字段),\n  "extras": {\n${extraInstructions.map(ei => `    "${ei.label}": "你的回答"`).join(',\n')}\n  }\n}`;
     }
 
     const result = await ai.models.generateContent({
@@ -879,6 +909,7 @@ ${levelsJSON}
                 customCategories,
                 confidence: Math.min(1, Math.max(0, aiResult.confidence || 0.5)),
                 isManual: false,
+                extraResults: typeof aiResult.extras === 'object' && aiResult.extras !== null ? aiResult.extras : undefined,
             });
         } else {
             // AI 未返回该条的结果

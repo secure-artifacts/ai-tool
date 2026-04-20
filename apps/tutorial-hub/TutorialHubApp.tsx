@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { Search, Upload, Sparkles, ExternalLink, Loader2, Tag, X, RotateCcw, Copy, Check, FolderOpen, ChevronRight, Grid3X3, List, BookOpen, Link2, RefreshCw, Zap, Sun, Moon, Leaf, Download, FileUp } from 'lucide-react';
 import type { GoogleGenAI } from '@google/genai';
 import { DEFAULT_TUTORIAL_CATEGORIES } from './defaultCategories';
+import { getGlobalTextModel } from '@/utils/getTextModel';
 
 // ===== localStorage keys =====
 const LS_KEY_URL = 'tutorial_hub_sheet_url';
@@ -703,7 +704,7 @@ ${entryTexts}
 请只返回相关教程的序号，用逗号分隔。如果没有相关的，返回“无”。
 示例：1,3,5,8`;
 
-            const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+            const response = await ai.models.generateContent({ model: getGlobalTextModel(), contents: prompt });
             const text = (response.text || '').trim();
             if (text === '无' || !text) {
                 setAiSearchResults(new Set());
@@ -836,7 +837,7 @@ ${tutorialList}
 ...
 只返回序号、大类和子分类，不要返回其他内容。`;
 
-            const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+            const response = await ai.models.generateContent({ model: getGlobalTextModel(), contents: prompt });
             const text = response.text || '';
             const lines = text.trim().split('\n');
             const categoryMap = new Map<number, { main: string; sub: string }>();

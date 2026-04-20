@@ -11,7 +11,7 @@ const getAiInstance = () => {
 
   // 回退：自行创建实例
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
-  const rawKey = storedKey || process.env.API_KEY || '';
+  const rawKey = storedKey || (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '';
   const cleanKey = rawKey.trim().replace(/[^\x20-\x7E]/g, '');
 
   // AI Studio 环境：平台内部处理认证
@@ -20,7 +20,7 @@ const getAiInstance = () => {
       return new GoogleGenAI({ apiKey: cleanKey });
     }
     // 无 key 时让 SDK 自动使用 AI Studio 内部认证
-    return new GoogleGenAI({});
+    return new GoogleGenAI({ apiKey: cleanKey || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER' });
   }
 
   // 非 AI Studio 模式：必须有 key
@@ -31,15 +31,19 @@ const getAiInstance = () => {
   if (shouldUseAiStudioMode(cleanKey)) {
     return new GoogleGenAI({ apiKey: cleanKey });
   }
+  const isVertex = !shouldUseAiStudioMode(cleanKey);
+  if (isVertex) {
+    return new GoogleGenAI({ apiKey: cleanKey, vertexai: true, httpOptions: { baseUrl: 'https://aiplatform.googleapis.com/' } });
+  }
   // 其他 key → Vertex AI 模式
-  return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+  return new GoogleGenAI({ apiKey: cleanKey });
 };
 
 const isAiStudioMode = (): boolean => {
   // AI Studio 环境始终返回 true
   if (isRunningInAiStudio()) return true;
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem('user_api_key') : null;
-  const keyToUse = storedKey || process.env.API_KEY || '';
+  const keyToUse = storedKey || (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '';
   return shouldUseAiStudioMode(keyToUse.trim());
 };
 

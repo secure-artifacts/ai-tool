@@ -3,6 +3,7 @@ import { useToast } from '@/components/ui/Toast';
 import type { GoogleGenAI } from '@google/genai';
 import { parsePasteInput, fetchImageBlob, extractUrlsFromHtml, convertBlobToBase64, processImageUrl } from '@/apps/ai-image-recognition/utils';
 import './ImageTextExtractor.css';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 interface ImageTextExtractorAppProps {
     getAiInstance: () => GoogleGenAI;
@@ -221,10 +222,10 @@ const ImageTextExtractorApp: React.FC<ImageTextExtractorAppProps> = ({ getAiInst
             const rect = container.getBoundingClientRect();
             if (rect.width <= 0 || rect.height <= 0) return;
 
-            // 检查粘贴目标是否在本组件内
+            // 检查粘贴目标是否在本组件内（为了隔离不同工具）
+            // 注意：我们通过 visibility (width > 0) 已经做了很好的隔离。不再检查 contains(body) 的情况。
             const pasteTarget = e.target as Node;
-            if (!container.contains(pasteTarget)) return;
-
+            
             // 如果粘贴目标是普通输入框（非 URL 输入区），允许正常粘贴
             const targetEl = e.target as HTMLElement;
             const isUrlTextarea = targetEl.classList.contains('ite-url-textarea');
@@ -792,6 +793,7 @@ ${extraNotes}
         setIsProcessing(false);
         if (!abortRef.current) {
             toast.success(`处理完成！共 ${completed} 张（${totalBatches} 个批次）`);
+            playCompletionSound();
         }
     };
 

@@ -24,6 +24,63 @@ function trimLeadingEmptyLines(text: string): string {
   return lines.join('\n');
 }
 
+function cleanBlankLines(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const newLines: string[] = [];
+  let blank = false;
+  for (const line of lines) {
+    if (line.trim() === '') {
+      if (!blank) {
+        newLines.push('');
+        blank = true;
+      }
+    } else {
+      newLines.push(line);
+      blank = false;
+    }
+  }
+  return newLines.join('\n');
+}
+
+export function autoWrapText(text: string, width: number = 18): string {
+  const paragraphs = text.trim().split(/\n\s*\n/);
+  const wrappedResult: string[] = [];
+
+  for (const para of paragraphs) {
+    const words = para.trim().split(/\s+/);
+    if (!words || (words.length === 1 && words[0] === '')) continue;
+
+    let line = '';
+    for (const word of words) {
+      if (!line) {
+        line = word;
+      } else if (line.length + 1 + word.length <= width) {
+        line += ' ' + word;
+      } else {
+        wrappedResult.push(line);
+        line = word;
+      }
+
+      const lastChar = line.slice(-1);
+      if (line && [':', '.', '?', '!'].includes(lastChar)) {
+        wrappedResult.push(line);
+        line = '';
+      }
+    }
+
+    if (line) {
+      wrappedResult.push(line);
+    }
+    wrappedResult.push('');
+  }
+
+  while (wrappedResult.length > 0 && wrappedResult[wrappedResult.length - 1] === '') {
+    wrappedResult.pop();
+  }
+
+  return cleanBlankLines(wrappedResult.join('\n'));
+}
+
 function splitThreeParts(text: string) {
   text = (text || '').toString().trim();
   if (!text) return { title: '', content: '', ending: '' };
@@ -318,6 +375,57 @@ export const processGrid = (
       updatedCols.push(-5000 - cleanedCount); // Signal: cleaned count
     }
   }
+  else if (tool === ToolType.CleanEmojis) {
+    // 自动删除表情符号（包含各类 emoji 和部分常见特殊符号）
+    // regex 说明：匹配绝大部分 emoji 字符区间
+    const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{200D}\u{FE0F}]/gu;
+    
+    // 找出有内容的源列，从右往左处理（避免列偏移，确保新列在原列右侧）
+    const sourceColsWithContent: Set<number> = new Set();
+    for (let c = minC; c <= maxC; c++) {
+      for (let r = minR; r <= maxR; r++) {
+        if ((newGrid[r]?.[c] || '').trim()) {
+          sourceColsWithContent.add(c);
+          break; // 列只要有内容就加入处理，检查下一列
+        }
+      }
+    }
+
+    let cleanedCount = 0;
+    const sortedSrcCols = Array.from(sourceColsWithContent).sort((a, b) => b - a);
+
+    for (const srcCol of sortedSrcCols) {
+      for (let r = minR; r <= maxR; r++) {
+        if (!newGrid[r]) newGrid[r] = [];
+        const val = newGrid[r][srcCol] || '';
+        
+        while (newGrid[r].length <= srcCol + 1) newGrid[r].push('');
+
+        if (val) {
+          const cleaned = val
+            .replace(emojiRegex, '')
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/^[ \t]+|[ \t]+$/gm, '');
+
+          if (cleaned !== val) cleanedCount++;
+          newGrid[r][srcCol + 1] = cleaned;
+        } else {
+          newGrid[r][srcCol + 1] = '';
+        }
+
+        // 如果用户选择了“删除原文”，则清空原列
+        if (clearSource) {
+           newGrid[r][srcCol] = '';
+        }
+      }
+      if (!updatedCols.includes(srcCol + 1)) updatedCols.push(srcCol + 1);
+      if (clearSource && !updatedCols.includes(srcCol)) updatedCols.push(srcCol);
+    }
+    
+    if (cleanedCount > 0) {
+      updatedCols.push(-6000 - cleanedCount); // Signal: emoji cleaned count
+    }
+  }
   else if (tool === ToolType.ClearChinese) {
     // Delete cells that contain Chinese HANZI characters (only in selected area)
     // Only match actual Chinese characters (CJK Unified Ideographs), NOT punctuation
@@ -383,6 +491,32 @@ export const processGrid = (
 
     // Store stats using special negative value convention
     updatedCols.push(-3000 - (promptIndex - 1));  // Signal: total cells updated
+  }
+  else if (tool === ToolType.AutoWrap) {
+    // 自动断行：结果输出到右侧相邻列，原文保持不变
+    const width = options.lineWidth || 18;
+
+    // 找出有内容的源列，从右往左处理（避免列偏移）
+    const sourceColsWithContent: Set<number> = new Set();
+    for (let c = minC; c <= maxC; c++) {
+      for (let r = minR; r <= maxR; r++) {
+        if ((newGrid[r]?.[c] || '').trim()) {
+          sourceColsWithContent.add(c);
+          break;
+        }
+      }
+    }
+
+    const sortedSrcCols = Array.from(sourceColsWithContent).sort((a, b) => b - a);
+    for (const srcCol of sortedSrcCols) {
+      for (let r = minR; r <= maxR; r++) {
+        if (!newGrid[r]) newGrid[r] = [];
+        const val = newGrid[r][srcCol] || '';
+        while (newGrid[r].length <= srcCol + 1) newGrid[r].push('');
+        newGrid[r][srcCol + 1] = val.trim() ? autoWrapText(val, width) : '';
+      }
+      if (!updatedCols.includes(srcCol + 1)) updatedCols.push(srcCol + 1);
+    }
   }
   else {
     // Split/Prompt Logic:

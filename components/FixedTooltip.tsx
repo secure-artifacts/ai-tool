@@ -5,10 +5,10 @@
  * 
  * 使用方法：
  * 1. 在应用根部添加 <FixedTooltipProvider>
- * 2. 给需要 tooltip 的元素添加 data-tooltip="提示文字" 属性
+ * 2. 给需要 tooltip 的元素添加 data-tip / data-tooltip / title 属性
  * 
  * 示例：
- * <button data-tooltip="这是一个提示">按钮</button>
+ * <button data-tip="这是一个提示">按钮</button>
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
@@ -111,23 +111,51 @@ export const FixedTooltipProvider: React.FC<FixedTooltipProviderProps> = ({
         setTooltip(prev => ({ ...prev, visible: false }));
     }, []);
 
-    // 全局事件监听 - 自动处理带有 data-tooltip 属性的元素
+    // 全局事件监听 - 自动处理带有 data-tip / data-tooltip / title 的元素
     useEffect(() => {
+        const TOOLTIP_SELECTOR = '[data-tooltip], [data-tip], [title], [data-fixed-tooltip-title]';
+
         const handleMouseEnter = (e: MouseEvent) => {
             const target = e.target;
             if (!(target instanceof Element)) return;
+            const element = (target.closest(TOOLTIP_SELECTOR) || target) as HTMLElement;
+            if (!element) return;
 
-            const tooltipText = target.getAttribute('data-tooltip') || target.closest('[data-tooltip]')?.getAttribute('data-tooltip');
+            const dataTooltip = element.getAttribute('data-tooltip');
+            const dataTip = element.getAttribute('data-tip');
+            const title = element.getAttribute('title');
+            const tooltipText = dataTooltip || dataTip || title;
+            if (!tooltipText) return;
 
-            if (tooltipText) {
-                const element = (target.closest('[data-tooltip]') || target) as HTMLElement;
-                showTooltip(tooltipText, element);
+            // 若来自 title，先临时移除，避免浏览器原生 tooltip 与自定义 tooltip 重叠
+            if (!dataTooltip && !dataTip && title) {
+                element.setAttribute('data-fixed-tooltip-title', title);
+                element.removeAttribute('title');
             }
+
+            showTooltip(tooltipText, element);
         };
 
         const handleMouseLeave = (e: MouseEvent) => {
             const target = e.target;
-            if (target instanceof Element && (target.hasAttribute('data-tooltip') || target.closest('[data-tooltip]'))) {
+            if (!(target instanceof Element)) return;
+
+            const element = (target.closest(TOOLTIP_SELECTOR) || target) as HTMLElement;
+            if (!element) return;
+
+            // 还原被临时移除的 title
+            const cachedTitle = element.getAttribute('data-fixed-tooltip-title');
+            if (cachedTitle && !element.getAttribute('title')) {
+                element.setAttribute('title', cachedTitle);
+                element.removeAttribute('data-fixed-tooltip-title');
+            }
+
+            if (
+                element.hasAttribute('data-tooltip')
+                || element.hasAttribute('data-tip')
+                || element.hasAttribute('data-fixed-tooltip-title')
+                || element.hasAttribute('title')
+            ) {
                 hideTooltip();
             }
         };
@@ -141,6 +169,14 @@ export const FixedTooltipProvider: React.FC<FixedTooltipProviderProps> = ({
             document.removeEventListener('mouseleave', handleMouseLeave, true);
         };
     }, [showTooltip, hideTooltip]);
+
+    // 标记全局 fixed tooltip 模式，供全局 CSS 关闭旧伪元素 tooltip
+    useEffect(() => {
+        document.documentElement.classList.add('fixed-tooltip-enabled');
+        return () => {
+            document.documentElement.classList.remove('fixed-tooltip-enabled');
+        };
+    }, []);
 
     // 清理
     useEffect(() => {

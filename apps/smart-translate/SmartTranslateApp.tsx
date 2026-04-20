@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
 import { Copy, Check, FileText, Globe, Languages, RefreshCw, Plus, FolderOpen, Pencil } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
-import { shouldUseAiStudioMode } from '../../utils/aiStudioDetect';
+import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../utils/aiStudioDetect';
 import './SmartTranslateApp.css';
 import { InstantTranslateTool } from './InstantTranslateTool';
-import { allLanguages } from './constants';
+import { smartTranslateSingleItem } from './services/smartTranslateCore';
+import { groqTranslateBatch } from './services/groqService';
+import { allLanguages, GOOGLE_MODELS, GROQ_MODELS, ALL_MODELS, DEFAULT_CONCURRENCY, MAX_CONCURRENCY, type ModelDef, type EngineType } from './constants';
 import { LanguageSelector } from './LanguageSelector';
 import { fetchImageBlob, processImageUrl, decodeHtmlEntities } from '@/apps/ai-image-recognition/utils';
 import {
@@ -19,6 +21,7 @@ import {
     createProject,
     getOrCreateSharedProject
 } from '../../services/projectService';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 // --- Constants ---
 const DEFAULT_GYAZO_TOKEN = 'W0SHYCmn38FEoNQEdu7GwT1bOJP84TjQadGjlSgbG6I';
@@ -396,28 +399,36 @@ const ApiProvider: React.FC<ApiProviderProps> = ({ children, external }) => {
         }
     };
 
-    const getEnvApiKey = () => {
-        if (typeof import.meta !== 'undefined' && import.meta.env) {
-            return (import.meta.env.VITE_GEMINI_API_KEY as string | undefined) || '';
-        }
-        return '';
-    };
-
     const getAiInstance = () => {
-        const envKey = getEnvApiKey();
+        if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+            return (window as any).__app_get_ai_instance();
+        }
+        
+        const envKey = (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '';
         const keyToUse = apiKey || envKey;
-        if (!keyToUse) {
+        if (!keyToUse && !isRunningInAiStudio()) {
             throw new Error('API key is not set.');
         }
-        // 自动检测：AIza 开头 或 AI Studio 环境 = AI Studio 模式
+        // AI Studio 环境
+        if (isRunningInAiStudio()) {
+            const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
+            if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
+            return new GoogleGenAI({ apiKey: cleanKey || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER' });
+        }
+
+        // 自动检测：AIza 开头 = AI Studio 模式
         const cleanKey = keyToUse.trim().replace(/[^\x20-\x7E]/g, '');
         if (shouldUseAiStudioMode(cleanKey)) {
-            return new GoogleGenAI({ apiKey: cleanKey });
-        }
-        return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+        return new GoogleGenAI({ apiKey: cleanKey });
+    }
+    const isVertex = !shouldUseAiStudioMode(cleanKey);
+    if (isVertex) {
+        return new GoogleGenAI({ apiKey: cleanKey, vertexai: true, httpOptions: { baseUrl: 'https://aiplatform.googleapis.com/' } });
+    }
+    return new GoogleGenAI({ apiKey: cleanKey });
     };
 
-    const isKeySet = !!(apiKey || getEnvApiKey());
+    const isKeySet = !!(apiKey || ((typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '') || isRunningInAiStudio());
 
     return (
         <ApiContext.Provider value={{ apiKey, setApiKey, gyazoToken, setGyazoToken, getAiInstance, isKeySet, isSettingsOpen, setSettingsOpen, allowApiKeySettings }}>
@@ -1537,6 +1548,124 @@ const TranslateTool = ({
         setBatchSize(clamped);
         try { localStorage.setItem(BATCH_SIZE_KEY, String(clamped)); } catch { }
     };
+
+    // ─── 多引擎并发控制 ───────────────────────────────────────────────
+    const CONCURRENCY_KEY = 'smart_translate_concurrency';
+    const GOOGLE_MODEL_KEY = 'smart_translate_google_model';
+    const GROQ_MODEL_KEY = 'smart_translate_groq_model';
+    const GROQ_KEYS_KEY = 'smart_translate_groq_keys';
+
+    const [concurrency, setConcurrency] = useState(() => {
+        try { const v = localStorage.getItem(CONCURRENCY_KEY); return v ? Math.max(1, Math.min(MAX_CONCURRENCY, parseInt(v))) : DEFAULT_CONCURRENCY; } catch { return DEFAULT_CONCURRENCY; }
+    });
+    const handleConcurrencyChange = (val: number) => {
+        const clamped = Math.max(1, Math.min(MAX_CONCURRENCY, isNaN(val) ? DEFAULT_CONCURRENCY : val));
+        setConcurrency(clamped);
+        try { localStorage.setItem(CONCURRENCY_KEY, String(clamped)); } catch { }
+    };
+
+    // Google 引擎模型选择（覆盖 textModel）
+    const [googleModel, setGoogleModel] = useState(() => {
+        try { return localStorage.getItem(GOOGLE_MODEL_KEY) || ''; } catch { return ''; }
+    });
+    const handleGoogleModelChange = (modelId: string) => {
+        setGoogleModel(modelId);
+        try { localStorage.setItem(GOOGLE_MODEL_KEY, modelId); } catch { }
+    };
+    // 实际使用的 Google 模型：用户选了就用选的，否则用 props 传入的 textModel
+    const effectiveGoogleModel = googleModel || textModel;
+
+    // Groq 引擎模型选择
+    const [groqModel, setGroqModel] = useState(() => {
+        try { return localStorage.getItem(GROQ_MODEL_KEY) || 'qwen3-32b'; } catch { return 'qwen3-32b'; }
+    });
+    const handleGroqModelChange = (modelId: string) => {
+        setGroqModel(modelId);
+        try { localStorage.setItem(GROQ_MODEL_KEY, modelId); } catch { }
+    };
+
+    // Groq API Keys（本地手动添加的）
+    const [groqKeys, setGroqKeys] = useState<string[]>(() => {
+        try { const v = localStorage.getItem(GROQ_KEYS_KEY); return v ? JSON.parse(v) : []; } catch { return []; }
+    });
+    const addGroqKey = (key: string) => {
+        const trimmed = key.trim();
+        if (!trimmed || groqKeys.includes(trimmed)) return;
+        const next = [...groqKeys, trimmed];
+        setGroqKeys(next);
+        try { localStorage.setItem(GROQ_KEYS_KEY, JSON.stringify(next)); } catch { }
+    };
+    const removeGroqKey = (key: string) => {
+        const next = groqKeys.filter(k => k !== key);
+        setGroqKeys(next);
+        try { localStorage.setItem(GROQ_KEYS_KEY, JSON.stringify(next)); } catch { }
+    };
+
+    // 监听全局 Groq Key 变更（从 API 设置弹窗修改时同步）
+    useEffect(() => {
+        const handler = (e: CustomEvent) => {
+            setGroqKeys(e.detail || []);
+        };
+        window.addEventListener('groqKeysChanged', handler as EventListener);
+        return () => window.removeEventListener('groqKeysChanged', handler as EventListener);
+    }, []);
+
+    // Groq Key 限流状态（运行时，不持久化）
+    const groqKeyStatsRef = useRef<Map<string, { failedAt: number | null }>>(new Map());
+    const groqKeyIndexRef = useRef(0);
+
+    const acquireGroqKey = (): string | null => {
+        if (groqKeys.length === 0) return null;
+        const now = Date.now();
+        const cooldownMs = 60000;
+        for (let i = 0; i < groqKeys.length; i++) {
+            const idx = (groqKeyIndexRef.current + i) % groqKeys.length;
+            const key = groqKeys[idx];
+            const stats = groqKeyStatsRef.current.get(key);
+            if (!stats || !stats.failedAt || (now - stats.failedAt >= cooldownMs)) {
+                groqKeyIndexRef.current = (idx + 1) % groqKeys.length;
+                return key;
+            }
+        }
+        return null; // all in cooldown
+    };
+
+    const markGroqKeyFailed = (key: string) => {
+        groqKeyStatsRef.current.set(key, { failedAt: Date.now() });
+    };
+
+    // 翻译速度统计
+    const [translateSpeed, setTranslateSpeed] = useState(0);
+    const speedCounterRef = useRef({ count: 0, startTime: 0 });
+
+    // 根据模型 + 文案内容长度 智能推荐最大批次大小
+    const modelBatchHint = useMemo(() => {
+        const m = effectiveGoogleModel.toLowerCase();
+        // 模型基础容量上限
+        let baseMax: number;
+        let label: string;
+        if (m.includes('lite')) { baseMax = 12; label = 'Lite'; }
+        else if (m.includes('flash')) { baseMax = 25; label = 'Flash'; }
+        else if (m.includes('pro')) { baseMax = 50; label = 'Pro'; }
+        else if (m.includes('gemma')) { baseMax = 20; label = 'Gemma'; }
+        else { baseMax = 20; label = '默认'; }
+
+        // 根据待翻译文案的平均长度动态下调
+        const pendingItems = items.filter(i => i.status === 'idle' || i.status === 'success');
+        if (pendingItems.length > 0) {
+            const avgLen = pendingItems.reduce((sum, i) => sum + ((i.originalText || i.content || '').length), 0) / pendingItems.length;
+            // 短文案 (<80字): 维持原值; 中文案 (80-300字): 下调30%; 长文案 (300-800字): 下调50%; 超长文案 (>800字): 下调70%
+            let factor = 1;
+            if (avgLen > 800) factor = 0.3;
+            else if (avgLen > 300) factor = 0.5;
+            else if (avgLen > 80) factor = 0.7;
+            const adjusted = Math.max(3, Math.round(baseMax * factor));
+            const reason = avgLen > 800 ? '超长文案' : avgLen > 300 ? '长文案' : avgLen > 80 ? '中等文案' : '';
+            return { max: adjusted, label, reason, avgLen: Math.round(avgLen), baseMax };
+        }
+        return { max: baseMax, label, reason: '', avgLen: 0, baseMax };
+    }, [effectiveGoogleModel, items]);
+    const isBatchSizeOverRecommended = batchSize > modelBatchHint.max;
     const processingIdsRef = useRef<Set<string>>(new Set());
     const activeWorkersRef = useRef(0);
     const stopRef = useRef(false);
@@ -1848,7 +1977,8 @@ const TranslateTool = ({
         // 防止重复调度
         if (activeWorkersRef.current > 0) return;
 
-        const ai = getAiInstance();
+        const currentItems = items;
+
         const isChineseOnly = effectiveBatchLanguages.length === 0;
         const targetLangSpecs = effectiveBatchLanguages
             .map(code => `${getLanguageName(code)} (${code})`)
@@ -1878,8 +2008,9 @@ const TranslateTool = ({
             let lastError: any = null;
             for (let attempt = 0; attempt < 4; attempt++) {
                 try {
+                    const ai = getAiInstance();
                     const response = await ai.models.generateContent({
-                        model: textModel,
+                        model: effectiveGoogleModel,
                         contents: {
                             role: 'user',
                             parts: [
@@ -1979,9 +2110,10 @@ ${numberedTexts}`;
             const MAX_TRANSLATE_RETRIES = 3;
             for (let attempt = 0; attempt <= MAX_TRANSLATE_RETRIES; attempt++) {
             try {
+                const ai = getAiInstance();
                 const translateResponse = await retryOnEmpty(
                     () => ai.models.generateContent({
-                        model: textModel,
+                        model: effectiveGoogleModel,
                         contents: translatePrompt
                     }),
                     (response) => !response.text?.trim(),
@@ -2011,6 +2143,8 @@ ${numberedTexts}`;
                 }
 
                 // 映射结果到各项
+                const retryQueue: { id: string; text: string }[] = []; // 中文后验失败的条目
+
                 batch.forEach((b, i) => {
                     const parsed = results[i];
                     if (!parsed) {
@@ -2046,6 +2180,26 @@ ${numberedTexts}`;
                         (translations && Object.values(translations).some(v => v?.trim())) ||
                         chineseText.trim();
 
+                    // 🔍 中文后验：检测返回的"中文"字段是否真的包含汉字
+                    const hasChinese = (text: string) => /[\u4e00-\u9fff]/.test(text);
+                    const sourceIsNotChinese = detectedLanguage && !detectedLanguage.includes('中') && !detectedLanguage.toLowerCase().includes('chinese');
+                    const chineseFieldInvalid = chineseText.trim() && sourceIsNotChinese && !hasChinese(chineseText);
+
+                    if (chineseFieldInvalid) {
+                        // 中文字段没有汉字 → AI偷懒抄了原文，加入重试队列
+                        console.warn(`[后验] 条目 "${b.text.slice(0, 30)}..." 的中文字段无汉字，将单独重试`);
+                        retryQueue.push(b);
+                        // 先暂存当前结果（译文可能是对的，只是中文不对）
+                        updateItemById(b.id, {
+                            status: 'processing_translate',
+                            translatedText,
+                            chineseText: '', // 清空错误的中文
+                            translations,
+                            detectedLanguage,
+                        });
+                        return;
+                    }
+
                     updateItemById(b.id, {
                         status: hasTranslation ? 'success' : 'error',
                         translatedText,
@@ -2055,6 +2209,28 @@ ${numberedTexts}`;
                         ...(hasTranslation ? {} : { error: '翻译结果为空' })
                     });
                 });
+
+                // 🔄 对后验失败的条目逐条重试中文翻译
+                for (const retryItem of retryQueue) {
+                    if (stopRef.current) break;
+                    try {
+                        const ai = getAiInstance();
+                        const retryPrompt = `Translate the following text into Chinese (Simplified). Return ONLY the Chinese translation, nothing else.\n\nText:\n"""\n${retryItem.text}\n"""`;
+                        const retryResponse = await ai.models.generateContent({
+                            model: effectiveGoogleModel,
+                            contents: retryPrompt
+                        });
+                        const retryChinese = (retryResponse.text || '').trim();
+                        if (retryChinese && /[\u4e00-\u9fff]/.test(retryChinese)) {
+                            updateItemById(retryItem.id, { status: 'success', chineseText: retryChinese });
+                        } else {
+                            updateItemById(retryItem.id, { status: 'success', chineseText: `[未能翻译为中文] ${retryChinese || ''}` });
+                        }
+                    } catch (retryErr: any) {
+                        console.error('[后验重试] 失败:', retryErr);
+                        updateItemById(retryItem.id, { status: 'success', chineseText: '[中文翻译重试失败]' });
+                    }
+                }
 
                 break; // 成功，跳出重试循环
 
@@ -2077,13 +2253,13 @@ ${numberedTexts}`;
         const runBatchProcess = async () => {
             activeWorkersRef.current = 1;
 
-            const idleItems = items.filter(i => i.status === 'idle' && !processingIdsRef.current.has(i.id));
+            const idleItems = currentItems.filter(i => i.status === 'idle' && !processingIdsRef.current.has(i.id));
             if (idleItems.length === 0) {
-                const uploadingCount = items.filter(i => i.status === 'processing_upload').length;
+                const uploadingCount = currentItems.filter(i => i.status === 'processing_upload').length;
                 if (uploadingCount === 0) {
-                    activeWorkersRef.current = 0;
                     setIsProcessing(false);
                 }
+                activeWorkersRef.current = 0;
                 return;
             }
 
@@ -2124,12 +2300,76 @@ ${numberedTexts}`;
                 ...ocrResults
             ];
 
-            // 3. 分批翻译（每批 batchSize 条）
+            // 3. 高并发翻译（动态 Worker 数 + 双引擎）
+            speedCounterRef.current = { count: 0, startTime: Date.now() };
+            let batchIndex = 0;
+            const allBatches: { id: string; text: string }[][] = [];
             for (let i = 0; i < allToTranslate.length; i += batchSize) {
-                if (stopRef.current) break;
-                const batch = allToTranslate.slice(i, i + batchSize);
-                await translateBatch(batch);
+                allBatches.push(allToTranslate.slice(i, i + batchSize));
             }
+
+            const runWorker = async (workerId: number) => {
+                while (!stopRef.current) {
+                    const idx = batchIndex++;
+                    if (idx >= allBatches.length) break;
+                    const batch = allBatches[idx];
+
+                    // 尝试用 Groq 引擎（如果有可用 Groq Key 且批次为纯文本）
+                    const groqKey = acquireGroqKey();
+                    if (groqKey) {
+                        try {
+                            batch.forEach(b => updateItemById(b.id, { status: 'processing_translate' }));
+                            const groqResults = await groqTranslateBatch(
+                                groqKey,
+                                groqModel,
+                                batch,
+                                effectiveBatchLanguages,
+                                batchCleanupMode,
+                                customInstruction
+                            );
+                            groqResults.forEach((result, i) => {
+                                if (i < batch.length) {
+                                    const hasTranslation = !!(result.chineseText || result.translatedText);
+                                    updateItemById(batch[i].id, {
+                                        status: hasTranslation ? 'success' : 'error',
+                                        translatedText: result.translatedText,
+                                        chineseText: result.chineseText,
+                                        translations: result.translations,
+                                        detectedLanguage: result.detectedLanguage,
+                                        ...(hasTranslation ? {} : { error: 'Groq 翻译结果为空' })
+                                    });
+                                }
+                            });
+                            speedCounterRef.current.count += batch.length;
+                            const elapsed = (Date.now() - speedCounterRef.current.startTime) / 60000;
+                            if (elapsed > 0) setTranslateSpeed(Math.round(speedCounterRef.current.count / elapsed));
+                            continue; // Groq 成功，继续下一批
+                        } catch (groqErr: any) {
+                            const is429 = groqErr?.message?.includes('429');
+                            if (is429) {
+                                markGroqKeyFailed(groqKey);
+                                console.warn(`[Worker ${workerId}] Groq 429, fallback to Google`);
+                            } else {
+                                console.error(`[Worker ${workerId}] Groq error:`, groqErr);
+                            }
+                            // Groq 失败，fallback 到 Google 引擎
+                        }
+                    }
+
+                    // Google 引擎翻译（默认路径）
+                    await translateBatch(batch);
+                    speedCounterRef.current.count += batch.length;
+                    const elapsed = (Date.now() - speedCounterRef.current.startTime) / 60000;
+                    if (elapsed > 0) setTranslateSpeed(Math.round(speedCounterRef.current.count / elapsed));
+                }
+            };
+
+            const workerCount = Math.min(concurrency, allBatches.length);
+            console.log(`[翻译引擎] 启动 ${workerCount} 个 Worker, ${allBatches.length} 个批次, Google模型=${effectiveGoogleModel}, Groq模型=${groqModel}, GroqKeys=${groqKeys.length}`);
+
+            await Promise.allSettled(
+                Array.from({ length: workerCount }, (_, i) => runWorker(i))
+            );
 
             // 如果被停止，不自动完成
             if (stopRef.current) {
@@ -2141,10 +2381,12 @@ ${numberedTexts}`;
             // 清理
             idleItems.forEach(i => processingIdsRef.current.delete(i.id));
             activeWorkersRef.current = 0;
+            playCompletionSound();
         };
 
         runBatchProcess();
-    }, [items, isProcessing, effectiveBatchLanguages, primaryBatchLanguage, getAiInstance, t, textModel, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isProcessing, items, effectiveBatchLanguages, primaryBatchLanguage, getAiInstance, t, effectiveGoogleModel, groqModel, groqKeys, concurrency, user]);
 
 
     // Event Handlers
@@ -2159,7 +2401,8 @@ ${numberedTexts}`;
         const target = e.target as HTMLElement;
 
         // ===== 隔离检查：避免拦截其他工具的粘贴事件 =====
-        if (!target.closest('.smart-translate-app')) {
+        const container = document.querySelector('.smart-translate-app');
+        if (container && container.getBoundingClientRect().width === 0) {
             return;
         }
 
@@ -2413,131 +2656,14 @@ ${numberedTexts}`;
 
         try {
             // 第一步：翻译（多语种 + 中文）
-            const cleanupNote = batchCleanupMode ? `\nNOTE: Only remove text that EXACTLY matches these specific AI tool watermark patterns (verbatim signatures): "Made with ChatGPT", "Generated by Midjourney", "Created using DALL-E", "Made by Sora", "Made by Kling", or a line containing ONLY a social handle like "@username". DO NOT remove titles, headings, slogans, or any written content.\n` : '';
-            const customNote = customInstruction?.trim() ? `\nADDITIONAL USER REQUIREMENTS:\n${customInstruction.trim()}\n` : '';
-
-            const translatePrompt = isChineseOnly
-                ? `Translate the following text into Chinese (Simplified).
-Also provide the detected source language name in Chinese.
-${cleanupNote}${customNote}
-CRITICAL RULES:
-1. Translate the COMPLETE text - do NOT skip or omit any part, especially the FIRST LINE (title/heading).
-2. The first line is the TITLE and MUST be translated - never skip or remove it.
-3. If the source text is already in Chinese, copy it exactly to the "chinese" field.
-4. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
-5. Preserve all line breaks and formatting from the original.
-6. Do NOT remove any content - translate everything including titles, slogans, and all body text.
-
-Return in this exact JSON format (no markdown):
-{"chinese": "Chinese translation or original if source is Chinese", "detectedLanguage": "语言名称"}
-
-Text to translate:
-"""
-${textToTranslate}
-"""`
-                : `Translate the following text into these target languages: ${targetLangSpecs}.
-Also provide the detected source language name in Chinese.
-Use the language codes as keys in the JSON output.
-${cleanupNote}${customNote}
-CRITICAL RULES:
-1. Translate the COMPLETE text - do NOT skip or omit any part, especially the FIRST LINE (title/heading).
-2. The first line is the TITLE and MUST be translated - never skip or remove it.
-3. If the source text is already in Chinese, copy it exactly to the "chinese" field.
-4. If the source text is NOT Chinese, translate it to Chinese (Simplified) for the "chinese" field.
-5. Preserve all line breaks and formatting from the original.
-6. Do NOT remove any content - translate everything including titles, slogans, and all body text.
-
-Return in this exact JSON format (no markdown):
-{"translations": {${targetLangJson}}, "chinese": "Chinese translation or original if source is Chinese", "detectedLanguage": "语言名称"}
-
-Text to translate:
-"""
-${textToTranslate}
-"""`;
-
-            // 429 重试逻辑
-            const MAX_SINGLE_RETRIES = 3;
-            let translateResponse: any = null;
-            for (let attempt = 0; attempt <= MAX_SINGLE_RETRIES; attempt++) {
-                try {
-                    translateResponse = await ai.models.generateContent({
-                        model: textModel,
-                        contents: translatePrompt
-                    });
-                    break; // 成功
-                } catch (retryErr: any) {
-                    const is429 = retryErr?.message?.includes('429') || retryErr?.message?.includes('RESOURCE_EXHAUSTED') || retryErr?.status === 429;
-                    if (is429 && attempt < MAX_SINGLE_RETRIES) {
-                        const delay = (attempt + 1) * 5000;
-                        console.warn(`[翻译] 429 rate limit, retry ${attempt + 1}/${MAX_SINGLE_RETRIES} after ${delay}ms`);
-                        await new Promise(r => setTimeout(r, delay));
-                        continue;
-                    }
-                    throw retryErr; // 非 429 或重试用尽，抛出
-                }
-            }
-
-            let translatedText = translateResponse.text ?? '';
-            let chineseText = '';
-            let detectedLanguage = '';
-            let translations: Record<string, string> | undefined;
-
-            try {
-                let cleanResponse = translatedText.trim();
-                if (cleanResponse.startsWith('```')) {
-                    cleanResponse = cleanResponse.replace(/^```json?\s*/, '').replace(/```\s*$/, '');
-                }
-                const parsed = JSON.parse(cleanResponse);
-                if (!isChineseOnly) {
-                    if (parsed.translations && typeof parsed.translations === 'object') {
-                        translations = {};
-                        effectiveBatchLanguages.forEach(code => {
-                            const value = parsed.translations[code];
-                            if (typeof value === 'string') {
-                                translations![code] = value;
-                            }
-                        });
-                    } else if (parsed.translated) {
-                        translations = { [primaryBatchLanguage]: parsed.translated };
-                    }
-                }
-                if (parsed.chinese) {
-                    chineseText = parsed.chinese;
-                }
-                if (parsed.detectedLanguage) {
-                    detectedLanguage = parsed.detectedLanguage;
-                }
-            } catch {
-                if (isChineseOnly) {
-                    chineseText = translatedText;
-                } else {
-                    translations = { [primaryBatchLanguage]: translatedText };
-                }
-            }
-
-            if (!isChineseOnly && translations && translations[primaryBatchLanguage]) {
-                translatedText = translations[primaryBatchLanguage];
-            }
-
-            // 第二步：检测原文语言（简单的语言检测）
-            if (!detectedLanguage) {
-                try {
-                    const detectPrompt = `What language is this text written in? Reply with only the language name in Chinese (e.g., 英语, 日语, 西班牙语, 法语, 德语, 韩语, 俄语, 阿拉伯语, etc.). Just one or two words, nothing else.\n\nText: "${textToTranslate.slice(0, 200)}"`;
-
-                    const detectResponse = await ai.models.generateContent({
-                        model: textModel,
-                        contents: detectPrompt
-                    });
-
-                    detectedLanguage = (detectResponse.text ?? '').trim().replace(/[。.，,\s]/g, '');
-                } catch (detectError) {
-                }
-            }
-
-            if (isChineseOnly) {
-                translatedText = '';
-                translations = undefined;
-            }
+            const { translatedText, chineseText, translations, detectedLanguage } = await smartTranslateSingleItem(
+                ai,
+                textModel,
+                textToTranslate,
+                effectiveBatchLanguages,
+                batchCleanupMode,
+                customInstruction || ''
+            );
 
             setItems(prev => prev.map(i =>
                 i.id === id ? {
@@ -2824,6 +2950,9 @@ ${textToTranslate}
                                 {items.some(i => i.status === 'error') && (
                                     <span className="error-count"> ❌{items.filter(i => i.status === 'error').length}</span>
                                 )}
+                                {isProcessing && translateSpeed > 0 && (
+                                    <span style={{ color: '#10b981', marginLeft: 4, fontSize: 11 }}>⚡{translateSpeed}/min</span>
+                                )}
                             </span>
                         )}
                         {/* 重试失败按钮 */}
@@ -2844,21 +2973,28 @@ ${textToTranslate}
                                 ↻ 重试失败
                             </button>
                         )}
-                        <input
-                            type="number"
-                            list="st-batch-size-options"
-                            className="batch-size-select"
-                            value={batchSize}
-                            onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
-                            title="每批翻译数量"
-                            min={1}
-                            max={50}
-                            disabled={isProcessing}
-                            style={{ width: '70px' }}
-                        />
-                        <datalist id="st-batch-size-options">
-                            {ST_BATCH_SIZE_OPTIONS.map(n => <option key={n} value={n} />)}
-                        </datalist>
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <input
+                                type="number"
+                                list="st-batch-size-options"
+                                className="batch-size-select"
+                                value={batchSize}
+                                onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
+                                title={`每批翻译数量（当前模型 ${modelBatchHint.label} 建议 ≤${modelBatchHint.max}）`}
+                                min={1}
+                                max={50}
+                                disabled={isProcessing}
+                                style={{ width: '70px', borderColor: isBatchSizeOverRecommended ? '#f59e0b' : undefined }}
+                            />
+                            <datalist id="st-batch-size-options">
+                                {ST_BATCH_SIZE_OPTIONS.map(n => <option key={n} value={n} />)}
+                            </datalist>
+                            {isBatchSizeOverRecommended && (
+                                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, padding: '4px 8px', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, fontSize: 10, color: '#92400e', whiteSpace: 'nowrap', zIndex: 10, lineHeight: 1.4 }}>
+                                    ⚠️ {modelBatchHint.label} 建议 ≤{modelBatchHint.max} 条{modelBatchHint.reason ? `（${modelBatchHint.reason}，均~${modelBatchHint.avgLen}字）` : '/批，超出可能翻译不完整'}
+                                </div>
+                            )}
+                        </div>
                         {isProcessing ? (
                             <button
                                 className="btn btn-danger"
@@ -2871,7 +3007,6 @@ ${textToTranslate}
                             <button
                                 className="btn btn-primary"
                                 onClick={processQueue}
-                                disabled={items.every(i => i.status === 'success' || i.status === 'error')}
                             >
                                 翻译
                             </button>
@@ -2982,6 +3117,199 @@ ${textToTranslate}
                 />
             ) : (
                 <>
+                    {/* ─── 多引擎控制面板 ─── */}
+                    <details className="engine-control-panel" style={{
+                        margin: '0 0 8px 0',
+                        padding: 0,
+                        border: '1px solid var(--border-color, #333)',
+                        borderRadius: 8,
+                        background: 'var(--card-bg, #1c2130)',
+                        fontSize: 12,
+                    }}>
+                        <summary style={{
+                            padding: '6px 12px',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            color: 'var(--text-secondary, #aaa)',
+                            fontWeight: 500,
+                        }}>
+                            ⚙️ 引擎设置
+                            <span style={{ fontSize: 11, opacity: 0.7 }}>
+                                {GOOGLE_MODELS.find(m => m.id === effectiveGoogleModel)?.label || effectiveGoogleModel.split('/').pop()}
+                                {groqKeys.length > 0 && ` + ${GROQ_MODELS.find(m => m.id === groqModel)?.label || groqModel}`}
+                                {' · '}并发 {concurrency}
+                            </span>
+                        </summary>
+                        <div style={{ padding: '8px 12px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            
+                            {/* Google 模型选择 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ color: '#4285f4', fontWeight: 600, minWidth: 90 }}>🔵 Google 模型:</span>
+                                <select
+                                    value={googleModel}
+                                    onChange={e => handleGoogleModelChange(e.target.value)}
+                                    disabled={isProcessing}
+                                    style={{
+                                        padding: '4px 8px',
+                                        borderRadius: 6,
+                                        border: '1px solid var(--border-color, #444)',
+                                        background: 'var(--input-bg, #0d1117)',
+                                        color: 'var(--text-primary, #e6e6e6)',
+                                        fontSize: 12,
+                                        flex: 1,
+                                        minWidth: 180,
+                                    }}
+                                >
+                                    <option value="">默认 ({textModel.split('-').slice(0, 3).join('-')})</option>
+                                    {GOOGLE_MODELS.map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.label} — {m.description}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Groq 模型选择 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <span style={{ color: '#f97316', fontWeight: 600, minWidth: 90 }}>🟠 Groq 模型:</span>
+                                <select
+                                    value={groqModel}
+                                    onChange={e => handleGroqModelChange(e.target.value)}
+                                    disabled={isProcessing || groqKeys.length === 0}
+                                    style={{
+                                        padding: '4px 8px',
+                                        borderRadius: 6,
+                                        border: '1px solid var(--border-color, #444)',
+                                        background: 'var(--input-bg, #0d1117)',
+                                        color: groqKeys.length === 0 ? 'var(--text-disabled, #555)' : 'var(--text-primary, #e6e6e6)',
+                                        fontSize: 12,
+                                        flex: 1,
+                                        minWidth: 180,
+                                    }}
+                                >
+                                    {GROQ_MODELS.map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.label} — {m.description}
+                                        </option>
+                                    ))}
+                                </select>
+                                {groqKeys.length === 0 && (
+                                    <span style={{ fontSize: 11, color: '#f59e0b', opacity: 0.8 }}>⚠️ 无 Groq Key</span>
+                                )}
+                            </div>
+
+                            {/* 并发数控制 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontWeight: 600, minWidth: 90 }}>⚡ 并发数:</span>
+                                <input
+                                    type="range"
+                                    min={1}
+                                    max={Math.min(MAX_CONCURRENCY, 100)}
+                                    value={concurrency}
+                                    onChange={e => handleConcurrencyChange(parseInt(e.target.value))}
+                                    disabled={isProcessing}
+                                    style={{ flex: 1, maxWidth: 200 }}
+                                />
+                                <input
+                                    type="number"
+                                    value={concurrency}
+                                    onChange={e => handleConcurrencyChange(parseInt(e.target.value))}
+                                    disabled={isProcessing}
+                                    min={1}
+                                    max={MAX_CONCURRENCY}
+                                    style={{
+                                        width: 50,
+                                        padding: '3px 6px',
+                                        borderRadius: 6,
+                                        border: '1px solid var(--border-color, #444)',
+                                        background: 'var(--input-bg, #0d1117)',
+                                        color: 'var(--text-primary, #e6e6e6)',
+                                        fontSize: 12,
+                                        textAlign: 'center',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Groq Key 管理 */}
+                            <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                    <span style={{ fontWeight: 600, color: '#f97316' }}>🔑 Groq API Keys</span>
+                                    <span style={{ fontSize: 11, opacity: 0.6 }}>({groqKeys.length} 把)</span>
+                                </div>
+                                {groqKeys.map((key, idx) => (
+                                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                        <code style={{ fontSize: 11, opacity: 0.7, flex: 1 }}>
+                                            {key.substring(0, 8)}...{key.substring(key.length - 4)}
+                                        </code>
+                                        <button
+                                            onClick={() => removeGroqKey(key)}
+                                            disabled={isProcessing}
+                                            style={{
+                                                background: 'transparent',
+                                                border: 'none',
+                                                color: '#ef4444',
+                                                cursor: 'pointer',
+                                                fontSize: 14,
+                                                padding: '0 4px',
+                                            }}
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ))}
+                                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                    <input
+                                        type="password"
+                                        placeholder="粘贴 Groq API Key (gsk_...)"
+                                        style={{
+                                            flex: 1,
+                                            padding: '4px 8px',
+                                            borderRadius: 6,
+                                            border: '1px solid var(--border-color, #444)',
+                                            background: 'var(--input-bg, #0d1117)',
+                                            color: 'var(--text-primary, #e6e6e6)',
+                                            fontSize: 11,
+                                        }}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                addGroqKey((e.target as HTMLInputElement).value);
+                                                (e.target as HTMLInputElement).value = '';
+                                            }
+                                        }}
+                                    />
+                                    <button
+                                        onClick={e => {
+                                            const input = (e.target as HTMLElement).previousElementSibling as HTMLInputElement;
+                                            if (input?.value) {
+                                                addGroqKey(input.value);
+                                                input.value = '';
+                                            }
+                                        }}
+                                        style={{
+                                            padding: '4px 10px',
+                                            borderRadius: 6,
+                                            border: '1px solid #f97316',
+                                            background: 'transparent',
+                                            color: '#f97316',
+                                            cursor: 'pointer',
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        添加
+                                    </button>
+                                </div>
+                                <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4 }}>
+                                    免费申请: <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>console.groq.com</a>
+                                    {' · '}Groq Key 独立于 Google 额度，可叠加使用
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
                     {/* 可收起的输入区域 */}
                     <div className={`batch-input-wrapper ${isInputCollapsed ? 'collapsed' : ''}`}>
                         {isInputCollapsed ? (
@@ -3040,7 +3368,6 @@ ${textToTranslate}
                                         <button
                                             className="btn btn-primary"
                                             onClick={processQueue}
-                                            disabled={items.every(i => i.status === 'success' || i.status === 'error')}
                                         >
                                             {t('translateButton')}
                                         </button>
@@ -3190,21 +3517,28 @@ ${textToTranslate}
                                                 🔄 {t('retranslateAll') || '重新翻译'}
                                             </button>
                                         )}
-                                        <input
-                                            type="number"
-                                            list="st-batch-size-options-full"
-                                            className="batch-size-select"
-                                            value={batchSize}
-                                            onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
-                                            title="每批翻译数量"
-                                            min={1}
-                                            max={50}
-                                            disabled={isProcessing}
-                                            style={{ width: '70px' }}
-                                        />
-                                        <datalist id="st-batch-size-options-full">
-                                            {ST_BATCH_SIZE_OPTIONS.map(n => <option key={n} value={n} />)}
-                                        </datalist>
+                                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                                            <input
+                                                type="number"
+                                                list="st-batch-size-options-full"
+                                                className="batch-size-select"
+                                                value={batchSize}
+                                                onChange={e => handleBatchSizeChange(parseInt(e.target.value))}
+                                                title={`每批翻译数量（当前模型 ${modelBatchHint.label} 建议 ≤${modelBatchHint.max}）`}
+                                                min={1}
+                                                max={50}
+                                                disabled={isProcessing}
+                                                style={{ width: '70px', borderColor: isBatchSizeOverRecommended ? '#f59e0b' : undefined }}
+                                            />
+                                            <datalist id="st-batch-size-options-full">
+                                                {ST_BATCH_SIZE_OPTIONS.map(n => <option key={n} value={n} />)}
+                                            </datalist>
+                                            {isBatchSizeOverRecommended && (
+                                                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, padding: '4px 8px', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 6, fontSize: 10, color: '#92400e', whiteSpace: 'nowrap', zIndex: 10, lineHeight: 1.4 }}>
+                                                    ⚠️ {modelBatchHint.label} 建议 ≤{modelBatchHint.max} 条{modelBatchHint.reason ? `（${modelBatchHint.reason}）` : ''}
+                                                </div>
+                                            )}
+                                        </div>
                                         {isProcessing ? (
                                             <button
                                                 className="btn btn-danger"
@@ -3217,7 +3551,6 @@ ${textToTranslate}
                                             <button
                                                 className="btn btn-primary"
                                                 onClick={processQueue}
-                                                disabled={items.length === 0 && items.every(i => i.status === 'success' || i.status === 'error')}
                                             >
                                                 {t('translateButton')}
                                             </button>
@@ -3227,6 +3560,44 @@ ${textToTranslate}
                             </div>
                         )}
                     </div>
+
+                    {/* 🧠 智能建议条 - 根据内容量给出模型+批次建议 */}
+                    {items.length >= 5 && !isProcessing && (() => {
+                        const pendingCount = items.filter(i => i.status === 'idle').length;
+                        if (pendingCount === 0) return null;
+                        const avgLen = modelBatchHint.avgLen;
+                        const calls = Math.ceil(pendingCount / batchSize);
+                        const CONCURRENCY = 3;
+                        const estMinutes = Math.round(calls / CONCURRENCY * 2 / 60 * 10) / 10;
+                        const isLite = textModel.toLowerCase().includes('lite');
+                        const suggestUpgrade = isLite && (pendingCount > 100 || avgLen > 200);
+                        const isLongContent = avgLen > 300;
+                        const optimalBatch = modelBatchHint.max;
+                        const optimalCalls = Math.ceil(pendingCount / optimalBatch);
+                        const optimalMinutes = Math.round(optimalCalls / CONCURRENCY * 2 / 60 * 10) / 10;
+                        const flashMinutes = Math.round(Math.ceil(pendingCount / 25) / CONCURRENCY * 2 / 60 * 10) / 10;
+
+                        return (
+                            <div style={{ padding: '8px 12px', background: 'linear-gradient(135deg, #eff6ff, #f0fdf4)', borderRadius: 10, border: '1px solid #bfdbfe', fontSize: 12, color: '#1e40af', lineHeight: 1.8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                    <span style={{ fontSize: 13 }}>🧠</span>
+                                    <span style={{ fontWeight: 600 }}>智能建议</span>
+                                    <span style={{ color: '#64748b', fontSize: 11 }}>（{pendingCount} 条待翻译，均 ~{avgLen} 字/条{isLongContent ? ' · 长文案' : ''}，3路并发）</span>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11, color: '#475569' }}>
+                                    <span>⚡ 当前：{modelBatchHint.label} × {batchSize}条/批 → {calls}批 ≈ <b>{estMinutes < 1 ? '<1' : estMinutes}分钟</b></span>
+                                    {(batchSize !== optimalBatch) && (
+                                        <span style={{ color: '#059669' }}>✅ 推荐：{optimalBatch}条/批 → {optimalCalls}批 ≈ <b>{optimalMinutes < 1 ? '<1' : optimalMinutes}分钟</b>
+                                            <button onClick={() => handleBatchSizeChange(optimalBatch)} style={{ marginLeft: 4, padding: '1px 6px', fontSize: 10, background: '#d1fae5', border: '1px solid #6ee7b7', borderRadius: 4, color: '#065f46', cursor: 'pointer' }}>一键应用</button>
+                                        </span>
+                                    )}
+                                    {suggestUpgrade && (
+                                        <span style={{ color: '#d97706', fontWeight: 500 }}>💡 切换 Flash 可提速 ≈ {flashMinutes < 1 ? '<1' : flashMinutes}分钟</span>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })()}
 
                     {/* 自定义翻译要求 - 直接显示在页面上 */}
                     <div className="inline-custom-instruction">

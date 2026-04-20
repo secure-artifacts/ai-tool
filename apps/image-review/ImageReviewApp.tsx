@@ -227,7 +227,9 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
             if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
                 return;
             }
-            if (!target.closest('.image-review-app')) {
+            // 检查组件所属的容器是否处于激活可见状态
+            const container = document.querySelector('.image-review-app-container') || document.querySelector('.image-review-app');
+            if (container && container.getBoundingClientRect().width === 0) {
                 return;
             }
 

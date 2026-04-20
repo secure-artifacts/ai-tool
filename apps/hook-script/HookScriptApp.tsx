@@ -12,6 +12,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { extractUrlsFromHtml, fetchImageBlob, convertBlobToBase64 } from '../ai-image-recognition/utils';
 import './HookScriptApp.css';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 // ========== Types ==========
 interface TaskImage {
@@ -406,6 +407,10 @@ const HookScriptApp: React.FC<HookScriptAppProps> = ({ getAiInstance, textModel 
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
+      // Check if wrapper is active/visible
+      const wrapper = document.querySelector('.hook-script-wrapper');
+      if (wrapper && wrapper.getBoundingClientRect().width === 0) return;
+
       e.preventDefault();
 
       // Handle clipboard files directly
@@ -728,6 +733,7 @@ ${otherResults || '无'}
     }
 
     setIsRunning(false);
+    playCompletionSound();
   }, [generateForTask]);
 
   const stopAll = useCallback(() => {
@@ -749,6 +755,7 @@ ${otherResults || '无'}
     }
 
     setIsRunning(false);
+    playCompletionSound();
   }, [generateForTask]);
 
   const redoAll = useCallback(async () => {
@@ -766,6 +773,7 @@ ${otherResults || '无'}
       }
 
       setIsRunning(false);
+      playCompletionSound();
     }, 100);
   }, [generateForTask]);
 

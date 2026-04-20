@@ -30,6 +30,7 @@ interface DataSourceManagerProps {
     onSelectSource: (source: DataSource) => void;
     onWorkbookLoaded: (workbook: Workbook, fileName: string, sourceUrl?: string) => void;
     onRefreshSource?: () => void;
+    onSourcesChanged?: (sources: DataSource[]) => void;
 }
 
 const STORAGE_KEY = 'sheetmind_data_sources';
@@ -53,12 +54,15 @@ export const saveDataSources = (sources: DataSource[]) => {
         if (loggedIn) {
             const cloudSources = sources.filter(source => source.type === 'google-sheets');
             if (cloudSources.length > 0) {
+                // Mark pending immediately to prevent stale cloud merge during async sync window
+                localStorage.setItem(PENDING_SYNC_KEY, 'true');
                 saveDataSourcesToCloud(cloudSources)
                     .then(() => {
                         localStorage.removeItem(PENDING_SYNC_KEY);
                     })
                     .catch(err => {
                         console.error('[DataSources] Cloud sync failed:', err);
+                        localStorage.setItem(PENDING_SYNC_KEY, 'true');
                     });
             } else {
                 localStorage.removeItem(PENDING_SYNC_KEY);
@@ -143,6 +147,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
     onSelectSource,
     onWorkbookLoaded,
     onRefreshSource,
+    onSourcesChanged,
 }) => {
     const { user, loading: authLoading } = useAuth();
     const [sources, setSources] = useState<DataSource[]>([]);
@@ -176,6 +181,10 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
     const [editingSourceId, setEditingSourceId] = useState<string | null>(null); // If editing existing source
     const [pendingSpreadsheetTitle, setPendingSpreadsheetTitle] = useState<string>('Google Sheet'); // Real spreadsheet name
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isBatchSelectMode, setIsBatchSelectMode] = useState(false);
+    const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+    const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
+    const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
     // 缓存相关状态
     const [cachedSourceIds, setCachedSourceIds] = useState<Set<string>>(new Set());
@@ -188,18 +197,44 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
     const localSources = sources.filter(source => source.type !== 'google-sheets');
     const visibleSources = sourceTab === 'sheets' ? sheetSources : localSources;
 
+    const visibleSelectedCount = visibleSources.filter(source => selectedSourceIds.has(source.id)).length;
+
     const handleManualSync = async () => {
         if (!isUserLoggedIn()) {
             setError('请先登录 Google 账号');
+            setSyncFeedback({ type: 'info', text: '当前未登录，仅保存本地数据。' });
             return;
         }
         setIsSyncing(true);
+        setSyncFeedback({ type: 'info', text: '正在同步到云端...' });
         try {
             await saveDataSourcesToCloud(sources.filter(source => source.type === 'google-sheets'));
             setError(null);
+            setSyncFeedback({ type: 'success', text: '云端同步成功。' });
         } catch (err) {
             console.error('Sync failed:', err);
             setError('同步失败，请重试');
+            setSyncFeedback({ type: 'error', text: '云端同步失败，请重试。' });
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const syncFeedbackAfterMutation = async (nextSources: DataSource[], actionLabel: string) => {
+        if (!isUserLoggedIn()) {
+            setSyncFeedback({ type: 'info', text: `${actionLabel}已生效（仅本地，未登录云端）。` });
+            return;
+        }
+        setIsSyncing(true);
+        setSyncFeedback({ type: 'info', text: `${actionLabel}已生效，正在同步云端...` });
+        try {
+            await saveDataSourcesToCloud(nextSources.filter(source => source.type === 'google-sheets'));
+            localStorage.removeItem(PENDING_SYNC_KEY);
+            setSyncFeedback({ type: 'success', text: `${actionLabel}并已同步到云端。` });
+        } catch (err) {
+            console.error('[DataSources] delete sync failed:', err);
+            localStorage.setItem(PENDING_SYNC_KEY, 'true');
+            setSyncFeedback({ type: 'error', text: `${actionLabel}已生效，但云端同步失败，稍后会重试。` });
         } finally {
             setIsSyncing(false);
         }
@@ -386,37 +421,52 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
         if (isOpen && !authLoading) {
             const localSources = loadDataSources();
             setSources(localSources);
+            onSourcesChanged?.(localSources);
 
             // Also try to load from cloud and merge if user is logged in
             const loggedIn = !!user;
+            const hasPendingSync = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
 
             if (loggedIn) {
                 setIsSyncing(true);
-                loadDataSourcesFromCloud()
-                    .then(cloudSources => {
-                        if (cloudSources.length > 0) {
-                            // Merge cloud with local
+                if (hasPendingSync && localSources.length > 0) {
+                    // Local is the source of truth when there are unsynced changes (e.g., deletions)
+                    saveDataSourcesToCloud(localSources.filter(source => source.type === 'google-sheets'))
+                        .then(() => localStorage.removeItem(PENDING_SYNC_KEY))
+                        .catch(err => {
+                            console.error('[DataSourceManager] 待同步数据上传失败:', err);
+                        })
+                        .finally(() => {
+                            setIsSyncing(false);
+                        });
+                } else {
+                    loadDataSourcesFromCloud()
+                        .then(cloudSources => {
+                            if (cloudSources.length > 0) {
+                                // Merge cloud with local
                             const merged = mergeDataSources(localSources, cloudSources);
                             setSources(merged);
+                            onSourcesChanged?.(merged as DataSource[]);
                             // Save merged back to local
                             localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-                            // Also sync merged back to cloud
-                            saveDataSourcesToCloud(merged.filter(source => source.type === 'google-sheets'))
-                                .then(() => localStorage.removeItem(PENDING_SYNC_KEY))
-                                .catch(console.warn);
-                        } else if (localSources.length > 0) {
-                            // Cloud is empty but local has data, push local to cloud
-                            saveDataSourcesToCloud(localSources.filter(source => source.type === 'google-sheets'))
-                                .then(() => localStorage.removeItem(PENDING_SYNC_KEY))
-                                .catch(console.warn);
-                        }
-                    })
-                    .catch(err => {
-                        console.error('[DataSourceManager] 云端加载失败:', err);
-                    })
-                    .finally(() => {
-                        setIsSyncing(false);
-                    });
+                                // Also sync merged back to cloud
+                                saveDataSourcesToCloud(merged.filter(source => source.type === 'google-sheets'))
+                                    .then(() => localStorage.removeItem(PENDING_SYNC_KEY))
+                                    .catch(console.warn);
+                            } else if (localSources.length > 0) {
+                                // Cloud is empty but local has data, push local to cloud
+                                saveDataSourcesToCloud(localSources.filter(source => source.type === 'google-sheets'))
+                                    .then(() => localStorage.removeItem(PENDING_SYNC_KEY))
+                                    .catch(console.warn);
+                            }
+                        })
+                        .catch(err => {
+                            console.error('[DataSourceManager] 云端加载失败:', err);
+                        })
+                        .finally(() => {
+                            setIsSyncing(false);
+                        });
+                }
             } else {
             }
 
@@ -448,6 +498,18 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
             setSourceTab('sheets');
         }
     }, [sheetSources.length, localSources.length]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setIsBatchSelectMode(false);
+            setSelectedSourceIds(new Set());
+            setBatchDeleteConfirm(false);
+        }
+    }, [isOpen]);
+
+    useEffect(() => {
+        setBatchDeleteConfirm(false);
+    }, [sourceTab, isBatchSelectMode, visibleSelectedCount]);
 
     // Handle paste for Google Sheets HTML format
     useEffect(() => {
@@ -768,8 +830,79 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
 
     const handleDeleteSource = (id: string) => {
         removeDataSource(id);
-        setSources(sources.filter(s => s.id !== id));
+        const nextSources = sources.filter(s => s.id !== id);
+        setSources(nextSources);
+        onSourcesChanged?.(nextSources);
+        setSelectedSourceIds(prev => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+        });
         setConfirmDelete(null);
+        setBatchDeleteConfirm(false);
+        void syncFeedbackAfterMutation(nextSources, '删除');
+    };
+
+    const toggleSourceSelection = (id: string) => {
+        setSelectedSourceIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    const handleToggleBatchMode = () => {
+        setIsBatchSelectMode(prev => {
+            const next = !prev;
+            if (!next) {
+                setSelectedSourceIds(new Set());
+            }
+            return next;
+        });
+        setConfirmDelete(null);
+    };
+
+    const handleSelectAllVisible = () => {
+        setSelectedSourceIds(prev => {
+            const next = new Set(prev);
+            visibleSources.forEach(source => next.add(source.id));
+            return next;
+        });
+    };
+
+    const handleClearVisibleSelection = () => {
+        setSelectedSourceIds(prev => {
+            const next = new Set(prev);
+            visibleSources.forEach(source => next.delete(source.id));
+            return next;
+        });
+    };
+
+    const handleBatchDeleteSelected = () => {
+        const toDelete = visibleSources.filter(source => selectedSourceIds.has(source.id));
+        if (toDelete.length === 0) return;
+        if (!batchDeleteConfirm) {
+            setBatchDeleteConfirm(true);
+            return;
+        }
+
+        const deleteIds = new Set(toDelete.map(source => source.id));
+        const nextSources = sources.filter(source => !deleteIds.has(source.id));
+        saveDataSources(nextSources);
+        setSources(nextSources);
+        onSourcesChanged?.(nextSources);
+        setSelectedSourceIds(prev => {
+            const next = new Set(prev);
+            deleteIds.forEach(id => next.delete(id));
+            return next;
+        });
+        setBatchDeleteConfirm(false);
+        setConfirmDelete(null);
+        void syncFeedbackAfterMutation(nextSources, '批量删除');
     };
 
     // Refresh the name of an existing data source from Google API
@@ -935,8 +1068,8 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
 
     return (
         <>
-            <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
-            <div className="fixed inset-y-4 right-4 w-[480px] max-w-[calc(100vw-32px)] bg-white rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden">
+            <div className="fixed inset-0 bg-black/50 z-[9998]" onClick={onClose} />
+            <div className="fixed inset-y-4 right-4 w-[480px] max-w-[calc(100vw-32px)] bg-white rounded-2xl shadow-2xl z-[9999] flex flex-col overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-emerald-500 to-teal-500">
                     <div className="flex items-center gap-3">
@@ -1156,7 +1289,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                         </div>
 
                         {/* Sources Tabs */}
-                        <div className="px-5 py-2 border-b border-slate-200 bg-white flex items-center gap-2">
+                        <div className="px-5 py-2 border-b border-slate-200 bg-white flex items-center gap-2 flex-wrap">
                             <button
                                 onClick={() => setSourceTab('sheets')}
                                 className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${sourceTab === 'sheets'
@@ -1175,6 +1308,43 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                             >
                                 本地数据 ({localSources.length})
                             </button>
+                            <div className="ml-auto flex items-center gap-2">
+                                <button
+                                    onClick={handleToggleBatchMode}
+                                    className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${isBatchSelectMode
+                                        ? 'bg-slate-700 text-white border-slate-700'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-800'
+                                        }`}
+                                >
+                                    {isBatchSelectMode ? '退出批量' : '批量选择'}
+                                </button>
+                                {isBatchSelectMode && (
+                                    <>
+                                        <button
+                                            onClick={handleSelectAllVisible}
+                                            className="px-2.5 py-1 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                        >
+                                            全选
+                                        </button>
+                                        <button
+                                            onClick={handleClearVisibleSelection}
+                                            className="px-2.5 py-1 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                        >
+                                            清空
+                                        </button>
+                                        <button
+                                            onClick={handleBatchDeleteSelected}
+                                            disabled={visibleSelectedCount === 0}
+                                            className={`px-2.5 py-1 text-xs rounded-md border disabled:opacity-40 disabled:cursor-not-allowed ${batchDeleteConfirm
+                                                ? 'border-red-500 bg-red-500 text-white hover:bg-red-600'
+                                                : 'border-red-200 text-red-600 hover:bg-red-50'
+                                                }`}
+                                        >
+                                            {batchDeleteConfirm ? `再次确认删除 (${visibleSelectedCount})` : `删除选中 (${visibleSelectedCount})`}
+                                        </button>
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         {/* Sources List */}
@@ -1191,6 +1361,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                 visibleSources.map(source => {
                                     const isActive = source.url === currentSourceUrl;
                                     const isConfirmingDelete = confirmDelete === source.id;
+                                    const isSelected = selectedSourceIds.has(source.id);
 
                                     return (
                                         <div
@@ -1201,7 +1372,20 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                 }`}
                                         >
                                             <div className="flex items-start justify-between gap-3">
-                                                <div className="flex-1 min-w-0">
+                                                <div className="flex items-start gap-2 flex-1 min-w-0">
+                                                    {isBatchSelectMode && (
+                                                        <button
+                                                            onClick={() => toggleSourceSelection(source.id)}
+                                                            className={`mt-0.5 p-1 rounded-md border transition-colors ${isSelected
+                                                                ? 'text-blue-600 border-blue-200 bg-blue-50'
+                                                                : 'text-slate-400 border-slate-200 hover:bg-slate-50'
+                                                                }`}
+                                                            title={isSelected ? '取消选择' : '选择'}
+                                                        >
+                                                            {isSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                                                        </button>
+                                                    )}
+                                                    <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
                                                         <h3 className="font-medium text-slate-800 text-sm truncate">
                                                             {source.name}
@@ -1236,9 +1420,10 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                         )}
                                                     </div>
                                                 </div>
+                                                </div>
 
                                                 <div className="flex items-center gap-1">
-                                                    {!isActive && (
+                                                    {!isBatchSelectMode && !isActive && (
                                                         <button
                                                             onClick={() => handleSelectSource(source)}
                                                             className="p-1.5 text-emerald-600 hover:bg-emerald-100 rounded-md tooltip-bottom"
@@ -1297,7 +1482,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                             <ExternalLink size={16} />
                                                         </a>
                                                     )}
-                                                    {isConfirmingDelete ? (
+                                                    {!isBatchSelectMode && isConfirmingDelete && (
                                                         <div className="flex items-center gap-1 ml-1">
                                                             <button
                                                                 onClick={() => handleDeleteSource(source.id)}
@@ -1312,7 +1497,8 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                                 取消
                                                             </button>
                                                         </div>
-                                                    ) : (
+                                                    )}
+                                                    {!isBatchSelectMode && !isConfirmingDelete && (
                                                         <button
                                                             onClick={() => setConfirmDelete(source.id)}
                                                             className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md tooltip-bottom"
@@ -1388,6 +1574,16 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                     </button>
                                 )}
                             </div>
+                            {syncFeedback && (
+                                <div className={`mt-2 text-[11px] px-2 py-1 rounded-md ${syncFeedback.type === 'success'
+                                    ? 'bg-green-50 text-green-700 border border-green-100'
+                                    : syncFeedback.type === 'error'
+                                        ? 'bg-red-50 text-red-700 border border-red-100'
+                                        : 'bg-blue-50 text-blue-700 border border-blue-100'
+                                    }`}>
+                                    {syncFeedback.text}
+                                </div>
+                            )}
                         </div>
                     </>
                 )}
@@ -1395,8 +1591,8 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
 
             {showBackupModal && backupSource && (
                 <>
-                    <div className="fixed inset-0 bg-black/40 z-[60]" onClick={closeBackupModal} />
-                    <div className="fixed inset-0 z-[61] flex items-center justify-center p-4">
+                    <div className="fixed inset-0 bg-black/40 z-[10000]" onClick={closeBackupModal} />
+                    <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
                         <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden">
                             <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                                 <div>

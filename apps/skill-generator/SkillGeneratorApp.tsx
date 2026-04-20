@@ -41,6 +41,8 @@ import { useToast } from '@/components/ui/Toast';
 import type { GoogleGenAI } from '@google/genai';
 import { DEFAULT_PRESETS } from '@/apps/ai-image-recognition/types';
 import './SkillGenerator.css';
+import { getGlobalTextModel } from '@/utils/getTextModel';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 // ========== Constants ==========
 // Default image describe prompt — extracted so it can be shown and edited by users
@@ -471,7 +473,7 @@ const resilientGenerate = async (
     const {
         contents,
         config,
-        primaryModel = 'gemini-3.1-pro-preview',
+        primaryModel = getGlobalTextModel(),
         fallbackModel = 'gemini-3-flash-preview',
     } = params;
     const modelsToTry = [primaryModel, fallbackModel];
@@ -819,7 +821,7 @@ ${nodeTexts}
 - 不要返回 cleaned、dimensions 值数组或任何修改后的文本`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
                 config: {
                     temperature: 0.1,
@@ -1012,7 +1014,7 @@ ${skillFramework}
 
 
                             const formatResponse = await ai.models.generateContent({
-                                model: 'gemini-3-flash-preview',
+                                model: getGlobalTextModel(),
                                 contents: formatPrompt,
                                 config: { temperature: 0.2 }
                             });
@@ -1821,7 +1823,7 @@ ${librariesInfo}
 3. 只返回 JSON`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-3.1-pro-preview',
+            model: getGlobalTextModel(),
             contents: prompt,
             config: {
                 thinkingConfig: { thinkingBudget: 2048 }
@@ -2564,7 +2566,7 @@ ${localizeTargetCountry}
 4. 不要输出表格格式，严格使用【维度名】值1、值2... 格式`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
             });
             let result = response.text ?? '';
@@ -2780,7 +2782,7 @@ ${smartClassifyOutputFormat === 1 ? `
         try {
             if (smartClassifyOutputFormat === 3) {
                 const response = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
+                    model: getGlobalTextModel(),
                     contents: format3Prompt,
                 });
                 const responseText = response.text ?? '';
@@ -2816,7 +2818,7 @@ ${smartClassifyOutputFormat === 1 ? `
                 setSmartClassifyResult([newHeaders.join('\t'), ...newRows.map(r => r.join('\t'))].join('\n'));
             } else {
                 const response = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
+                    model: getGlobalTextModel(),
                     contents: format12Prompt,
                 });
                 // Strip markdown code fences and normalize === markers
@@ -3490,7 +3492,7 @@ ${dimRule}
 ${buildUserDataBlock('基础指令', instructionText)}`;
 
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: getGlobalTextModel(),
             contents: prompt,
             config: {
                 responseMimeType: 'application/json',
@@ -4581,6 +4583,7 @@ ${dimensionCountRule}
             setGenerateDone(false);
         } finally {
             setGenerating(false);
+            playCompletionSound();
         }
     };
 
@@ -4794,7 +4797,7 @@ ${dimensionCountRule}
                             descParts.push({ text: splitPrompt });
 
                             const descResponse = await ai.models.generateContent({
-                                model: 'gemini-3.1-pro-preview',
+                                model: getGlobalTextModel(),
                                 contents: [{ role: 'user', parts: descParts }]
                             });
                             const descResult = extractResponseText(descResponse);
@@ -4835,7 +4838,7 @@ ${dimensionCountRule}
                         userParts.push({ text: prompt + `\n\n注意：这是${images.length}张参考图片拼接成的网格图，请结合元素拆分描述和图片共同分析。` });
 
                         const response = await ai.models.generateContent({
-                            model: 'gemini-3.1-pro-preview',
+                            model: getGlobalTextModel(),
                             contents: [{ role: 'user', parts: userParts }]
                         });
                         result = extractResponseText(response);
@@ -4846,7 +4849,7 @@ ${dimensionCountRule}
                     userParts.length = 0;
                     userParts.push({ text: prompt });
                     const response = await ai.models.generateContent({
-                        model: 'gemini-3.1-pro-preview',
+                        model: getGlobalTextModel(),
                         contents: prompt
                     });
                     result = extractResponseText(response);
@@ -4854,7 +4857,7 @@ ${dimensionCountRule}
             } else {
                 userParts.push({ text: prompt });
                 const response = await ai.models.generateContent({
-                    model: 'gemini-3.1-pro-preview',
+                    model: getGlobalTextModel(),
                     contents: prompt,
                 });
                 result = extractResponseText(response);
@@ -5068,7 +5071,7 @@ ${dimensionCountRule}
             });
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3.1-pro-preview',
+                model: getGlobalTextModel(),
                 contents: conversationRef.current
             });
 
@@ -5274,7 +5277,7 @@ ${libraryResult.headers.map(h => `- ${h}`).join('\n')}
 ${baseInstruction}`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3.1-pro-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
             });
 
@@ -5417,7 +5420,7 @@ ${baseInstruction}`;
 
                 try {
                     const verifyResponse = await ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
+                        model: getGlobalTextModel(),
                         contents: verifyPrompt,
                         config: {
                             responseMimeType: 'application/json',
@@ -5563,7 +5566,7 @@ ${validationData}
 如果没有任何问题，返回：{ "issues": [], "merges": [], "misplacements": [] }`;
 
             const valResponse = await ai.models.generateContent({
-                model: 'gemini-3.1-pro-preview',
+                model: getGlobalTextModel(),
                 contents: validationPrompt,
                 config: {
                     responseMimeType: 'application/json',
@@ -5818,7 +5821,7 @@ ${libraryContext}
 ${baseInstruction}`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3.1-pro-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
             });
 
@@ -5967,7 +5970,7 @@ ${extendPrompt.trim() || '保持和现有库同风格，优先可直接用于生
         setExtendGenerating(true);
         try {
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
             });
             const text = response.text ?? '';
@@ -6045,7 +6048,7 @@ ${relatedDimensions || '（暂无）'}
 4. 值尽量简洁（2-12字）且可直接用于生图/生视频描述词`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
             });
             const text = response.text ?? '';
@@ -6175,7 +6178,7 @@ ${historyText}
 3) 尽量多样化，避免重复`;
 
             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: getGlobalTextModel(),
                 contents: prompt,
             });
             const resultText = response.text ?? '';
@@ -10366,7 +10369,7 @@ ${historyText}
                                                     const formatPrompt = `你是一个专业的 Skill 指令优化专家。请将以下从画布文件中提取的原始指令内容，重新组织为标准的「基础指令（Skill）」格式。\n\n【原始指令内容】\n${rawInstr}\n${libDimsInfo}\n\n【目标格式要求】\n请按以下框架模块重新组织指令，每个模块缺一不可：\n\n${skillFramework}\n\n【规范化规则】\n1. **最大程度保留原始内容的语义和措辞**，不要改写用户原有的风格描述和要求\n2. 将原始内容合理分配到上述各模块中\n3. 如果原始内容已经有类似模块结构，直接保留并规范化标题即可\n4. 指令中不要提到"随机库"，应该说"根据系统提供的元素信息"\n5. 使用第二人称"你"来指示 AI\n6. 在指令末尾，附上一个「描述词结构模板」，用 {维度名} 花括号标注可变部分，其余为固定文字\n7. 不要生成随机库数据，只输出基础指令\n8. 禁止删减原始指令中有价值的规则和要求\n\n请返回 JSON 格式（不要有其他文字）：\n{\n  "instruction": "规范化后的完整基础指令文本",\n  "changeSummary": "改写说明，用中文逐条列出：\\n- 【结构调整】哪些内容被移到了哪个模块\\n- 【保留内容】哪些原始内容被完整保留\\n- 【新增内容】补充了哪些模块或信息\\n- 【措辞修改】哪些表述被改写及原因\\n- 【删除内容】哪些内容被移除及原因（如有）"\n}`;
 
                                                     const formatResponse = await ai.models.generateContent({
-                                                        model: 'gemini-3-flash-preview',
+                                                        model: getGlobalTextModel(),
                                                         contents: formatPrompt,
                                                         config: { temperature: 0.2 }
                                                     });

@@ -29,6 +29,7 @@ interface SheetMindAppProps {
     getAiInstance: () => GoogleGenAI;
     state: SheetMindState;
     setState: React.Dispatch<React.SetStateAction<SheetMindState>>;
+    textModel?: string;
 }
 
 const STORAGE_KEY = 'sheetmind_workbook_cache';
@@ -205,6 +206,8 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
 
     const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library' | 'data-pipeline'>(state.view || 'grid');
+    const isMediaToolMode = view === 'grid' || view === 'dashboard' || view === 'transpose' || view === 'gallery';
+    const lastMediaViewRef = useRef<'grid' | 'dashboard' | 'transpose' | 'gallery'>('grid');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadProgress, setLoadProgress] = useState<string | null>(null); // Progress message for large file loading
     const [needsReload, setNeedsReload] = useState(false); // Flag for large data that needs reload
@@ -220,6 +223,12 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             return () => document.removeEventListener('click', handleClickOutside);
         }
     }, [sheetSelectorOpen]);
+
+    useEffect(() => {
+        if (view === 'grid' || view === 'dashboard' || view === 'transpose' || view === 'gallery') {
+            lastMediaViewRef.current = view;
+        }
+    }, [view]);
 
     // ==================== Deduplication State ====================
     const [dedupColumn, setDedupColumn] = useState<string>(''); // Column to check for duplicates
@@ -1526,6 +1535,26 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         // 解析完成后才会隐藏蒙版
     };
 
+    const handleDataSourcesChanged = useCallback((latestSources: DataSource[]) => {
+        const nextTabs = dataSourceTabs.filter(tab => {
+            if (!tab.sourceUrl) return true;
+            return latestSources.some(source => source.url === tab.sourceUrl);
+        });
+
+        if (nextTabs.length === dataSourceTabs.length) return;
+
+        setDataSourceTabs(nextTabs);
+
+        if (!activeDataSourceTabId || nextTabs.some(tab => tab.id === activeDataSourceTabId)) return;
+
+        const fallbackTab = nextTabs[0];
+        if (fallbackTab) {
+            void switchDataSourceTab(fallbackTab.id, { skipSave: true });
+        } else {
+            setActiveDataSourceTabId(null);
+        }
+    }, [dataSourceTabs, activeDataSourceTabId, switchDataSourceTab]);
+
     // --- RENDER ---
 
     return (
@@ -1534,7 +1563,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 <div className="custom-scrollbar overflow-x-auto">
                     <div className="w-full min-w-full">
             {/* Data Source Tabs Bar */}
-            {dataSourceTabs.length > 0 && (
+            {isMediaToolMode && dataSourceTabs.length > 0 && (
                 <div className="bg-slate-700 px-4 flex w-full min-w-full items-center gap-1" style={{ minHeight: '34px' }}>
                     <Database size={14} className="text-slate-400 shrink-0 mr-1" />
                     {dataSourceTabs.map(dsTab => (
@@ -1612,14 +1641,43 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                     <div className="bg-green-600 p-1.5 rounded-md shadow-sm">
                         <Table className="text-white" size={20} />
                     </div>
-                    <h1 className="font-bold text-lg text-slate-800 tracking-tight hidden sm:block">SheetMind <span className="font-normal text-slate-400">| 数据分析</span></h1>
+                    <h1 className="font-bold text-lg text-slate-800 tracking-tight hidden sm:block">SheetMind</h1>
                 </div>
 
-                {workbook && (
+                <div className="flex items-center gap-1.5 ml-3">
+                    <button
+                        onClick={() => setView(lastMediaViewRef.current)}
+                        className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${isMediaToolMode ? 'bg-slate-200 text-slate-800' : 'text-slate-600 hover:bg-slate-100'}`}
+                    >
+                        媒体工具
+                    </button>
+                    <button
+                        onClick={() => setView('align')}
+                        className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${view === 'align' ? 'bg-teal-100 text-teal-800' : 'text-slate-600 hover:bg-slate-100'}`}
+                    >
+                        对齐工具
+                    </button>
+                    <button
+                        onClick={() => setView('image-formula')}
+                        className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${view === 'image-formula' ? 'bg-sky-100 text-sky-800' : 'text-slate-600 hover:bg-slate-100'}`}
+                    >
+                        图片转公式工具
+                    </button>
+                    <button
+                        onClick={() => setView('reference-library')}
+                        className={`px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${view === 'reference-library' ? 'bg-indigo-100 text-indigo-800' : 'text-slate-600 hover:bg-slate-100'}`}
+                    >
+                        参考库工具
+                    </button>
+                </div>
+
+                {isMediaToolMode && workbook && (
                     <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-max justify-center md:justify-end">
 
                         {/* View Switcher */}
-                        <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1.5">
+                            <div className="hidden lg:flex items-center px-1.5 text-[10px] font-medium text-slate-500">视图</div>
+                            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
                             <button
                                 onClick={() => setView('grid')}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'grid' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
@@ -1644,24 +1702,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                             >
                                 <Image size={14} /> <span className="hidden sm:inline">画廊</span>
                             </button>
-                            <button
-                                onClick={() => setView('align')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'align' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <MoveVertical size={14} /> <span className="hidden sm:inline">对齐</span>
-                            </button>
-                            <button
-                                onClick={() => setView('image-formula')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'image-formula' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <Image size={14} /> <span className="hidden sm:inline">图片公式</span>
-                            </button>
-                            <button
-                                onClick={() => setView('reference-library')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1 ${view === 'reference-library' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                            >
-                                <BookOpen size={14} /> <span className="hidden sm:inline">参考库</span>
-                            </button>
+                            </div>
                         </div>
 
                         {/* Unified Settings Button with Dropdown */}
@@ -2183,6 +2224,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                                         metricLabel={snap.metricLabel}
                                                         xAxisLabel={snap.xAxisLabel}
                                                         isStacked={snap.isStacked}
+                                                        stackIdMapping={snap.stackIdMapping}
                                                         showValues={false} // Cleaner look for small gallery cards
                                                     />
                                                 </div>
@@ -2231,6 +2273,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 onSelectSource={handleSelectDataSource}
                 onWorkbookLoaded={handleWorkbookLoaded}
                 onRefreshSource={sourceUrl && !sourceUrl.startsWith('local://') ? handleRefresh : undefined}
+                onSourcesChanged={handleDataSourcesChanged}
             />
 
             {/* Append Data Modal */}

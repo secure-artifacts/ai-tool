@@ -60,6 +60,7 @@ import {
 import { FusionWorkspace } from './components/FusionWorkspace';
 import { ExpertSelector } from './components/ExpertSelector';
 import { HistoryPanel } from './components/HistoryPanel';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 // 图标（需要从父项目复用）
 // 在实际集成时，这些需要从 lucide-react 导入
@@ -468,12 +469,8 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
             const isVisible = rect.width > 0 && rect.height > 0;
             if (!isVisible) return;
 
-            // 检查粘贴目标是否在本组件容器内
-            const target = e.target as Node;
-            const isInContainer = container.contains(target);
-
-            // 只有当粘贴目标在本组件容器内时才处理
-            if (!isInContainer) return;
+            // 移除 container.contains 检查，依赖 isVisible 状态来实现全局粘贴捕获
+            // 只要本工具页面可见，就接管全局粘贴事件
 
             let handled = false;
 
@@ -875,6 +872,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
             ));
         } finally {
             setIsBatchProcessing(false);
+            playCompletionSound();
         }
     };
 
@@ -918,6 +916,7 @@ export const ImageToPromptApp: React.FC<ImageToPromptAppProps> = ({
             setError(e.message || t('error_fusionFailed'));
         } finally {
             setIsProcessing(false);
+            playCompletionSound();
         }
     };
 

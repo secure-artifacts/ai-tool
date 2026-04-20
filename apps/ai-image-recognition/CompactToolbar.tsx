@@ -7,8 +7,8 @@ import {
 import DropZone from './components/DropZone';
 import { ImageItem, DEFAULT_PRESETS, WorkMode } from './types';
 import { v4 as uuidv4 } from 'uuid';
-import { fetchUserPresetsFromSheet, savePresetRowsToSheet } from '@/services/presetSheetService';
-import { SHARED_PRESET_SHEET_CONFIG, PRESET_SCOPE_IMAGE_RECOGNITION, encodeScopedCategory, extractScopedRows } from '@/services/presetSheetConfig';
+import { fetchUserPresetsFromSheet, savePresetRowsToSheet } from '../../services/presetSheetService';
+import { SHARED_PRESET_SHEET_CONFIG, PRESET_SCOPE_IMAGE_RECOGNITION, encodeScopedCategory, extractScopedRows } from '../../services/presetSheetConfig';
 
 interface CompactToolbarProps {
     images: ImageItem[];
@@ -19,7 +19,7 @@ interface CompactToolbarProps {
     viewMode: 'grid' | 'list' | 'compact';
     autoUploadGyazo: boolean;
     isBulkInnovating: boolean;
-    copySuccess: 'links' | 'formulas' | 'results' | 'results-zh' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null;
+    copySuccess: 'links' | 'formulas' | 'results' | 'results-zh' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | 'formula-zh' | 'formula-en' | null;
     presets: any[];
     templateState: any;
     unifiedPresets: any[];
@@ -173,7 +173,7 @@ export default function CompactToolbar({
                 finishSync('load', 'no-change');
                 return;
             }
-            const newPresets = scopedRows.map(row => ({
+            const newPresets = scopedRows.map((row: any) => ({
                 id: uuidv4(),
                 name: row.presetLabel,
                 text: row.prompt
@@ -476,7 +476,6 @@ export default function CompactToolbar({
                     </div>
                 )}
 
-                {/* 重试失败 / 全部重跑 - split 模式下也展示 */}
                 {!isProcessing && errorCount > 0 && (
                     <button
                         onClick={handleRetryFailedAndRun}
@@ -486,13 +485,13 @@ export default function CompactToolbar({
                         <RotateCw size={12} /> 重试({errorCount})
                     </button>
                 )}
-                {!isProcessing && pendingCount === 0 && successCount > 0 && errorCount === 0 && (
+                {!isProcessing && (successCount > 0 || errorCount > 0) && (
                     <button
                         onClick={handleResetAndRun}
                         className="px-2 py-1 bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 border border-blue-500/30 rounded text-[0.625rem] font-medium transition-colors flex items-center gap-1 shrink-0 tooltip-bottom"
                         data-tip="重新将所有图片设为待处理并立即开始"
                     >
-                        <RotateCw size={12} /> 重跑
+                        <RotateCw size={12} /> 全部重跑
                     </button>
                 )}
 

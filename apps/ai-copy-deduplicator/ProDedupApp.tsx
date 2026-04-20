@@ -12,7 +12,7 @@ import { createPortal } from 'react-dom';
 import {
     Zap, Database, Download, Copy, Trash2, Search, Settings, X, Check, Link,
     Cloud, CloudOff, Loader2, FolderPlus, Edit2, Plus, FileCode, Tag, ArrowUpDown,
-    ChevronDown, ChevronUp, Sparkles, Eye, Brain, Square
+    ChevronDown, ChevronUp, Sparkles, Eye, Brain, Square, RotateCcw
 } from 'lucide-react';
 import { appendToSheet, getSheetsSyncConfig } from '@/services/sheetsSyncService';
 import { dedupEngine, TextItem, DedupResult, DuplicateGroup } from './services/minHashEngine';
@@ -28,6 +28,7 @@ import {
     sortedEntries,
     MAJOR_CATEGORY_COLORS,
     CLASSIFY_SYSTEM_PROMPT,
+    ExtraInstruction
 } from './services/aiClassifyService';
 import {
     SheetLibraryService,
@@ -109,6 +110,7 @@ interface ProDedupState {
     aiClassifyInputText: string;
     aiClassifyResults: AiClassifyResult[];
     aiClassifyBatchSize: number;
+    aiClassifyConcurrency: number; // 控制多KEY轮流请求的并发数量
     aiClassifyDepth: 'full' | 'major' | 'custom';
     aiClassifyProgress: AiClassifyProgress | null;
     aiClassifyActiveCategories: Set<string>;
@@ -117,8 +119,11 @@ interface ProDedupState {
     aiClassifyInputCollapsed: boolean;
     aiClassifyCustomRules: CustomClassifyRule[];
     aiClassifyShowCustomRules: boolean;
+    aiClassifyShowExtraInstructions: boolean;
     aiClassifyShowSystemPrompt: boolean;
     aiClassifySystemPromptEdit: string;
+    aiClassifyExtraInstructions: ExtraInstruction[]; // 额外自定义指令（提取关键词、改写等）
+    aiClassifyLevelNames: [string, string, string]; // 可自定义的三层级显示名称
 }
 
 interface CustomClassifyRule {
@@ -129,8 +134,18 @@ interface CustomClassifyRule {
     parentCategory: string; // 归属哪个上级类别 (可选条件，如需绑定)
 }
 
+type AiRulePasteTarget = 'ignore' | 'level' | 'name' | 'parentCategory' | 'criteria';
+
 const LIBRARY_STORAGE_KEY = 'pro_dedup_library';
 const SHEET_CONFIG_KEY = 'pro_dedup_sheet_config';
+
+const AI_RULE_PASTE_TARGET_OPTIONS: Array<{ value: AiRulePasteTarget; label: string }> = [
+    { value: 'ignore', label: '忽略此列' },
+    { value: 'level', label: '分类维度' },
+    { value: 'name', label: '类别名称' },
+    { value: 'parentCategory', label: '归属限制(可选)' },
+    { value: 'criteria', label: '判断标准' },
+];
 
 const getPrimaryCount = (items: CategoryItem[]): number => {
     const primaryItems = items.filter(item => item.isPrimary);
@@ -255,6 +270,9 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
     });
     const classifyEffectiveModel = classifyLocalModel === INHERIT_VALUE ? textModel : classifyLocalModel;
 
+    const [confirmReclassify, setConfirmReclassify] = useState(false);
+    const confirmReclassifyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
     const [state, setState] = useState<ProDedupState>({
         inputText: '',
         result: null,
@@ -295,6 +313,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         aiClassifyInputText: '',
         aiClassifyResults: [],
         aiClassifyBatchSize: 999, // 999 = 自动（仅受 token 预算控制）
+        aiClassifyConcurrency: 3, // 默认同时发出 3 个批次请求
         aiClassifyDepth: 'full',
         aiClassifyProgress: null,
         aiClassifyActiveCategories: new Set<string>(),
@@ -308,8 +327,25 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             } catch { return []; }
         })(),
         aiClassifyShowCustomRules: false,
+        aiClassifyShowExtraInstructions: false,
         aiClassifyShowSystemPrompt: false,
-        aiClassifySystemPromptEdit: '',
+        aiClassifySystemPromptEdit: (() => {
+            try {
+                return localStorage.getItem('ai_classify_system_prompt_edit') || '';
+            } catch { return ''; }
+        })(),
+        aiClassifyLevelNames: (() => {
+            try {
+                const saved = localStorage.getItem('ai_classify_level_names');
+                return saved ? JSON.parse(saved) : ['大类', '中类', '小类'];
+            } catch { return ['大类', '中类', '小类']; }
+        })() as [string, string, string],
+        aiClassifyExtraInstructions: (() => {
+            try { 
+                const saved = localStorage.getItem('ai_classify_extra_instructions');
+                return saved ? JSON.parse(saved) : []; 
+            } catch { return []; }
+        })(),
     });
 
     const [toast, setToast] = useState<string | null>(null);
@@ -337,6 +373,15 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
 
     // GAS 部署指南弹窗
     const [showGasGuide, setShowGasGuide] = useState(false);
+    const [aiCustomRulesClearConfirm, setAiCustomRulesClearConfirm] = useState(false);
+    const aiCustomRulesClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [aiRulePasteWizardOpen, setAiRulePasteWizardOpen] = useState(false);
+    const [aiRulePasteRows, setAiRulePasteRows] = useState<string[][]>([]);
+    const [aiRulePasteColCount, setAiRulePasteColCount] = useState(0);
+    const [aiRulePasteMapping, setAiRulePasteMapping] = useState<AiRulePasteTarget[]>([]);
+    const [aiRulePasteHasHeader, setAiRulePasteHasHeader] = useState(false);
+    const [aiRulePasteInputOpen, setAiRulePasteInputOpen] = useState(false);
+    const [aiRulePasteInputText, setAiRulePasteInputText] = useState('');
 
     // AI 分类 AbortController
     const aiClassifyAbortRef = useRef<AbortController | null>(null);
@@ -495,6 +540,154 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
     const updateState = (updates: Partial<ProDedupState>) => {
         setState(s => ({ ...s, ...updates }));
     };
+
+    const getDefaultAiRulePasteMapping = (colCount: number): AiRulePasteTarget[] => {
+        const mapping = Array.from({ length: colCount }, () => 'ignore' as AiRulePasteTarget);
+        if (colCount <= 0) return mapping;
+        if (colCount === 1) {
+            mapping[0] = 'name';
+            return mapping;
+        }
+        if (colCount === 2) {
+            mapping[0] = 'name';
+            mapping[1] = 'criteria';
+            return mapping;
+        }
+        if (colCount === 3) {
+            mapping[0] = 'level';
+            mapping[1] = 'name';
+            mapping[2] = 'criteria';
+            return mapping;
+        }
+        mapping[0] = 'level';
+        mapping[1] = 'name';
+        mapping[2] = 'parentCategory';
+        mapping[3] = 'criteria';
+        return mapping;
+    };
+
+    const detectAiRuleHeaderMapping = (header: string[]): AiRulePasteTarget[] => {
+        return header.map((cell) => {
+            const text = (cell || '').toLowerCase().trim();
+            if (!text) return 'ignore';
+            if (text.includes('维度') || text.includes('层级') || text.includes('level')) return 'level';
+            if (text.includes('类别') || text.includes('名称') || text.includes('name') || text.includes('category')) return 'name';
+            if (text.includes('归属') || text.includes('父类') || text.includes('parent')) return 'parentCategory';
+            if (text.includes('标准') || text.includes('criteria') || text.includes('规则') || text.includes('说明')) return 'criteria';
+            return 'ignore';
+        });
+    };
+
+    const openAiRulePasteWizard = (text: string): boolean => {
+        const rows = text.split(/\r?\n/).filter(r => r.trim());
+        if (!rows.length) {
+            showToast('未解析出有效数据');
+            return false;
+        }
+
+        const rawRows = rows.map(r => r.split('\t').map(col => col.trim()));
+        const colCount = Math.max(...rawRows.map(r => r.length), 0);
+        if (!colCount) {
+            showToast('未识别到表格列');
+            return false;
+        }
+
+        const normalizedRows = rawRows.map(r => Array.from({ length: colCount }, (_, i) => r[i] ?? ''));
+        const headerMapping = detectAiRuleHeaderMapping(normalizedRows[0] || []);
+        const detectedHeader = headerMapping.some(v => v !== 'ignore');
+        const initialMapping = detectedHeader ? headerMapping : getDefaultAiRulePasteMapping(colCount);
+
+        setAiRulePasteRows(normalizedRows);
+        setAiRulePasteColCount(colCount);
+        setAiRulePasteMapping(initialMapping);
+        setAiRulePasteHasHeader(detectedHeader);
+        setAiRulePasteWizardOpen(true);
+        setAiRulePasteInputOpen(false);
+        return true;
+    };
+
+    const handleOpenAiRulePasteWizardFromClipboard = async () => {
+        let text = '';
+        try {
+            text = await navigator.clipboard.readText();
+        } catch {
+            setAiRulePasteInputText('');
+            setAiRulePasteInputOpen(true);
+            showToast('无法直接读取剪贴板，请手动粘贴');
+            return;
+        }
+        if (!text || !text.trim()) {
+            setAiRulePasteInputText('');
+            setAiRulePasteInputOpen(true);
+            showToast('剪贴板为空，请手动粘贴表格内容');
+            return;
+        }
+        openAiRulePasteWizard(text);
+    };
+
+    const handleOpenAiRulePasteWizardFromInput = () => {
+        if (!aiRulePasteInputText.trim()) {
+            showToast('请先粘贴表格内容');
+            return;
+        }
+        openAiRulePasteWizard(aiRulePasteInputText);
+    };
+
+    const applyAiRulePasteMapping = () => {
+        const sourceRows = aiRulePasteHasHeader ? aiRulePasteRows.slice(1) : aiRulePasteRows;
+        const imported: CustomClassifyRule[] = [];
+
+        sourceRows.forEach((row, rowIdx) => {
+            const draft: CustomClassifyRule = {
+                id: `${Date.now()}-${rowIdx}-${Math.random().toString(36).slice(2, 8)}`,
+                level: '大类',
+                name: '',
+                parentCategory: '',
+                criteria: '',
+            };
+
+            for (let colIdx = 0; colIdx < aiRulePasteColCount; colIdx += 1) {
+                const target = aiRulePasteMapping[colIdx] || 'ignore';
+                const value = (row[colIdx] || '').trim();
+                if (!value || target === 'ignore') continue;
+                if (target === 'level') draft.level = value;
+                if (target === 'name') draft.name = value;
+                if (target === 'parentCategory') draft.parentCategory = value;
+                if (target === 'criteria') draft.criteria = value;
+            }
+
+            if (!draft.name) return;
+            imported.push(draft);
+        });
+
+        if (imported.length === 0) {
+            showToast('未解析出有效的分类规则数据');
+            return;
+        }
+
+        const updated = [...state.aiClassifyCustomRules, ...imported];
+        updateState({ aiClassifyCustomRules: updated });
+        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+        setAiRulePasteWizardOpen(false);
+        showToast(`成功批量导入 ${imported.length} 条分类规则`);
+    };
+
+    useEffect(() => {
+        if (state.aiClassifyCustomRules.length > 0) return;
+        setAiCustomRulesClearConfirm(false);
+        if (aiCustomRulesClearTimerRef.current) {
+            clearTimeout(aiCustomRulesClearTimerRef.current);
+            aiCustomRulesClearTimerRef.current = null;
+        }
+    }, [state.aiClassifyCustomRules.length]);
+
+    useEffect(() => {
+        return () => {
+            if (aiCustomRulesClearTimerRef.current) {
+                clearTimeout(aiCustomRulesClearTimerRef.current);
+            }
+        };
+    }, []);
 
     // 右键菜单处理
     const handleContextMenu = (
@@ -1099,7 +1292,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         }
     }, [state.aiClassifyInputText]);
 
-    const handleAiClassify = useCallback(async () => {
+    const handleAiClassify = useCallback(async (forceReclassify = false) => {
         if (!state.aiClassifyInputText.trim()) {
             showToast('请先粘贴待分类文案');
             return;
@@ -1114,7 +1307,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         }
 
         // 识别已分类的项（非失败状态，且有主分类）
-        const alreadyClassified = state.aiClassifyResults.filter(r => r.major && r.major !== '❌ 失败');
+        const alreadyClassified = forceReclassify ? [] : state.aiClassifyResults.filter(r => r.major && r.major !== '❌ 失败');
         const classifiedIndices = new Set(alreadyClassified.map(r => r.index));
         
         // 只过滤出还未成功分类的项（断点续传）
@@ -1139,7 +1332,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             enText: r.enText,
         })).filter(item => !classifiedIndices.has(item.index));
 
-        if (items.length === 0 && alreadyClassified.length > 0) {
+        if (items.length === 0 && alreadyClassified.length > 0 && !forceReclassify) {
             showToast('所有文案已分类完毕，无需重复操作');
             return;
         }
@@ -1153,7 +1346,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             isProcessing: true,
             // 如果是首次或重新（没有保留的项），则清空结果
             aiClassifyResults: alreadyClassified,
-            aiClassifyStats: computeClassifyStats(alreadyClassified),
+            aiClassifyStats: alreadyClassified.length > 0 ? computeClassifyStats(alreadyClassified) : null,
             aiClassifyActiveCategories: new Set<string>(),
             aiClassifyProgress: { current: 0, total: 1, status: `准备中${alreadyClassified.length > 0 ? ` (已恢复 ${alreadyClassified.length} 条已分类的记录)` : '…'}` },
         });
@@ -1179,9 +1372,10 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             const results = await classifyWithAI(items, {
                 depth: state.aiClassifyDepth,
                 batchSize: state.aiClassifyBatchSize,
-                concurrency: 2,
+                concurrency: state.aiClassifyConcurrency,
                 customRules: rulesText,
                 customLevels,
+                extraInstructions: state.aiClassifyExtraInstructions.length > 0 ? state.aiClassifyExtraInstructions : undefined,
                 systemPromptOverride: state.aiClassifySystemPromptEdit || undefined,
                 model: classifyEffectiveModel,
                 signal: controller.signal,
@@ -1227,7 +1421,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             showToast('AI 分类失败: ' + (error?.message || '未知错误'));
             updateState({ isProcessing: false, aiClassifyProgress: null });
         }
-    }, [state.aiClassifyInputText, state.aiClassifyDepth, state.aiClassifyBatchSize, state.aiClassifyCustomRules, parseClassifyInputRows]);
+    }, [state.aiClassifyInputText, state.aiClassifyDepth, state.aiClassifyBatchSize, state.aiClassifyCustomRules, state.aiClassifySystemPromptEdit, parseClassifyInputRows]);
 
     // AI 分类: 停止
     const handleAiClassifyStop = useCallback(() => {
@@ -1272,7 +1466,9 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                 concurrency: 1, // 重试用较低并发
                 customRules: rulesText,
                 customLevels,
+                extraInstructions: state.aiClassifyExtraInstructions.length > 0 ? state.aiClassifyExtraInstructions : undefined,
                 systemPromptOverride: state.aiClassifySystemPromptEdit || undefined,
+                model: classifyEffectiveModel,
                 signal: controller.signal,
                 onProgress: (progress) => {
                     updateState({ aiClassifyProgress: progress });
@@ -1311,7 +1507,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             updateState({ isProcessing: false, aiClassifyProgress: null });
             showToast('重试失败: ' + (error?.message || '未知错误'));
         }
-    }, [state.aiClassifyResults, state.aiClassifyDepth, state.aiClassifyBatchSize, state.aiClassifyCustomRules]);
+    }, [state.aiClassifyResults, state.aiClassifyDepth, state.aiClassifyBatchSize, state.aiClassifyCustomRules, state.aiClassifySystemPromptEdit]);
 
     // AI 分类: 获取筛选后的结果
     const getFilteredAiResults = useCallback(() => {
@@ -1358,9 +1554,15 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(r => 
             r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level
         ))) : ['大类', '中类', '小类'];
+        const displayLevels = isCustomModel ? customLevels : [...state.aiClassifyLevelNames];
 
-        const header = `文案\t${customLevels.join('\t')}`;
-        const emptyRow = '\t' + customLevels.map(() => '').join('\t');
+        const extraLabels = state.aiClassifyExtraInstructions.map(e => e.label);
+        const hasExtra = state.aiClassifyResults.some(r => r.extraResults && Object.keys(r.extraResults).length > 0) || extraLabels.length > 0;
+        const extraHeader = hasExtra && extraLabels.length > 0 ? '\t' + extraLabels.join('\t') : (hasExtra ? '\t额外' : '');
+        const extraEmptyRow = hasExtra && extraLabels.length > 0 ? '\t' + extraLabels.map(()=>'').join('\t') : (hasExtra ? '\t' : '');
+        
+        const header = `文案\t${displayLevels.join('\t')}${extraHeader}`;
+        const emptyRow = '\t' + customLevels.map(() => '').join('\t') + extraEmptyRow;
         const inputRows = parseClassifyInputRows(state.aiClassifyInputText);
 
         const rows: string[] = [];
@@ -1389,7 +1591,10 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                 const r = resultMap.get(row.rowIndex);
                 if (r) {
                     const rowVals = customLevels.map(lvl => esc(r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')));
-                    rows.push(`${esc(r.text)}\t${rowVals.join('\t')}`);
+                    const extraVals = extraLabels.length > 0 
+                        ? extraLabels.map(lvl => esc(r.extraResults?.[lvl] || '')).join('\t')
+                        : esc(r.extraResults ? Object.values(r.extraResults).join(' ') : '');
+                    rows.push(`${esc(r.text)}\t${rowVals.join('\t')}${hasExtra ? '\t' + extraVals : ''}`);
                 } else if ((row.text || '').trim()) {
                     rows.push(`${esc(row.text)}\t${customLevels.map(() => '').join('\t')}`);
                 } else {
@@ -1401,13 +1606,16 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
             const sorted = [...state.aiClassifyResults].sort((a, b) => a.index - b.index);
             for (const r of sorted) {
                 const rowVals = customLevels.map(lvl => esc(r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')));
-                rows.push(`${esc(r.text)}\t${rowVals.join('\t')}`);
+                const extraVals = extraLabels.length > 0 
+                    ? extraLabels.map(lvl => esc(r.extraResults?.[lvl] || '')).join('\t')
+                    : esc(r.extraResults ? Object.values(r.extraResults).join(' ') : '');
+                rows.push(`${esc(r.text)}\t${rowVals.join('\t')}${hasExtra ? '\t' + extraVals : ''}`);
             }
         }
 
         navigator.clipboard.writeText([header, ...rows].join('\n'));
         showToast(`已复制全部 ${rows.length} 行（含空行，原始顺序）`);
-    }, [state.aiClassifyResults, state.aiClassifyInputText, parseClassifyInputRows, state.aiClassifyDepth, state.aiClassifyCustomRules]);
+    }, [state.aiClassifyResults, state.aiClassifyInputText, parseClassifyInputRows, state.aiClassifyDepth, state.aiClassifyCustomRules, state.aiClassifyLevelNames]);
 
     // AI 分类: 复制当前视图 (TSV) — 受筛选+排序影响
     const copyAiClassifyCurrentView = useCallback(() => {
@@ -1422,18 +1630,26 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(rule => 
             rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level
         ))) : ['大类', '中类', '小类'];
+        const displayLevels = isCustomModel ? customLevels : [...state.aiClassifyLevelNames];
 
-        const header = `文案\t${customLevels.join('\t')}`;
+        const extraLabels = state.aiClassifyExtraInstructions.map(e => e.label);
+        const hasExtra = results.some(r => r.extraResults && Object.keys(r.extraResults).length > 0) || extraLabels.length > 0;
+        const extraHeader = hasExtra && extraLabels.length > 0 ? '\t' + extraLabels.join('\t') : (hasExtra ? '\t额外' : '');
+
+        const header = `文案\t${displayLevels.join('\t')}${extraHeader}`;
         const rows = results.map(r => {
             const rowVals = customLevels.map(lvl => esc(r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')));
-            return `${esc(r.text)}\t${rowVals.join('\t')}`;
+            const extraVals = extraLabels.length > 0 
+                ? extraLabels.map(lvl => esc(r.extraResults?.[lvl] || '')).join('\t')
+                : esc(r.extraResults ? Object.values(r.extraResults).join(' ') : '');
+            return `${esc(r.text)}\t${rowVals.join('\t')}${hasExtra ? '\t' + extraVals : ''}`;
         });
         navigator.clipboard.writeText([header, ...rows].join('\n'));
         const isFiltered = state.aiClassifyActiveCategories.size > 0;
         const isSorted = state.aiClassifySortBy !== 'original';
         const hint = isFiltered ? '（已筛选）' : isSorted ? '（已排序）' : '';
         showToast(`已复制 ${rows.length} 条${hint}`);
-    }, [getFilteredAiResults, state.aiClassifyActiveCategories, state.aiClassifySortBy, state.aiClassifyDepth, state.aiClassifyCustomRules]);
+    }, [getFilteredAiResults, state.aiClassifyActiveCategories, state.aiClassifySortBy, state.aiClassifyDepth, state.aiClassifyCustomRules, state.aiClassifyLevelNames]);
 
     // AI 分类: 仅复制分类列 — 受筛选+排序影响
     const copyAiClassifyColumnsOnly = useCallback(() => {
@@ -1443,14 +1659,23 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(rule => 
             rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level
         ))) : ['大类', '中类', '小类'];
+        const displayLevels = isCustomModel ? customLevels : [...state.aiClassifyLevelNames];
 
-        const header = customLevels.join('\t');
+        const extraLabels = state.aiClassifyExtraInstructions.map(e => e.label);
+        const hasExtra = results.some(r => r.extraResults && Object.keys(r.extraResults).length > 0) || extraLabels.length > 0;
+        const extraHeader = hasExtra && extraLabels.length > 0 ? '\t' + extraLabels.join('\t') : (hasExtra ? '\t额外' : '');
+
+        const header = displayLevels.join('\t') + extraHeader;
         const rows = results.map(r => {
-            return customLevels.map(lvl => r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')).join('\t');
+            const base = customLevels.map(lvl => r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '')).join('\t');
+            const extraVals = extraLabels.length > 0 
+                ? extraLabels.map(lvl => r.extraResults?.[lvl] || '').join('\t')
+                : (r.extraResults ? Object.values(r.extraResults).join(' ') : '');
+            return hasExtra ? `${base}\t${extraVals}` : base;
         });
         navigator.clipboard.writeText([header, ...rows].join('\n'));
         showToast(`已复制分类列 ${rows.length} 条`);
-    }, [getFilteredAiResults, state.aiClassifyDepth, state.aiClassifyCustomRules]);
+    }, [getFilteredAiResults, state.aiClassifyDepth, state.aiClassifyCustomRules, state.aiClassifyLevelNames]);
 
     // AI 分类: 粘贴解析结果（供预览表和输入区共用）
     const aiClassifyParsedItems = React.useMemo(() => {
@@ -2363,6 +2588,74 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
         }
     };
 
+    const handleCustomRulePaste = async (e: React.ClipboardEvent<HTMLInputElement>, rowIndex: number, field: keyof CustomClassifyRule) => {
+        const text = e.clipboardData.getData('Text');
+        if (!text || (!text.includes('\n') && !text.includes('\t'))) return;
+        
+        e.preventDefault();
+        const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
+        if (rows.length === 0) return;
+
+        let updated = [...state.aiClassifyCustomRules];
+        const fieldOrder: (keyof CustomClassifyRule)[] = ['level', 'name', 'parentCategory', 'criteria'];
+        const startIdx = fieldOrder.indexOf(field);
+        if (startIdx === -1) return;
+
+        for (let i = 0; i < rows.length; i++) {
+            const columns = rows[i].split('\t').map(c => c.trim());
+            const targetIdx = rowIndex + i;
+            
+            while (targetIdx >= updated.length) {
+                updated.push({ id: Date.now().toString() + '_' + updated.length, name: '', level: '大类', criteria: '', parentCategory: '' });
+            }
+            
+            for (let colIdx = 0; colIdx < columns.length; colIdx++) {
+                const currentField = fieldOrder[startIdx + colIdx];
+                if (currentField && columns[colIdx]) {
+                    updated[targetIdx] = { ...updated[targetIdx], [currentField]: columns[colIdx] };
+                }
+            }
+        }
+        
+        updateState({ aiClassifyCustomRules: updated });
+        try { localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated)); } catch {}
+        showToast(`批量识别并粘贴了 ${rows.length} 行规则`);
+    };
+
+    const handleExtraInstructionPasteTarget = async (e: React.ClipboardEvent<HTMLInputElement>, rowIndex: number, field: keyof ExtraInstruction) => {
+        const text = e.clipboardData.getData('Text');
+        if (!text || (!text.includes('\n') && !text.includes('\t'))) return;
+        
+        e.preventDefault();
+        const rows = text.split(/\r?\n/).filter(r => r.trim() !== '');
+        if (rows.length === 0) return;
+
+        let updated = [...state.aiClassifyExtraInstructions];
+        const fieldOrder: (keyof ExtraInstruction)[] = ['label', 'instruction'];
+        const startIdx = fieldOrder.indexOf(field);
+        if (startIdx === -1) return;
+
+        for (let i = 0; i < rows.length; i++) {
+            const columns = rows[i].split('\t').map(c => c.trim());
+            const targetIdx = rowIndex + i;
+            
+            while (targetIdx >= updated.length) {
+                updated.push({ id: 'ext_' + Date.now().toString() + '_' + updated.length, label: '', instruction: '' });
+            }
+            
+            for (let colIdx = 0; colIdx < columns.length; colIdx++) {
+                const currentField = fieldOrder[startIdx + colIdx];
+                if (currentField && columns[colIdx]) {
+                    updated[targetIdx] = { ...updated[targetIdx], [currentField]: columns[colIdx] };
+                }
+            }
+        }
+        
+        updateState({ aiClassifyExtraInstructions: updated });
+        try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(updated)); } catch {}
+        showToast(`批量识别并粘贴了 ${rows.length} 行指令`);
+    };
+
     return (
         <div className="pro-dedup-layout">
             {/* 左侧边栏 - 分类 */}
@@ -2694,11 +2987,35 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                             ) : (
                                 <button
                                     className="topbar-btn primary"
-                                    onClick={handleAiClassify}
+                                    onClick={() => handleAiClassify(false)}
                                     disabled={!state.aiClassifyInputText.trim()}
+                                    title="执行分类或继续未完成的分类（断点续传）"
                                 >
                                     <Sparkles size={14} />
-                                    开始分类
+                                    {state.aiClassifyResults.length > 0 ? '继续分类' : '开始分类'}
+                                </button>
+                            )}
+                            {(state.aiClassifyResults.length > 0 && !state.isProcessing) && (
+                                <button
+                                    className="topbar-btn"
+                                    style={confirmReclassify ? { color: '#fff', backgroundColor: '#ef4444', borderColor: '#ef4444' } : { color: '#ef4444' }}
+                                    onClick={() => {
+                                        if (confirmReclassify) {
+                                            if (confirmReclassifyTimeoutRef.current) clearTimeout(confirmReclassifyTimeoutRef.current);
+                                            setConfirmReclassify(false);
+                                            handleAiClassify(true);
+                                        } else {
+                                            setConfirmReclassify(true);
+                                            if (confirmReclassifyTimeoutRef.current) clearTimeout(confirmReclassifyTimeoutRef.current);
+                                            confirmReclassifyTimeoutRef.current = setTimeout(() => {
+                                                setConfirmReclassify(false);
+                                            }, 3000);
+                                        }
+                                    }}
+                                    title="清除已有结果并完全重新分类所有的文案"
+                                >
+                                    <RotateCcw size={14} />
+                                    {confirmReclassify ? '确认重新分类 (耗额度)' : '重新分类'}
                                 </button>
                             )}
                             <button
@@ -2713,6 +3030,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                 <Eye size={14} />
                                 指令{state.aiClassifySystemPromptEdit ? ' ✦' : ''}
                             </button>
+
                             {!state.isProcessing && state.aiClassifyResults.some(r => r.major === '❌ 失败') && (
                                 <button
                                     className="topbar-btn"
@@ -2734,7 +3052,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                             }}
                                         >
                                             <ArrowUpDown size={14} />
-                                            {{ 'original': '排序', 'major': '大分类', 'middle': '中分类', 'minor': '小分类', 'chars-asc': '字数↑', 'chars-desc': '字数↓' }[state.aiClassifySortBy]}
+                                            {{ 'original': '排序', 'major': state.aiClassifyLevelNames[0], 'middle': state.aiClassifyLevelNames[1], 'minor': state.aiClassifyLevelNames[2], 'chars-asc': '字数↑', 'chars-desc': '字数↓' }[state.aiClassifySortBy]}
                                             <ChevronDown size={12} />
                                         </button>
                                         <div style={{
@@ -2744,9 +3062,9 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                         }}>
                                             {([
                                                 ['original', '原始顺序'],
-                                                ['major', '按大分类'],
-                                                ['middle', '按中分类'],
-                                                ['minor', '按小分类'],
+                                                ['major', `按${state.aiClassifyLevelNames[0]}`],
+                                                ['middle', `按${state.aiClassifyLevelNames[1]}`],
+                                                ['minor', `按${state.aiClassifyLevelNames[2]}`],
                                                 ['chars-asc', '字数 ↑'],
                                                 ['chars-desc', '字数 ↓'],
                                             ] as [typeof state.aiClassifySortBy, string][]).map(([key, label]) => (
@@ -2860,7 +3178,7 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                             <span style={{ color: 'var(--border-color, #444)' }}>|</span>
                             <span>文案 {aiClassifyParsedItems.length > 0 ? aiClassifyParsedItems.length + ' 条' : '未粘贴'}</span>
                             <span style={{ color: 'var(--border-color, #444)' }}>|</span>
-                            <span>批量 {state.aiClassifyBatchSize >= 999 ? '自动' : state.aiClassifyBatchSize + '条/批'} · {state.aiClassifyDepth === 'full' ? '三层分类' : '仅大类'}</span>
+                            <span>批量 {state.aiClassifyBatchSize >= 999 ? '自动' : state.aiClassifyBatchSize + '条/批'} · {state.aiClassifyDepth === 'full' ? `三层(${state.aiClassifyLevelNames.join('+')})` : '仅大类'}</span>
                             <div style={{ flex: 1 }} />
                             <span style={{ fontSize: '10px' }}>{state.aiClassifyInputCollapsed ? '展开' : '折叠'}</span>
                         </div>
@@ -2897,15 +3215,66 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                             style={{ background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '1px 4px', fontSize: '11px' }}
                                         >
                                             <option value="999">自动（智能分批）</option>
+                                            <option value="1">1条/批 (最稳)</option>
+                                            <option value="5">5条/批</option>
+                                            <option value="10">10条/批</option>
                                             <option value="20">20条/批</option>
                                             <option value="50">50条/批</option>
                                             <option value="100">100条/批</option>
                                         </select>
                                     </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        并行发包:
+                                        <select
+                                            value={state.aiClassifyConcurrency}
+                                            onChange={e => updateState({ aiClassifyConcurrency: parseInt(e.target.value) })}
+                                            style={{ background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '1px 4px', fontSize: '11px' }}
+                                            title="同时向服务器发送的请求数量，Key多可调大"
+                                        >
+                                            <option value="1">1 (最稳)</option>
+                                            <option value="2">2</option>
+                                            <option value="3">3 (推荐)</option>
+                                            <option value="5">5</option>
+                                            <option value="10">10 (飞速)</option>
+                                            <option value="20">20 (多Key专属)</option>
+                                        </select>
+                                    </label>
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
                                         <input type="radio" name="aiDepth" checked={state.aiClassifyDepth === 'full'} onChange={() => updateState({ aiClassifyDepth: 'full' })} />
-                                        三层(大+中+小)
+                                        三层
                                     </label>
+                                    {state.aiClassifyDepth === 'full' && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                            {([0, 1, 2] as const).map(idx => (
+                                                <React.Fragment key={idx}>
+                                                    {idx > 0 && <span style={{ color: 'var(--text-muted, #666)', fontSize: '10px' }}>+</span>}
+                                                    <input
+                                                        type="text"
+                                                        value={state.aiClassifyLevelNames[idx]}
+                                                        onChange={e => {
+                                                            const updated = [...state.aiClassifyLevelNames] as [string, string, string];
+                                                            updated[idx] = e.target.value;
+                                                            updateState({ aiClassifyLevelNames: updated });
+                                                            localStorage.setItem('ai_classify_level_names', JSON.stringify(updated));
+                                                        }}
+                                                        placeholder={['大类', '中类', '小类'][idx]}
+                                                        style={{ background: 'var(--control-bg-color, #27272a)', color: '#3b82f6', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '1px 4px', fontSize: '11px', width: '50px', textAlign: 'center' }}
+                                                    />
+                                                </React.Fragment>
+                                            ))}
+                                            {(state.aiClassifyLevelNames[0] !== '大类' || state.aiClassifyLevelNames[1] !== '中类' || state.aiClassifyLevelNames[2] !== '小类') && (
+                                                <button
+                                                    onClick={() => {
+                                                        const defaults: [string, string, string] = ['大类', '中类', '小类'];
+                                                        updateState({ aiClassifyLevelNames: defaults });
+                                                        localStorage.setItem('ai_classify_level_names', JSON.stringify(defaults));
+                                                    }}
+                                                    title="恢复默认层级名称（大类+中类+小类）"
+                                                    style={{ background: 'transparent', color: '#f59e0b', border: '1px solid #f59e0b44', borderRadius: '4px', padding: '0 4px', fontSize: '11px', cursor: 'pointer', lineHeight: '18px', marginLeft: '2px' }}
+                                                >↺</button>
+                                            )}
+                                        </div>
+                                    )}
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
                                         <input type="radio" name="aiDepth" checked={state.aiClassifyDepth === 'major'} onChange={() => updateState({ aiClassifyDepth: 'major' })} />
                                         仅大类
@@ -2933,85 +3302,108 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                         </select>
                                     </label>
                                     <div style={{ flex: 1 }} />
-                                    <button
-                                        style={{
-                                            background: state.aiClassifyCustomRules.length > 0 ? '#22c55e22' : 'transparent',
-                                            color: state.aiClassifyCustomRules.length > 0 ? '#22c55e' : 'var(--text-muted, #888)',
-                                            border: `1px solid ${state.aiClassifyCustomRules.length > 0 ? '#22c55e44' : 'var(--border-color, #333)'}`,
-                                            borderRadius: '4px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer',
-                                        }}
-                                        onClick={() => updateState({ aiClassifyShowCustomRules: !state.aiClassifyShowCustomRules })}
-                                    >
-                                        ✏️ 自定义规则 {state.aiClassifyCustomRules.length > 0 ? `(${state.aiClassifyCustomRules.length})` : ''}
-                                    </button>
-                                </div>
-                                {/* 自定义分类规则（结构化表单） */}
+                                        <button
+                                            style={{
+                                                background: state.aiClassifyCustomRules.length > 0 ? '#22c55e22' : 'transparent',
+                                                color: state.aiClassifyCustomRules.length > 0 ? '#22c55e' : 'var(--text-muted, #888)',
+                                                border: `1px solid ${state.aiClassifyCustomRules.length > 0 ? '#22c55e44' : 'var(--border-color, #333)'}`,
+                                                borderRadius: '4px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer',
+                                            }}
+                                            onClick={() => updateState({ 
+                                                aiClassifyShowCustomRules: !state.aiClassifyShowCustomRules,
+                                                aiClassifyShowExtraInstructions: false
+                                            })}
+                                        >
+                                            ✏️ 自定义规则 {state.aiClassifyCustomRules.length > 0 ? `(${state.aiClassifyCustomRules.length})` : ''}
+                                        </button>
+                                        <button
+                                            style={{
+                                                background: state.aiClassifyExtraInstructions.length > 0 ? '#a855f722' : 'transparent',
+                                                color: state.aiClassifyExtraInstructions.length > 0 ? '#a855f7' : 'var(--text-muted, #888)',
+                                                border: `1px solid ${state.aiClassifyExtraInstructions.length > 0 ? '#a855f744' : 'var(--border-color, #333)'}`,
+                                                borderRadius: '4px', padding: '1px 8px', fontSize: '10px', cursor: 'pointer',
+                                            }}
+                                            onClick={() => updateState({ 
+                                                aiClassifyShowExtraInstructions: !state.aiClassifyShowExtraInstructions,
+                                                aiClassifyShowCustomRules: false 
+                                            })}
+                                        >
+                                            ✨ 额外指令 {state.aiClassifyExtraInstructions.length > 0 ? `(${state.aiClassifyExtraInstructions.length})` : ''}
+                                        </button>
+                                    </div>
+                                    {/* 自定义分类规则（结构化表单） */}
                                 {state.aiClassifyShowCustomRules && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 12px', borderTop: '1px solid var(--border-color, #333)', fontSize: '11px' }}>
-                                    {state.aiClassifyCustomRules.map((rule, idx) => (
-                                        <div key={rule.id} style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '3px 0', borderBottom: '1px solid var(--border-color, #222)' }}>
-                                            <input
-                                                type="text"
-                                                placeholder="维度 (如: 大类/平台/情绪)"
-                                                title="定义你想要的任何分类维度或层级"
-                                                value={rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level}
-                                                onChange={e => {
-                                                    const updated = [...state.aiClassifyCustomRules];
-                                                    updated[idx] = { ...rule, level: e.target.value };
-                                                    updateState({ aiClassifyCustomRules: updated });
-                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                }}
-                                                style={{ background: 'var(--control-bg-color, #27272a)', color: '#3b82f6', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '100px' }}
-                                            />
-                                            <input
-                                                type="text"
-                                                placeholder="类别名称"
-                                                value={rule.name}
-                                                onChange={e => {
-                                                    const updated = [...state.aiClassifyCustomRules];
-                                                    updated[idx] = { ...rule, name: e.target.value };
-                                                    updateState({ aiClassifyCustomRules: updated });
-                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                }}
-                                                style={{ background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '90px' }}
-                                            />
-                                            <input
-                                                type="text"
-                                                placeholder="归属限制(可选)"
-                                                title="如果它仅在某个其他标签触发时才生效，写在这里"
-                                                value={rule.parentCategory}
-                                                onChange={e => {
-                                                    const updated = [...state.aiClassifyCustomRules];
-                                                    updated[idx] = { ...rule, parentCategory: e.target.value };
-                                                    updateState({ aiClassifyCustomRules: updated });
-                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                }}
-                                                style={{ background: 'var(--control-bg-color, #27272a)', color: '#f59e0b', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '90px' }}
-                                            />
-                                            <input
-                                                type="text"
-                                                placeholder="判断标准（什么内容属于这个类别）"
-                                                value={rule.criteria}
-                                                onChange={e => {
-                                                    const updated = [...state.aiClassifyCustomRules];
-                                                    updated[idx] = { ...rule, criteria: e.target.value };
-                                                    updateState({ aiClassifyCustomRules: updated });
-                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                }}
-                                                style={{ flex: 1, background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' }}
-                                            />
-                                            <button
-                                                onClick={() => {
-                                                    const updated = state.aiClassifyCustomRules.filter((_, i) => i !== idx);
-                                                    updateState({ aiClassifyCustomRules: updated });
-                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                }}
-                                                style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', padding: '2px', fontSize: '14px', lineHeight: 1 }}
-                                                title="删除此规则"
-                                            >×</button>
-                                        </div>
-                                    ))}
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 12px', borderTop: '1px solid var(--border-color, #333)', fontSize: '11px', maxHeight: '160px', overflowY: 'auto', overscrollBehavior: 'contain', paddingRight: '2px' }}>
+                                    <div>
+                                        {state.aiClassifyCustomRules.map((rule, idx) => (
+                                            <div key={rule.id} style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '3px 0', borderBottom: '1px solid var(--border-color, #222)' }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="维度 (如: 大类/平台/情绪)"
+                                                    title="定义你想要的任何分类维度或层级"
+                                                    value={rule.level === 'major' ? '大类' : rule.level === 'middle' ? '中类' : rule.level === 'minor' ? '小类' : rule.level}
+                                                    onPaste={e => handleCustomRulePaste(e, idx, 'level')}
+                                                    onChange={e => {
+                                                        const updated = [...state.aiClassifyCustomRules];
+                                                        updated[idx] = { ...rule, level: e.target.value };
+                                                        updateState({ aiClassifyCustomRules: updated });
+                                                        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                    }}
+                                                    style={{ background: 'var(--control-bg-color, #27272a)', color: '#3b82f6', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '100px' }}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    placeholder="类别名称"
+                                                    value={rule.name}
+                                                    onPaste={e => handleCustomRulePaste(e, idx, 'name')}
+                                                    onChange={e => {
+                                                        const updated = [...state.aiClassifyCustomRules];
+                                                        updated[idx] = { ...rule, name: e.target.value };
+                                                        updateState({ aiClassifyCustomRules: updated });
+                                                        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                    }}
+                                                    style={{ background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '90px' }}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    placeholder="归属限制(可选)"
+                                                    title="如果它仅在某个其他标签触发时才生效，写在这里"
+                                                    value={rule.parentCategory}
+                                                    onPaste={e => handleCustomRulePaste(e, idx, 'parentCategory')}
+                                                    onChange={e => {
+                                                        const updated = [...state.aiClassifyCustomRules];
+                                                        updated[idx] = { ...rule, parentCategory: e.target.value };
+                                                        updateState({ aiClassifyCustomRules: updated });
+                                                        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                    }}
+                                                    style={{ background: 'var(--control-bg-color, #27272a)', color: '#f59e0b', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '90px' }}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    placeholder="判断标准（什么内容属于这个类别）"
+                                                    value={rule.criteria}
+                                                    onPaste={e => handleCustomRulePaste(e, idx, 'criteria')}
+                                                    onChange={e => {
+                                                        const updated = [...state.aiClassifyCustomRules];
+                                                        updated[idx] = { ...rule, criteria: e.target.value };
+                                                        updateState({ aiClassifyCustomRules: updated });
+                                                        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                    }}
+                                                    style={{ flex: 1, background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' }}
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const updated = state.aiClassifyCustomRules.filter((_, i) => i !== idx);
+                                                        updateState({ aiClassifyCustomRules: updated });
+                                                        localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                    }}
+                                                    style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', padding: '2px', fontSize: '14px', lineHeight: 1 }}
+                                                    title="删除此规则"
+                                                >×</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
                                         <button
                                             onClick={() => {
                                                 const newRule: CustomClassifyRule = { id: Date.now().toString(), name: '', level: '大类', criteria: '', parentCategory: '' };
@@ -3019,53 +3411,199 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                                 updateState({ aiClassifyCustomRules: updated });
                                                 localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
                                             }}
-                                            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#22c55e', border: '1px dashed #22c55e44', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
+                                            style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#22c55e', border: '1px dashed #22c55e44', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
                                         >
                                             <Plus size={12} /> 添加自定义分类
                                         </button>
                                         <button
+                                            onClick={() => {
+                                                if (!state.aiClassifyCustomRules.length) return;
+                                                if (!aiCustomRulesClearConfirm) {
+                                                    setAiCustomRulesClearConfirm(true);
+                                                    if (aiCustomRulesClearTimerRef.current) clearTimeout(aiCustomRulesClearTimerRef.current);
+                                                    aiCustomRulesClearTimerRef.current = setTimeout(() => {
+                                                        setAiCustomRulesClearConfirm(false);
+                                                        aiCustomRulesClearTimerRef.current = null;
+                                                    }, 2600);
+                                                    return;
+                                                }
+                                                const updated: CustomClassifyRule[] = [];
+                                                updateState({ aiClassifyCustomRules: updated });
+                                                localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
+                                                setAiCustomRulesClearConfirm(false);
+                                                if (aiCustomRulesClearTimerRef.current) {
+                                                    clearTimeout(aiCustomRulesClearTimerRef.current);
+                                                    aiCustomRulesClearTimerRef.current = null;
+                                                }
+                                                showToast('已清空全部自定义规则');
+                                            }}
+                                            disabled={state.aiClassifyCustomRules.length === 0}
+                                            title={state.aiClassifyCustomRules.length === 0
+                                                ? '暂无可清空规则'
+                                                : aiCustomRulesClearConfirm
+                                                    ? '再次点击确认清空'
+                                                    : `清空全部 ${state.aiClassifyCustomRules.length} 条自定义规则`}
+                                            style={{
+                                                flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: aiCustomRulesClearConfirm ? 'rgba(239, 68, 68, 0.10)' : 'transparent',
+                                                color: '#ef4444',
+                                                opacity: state.aiClassifyCustomRules.length === 0 ? 0.45 : 1,
+                                                border: aiCustomRulesClearConfirm ? '1px solid #ef444488' : '1px dashed #ef444455',
+                                                borderRadius: '4px', padding: '4px 8px', fontSize: '10px',
+                                                cursor: state.aiClassifyCustomRules.length === 0 ? 'not-allowed' : 'pointer', justifyContent: 'center'
+                                            }}
+                                        >
+                                            <Trash2 size={12} /> {aiCustomRulesClearConfirm ? '再次点击确认清空' : '一键清空自定义规则'}
+                                        </button>
+                                        <button
                                             onClick={async () => {
-                                                let text = '';
+                                                if (!state.aiClassifyCustomRules.length) {
+                                                    showToast('暂无可复制规则');
+                                                    return;
+                                                }
+                                                const cleanCell = (val?: string) => (val ?? '').replace(/\r?\n/g, ' ').replace(/\t/g, ' ').trim();
+                                                const header = ['分类维度', '类别名称', '归属限制(可选)', '判断标准'];
+                                                const lines = [
+                                                    header.join('\t'),
+                                                    ...state.aiClassifyCustomRules.map(rule => [
+                                                        cleanCell(rule.level),
+                                                        cleanCell(rule.name),
+                                                        cleanCell(rule.parentCategory),
+                                                        cleanCell(rule.criteria),
+                                                    ].join('\t')),
+                                                ];
                                                 try {
-                                                    text = await navigator.clipboard.readText();
+                                                    await navigator.clipboard.writeText(lines.join('\n'));
+                                                    showToast(`已复制 ${state.aiClassifyCustomRules.length} 条自定义规则（可粘贴到表格）`);
                                                 } catch {
-                                                    showToast('无法读取剪贴板，请先复制表格内容再点击');
-                                                    return;
-                                                }
-                                                if (!text || !text.trim()) {
-                                                    showToast('剪贴板为空，请先从 Excel/Google Sheets 复制内容');
-                                                    return;
-                                                }
-                                                const rows = text.split(/\r?\n/).filter(r => r.trim());
-                                                const newRules: CustomClassifyRule[] = [];
-                                                rows.forEach(row => {
-                                                    const cols = row.split('\t');
-                                                    if (cols.length >= 1) {
-                                                        const name = cols[0].trim();
-                                                        const criteria = cols[1] ? cols[1].trim() : '';
-                                                        if (name) {
-                                                            newRules.push({
-                                                                id: Date.now().toString() + Math.random().toString(),
-                                                                name,
-                                                                level: '大类',
-                                                                criteria,
-                                                                parentCategory: ''
-                                                            });
-                                                        }
-                                                    }
-                                                });
-                                                if (newRules.length > 0) {
-                                                    const updated = [...state.aiClassifyCustomRules, ...newRules];
-                                                    updateState({ aiClassifyCustomRules: updated });
-                                                    localStorage.setItem('ai_classify_custom_rules', JSON.stringify(updated));
-                                                    showToast(`成功批量导入 ${newRules.length} 条分类规则`);
-                                                } else {
-                                                    showToast('未解析出有效的分类规则数据');
+                                                    showToast('复制失败，请检查浏览器剪贴板权限');
                                                 }
                                             }}
-                                            style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#3b82f6', border: '1px dashed #3b82f644', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
+                                            disabled={state.aiClassifyCustomRules.length === 0}
+                                            style={{
+                                                flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px',
+                                                background: 'transparent', color: '#a855f7',
+                                                opacity: state.aiClassifyCustomRules.length === 0 ? 0.45 : 1,
+                                                border: '1px dashed #a855f744', borderRadius: '4px', padding: '4px 8px', fontSize: '10px',
+                                                cursor: state.aiClassifyCustomRules.length === 0 ? 'not-allowed' : 'pointer', justifyContent: 'center'
+                                            }}
+                                        >
+                                            <Copy size={12} /> 复制当前规则
+                                        </button>
+                                        <button
+                                            onClick={handleOpenAiRulePasteWizardFromClipboard}
+                                            style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#3b82f6', border: '1px dashed #3b82f644', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
                                         >
                                             <Copy size={12} /> 批量粘贴 (从表格)
+                                        </button>
+                                    </div>
+                                </div>
+                                )}
+                                
+                                {/* 额外自定义指令 */}
+                                {state.aiClassifyShowExtraInstructions && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 12px', borderTop: '1px solid var(--border-color, #333)', fontSize: '11px', maxHeight: '160px', overflowY: 'auto', overscrollBehavior: 'contain', paddingRight: '2px' }}>
+                                    <div>
+                                        {state.aiClassifyExtraInstructions.map((inst, idx) => (
+                                            <div key={inst.id} style={{ display: 'flex', gap: '6px', alignItems: 'center', padding: '3px 0', borderBottom: '1px solid var(--border-color, #222)' }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="列名(如: 关键词)"
+                                                    value={inst.label}
+                                                    onPaste={e => handleExtraInstructionPasteTarget(e, idx, 'label')}
+                                                    onChange={e => {
+                                                        const updated = [...state.aiClassifyExtraInstructions];
+                                                        updated[idx] = { ...inst, label: e.target.value };
+                                                        updateState({ aiClassifyExtraInstructions: updated });
+                                                        try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(updated)); } catch {}
+                                                    }}
+                                                    style={{ background: 'var(--control-bg-color, #27272a)', color: '#a855f7', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px', width: '120px' }}
+                                                />
+                                                <input
+                                                    type="text"
+                                                    placeholder="指令判断标准 (如: 提取3个核心词)"
+                                                    value={inst.instruction}
+                                                    onPaste={e => handleExtraInstructionPasteTarget(e, idx, 'instruction')}
+                                                    onChange={e => {
+                                                        const updated = [...state.aiClassifyExtraInstructions];
+                                                        updated[idx] = { ...inst, instruction: e.target.value };
+                                                        updateState({ aiClassifyExtraInstructions: updated });
+                                                        try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(updated)); } catch {}
+                                                    }}
+                                                    style={{ flex: 1, background: 'var(--control-bg-color, #27272a)', color: 'var(--text-color, #e4e4e7)', border: '1px solid var(--border-color, #333)', borderRadius: '4px', padding: '2px 6px', fontSize: '11px' }}
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const updated = state.aiClassifyExtraInstructions.filter((_, i) => i !== idx);
+                                                        updateState({ aiClassifyExtraInstructions: updated });
+                                                        try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(updated)); } catch {}
+                                                    }}
+                                                    style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', padding: '2px', fontSize: '14px', lineHeight: 1 }}
+                                                    title="删除此指令"
+                                                >×</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                        <button
+                                            onClick={() => {
+                                                const updated = [...state.aiClassifyExtraInstructions, { id: 'ext_'+Date.now(), label: '', instruction: '' }];
+                                                updateState({ aiClassifyExtraInstructions: updated });
+                                                try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(updated)); } catch {}
+                                            }}
+                                            style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#a855f7', border: '1px dashed #a855f744', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
+                                        >
+                                            <Plus size={12} /> 添加额外指令列
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                const updated: ExtraInstruction[] = [];
+                                                updateState({ aiClassifyExtraInstructions: updated });
+                                                try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(updated)); } catch {}
+                                                showToast('已清空全部自定义指令');
+                                            }}
+                                            disabled={state.aiClassifyExtraInstructions.length === 0}
+                                            style={{
+                                                flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent',
+                                                color: '#ef4444', opacity: state.aiClassifyExtraInstructions.length === 0 ? 0.45 : 1,
+                                                border: '1px dashed #ef444455', borderRadius: '4px', padding: '4px 8px', fontSize: '10px',
+                                                cursor: state.aiClassifyExtraInstructions.length === 0 ? 'not-allowed' : 'pointer', justifyContent: 'center'
+                                            }}
+                                        >
+                                            <Trash2 size={12} /> 一键清空指令
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    const text = await navigator.clipboard.readText();
+                                                    if (!text || !text.trim()) {
+                                                        showToast('剪贴板为空');
+                                                        return;
+                                                    }
+                                                    const lines = text.split(/\r?\n/).map(row => row.split('\t').map(c => c.trim())).filter(row => row.some(c => c));
+                                                    
+                                                    const instructions: ExtraInstruction[] = lines.map((row, idx) => ({
+                                                        id: 'ext_' + Date.now() + '_' + idx,
+                                                        label: row[0] || '未命名列',
+                                                        instruction: row[1] || ''
+                                                    })).filter(cmd => cmd.label || cmd.instruction);
+
+                                                    if (instructions.length === 0) {
+                                                        showToast('剪贴板未找到可用数据');
+                                                        return;
+                                                    }
+
+                                                    const merged = [...state.aiClassifyExtraInstructions, ...instructions];
+                                                    updateState({ aiClassifyExtraInstructions: merged });
+                                                    try { localStorage.setItem('ai_classify_extra_instructions', JSON.stringify(merged)); } catch {}
+                                                    showToast(`成功批量添加 ${instructions.length} 条指令`);
+                                                } catch (err) {
+                                                    showToast('无法读取剪贴板，请允许权限');
+                                                }
+                                            }}
+                                            style={{ flex: '1 1 160px', display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', color: '#3b82f6', border: '1px dashed #3b82f644', borderRadius: '4px', padding: '4px 8px', fontSize: '10px', cursor: 'pointer', justifyContent: 'center' }}
+                                        >
+                                            <Copy size={12} /> 批量粘贴指令 (列名+要求)
                                         </button>
                                     </div>
                                 </div>
@@ -3141,6 +3679,10 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                 const customLevels = isCustomModel ? Array.from(new Set(state.aiClassifyCustomRules.map(r => 
                                     r.level === 'major' ? '大类' : r.level === 'middle' ? '中类' : r.level === 'minor' ? '小类' : r.level
                                 ))) : ['大类', '中类', '小类'];
+                                const displayLevels = isCustomModel ? customLevels : [...state.aiClassifyLevelNames];
+
+                                const extraLabels = state.aiClassifyExtraInstructions.map(e => e.label);
+                                const hasExtra = state.aiClassifyResults.some(r => r.extraResults && Object.keys(r.extraResults).length > 0) || extraLabels.length > 0;
 
                                 return (
                                 <div style={{ flex: 1, overflow: 'auto' }}>
@@ -3150,18 +3692,25 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                                 <th style={{ width: '40px', textAlign: 'center' }}>#</th>
                                                 <th style={{ minWidth: '200px' }}>文案</th>
                                                 <th style={{ width: '50px', textAlign: 'center' }}>字数</th>
-                                                {customLevels.map(lvl => (
-                                                    <th key={lvl} style={{ width: lvl === '大类' ? '90px' : lvl === '中类' ? '130px' : '160px' }}>{lvl}</th>
+                                                {customLevels.map((lvl, lvlIdx) => (
+                                                    <th key={lvl} style={{ width: lvlIdx === 0 ? '90px' : lvlIdx === 1 ? '130px' : '160px' }}>{displayLevels[lvlIdx] || lvl}</th>
                                                 ))}
+                                                {hasExtra && extraLabels.length > 0 
+                                                    ? extraLabels.map(label => <th key={`extra_${label}`} style={{ minWidth: '150px' }}>{label}</th>)
+                                                    : hasExtra && <th style={{ minWidth: '150px' }}>额外</th>
+                                                }
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {getFilteredAiResults().map((r, i) => (
                                                 <tr key={r.index} onContextMenu={(e) => {
                                                     e.preventDefault();
-                                                    // 右键修改分类 (simplified: copy text)
-                                                    const rowVals = customLevels.map(lvl => r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : ''));
-                                                    const text = `${r.text}\t${rowVals.join('\t')}`;
+                                                    // 右键复制
+                                                    const rowVals = customLevels.map((lvl, idx) => r.customCategories?.[lvl] || (idx === 0 ? r.major : idx === 1 ? r.middle : idx === 2 ? r.minor : ''));
+                                                    const extraVals = extraLabels.length > 0 
+                                                        ? extraLabels.map(lvl => r.extraResults?.[lvl] || '').join('\t')
+                                                        : (r.extraResults ? Object.values(r.extraResults).join(' ') : '');
+                                                    const text = `${r.text}\t${rowVals.join('\t')}${hasExtra ? '\t' + extraVals : ''}`;
                                                     navigator.clipboard.writeText(text);
                                                     showToast('已复制该行');
                                                 }}>
@@ -3177,9 +3726,9 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                                         )}
                                                     </td>
                                                     <td style={{ textAlign: 'center', fontSize: '10px', color: 'var(--text-muted, #888)', fontVariantNumeric: 'tabular-nums' }}>{r.text.length}</td>
-                                                    {customLevels.map(lvl => {
-                                                        const val = r.customCategories?.[lvl] || (lvl === '大类' ? r.major : lvl === '中类' ? r.middle : lvl === '小类' ? r.minor : '');
-                                                        if (lvl === '大类') {
+                                                    {customLevels.map((lvl, lvlIdx) => {
+                                                        const val = r.customCategories?.[lvl] || (lvlIdx === 0 ? r.major : lvlIdx === 1 ? r.middle : lvlIdx === 2 ? r.minor : '');
+                                                        if (lvlIdx === 0) {
                                                             return (
                                                                 <td key={lvl}>
                                                                     <span style={{
@@ -3195,14 +3744,25 @@ export function ProDedupApp({ textModel = 'gemini-3-flash-preview', getAiInstanc
                                                             );
                                                         }
                                                         return (
-                                                            <td key={lvl} style={{ fontSize: '11px', color: lvl === '中类' ? 'var(--text-color, #ddd)' : undefined }}>
+                                                            <td key={lvl} style={{ fontSize: '11px', color: lvlIdx === 1 ? 'var(--text-color, #ddd)' : undefined }}>
                                                                 {val}
-                                                                {lvl === '小类' && r.isManual && (
+                                                                {lvlIdx === 2 && r.isManual && (
                                                                     <span style={{ marginLeft: '4px', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', background: '#22c55e22', color: '#22c55e', fontWeight: 600 }}>人工</span>
                                                                 )}
                                                             </td>
                                                         );
                                                     })}
+                                                    {hasExtra && extraLabels.length > 0 ? (
+                                                        extraLabels.map(label => (
+                                                            <td key={`extra_data_${label}`} style={{ fontSize: '11px', color: '#a78bfa', maxWidth: 250, lineHeight: 1.3, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                                {r.extraResults?.[label] || ''}
+                                                            </td>
+                                                        ))
+                                                    ) : hasExtra && (
+                                                        <td style={{ fontSize: '11px', color: '#a78bfa', maxWidth: 250, lineHeight: 1.3, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                            {r.extraResults ? Object.values(r.extraResults).join(' ') : ''}
+                                                        </td>
+                                                    )}
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -4457,6 +5017,140 @@ function doGet(e) {
                 )
             }
 
+            {/* AI分类：粘贴原始表格文本 */}
+            {
+                aiRulePasteInputOpen && (
+                    <div className="pro-modal-overlay" onClick={() => setAiRulePasteInputOpen(false)}>
+                        <div
+                            className="pro-modal"
+                            style={{ width: 'min(860px, 95vw)', maxHeight: '82vh', overflow: 'auto' }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="pro-modal-header">
+                                <h3>批量粘贴（从表格）</h3>
+                                <button onClick={() => setAiRulePasteInputOpen(false)}><X size={16} /></button>
+                            </div>
+                            <div className="pro-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted-color, #888)' }}>
+                                    无法直接读取系统剪贴板时，请把 Excel / Google Sheets 内容粘贴到下方，再继续下一步列映射。
+                                </div>
+                                <textarea
+                                    value={aiRulePasteInputText}
+                                    onChange={(e) => setAiRulePasteInputText(e.target.value)}
+                                    placeholder={'示例：\n大类\t乡村与农场\t归属限制(可选)\t画面中出现农田、庄稼、谷仓...'}
+                                    style={{
+                                        minHeight: 180,
+                                        resize: 'vertical',
+                                        width: '100%',
+                                        background: 'var(--input-bg-color, rgba(255,255,255,0.03))',
+                                        color: 'var(--text-color, #e4e4e7)',
+                                        border: '1px solid var(--border-color, #333)',
+                                        borderRadius: 6,
+                                        padding: '8px 10px',
+                                        fontSize: 12,
+                                        lineHeight: 1.55,
+                                    }}
+                                />
+                            </div>
+                            <div className="pro-modal-footer">
+                                <button onClick={() => setAiRulePasteInputOpen(false)}>取消</button>
+                                <button className="btn btn-primary" onClick={handleOpenAiRulePasteWizardFromInput}>下一步：列映射</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* AI分类：自定义规则批量粘贴列映射弹框 */}
+            {
+                aiRulePasteWizardOpen && (
+                    <div className="pro-modal-overlay" onClick={() => setAiRulePasteWizardOpen(false)}>
+                        <div
+                            className="pro-modal"
+                            style={{ width: 'min(920px, 95vw)', maxHeight: '85vh', overflow: 'auto' }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="pro-modal-header">
+                                <h3>批量粘贴列映射</h3>
+                                <button onClick={() => setAiRulePasteWizardOpen(false)}><X size={16} /></button>
+                            </div>
+                            <div className="pro-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted-color, #888)' }}>
+                                        已识别 {aiRulePasteRows.length} 行，{aiRulePasteColCount} 列。请设置每一列的数据类型。
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={aiRulePasteHasHeader}
+                                            onChange={(e) => setAiRulePasteHasHeader(e.target.checked)}
+                                        />
+                                        第一行是表头
+                                    </label>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+                                    {Array.from({ length: aiRulePasteColCount }, (_, colIdx) => (
+                                        <label key={`ai-rule-col-map-${colIdx}`} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                                            <span>第 {colIdx + 1} 列</span>
+                                            <select
+                                                className="dp-input"
+                                                value={aiRulePasteMapping[colIdx] || 'ignore'}
+                                                onChange={(e) => {
+                                                    const next = [...aiRulePasteMapping];
+                                                    next[colIdx] = e.target.value as AiRulePasteTarget;
+                                                    setAiRulePasteMapping(next);
+                                                }}
+                                                style={{ fontSize: 12, padding: '4px 6px' }}
+                                            >
+                                                {AI_RULE_PASTE_TARGET_OPTIONS.map(opt => (
+                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                    ))}
+                                </div>
+
+                                <div style={{ border: '1px solid var(--border-color, #333)', borderRadius: 6, overflow: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                                        <thead>
+                                            <tr style={{ background: 'var(--control-bg-color, rgba(128,128,128,0.08))' }}>
+                                                {Array.from({ length: aiRulePasteColCount }, (_, colIdx) => (
+                                                    <th
+                                                        key={`ai-rule-head-${colIdx}`}
+                                                        style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border-color, #333)' }}
+                                                    >
+                                                        列 {colIdx + 1}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {aiRulePasteRows.slice(0, 6).map((row, rowIdx) => (
+                                                <tr key={`ai-rule-row-${rowIdx}`}>
+                                                    {Array.from({ length: aiRulePasteColCount }, (_, colIdx) => (
+                                                        <td
+                                                            key={`ai-rule-cell-${rowIdx}-${colIdx}`}
+                                                            style={{ padding: '6px 8px', borderBottom: '1px solid var(--border-color, #222)' }}
+                                                        >
+                                                            {row[colIdx] || ''}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="pro-modal-footer">
+                                <button onClick={() => setAiRulePasteWizardOpen(false)}>取消</button>
+                                <button className="btn btn-primary" onClick={applyAiRulePasteMapping}>按映射导入</button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
             {/* 系统指令查看/编辑 Modal */}
             {state.aiClassifyShowSystemPrompt && (
                 <div className="modal-overlay" onClick={() => updateState({ aiClassifyShowSystemPrompt: false })}>
@@ -4475,6 +5169,7 @@ function doGet(e) {
                                         style={{ fontSize: 12, padding: '2px 8px' }}
                                         onClick={() => {
                                             updateState({ aiClassifySystemPromptEdit: '' });
+                                            try { localStorage.removeItem('ai_classify_system_prompt_edit'); } catch {}
                                             showToast('已恢复默认指令');
                                         }}
                                     >
@@ -4498,7 +5193,11 @@ function doGet(e) {
                         </div>
                         <textarea
                             value={state.aiClassifySystemPromptEdit || CLASSIFY_SYSTEM_PROMPT}
-                            onChange={e => updateState({ aiClassifySystemPromptEdit: e.target.value })}
+                            onChange={e => {
+                                const val = e.target.value;
+                                updateState({ aiClassifySystemPromptEdit: val });
+                                try { localStorage.setItem('ai_classify_system_prompt_edit', val); } catch {}
+                            }}
                             style={{
                                 flex: 1,
                                 width: '100%',
@@ -4518,7 +5217,7 @@ function doGet(e) {
                             spellCheck={false}
                         />
                         <div style={{ marginTop: 8, fontSize: 12, color: '#888', flexShrink: 0 }}>
-                            💡 编辑后保存在当前会话。修改默认指令：编辑清空后自动恢复默认。刷新页面会重置为默认。
+                            💡 编辑后自动保存（即使刷新页面也会保留）。点击「恢复默认」可回到初始指令。
                         </div>
                     </div>
                 </div>

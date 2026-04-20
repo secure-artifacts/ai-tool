@@ -6,6 +6,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { TranslationResult } from '../types';
+import { getGlobalTextModel } from '@/utils/getTextModel';
 
 // 语气级别类型
 export type ToneLevel = 'neutral' | 'suggestive' | 'collaborative';
@@ -260,7 +261,7 @@ export const translateFeedback = async (
 
     // 优先使用主应用暴露的全局实例
     let ai: GoogleGenAI;
-    if (!apiKey && typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
+    if (typeof window !== 'undefined' && (window as any).__app_get_ai_instance) {
         ai = (window as any).__app_get_ai_instance();
     } else {
         if (!key && !isRunningInAiStudio()) {
@@ -268,11 +269,16 @@ export const translateFeedback = async (
         }
         const cleanKey = (key || '').trim().replace(/[^\x20-\x7E]/g, '');
         if (isRunningInAiStudio()) {
-            ai = cleanKey ? new GoogleGenAI({ apiKey: cleanKey }) : new GoogleGenAI({});
+            ai = cleanKey ? new GoogleGenAI({ apiKey: cleanKey }) : new GoogleGenAI({ apiKey: cleanKey || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER' });
         } else if (shouldUseAiStudioMode(cleanKey)) {
             ai = new GoogleGenAI({ apiKey: cleanKey });
         } else {
-            ai = new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+            const isVertex = !shouldUseAiStudioMode(cleanKey);
+            if (isVertex) {
+                ai = new GoogleGenAI({ apiKey: cleanKey, vertexai: true, httpOptions: { baseUrl: 'https://aiplatform.googleapis.com/' } });
+            } else {
+                ai = new GoogleGenAI({ apiKey: cleanKey });
+            }
         }
     }
     const toneInstruction = getToneInstruction(tone);
@@ -295,7 +301,7 @@ ${chineseFeedback}
 Respond with ONLY the ${targetConfig.promptName} translation, nothing else.`;
 
     const translateResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: getGlobalTextModel(),
         contents: translatePrompt,
     });
 
@@ -310,7 +316,7 @@ ${targetTranslation}
 Respond with ONLY the Chinese translation, nothing else.`;
 
     const backTranslateResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: getGlobalTextModel(),
         contents: backTranslatePrompt,
     });
 
@@ -327,7 +333,7 @@ The tone may differ (the back-translation might be softer), but the main point s
 Respond with ONLY "true" if the core meaning is preserved, or "false" if the meaning is significantly different.`;
 
     const accuracyResponse = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: getGlobalTextModel(),
         contents: accuracyPrompt,
     });
 

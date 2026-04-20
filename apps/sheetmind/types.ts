@@ -65,6 +65,7 @@ export interface ChartSnapshot {
     aggregation: string;
     metricLabel: string;
     isStacked: boolean;
+    stackIdMapping?: Record<string, string>;
     xAxisLabel: string;
 }
 

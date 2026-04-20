@@ -79,9 +79,29 @@ export function subscribeToUserApiPool(
 export class UserApiKeyPool {
     private keys: UserApiKeyEntry[] = [];
     private currentIndex: number = 0;
-    private failedKeys: Set<string> = new Set();
+    private keyStats: Map<string, { failedAt: number | null; failReason: string }> = new Map();
     private userId: string | null = null;
     private unsubscribe: (() => void) | null = null;
+    private cooldownMs: number = 60000;
+
+    private ensureStats(key: string): { failedAt: number | null; failReason: string } {
+        if (!this.keyStats.has(key)) {
+            this.keyStats.set(key, { failedAt: null, failReason: '' });
+        }
+        return this.keyStats.get(key)!;
+    }
+
+    private isKeyExhausted(key: string): boolean {
+        const stats = this.keyStats.get(key);
+        if (!stats || !stats.failedAt) return false;
+        const elapsed = Date.now() - stats.failedAt;
+        if (elapsed >= this.cooldownMs) {
+            stats.failedAt = null;
+            stats.failReason = '';
+            return false;
+        }
+        return true;
+    }
 
     /**
      * 从 Firebase 加载用户 API 池
@@ -90,7 +110,8 @@ export class UserApiKeyPool {
         this.userId = userId;
         this.keys = await loadUserApiPool(userId);
         this.currentIndex = 0;
-        this.failedKeys.clear();
+        this.keyStats.clear();
+        this.keys.forEach(entry => this.ensureStats(entry.apiKey));
         // console.log(`[User API Pool] Loaded ${this.keys.length} keys for user ${userId}`);
     }
 
@@ -120,7 +141,7 @@ export class UserApiKeyPool {
      */
     async removeKey(apiKey: string): Promise<void> {
         this.keys = this.keys.filter(k => k.apiKey !== apiKey);
-        this.failedKeys.delete(apiKey);
+        this.keyStats.delete(apiKey);
         if (this.currentIndex >= this.keys.length) {
             this.currentIndex = 0;
         }
@@ -136,15 +157,23 @@ export class UserApiKeyPool {
         }
 
         let attempts = 0;
-        while (this.failedKeys.has(this.keys[this.currentIndex].apiKey) && attempts < this.keys.length) {
+        while (this.isKeyExhausted(this.keys[this.currentIndex].apiKey) && attempts < this.keys.length) {
             this.currentIndex = (this.currentIndex + 1) % this.keys.length;
             attempts++;
         }
 
         if (attempts >= this.keys.length) {
-            console.warn('[User API Pool] All keys failed, resetting...');
-            this.failedKeys.clear();
-            this.currentIndex = 0;
+            let earliestIdx = 0;
+            let earliestTime = Infinity;
+            this.keys.forEach((entry, idx) => {
+                const stats = this.keyStats.get(entry.apiKey);
+                if (stats?.failedAt && stats.failedAt < earliestTime) {
+                    earliestTime = stats.failedAt;
+                    earliestIdx = idx;
+                }
+            });
+            this.currentIndex = earliestIdx;
+            console.warn('[User API Pool] 所有 key 都在冷却中，回退到最早恢复的 key');
         }
 
         return this.keys[this.currentIndex].apiKey;
@@ -173,7 +202,7 @@ export class UserApiKeyPool {
     markCurrentAsFailed(): void {
         const currentKey = this.keys[this.currentIndex]?.apiKey;
         if (currentKey) {
-            this.failedKeys.add(currentKey);
+            this.markKeyAsFailed(currentKey);
         }
         this.rotateToNext();
     }
@@ -181,8 +210,11 @@ export class UserApiKeyPool {
     /**
      * 标记指定密钥为失败
      */
-    markKeyAsFailed(key: string): void {
-        this.failedKeys.add(key);
+    markKeyAsFailed(key: string, reason: string = '额度用完'): void {
+        if (!key) return;
+        const stats = this.ensureStats(key);
+        stats.failedAt = Date.now();
+        stats.failReason = reason;
     }
 
     /**
@@ -208,10 +240,11 @@ export class UserApiKeyPool {
         failed: number;
         currentNickname?: string;
     } {
+        const failed = this.keys.filter(entry => this.isKeyExhausted(entry.apiKey)).length;
         return {
             total: this.keys.length,
             current: this.currentIndex + 1,
-            failed: this.failedKeys.size,
+            failed,
             currentNickname: this.getCurrentNickname()
         };
     }
@@ -220,7 +253,67 @@ export class UserApiKeyPool {
      * 清除失败标记
      */
     clearFailedMarks(): void {
-        this.failedKeys.clear();
+        this.keyStats.forEach(stats => {
+            stats.failedAt = null;
+            stats.failReason = '';
+        });
+    }
+
+    /**
+     * 强制重置所有密钥状态
+     */
+    forceResetAll(): void {
+        this.clearFailedMarks();
+        this.currentIndex = 0;
+    }
+
+    /**
+     * 记录 API 调用次数
+     */
+    recordCall(key?: string): void {
+        const targetKey = key || (this.keys.length > 0 ? this.keys[this.currentIndex]?.apiKey : null);
+        if (!targetKey) return;
+        const today = new Date().toISOString().slice(0, 10);
+        const storageKey = `api_call_count_${today}_${targetKey.substring(0, 12)}`;
+        const current = parseInt(localStorage.getItem(storageKey) || '0', 10);
+        localStorage.setItem(storageKey, String(current + 1));
+    }
+
+    /**
+     * 获取每个 key 的详细状态
+     */
+    getDetailedStatus(): Array<{
+        index: number;
+        nickname: string;
+        keyPrefix: string;
+        callCount: number;
+        isExhausted: boolean;
+        failedAt: string | null;
+        failReason: string;
+        cooldownRemaining: number;
+        modelUsage: Record<string, number>;
+    }> {
+        const today = new Date().toISOString().slice(0, 10);
+        return this.keys.map((entry, idx) => {
+            const storageKey = `api_call_count_${today}_${entry.apiKey.substring(0, 12)}`;
+            const callCount = parseInt(localStorage.getItem(storageKey) || '0', 10);
+            const stats = this.ensureStats(entry.apiKey);
+            const isExhausted = this.isKeyExhausted(entry.apiKey);
+            const cooldownRemaining = stats.failedAt
+                ? Math.max(0, Math.ceil((this.cooldownMs - (Date.now() - stats.failedAt)) / 1000))
+                : 0;
+            return {
+                index: idx + 1,
+                nickname: entry.nickname || `Key ${idx + 1}`,
+                keyPrefix: entry.apiKey.substring(0, 8) + '...',
+                callCount,
+                isExhausted,
+                failedAt: stats.failedAt ? new Date(stats.failedAt).toISOString() : null,
+                failReason: stats.failReason,
+                cooldownRemaining,
+                modelUsage: {},
+            };
+        });
     }
 }
 

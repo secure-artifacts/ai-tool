@@ -37,13 +37,15 @@ const DebouncedInput: React.FC<{
     debounceMs?: number;
 }> = ({ value, onChange, placeholder, className, style, type = 'text', debounceMs = 300 }) => {
     const [localValue, setLocalValue] = useState(value);
+    const [isComposing, setIsComposing] = useState(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const mountedRef = useRef(true);
 
     // Sync external value changes
     useEffect(() => {
+        if (isComposing) return;
         setLocalValue(value);
-    }, [value]);
+    }, [value, isComposing]);
 
     useEffect(() => {
         return () => {
@@ -56,6 +58,8 @@ const DebouncedInput: React.FC<{
         const newValue = e.target.value;
         setLocalValue(newValue); // Immediate local update
 
+        if (isComposing) return;
+
         // Debounced config update
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => {
@@ -63,15 +67,28 @@ const DebouncedInput: React.FC<{
                 onChange(newValue);
             }
         }, debounceMs);
-    }, [onChange, debounceMs]);
+    }, [onChange, debounceMs, isComposing]);
 
     // Immediate update on blur
     const handleBlur = useCallback(() => {
+        setIsComposing(false);
         if (timerRef.current) clearTimeout(timerRef.current);
         if (localValue !== value) {
             onChange(localValue);
         }
     }, [localValue, value, onChange]);
+
+    const handleCompositionStart = useCallback(() => {
+        setIsComposing(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+    }, []);
+
+    const handleCompositionEnd = useCallback((e: React.CompositionEvent<HTMLInputElement>) => {
+        const newValue = e.currentTarget.value;
+        setIsComposing(false);
+        setLocalValue(newValue);
+        onChange(newValue);
+    }, [onChange]);
 
     return (
         <input
@@ -79,6 +96,8 @@ const DebouncedInput: React.FC<{
             value={localValue}
             onChange={handleChange}
             onBlur={handleBlur}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             placeholder={placeholder}
             className={className}
             style={style}
@@ -1281,12 +1300,19 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                                                 const newLevels = currentGroupLevels.map((l, i) => i === idx ? { ...l, dateBins: newBins } : l);
                                                                                 updateConfig({ groupLevels: newLevels });
                                                                             }} className="px-1 py-0.5 text-[10px] border rounded" />
-                                                                            <input type="text" value={bin.label} onChange={e => {
-                                                                                const newBins = [...(level.dateBins || [])];
-                                                                                newBins[binIdx] = { ...bin, label: e.target.value };
-                                                                                const newLevels = currentGroupLevels.map((l, i) => i === idx ? { ...l, dateBins: newBins } : l);
-                                                                                updateConfig({ groupLevels: newLevels });
-                                                                            }} className="flex-1 px-1 py-0.5 text-[10px] border rounded" placeholder="标签" />
+                                                                            <DebouncedInput
+                                                                                type="text"
+                                                                                value={bin.label}
+                                                                                onChange={(nextValue) => {
+                                                                                    const newBins = [...(level.dateBins || [])];
+                                                                                    newBins[binIdx] = { ...bin, label: nextValue };
+                                                                                    const newLevels = currentGroupLevels.map((l, i) => i === idx ? { ...l, dateBins: newBins } : l);
+                                                                                    updateConfig({ groupLevels: newLevels });
+                                                                                }}
+                                                                                className="flex-1 px-1 py-0.5 text-[10px] border rounded"
+                                                                                placeholder="标签"
+                                                                                debounceMs={120}
+                                                                            />
                                                                             <button onClick={() => {
                                                                                 const newBins = (level.dateBins || []).filter((_, i) => i !== binIdx);
                                                                                 const newLevels = currentGroupLevels.map((l, i) => i === idx ? { ...l, dateBins: newBins } : l);
@@ -1832,16 +1858,17 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                                 </div>
                                                 {config.dateBins.map((bin, idx) => (
                                                     <div key={bin.id} className="flex flex-wrap items-center gap-2 bg-white p-2 rounded">
-                                                        <input
+                                                        <DebouncedInput
                                                             type="text"
                                                             value={bin.label}
-                                                            onChange={e => {
+                                                            onChange={(nextValue) => {
                                                                 const newBins = [...config.dateBins];
-                                                                newBins[idx] = { ...bin, label: e.target.value };
+                                                                newBins[idx] = { ...bin, label: nextValue };
                                                                 updateConfig({ dateBins: newBins });
                                                             }}
                                                             placeholder="标签"
                                                             className="w-20 px-2 py-1 text-[11px] border border-slate-200 rounded"
+                                                            debounceMs={120}
                                                         />
                                                         <input
                                                             type="date"

@@ -130,7 +130,7 @@ const TreeGroupConfigModal: React.FC<TreeGroupConfigModalProps> = ({
     ];
 
     return (
-        <div data-modal="tree-group-config" className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+        <div data-modal="tree-group-config" className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); }}>
             <div
                 className="bg-white rounded-2xl shadow-2xl flex flex-col relative"
                 style={{ width: `${modalSize.width}px`, height: `${modalSize.height}px`, maxWidth: '95vw', maxHeight: '95vh' }}

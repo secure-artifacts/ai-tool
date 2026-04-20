@@ -1,11 +1,12 @@
 
 import React, { useMemo, useState, useEffect, useCallback, useRef, memo } from 'react';
+import { toBlob } from 'html-to-image';
 import { SheetData, FilterCondition, ChartType, AggregationType, ChartSnapshot } from '../types';
 import {
     BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie,
     RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
     ScatterChart, Scatter, FunnelChart, Funnel, Treemap,
-    XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend, LabelList
+    XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, Legend, LabelList, Brush, ComposedChart
 } from 'recharts';
 import {
     LayoutDashboard, Hash, PieChart as PieChartIcon,
@@ -29,7 +30,11 @@ import {
     BarChart2,
     Grid,
     AlertTriangle,
-    Target
+    Target,
+    GripVertical,
+    ArrowUpDown,
+    ArrowUp,
+    ArrowDown
 } from 'lucide-react';
 import {
     isUserLoggedIn,
@@ -44,10 +49,78 @@ interface DashboardProps {
 }
 
 export const COLORS = [
-    '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8',
-    '#82ca9d', '#ffc658', '#ff7f50', '#a4de6c', '#d0ed57',
-    '#8dd1e1', '#a4c8e0', '#d88884', '#e8c3b9', '#c6c6c6'
+    '#3B82F6', // Blue
+    '#10B981', // Emerald
+    '#F59E0B', // Amber
+    '#EF4444', // Red
+    '#8B5CF6', // Violet
+    '#EC4899', // Pink
+    '#06B6D4', // Cyan
+    '#84CC16', // Lime
+    '#F97316', // Orange
+    '#14B8A6', // Teal
+    '#6366F1', // Indigo
+    '#EAB308', // Yellow
+    '#D946EF', // Fuchsia
+    '#0EA5E9', // Sky
+    '#22C55E', // Green
+    '#A855F7', // Purple
+    '#4F46E5', // Indigo-600
+    '#BE123C', // Rose-700
+    '#15803D', // Green-700
+    '#B45309'  // Amber-700
 ];
+
+const DraggableList = ({ items, setItems, label }: { items: string[], setItems: (items: string[]) => void, label: string }) => {
+    const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
+
+    const handleDragStart = (e: React.DragEvent, index: number) => {
+        setDraggingIdx(index);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragOver = (e: React.DragEvent, index: number) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        
+        if (draggingIdx === null || draggingIdx === index) return;
+        
+        const newItems = [...items];
+        const draggedItem = newItems[draggingIdx];
+        newItems.splice(draggingIdx, 1);
+        newItems.splice(index, 0, draggedItem);
+        
+        setDraggingIdx(index);
+        setItems(newItems);
+    };
+
+    const handleDragEnd = () => {
+        setDraggingIdx(null);
+    };
+
+    if (items.length === 0) return null;
+
+    return (
+        <div className="flex flex-col gap-1 mt-2 p-2 bg-indigo-50/50 rounded border border-indigo-100">
+            <span className="text-[10px] text-indigo-700 font-medium mb-1">{label}提示：拖拽调整顺序</span>
+            <div className="space-y-1 max-h-[200px] overflow-y-auto pr-1">
+                {items.map((item: any, idx: number) => (
+                    <div 
+                        key={item}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, idx)}
+                        onDragOver={(e) => handleDragOver(e, idx)}
+                        onDragEnd={handleDragEnd}
+                        className="flex items-center gap-2 p-1.5 bg-white border border-slate-200 rounded text-xs text-slate-700 cursor-move hover:border-indigo-300 hover:shadow-sm transition-all"
+                    >
+                        <GripVertical size={12} className="text-slate-400" />
+                        <span className="truncate flex-1" title={item}>{item}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
 
 interface BinRange {
     id: string;
@@ -191,7 +264,7 @@ const generateSmartRecommendations = (rows: any[], columns: string[]): ChartReco
 
     // === 推荐1: 基础分布统计 (如果有分类列) ===
     if (categoryColumns.length > 0) {
-        const bestCat = categoryColumns.sort((a, b) => {
+        const bestCat = categoryColumns.sort((a: any, b: any) => {
             // 优先选择基数在 3-15 之间的
             const scoreA = a.uniqueCount >= 3 && a.uniqueCount <= 15 ? 100 : 50;
             const scoreB = b.uniqueCount >= 3 && b.uniqueCount <= 15 ? 100 : 50;
@@ -318,7 +391,7 @@ const generateSmartRecommendations = (rows: any[], columns: string[]): ChartReco
     }
 
     // 按分数排序
-    return recommendations.sort((a, b) => b.score - a.score).slice(0, 6);
+    return recommendations.sort((a: any, b: any) => b.score - a.score).slice(0, 6);
 };
 
 // --- REUSABLE CHART COMPONENT (Exported for Gallery) ---
@@ -328,19 +401,38 @@ export const GenericChart: React.FC<{
     breakdownKeys: string[];
     aggregation: string;
     metricLabel: string;
+    secondaryMetricLabel?: string;
     xAxisLabel: string;
     isStacked: boolean;
+    isGrouped?: boolean;
     showValues?: boolean;
-}> = ({ type, data, breakdownKeys, aggregation, metricLabel, xAxisLabel, isStacked, showValues = true }) => {
+    stackIdMapping?: Record<string, string>;
+    xTickFormatter?: (value: any) => string;
+}> = ({ type, data, breakdownKeys, aggregation, metricLabel, secondaryMetricLabel, xAxisLabel, isStacked, isGrouped = false, showValues = true, stackIdMapping, xTickFormatter }) => {
+
+    let actualGroupedBarsCount = 1;
+    if (breakdownKeys && breakdownKeys.length > 0) {
+        if (stackIdMapping) {
+            const uniqueStackIds = new Set(breakdownKeys.map(k => stackIdMapping[k]));
+            actualGroupedBarsCount = uniqueStackIds.size;
+        } else {
+            actualGroupedBarsCount = isStacked ? 1 : breakdownKeys.length;
+        }
+    }
+    
+    const totalBars = data?.length ? data.length * actualGroupedBarsCount : 0;
+    const showBrush = data?.length > 15 || totalBars > 20;
+    const initialItemsToShow = Math.max(2, Math.ceil(20 / actualGroupedBarsCount));
+    const brushEndIndex = data?.length ? Math.min(initialItemsToShow - 1, data.length - 1) : 0;
 
     if (!data || data.length === 0) return <div className="h-full flex items-center justify-center text-slate-400">暂无数据</div>;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const CommonTooltip = ({ active, payload, label }: any) => {
+    const CommonTooltip = useCallback(({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             return (
-                <div className="bg-white p-3 border border-slate-200 shadow-lg rounded-lg text-xs z-50">
-                    <p className="font-bold mb-2 border-b pb-1">{label}</p>
+                <div className="bg-white p-3 border border-slate-200 shadow-lg rounded-lg text-xs z-50 min-w-[120px]">
+                    <p className="font-bold mb-2 border-b pb-1 text-slate-800">{label}</p>
                     {/* Show Total */}
                     {!isStacked && type !== 'pie' && (
                         <div className="flex justify-between gap-4 mb-1">
@@ -351,35 +443,37 @@ export const GenericChart: React.FC<{
                     {/* Show Breakdown */}
                     {payload.map((entry: any, idx: number) => (
                         <div key={idx} className="flex justify-between gap-4 items-center">
-                            <span className="flex items-center gap-1">
-                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></span>
-                                {entry.name}:
+                            <span className="flex items-center gap-1 text-slate-600">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }}></span>
+                                <span className="truncate max-w-[180px]" title={entry.name}>{entry.name}</span>:
                             </span>
-                            <span className="font-mono">{typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}</span>
+                            <span className="font-mono font-medium text-slate-800">{typeof entry.value === 'number' ? entry.value.toLocaleString() : entry.value}</span>
                         </div>
                     ))}
                 </div>
             );
         }
         return null;
-    };
+    }, [isStacked, type]);
 
-    // Helper to generate bars/lines for stacked data
     const renderStacks = (ChartComponent: any) => {
         if (isStacked) {
-            return breakdownKeys.map((key, index) => (
-                <ChartComponent
-                    key={key}
-                    dataKey={key}
-                    stackId="a"
-                    fill={COLORS[index % COLORS.length]}
-                    stroke={COLORS[index % COLORS.length]}
-                    name={key}
-                    isAnimationActive={false}
-                >
-                    {showValues && <LabelList dataKey={key} position="top" fill="#fff" fontSize={10} formatter={(val: number) => val > 0 ? val : ''} />}
-                </ChartComponent>
-            ));
+            return breakdownKeys.map((key: string, index: number) => {
+                const sid = stackIdMapping ? stackIdMapping[key] : (isGrouped ? undefined : "a");
+                return (
+                    <ChartComponent
+                        key={key}
+                        dataKey={key}
+                        stackId={sid}
+                        fill={COLORS[index % COLORS.length]}
+                        stroke={COLORS[index % COLORS.length]}
+                        name={key}
+                        isAnimationActive={false}
+                    >
+                        {showValues && <LabelList dataKey={key} position="top" fill="#fff" fontSize={10} formatter={(val: any) => val > 0 ? String(val) : ''} />}
+                    </ChartComponent>
+                );
+            });
         }
         // Default Single Series
         return (
@@ -402,7 +496,7 @@ export const GenericChart: React.FC<{
                         offset={5}
                         fill="#64748b"
                         fontSize={10}
-                        formatter={(val: number) => val.toLocaleString()}
+                        formatter={(val: any) => Number(val).toLocaleString()}
                     />
                 )}
             </ChartComponent>
@@ -415,34 +509,53 @@ export const GenericChart: React.FC<{
                 switch (type) {
                     case 'bar':
                         return (
-                            <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+                            <ComposedChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: showBrush ? 90 : 40 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} angle={-30} textAnchor="end" interval={0} height={60} label={{ value: xAxisLabel, position: 'insideBottom', offset: -10, fontSize: 10, fill: '#cbd5e1' }} />
-                                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} />
+                                <XAxis dataKey="name" tickFormatter={xTickFormatter} stroke="#475569" fontSize={12} tickLine={false} angle={-30} textAnchor="end" interval={0} height={60} label={{ value: xAxisLabel, position: 'insideBottom', offset: showBrush ? -35 : -10, fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} />
+                                <YAxis yAxisId="left" stroke="#475569" fontSize={12} tickLine={false} />
+                                {secondaryMetricLabel && <YAxis yAxisId="right" orientation="right" stroke="#d97706" fontSize={12} tickLine={false} />}
                                 <Tooltip content={CommonTooltip} cursor={{ fill: '#f8fafc' }} />
                                 <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
-                                {isStacked ? breakdownKeys.map((key, index) => (
-                                    <Bar key={key} dataKey={key} stackId="a" fill={COLORS[index % COLORS.length]} name={key} isAnimationActive={false}>
-                                        {showValues && <LabelList dataKey={key} position="top" fill="#fff" fontSize={10} formatter={(val: number) => val > 0 ? val : ''} />}
-                                    </Bar>
-                                )) : (
-                                    <Bar dataKey="value" name={metricLabel || aggregation} fill="#8884d8" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                                {isStacked || isGrouped ? breakdownKeys.map((key: string, index: number) => {
+                                    const sid = stackIdMapping ? stackIdMapping[key] : (isGrouped ? undefined : "a");
+                                    const isVirtuallyGrouped = sid === undefined || sid === key;
+                                    return (
+                                        <Bar yAxisId="left" key={key} dataKey={key} stackId={sid} fill={COLORS[index % COLORS.length]} name={key} isAnimationActive={false} radius={isVirtuallyGrouped ? [2, 2, 0, 0] : 0}>
+                                            {showValues && <LabelList dataKey={key} position="top" fill={isVirtuallyGrouped ? '#64748b' : '#fff'} fontSize={10} formatter={(val: any) => val > 0 ? String(val) : ''} />}
+                                        </Bar>
+                                    );
+                                }) : (
+                                    <Bar yAxisId="left" dataKey="value" name={metricLabel || aggregation} fill="#8884d8" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                                         {data.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={(entry as any).isOther ? '#94a3b8' : COLORS[index % COLORS.length]} />
                                         ))}
                                         {showValues && (
-                                            <LabelList dataKey="value" position="top" offset={5} fill="#64748b" fontSize={10} formatter={(val: number) => val.toLocaleString()} />
+                                            <LabelList dataKey="value" position="top" offset={5} fill="#64748b" fontSize={10} formatter={(val: any) => Number(val).toLocaleString()} />
                                         )}
                                     </Bar>
                                 )}
-                            </BarChart>
+                                {secondaryMetricLabel && (
+                                    (isStacked || isGrouped) ? (
+                                        <Line yAxisId="right" type="monotone" dataKey="secondaryValue" name={secondaryMetricLabel} stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
+                                    ) : (
+                                        <Bar yAxisId="right" dataKey="secondaryValue" name={secondaryMetricLabel} fill="#f59e0b" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                                            {showValues && (
+                                                <LabelList dataKey="secondaryValue" position="top" offset={5} fill="#d97706" fontSize={10} formatter={(val: any) => val > 0 ? Number(val).toLocaleString() : ''} />
+                                            )}
+                                        </Bar>
+                                    )
+                                )}
+                                {showBrush && (
+                                    <Brush dataKey="name" height={22} stroke="#8884d8" travellerWidth={8} startIndex={0} endIndex={brushEndIndex} fill="#f8fafc" />
+                                )}
+                            </ComposedChart>
                         );
                     case 'bar-horizontal':
                         return (
                             <BarChart layout="vertical" data={data} margin={{ top: 20, right: 50, left: 40, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                                <XAxis type="number" stroke="#94a3b8" fontSize={12} />
-                                <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={11} width={100} />
+                                <XAxis type="number" stroke="#475569" fontSize={12} />
+                                <YAxis type="category" dataKey="name" tickFormatter={xTickFormatter} stroke="#475569" fontSize={12} width={100} />
                                 <Tooltip content={CommonTooltip} cursor={{ fill: '#f8fafc' }} />
                                 <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
                                 {renderStacks(Bar)}
@@ -450,30 +563,42 @@ export const GenericChart: React.FC<{
                         );
                     case 'line':
                         return (
-                            <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+                            <LineChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: showBrush ? 90 : 40 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} angle={-30} textAnchor="end" height={60} label={{ value: xAxisLabel, position: 'insideBottom', offset: -10, fontSize: 10, fill: '#cbd5e1' }} />
-                                <YAxis stroke="#94a3b8" fontSize={12} />
+                                <XAxis dataKey="name" tickFormatter={xTickFormatter} stroke="#94a3b8" fontSize={12} angle={-30} textAnchor="end" height={60} label={{ value: xAxisLabel, position: 'insideBottom', offset: showBrush ? -35 : -10, fontSize: 10, fill: '#cbd5e1' }} />
+                                <YAxis yAxisId="left" stroke="#94a3b8" fontSize={12} />
+                                {secondaryMetricLabel && <YAxis yAxisId="right" orientation="right" stroke="#d97706" fontSize={12} />}
                                 <Tooltip content={CommonTooltip} />
                                 <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
-                                {isStacked ? breakdownKeys.map((key, index) => (
-                                    <Line key={key} type="monotone" dataKey={key} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={{ r: 3 }} name={key} isAnimationActive={false} />
+                                {isStacked ? breakdownKeys.map((key: string, index: number) => (
+                                    <Line yAxisId="left" key={key} type="monotone" dataKey={key} stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={{ r: 3 }} name={key} isAnimationActive={false} />
                                 )) : (
-                                    <Line type="monotone" dataKey="value" stroke="#8884d8" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} name={metricLabel || aggregation} isAnimationActive={false}>
+                                    <Line yAxisId="left" type="monotone" dataKey="value" stroke="#8884d8" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} name={metricLabel || aggregation} isAnimationActive={false}>
                                         {showValues && <LabelList dataKey="value" position="top" offset={10} fill="#64748b" fontSize={10} />}
                                     </Line>
+                                )}
+                                {secondaryMetricLabel && (
+                                    <Line yAxisId="right" type="monotone" dataKey="secondaryValue" stroke="#f59e0b" strokeWidth={3} strokeDasharray="5 5" dot={{ r: 4 }} activeDot={{ r: 8 }} name={secondaryMetricLabel} isAnimationActive={false}>
+                                        {showValues && <LabelList dataKey="secondaryValue" position="top" offset={10} fill="#d97706" fontSize={10} />}
+                                    </Line>
+                                )}
+                                {showBrush && (
+                                    <Brush dataKey="name" height={22} stroke="#8884d8" travellerWidth={8} startIndex={0} endIndex={brushEndIndex} fill="#f8fafc" />
                                 )}
                             </LineChart>
                         );
                     case 'area':
                         return (
-                            <AreaChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 40 }}>
+                            <AreaChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: showBrush ? 90 : 40 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} angle={-30} textAnchor="end" height={60} label={{ value: xAxisLabel, position: 'insideBottom', offset: -10, fontSize: 10, fill: '#cbd5e1' }} />
+                                <XAxis dataKey="name" tickFormatter={xTickFormatter} stroke="#94a3b8" fontSize={12} angle={-30} textAnchor="end" height={60} label={{ value: xAxisLabel, position: 'insideBottom', offset: showBrush ? -35 : -10, fontSize: 10, fill: '#cbd5e1' }} />
                                 <YAxis stroke="#94a3b8" fontSize={12} />
                                 <Tooltip content={CommonTooltip} />
                                 <Legend verticalAlign="top" wrapperStyle={{ paddingBottom: '20px' }} />
                                 {renderStacks(Area)}
+                                {showBrush && (
+                                    <Brush dataKey="name" height={22} stroke="#8884d8" travellerWidth={8} startIndex={0} endIndex={brushEndIndex} fill="#f8fafc" />
+                                )}
                             </AreaChart>
                         );
                     case 'pie':
@@ -557,7 +682,93 @@ export const GenericChart: React.FC<{
 };
 
 
+export interface ColumnBinConfig {
+    enabled: boolean;
+    bins: BinRange[];
+}
+
+export type GroupMatchMode = 'exact' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'gt' | 'gte' | 'lt' | 'lte' | 'range' | 'notEquals' | 'isEmpty' | 'isNotEmpty' | 'inList' | 'regex';
+
+export interface SubDimensionGroupRule {
+    id: string;
+    source: string;       // For exact mode: the exact value. For other modes: the pattern/threshold.
+    source2?: string;     // For 'range' mode: the upper bound.
+    groupName: string;
+    matchMode?: GroupMatchMode; // Default: 'exact' (backward compatible)
+}
+
+export interface SubDimensionGroupConfig {
+    enabled: boolean;
+    rules: SubDimensionGroupRule[];
+}
+
+const normalizeGroupKey = (val: any) => String(val ?? '').trim();
+
+const matchesRule = (value: string, rule: SubDimensionGroupRule): boolean => {
+    const mode = rule.matchMode || 'exact';
+    const pattern = normalizeGroupKey(rule.source);
+
+    if (mode === 'isEmpty') {
+        return !value || value === '(未定义)' || value === 'undefined' || value === 'null';
+    }
+    if (mode === 'isNotEmpty') {
+        return !!value && value !== '(未定义)' && value !== 'undefined' && value !== 'null';
+    }
+
+    if (!pattern) return false;
+
+    switch (mode) {
+        case 'exact':
+            return value === pattern;
+        case 'contains':
+            return value.toLowerCase().includes(pattern.toLowerCase());
+        case 'notContains':
+            return !value.toLowerCase().includes(pattern.toLowerCase());
+        case 'notEquals':
+            return value !== pattern;
+        case 'startsWith':
+            return value.toLowerCase().startsWith(pattern.toLowerCase());
+        case 'endsWith':
+            return value.toLowerCase().endsWith(pattern.toLowerCase());
+        case 'gt': {
+            const num = parseFloat(value);
+            return !isNaN(num) && num > parseFloat(pattern);
+        }
+        case 'gte': {
+            const num = parseFloat(value);
+            return !isNaN(num) && num >= parseFloat(pattern);
+        }
+        case 'lt': {
+            const num = parseFloat(value);
+            return !isNaN(num) && num < parseFloat(pattern);
+        }
+        case 'lte': {
+            const num = parseFloat(value);
+            return !isNaN(num) && num <= parseFloat(pattern);
+        }
+        case 'range': {
+            const num = parseFloat(value);
+            const upper = parseFloat(rule.source2 || '');
+            return !isNaN(num) && num >= parseFloat(pattern) && (!isNaN(upper) ? num <= upper : true);
+        }
+        case 'inList': {
+            const items = pattern.split(/[,，]/).map(s => s.trim().toLowerCase());
+            return items.includes(value.toLowerCase());
+        }
+        case 'regex': {
+            try {
+                return new RegExp(pattern, 'i').test(value);
+            } catch {
+                return false;
+            }
+        }
+        default:
+            return value === pattern;
+    }
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
+    const OTHER_GROUP_LABEL = '其他类型';
     // --- VISUALIZATION CONFIG STATE ---
     const [chartType, setChartType] = useState<ChartType>('bar');
     const [dimensionCol, setDimensionCol] = useState<string>(data.columns[0] || ''); // X-Axis
@@ -565,7 +776,22 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
     const [breakdownCol, setBreakdownCol] = useState<string>(''); // Stack / Legend / Series
     const [metricCol, setMetricCol] = useState<string>(''); // Y-Axis
     const [aggregation, setAggregation] = useState<AggregationType>('count');
+    const [secondaryMetricCol, setSecondaryMetricCol] = useState<string>(''); // Secondary Y-Axis
+    const [secondaryAggregation, setSecondaryAggregation] = useState<AggregationType>('sum');
     const [showValues, setShowValues] = useState(true);
+
+    // Date granularity for time-series grouping
+    const [dateGranularity, setDateGranularity] = useState<'day' | 'week' | 'month' | 'quarter' | 'year'>('month');
+    const [monthStartDay, setMonthStartDay] = useState(23);
+    const [showYearInDate, setShowYearInDate] = useState(false); // 月份标签是否显示年份
+
+    // Bar chart group mode: per-column configuration
+    const [bColGroupModes, setBColGroupModes] = useState<Record<string, 'stacked' | 'grouped'>>({});
+
+    // Custom axis labels
+    const [customXLabel, setCustomXLabel] = useState('');
+    const [customYLabel, setCustomYLabel] = useState('');
+    const [xTickDisplayField, setXTickDisplayField] = useState<string>('all');
 
     // Scatter Plot specific: X-Axis Value
     const [scatterXCol, setScatterXCol] = useState<string>('');
@@ -578,7 +804,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         { id: '2', label: '中 (101-500)', min: 101, max: 500 },
         { id: '3', label: '高 (501+)', min: 501, max: 999999 }
     ]);
-    // Column field binning (for pivot table style)
+    
+    // Per-column specific binning (replaces global colBinning)
+    const [perColBins, setPerColBins] = useState<Record<string, ColumnBinConfig>>({});
+    const [subDimensionGroups, setSubDimensionGroups] = useState<Record<string, SubDimensionGroupConfig>>({});
+
+    // Column field binning (legacy)
     const [enableColBinning, setEnableColBinning] = useState(false);
     const [colBins, setColBins] = useState<BinRange[]>([
         { id: 'c1', label: '普通', min: 0, max: 1000 },
@@ -601,22 +832,38 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         key: 'name', // Default sort by name (which will handle bin order)
         direction: 'asc'
     });
+
+    // --- CHART SORTING STATE ---
+    const [xSortMode, setXSortMode] = useState<'default' | 'asc' | 'desc' | 'manual'>('default');
+    const [xManualOrder, setXManualOrder] = useState<string[]>([]);
+    const [stackSortMode, setStackSortMode] = useState<'default' | 'asc' | 'desc' | 'manual'>('default');
+    const [stackManualOrder, setStackManualOrder] = useState<string[]>([]);
+
     const [copied, setCopied] = useState(false);
+    const [chartCopied, setChartCopied] = useState(false);
+    const [copyingChart, setCopyingChart] = useState(false);
 
     // --- CHART DISPLAY MODE ---
     // 'total' = 总和视图, 'faceted' = 分面视图(每个分段一个图), 'filtered' = 筛选视图
     const [chartDisplayMode, setChartDisplayMode] = useState<'total' | 'faceted' | 'filtered'>('total');
     const [selectedBreakdowns, setSelectedBreakdowns] = useState<string[]>([]); // 选中的分段列
+    const [colQuickUnchecked, setColQuickUnchecked] = useState<Record<string, string[]>>({}); // 单字段独立过滤
+    const [groupRowSearch, setGroupRowSearch] = useState<Record<string, string>>({});
+    const [groupDraftNames, setGroupDraftNames] = useState<Record<string, string[]>>({});
+    const [groupNewName, setGroupNewName] = useState<Record<string, string>>({});
+    const [groupCollapsedRows, setGroupCollapsedRows] = useState<Record<string, boolean>>({});
 
     // --- PERFORMANCE STATE ---
     const [isProcessing, setIsProcessing] = useState(false);
     const [calculationVersion, setCalculationVersion] = useState(0);
     const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastCalcConfigRef = useRef<string>('');
+    const chartCaptureRef = useRef<HTMLDivElement>(null);
+    const rawValueOptionsCacheRef = useRef<Record<string, string[]>>({});
 
     // --- MANUAL GENERATION MODE ---
-    // 图表不会自动生成，需要用户点击“生成图表”按钮
-    const [chartGenerated, setChartGenerated] = useState(false);
+    // 图表实时响应，无需手动点击生成
+    const [chartGenerated, setChartGenerated] = useState(true);
 
     // --- SMART RECOMMENDATIONS ---
     const [showRecommendations, setShowRecommendations] = useState(false);
@@ -631,18 +878,134 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         setBreakdownCol('');
         setFilters([]);
         setAggregation('count');
+        setXTickDisplayField('all');
         // Reset calculation state for new data
         lastCalcConfigRef.current = '';
-        setChartGenerated(false); // 重置图表生成状态
+        setChartGenerated(true); // 实时预览模式：始终为 true
+        rawValueOptionsCacheRef.current = {};
+        setGroupRowSearch({});
+        setGroupDraftNames({});
+        setGroupNewName({});
+        setGroupCollapsedRows({});
     }, [data]);
 
+    // Auto-trigger smart recommendations on first load
+    useEffect(() => {
+        if (data.rows.length > 0 && data.columns.length > 0 && recommendations.length === 0) {
+            const recs = generateSmartRecommendations(data.rows, data.columns);
+            setRecommendations(recs);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.rows, data.columns]);
 
+    useEffect(() => {
+        if (xTickDisplayField.startsWith('sub:')) {
+            const selectedCol = xTickDisplayField.slice(4);
+            const subCols = subDimensionCol ? subDimensionCol.split(':::') : [];
+            if (!subCols.includes(selectedCol)) {
+                setXTickDisplayField('all');
+            }
+        }
+    }, [subDimensionCol, xTickDisplayField]);
     // Threshold for auto-calculation
     const LARGE_DATA_THRESHOLD = 2000;
     const isLargeDataset = data.rows.length > LARGE_DATA_THRESHOLD;
 
-    // Create a config signature to detect changes
-    const configSignature = `${dimensionCol}|${subDimensionCol}|${breakdownCol}|${metricCol}|${aggregation}|${enableBinning}|${bins.length}|${enableColBinning}|${colBins.length}|${filters.length}|${sortConfig.key}|${sortConfig.direction}|${maxItems}`;
+    // Pre-compute which columns are dates
+    const dateColumnsSet = useMemo(() => {
+        if (!data || !data.rows || data.rows.length === 0) return new Set<string>();
+        const dates = new Set<string>();
+        const sample = data.rows.slice(0, Math.min(50, data.rows.length));
+        for (const col of data.columns) {
+            let dateCount = 0;
+            let validCount = 0;
+            for (const row of sample) {
+                const val = String(row[col] || '');
+                if (!val) continue;
+                validCount++;
+                if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(val) || /^\d{1,2}[-/]\d{1,2}[-/]\d{4}/.test(val)) dateCount++;
+            }
+            if (validCount > 0 && dateCount > validCount * 0.6) {
+                dates.add(col);
+            }
+        }
+        return dates;
+    }, [data.rows, data.columns]);
+
+    // Check if any configured dimension or breakdown is a date
+    const isAnyDateSelected = useMemo(() => {
+        const colsToCheck = [];
+        if (dimensionCol) colsToCheck.push(dimensionCol);
+        if (breakdownCol) colsToCheck.push(...breakdownCol.split(':::'));
+        if (subDimensionCol) colsToCheck.push(...subDimensionCol.split(':::'));
+        
+        return colsToCheck.some(c => dateColumnsSet.has(c));
+    }, [dimensionCol, breakdownCol, subDimensionCol, dateColumnsSet]);
+
+    // Helper: group a date string by granularity
+    const groupDateByGranularity = useCallback((dateStr: string): string | null => {
+        const d = new Date(dateStr.replace(/\//g, '-'));
+        if (isNaN(d.getTime())) return null;
+        const y = d.getFullYear();
+        const m = d.getMonth(); // 0-based
+        switch (dateGranularity) {
+            case 'day': {
+                const dayStr = `${String(m + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                return showYearInDate ? `${y}-${dayStr}` : dayStr;
+            }
+            case 'week': {
+                const onejan = new Date(y, 0, 1);
+                const weekNum = Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
+                return showYearInDate ? `${y}-W${String(weekNum).padStart(2, '0')}` : `W${String(weekNum).padStart(2, '0')}`;
+            }
+            case 'month': {
+                if (d.getDate() >= monthStartDay) {
+                    const nextMonth = new Date(y, m + 1, 1);
+                    return showYearInDate ? `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}` : `${nextMonth.getMonth() + 1}月`;
+                } else {
+                    return showYearInDate ? `${y}-${String(m + 1).padStart(2, '0')}` : `${m + 1}月`;
+                }
+            }
+            case 'quarter': {
+                let effectiveMonth = m;
+                if (d.getDate() >= monthStartDay) effectiveMonth = m + 1;
+                const effectiveDate = new Date(y, effectiveMonth, 1);
+                const q = Math.floor(effectiveDate.getMonth() / 3) + 1;
+                return showYearInDate ? `${effectiveDate.getFullYear()}-Q${q}` : `Q${q}`;
+            }
+            case 'year': return `${y}`;
+            default: return dateStr;
+        }
+    }, [dateGranularity, monthStartDay, showYearInDate]);
+
+    // Auto-enable column binning for numeric breakdown columns
+    useEffect(() => {
+        if (!breakdownCol || !data?.rows) return;
+        const sample = data.rows.slice(0, 50);
+        const numCount = sample.filter(r => !isNaN(parseFloat(String(r[breakdownCol] || '')))).length;
+        const isNumericCol = numCount > sample.length * 0.6;
+        if (isNumericCol && !enableColBinning) {
+            setEnableColBinning(true);
+            // Auto-generate bins
+            const vals = data.rows.map(r => parseFloat(String(r[breakdownCol]))).filter(n => !isNaN(n));
+            if (vals.length > 0) {
+                const minVal = Math.min(...vals);
+                const maxVal = Math.max(...vals);
+                const step = Math.ceil((maxVal - minVal) / 4);
+                const newBins = [];
+                for (let i = 0; i < 4; i++) {
+                    const start = minVal + i * step;
+                    const end = i === 3 ? Infinity : minVal + (i + 1) * step;
+                    newBins.push({ id: `auto_cb${i}`, label: end === Infinity ? `${start}+` : `${start}-${end}`, min: start, max: end });
+                }
+                setColBins(newBins);
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [breakdownCol]);
+
+    // Create a config signature to detect changes (excludes sort — sorting is instant, no debounce needed)
+    const configSignature = `${dimensionCol}|${subDimensionCol}|${breakdownCol}|${metricCol}|${aggregation}|${enableBinning}|${bins.length}|${enableColBinning}|${colBins.length}|${filters.length}|${maxItems}|${dateGranularity}|${JSON.stringify(colQuickUnchecked)}|${JSON.stringify(subDimensionGroups)}`;
 
     // For large datasets, check if calculation is needed
     const needsRecalculation = isLargeDataset && lastCalcConfigRef.current !== configSignature;
@@ -758,21 +1121,29 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         enableRowBinning: boolean;
         enableColBinning: boolean;
         aggregation: AggregationType;
+        secondaryMetricCol?: string;
+        secondaryAggregation?: AggregationType;
         maxItems: number;
         showValues: boolean;
+        subDimensionGroups?: Record<string, SubDimensionGroupConfig>;
+        groupDraftNames?: Record<string, string[]>;
     }
 
     const exportPreset = () => {
         const preset: DashboardPreset = {
             name: 'Dashboard Preset',
-            version: 1,
+            version: 2,
             rowBins,
             colBins,
             enableRowBinning,
             enableColBinning,
             aggregation,
+            secondaryMetricCol,
+            secondaryAggregation,
             maxItems,
-            showValues
+            showValues,
+            subDimensionGroups,
+            groupDraftNames
         };
         const json = JSON.stringify(preset, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
@@ -801,8 +1172,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                 if (preset.enableRowBinning !== undefined) setEnableRowBinning(preset.enableRowBinning);
                 if (preset.enableColBinning !== undefined) setEnableColBinning(preset.enableColBinning);
                 if (preset.aggregation) setAggregation(preset.aggregation);
+                if (preset.secondaryMetricCol !== undefined) setSecondaryMetricCol(preset.secondaryMetricCol);
+                if (preset.secondaryAggregation) setSecondaryAggregation(preset.secondaryAggregation);
                 if (preset.maxItems) setMaxItems(preset.maxItems);
                 if (preset.showValues !== undefined) setShowValues(preset.showValues);
+                if (preset.subDimensionGroups) setSubDimensionGroups(preset.subDimensionGroups);
+                if (preset.groupDraftNames) setGroupDraftNames(preset.groupDraftNames);
                 alert('预设加载成功！');
             } catch (err) {
                 alert('预设文件格式错误');
@@ -867,6 +1242,21 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         }
     }, [rowBins, colBins]);
 
+    // --- Debounce for real-time preview ---
+    const processedDataCache = useRef<any>(null);
+    const [computeReady, setComputeReady] = useState(true);
+
+    useEffect(() => {
+        setComputeReady(false);
+        setIsProcessing(true);
+        const timer = setTimeout(() => {
+            setComputeReady(true);
+            setIsProcessing(false);
+        }, 250);
+        return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [configSignature, showYearInDate]);
+
     // --- 2. DATA PROCESSING PIPELINE ---
     const processedData = useMemo(() => {
         // 如果还没有点击“生成图表”，返回空数据
@@ -894,8 +1284,13 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             };
         }
 
+        // Debounce: return cached data while waiting
+        if (!computeReady && processedDataCache.current) {
+            return processedDataCache.current;
+        }
+
         // Step A: Filtering
-        const filteredRows = data.rows.filter(row => {
+        const initialFilteredRows = data.rows.filter((row: any) => {
             return filters.every(filter => {
                 const rawRowVal = row[filter.column];
                 const rowStr = String(rawRowVal || '').toLowerCase();
@@ -926,6 +1321,123 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             });
         });
 
+        const getBinnedValue = (col: string, rawVal: any) => {
+            let val = String(rawVal);
+            if (!val || val === 'undefined') val = '(未定义)';
+            
+            // 1. Date granularity check first
+            if (dateColumnsSet.has(col) && dateGranularity !== 'day') {
+                const grouped = groupDateByGranularity(val);
+                if (grouped) return grouped;
+            }
+
+            // 2. Continuous numeric binning
+            const colBinConfig = perColBins[col];
+            if (colBinConfig && colBinConfig.enabled && colBinConfig.bins.length > 0) {
+                const numVal = parseFloat(val);
+                if (!isNaN(numVal)) {
+                    const matchedBin = colBinConfig.bins.find(bin => numVal >= bin.min && numVal < (bin.max === Infinity ? Number.MAX_VALUE : bin.max));
+                    return matchedBin ? matchedBin.label : '(其他)';
+                }
+            } else if (enableColBinning && colBins.length > 0) { // Legacy single fallback for backward compatibility
+                const numVal = parseFloat(val);
+                if (!isNaN(numVal)) {
+                    const matchedBin = colBins.find(bin => numVal >= bin.min && numVal < (bin.max === Infinity ? Number.MAX_VALUE : bin.max));
+                    return matchedBin ? matchedBin.label : '(其他)';
+                }
+            }
+            return val;
+        };
+
+
+        const compiledRulesCache: Record<string, { groupName: string, rules: SubDimensionGroupRule[] }[]> = {};
+        const getCompiledRules = (col: string) => {
+            if (compiledRulesCache[col]) return compiledRulesCache[col];
+            const cfg = subDimensionGroups[col];
+            if (!cfg?.enabled || !cfg.rules?.length) {
+                compiledRulesCache[col] = [];
+                return [];
+            }
+            
+            const groupedMap = new Map<string, string[]>();
+            cfg.rules.forEach((rule) => {
+                const group = normalizeGroupKey(rule.groupName);
+                if (!group) return;
+                const current = groupedMap.get(group) || [];
+                current.push('');
+                groupedMap.set(group, current);
+            });
+            const draftNames = (groupDraftNames[col] || []).map(normalizeGroupKey).filter(Boolean);
+            const mergedNames = Array.from(new Set([...draftNames, ...Array.from(groupedMap.keys())]));
+
+            const structured = mergedNames.map(gn => ({
+                groupName: gn,
+                rules: cfg.rules.filter(r => normalizeGroupKey(r.groupName) === gn)
+            })).filter(g => g.rules.length > 0);
+            
+            compiledRulesCache[col] = structured;
+            return structured;
+        };
+
+        const getDisplayValue = (col: string, rawVal: any) => {
+            const baseVal = getBinnedValue(col, rawVal);
+            const structuredGroups = getCompiledRules(col);
+            if (structuredGroups.length === 0) return baseVal;
+
+            const normalizedBase = normalizeGroupKey(baseVal);
+            if (!normalizedBase) return baseVal;
+
+            for (const { groupName, rules } of structuredGroups) {
+                // 1. Exact matches within this group have highest intra-group priority
+                for (const rule of rules) {
+                    if ((rule.matchMode || 'exact') === 'exact') {
+                        if (normalizeGroupKey(rule.source) === normalizedBase) return groupName;
+                    }
+                }
+                // 2. Smart conditionals within this group
+                for (const rule of rules) {
+                    if ((rule.matchMode || 'exact') !== 'exact') {
+                        if (matchesRule(normalizedBase, rule)) return groupName;
+                    }
+                }
+            }
+
+            return OTHER_GROUP_LABEL;
+        };
+
+
+
+        const activeCols = [];
+        if (dimensionCol) activeCols.push(dimensionCol);
+        if (subDimensionCol) activeCols.push(...subDimensionCol.split(':::'));
+        if (breakdownCol) activeCols.push(...breakdownCol.split(':::'));
+        const uniqueActiveCols = Array.from(new Set(activeCols)).filter(Boolean);
+
+        const availableQuickFilters: Record<string, string[]> = {};
+        uniqueActiveCols.forEach(col => {
+            const vals = new Set<string>();
+            initialFilteredRows.forEach(row => {
+                vals.add(getDisplayValue(col, row[col]));
+            });
+            availableQuickFilters[col] = Array.from(vals)
+                .map(v => ({ v, isOther: v === '(其他)' || v === '(未定义)' || v === 'Out of Range' || v === OTHER_GROUP_LABEL }))
+                .sort((a, b) => {
+                    if (a.isOther) return 1;
+                    if (b.isOther) return -1;
+                    return a.v.localeCompare(b.v);
+                })
+                .map(o => o.v);
+        });
+
+        const filteredRows = initialFilteredRows.filter(row => {
+            return uniqueActiveCols.every(col => {
+                const unchecked = colQuickUnchecked[col];
+                if (!unchecked || unchecked.length === 0) return true;
+                const val = getDisplayValue(col, row[col]);
+                return !unchecked.includes(val);
+            });
+        });
+
         // Special Case: Scatter Chart (Raw Rows)
         if (chartType === 'scatter') {
             if (!scatterXCol || !metricCol) return { chartData: [], tableData: [], totalValue: 0, totalCount: 0, breakdownKeys: [] };
@@ -933,9 +1445,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             const scatterData = filteredRows.map(row => ({
                 x: parseFloat(String(row[scatterXCol] || 0)),
                 y: parseFloat(String(row[metricCol] || 0)),
-                name: row[dimensionCol] || 'Item',
+                name: getDisplayValue(dimensionCol, row[dimensionCol]) || 'Item',
                 z: breakdownCol ? row[breakdownCol] : undefined // Optional Z dimension for color
-            })).filter(d => !isNaN(d.x) && !isNaN(d.y));
+            })).filter((d: any) => !isNaN(d.x) && !isNaN(d.y));
 
             return { chartData: scatterData, tableData: scatterData, totalValue: 0, totalCount: scatterData.length, breakdownKeys: [] };
         }
@@ -944,66 +1456,112 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         const groups: Record<string, any> = {};
         const breakdownKeysSet = new Set<string>();
 
-        const getRowKey = (row: any) => {
-            let primaryKey = '';
+
+        const getRowKey = (row: any): { mainKey: string; primaryLabel: string; subLabelByCol: Record<string, string> } | null => {
+            let primaryLabel = '';
+            const subLabelByCol: Record<string, string> = {};
 
             // 1. Calculate Main Key
             if (enableBinning && dimensionCol) {
                 const val = parseFloat(String(row[dimensionCol]));
                 if (isNaN(val)) return null;
                 const matchingBin = bins.find(b => val >= b.min && val <= b.max);
-                primaryKey = matchingBin ? matchingBin.label : 'Out of Range';
+                primaryLabel = matchingBin ? matchingBin.label : 'Out of Range';
+            } else if (dateColumnsSet.has(dimensionCol) && dateGranularity !== 'day') {
+                // Date granularity grouping
+                const rawVal = String(row[dimensionCol] || '');
+                if (excludeEmpty && (!rawVal || rawVal === 'undefined' || rawVal === 'null')) return null;
+                const grouped = groupDateByGranularity(rawVal);
+                if (!grouped) return null;
+                primaryLabel = grouped;
             } else {
-                let key = String(row[dimensionCol]);
+                let key = String(getDisplayValue(dimensionCol, row[dimensionCol]));
                 if (excludeEmpty && (!key || key === 'undefined' || key === 'null')) return null;
-                if (!key) primaryKey = "(空值)";
-                else primaryKey = key;
+                if (!key) primaryLabel = "(空值)";
+                else primaryLabel = key;
             }
 
             // 2. Append Secondary Dimension Key (if active)
+            let mainKey = primaryLabel;
             if (subDimensionCol) {
-                const subVal = String(row[subDimensionCol] || '(空)');
-                primaryKey = `${primaryKey} / ${subVal}`;
+                const sCols = subDimensionCol.split(':::');
+                const subVals = sCols.map(c => {
+                    const val = getDisplayValue(c, row[c]);
+                    subLabelByCol[c] = val;
+                    return val;
+                }).join(' / ');
+                mainKey = `${primaryLabel} / ${subVals}`;
             }
 
-            return primaryKey;
+            return { mainKey, primaryLabel, subLabelByCol };
         };
 
         filteredRows.forEach(row => {
-            const mainKey = getRowKey(row);
-            if (mainKey === null) return;
+            const keyInfo = getRowKey(row);
+            if (!keyInfo) return;
+            const { mainKey, primaryLabel, subLabelByCol } = keyInfo;
 
-            if (!groups[mainKey]) groups[mainKey] = { name: mainKey, count: 0, sum: 0, _values: [] };
+            if (!groups[mainKey]) groups[mainKey] = {
+                name: mainKey,
+                _primaryLabel: primaryLabel,
+                _subLabelByCol: subLabelByCol,
+                count: 0,
+                sum: 0,
+                _values: [],
+                secCount: 0,
+                secSum: 0
+            };
 
             let metricVal = 0;
+            let metricIsEmpty = false;
             if (metricCol) {
-                metricVal = parseFloat(String(row[metricCol]));
+                const rawMetric = row[metricCol];
+                const rawStr = String(rawMetric ?? '').trim();
+                metricIsEmpty = rawStr === '' || rawStr === 'undefined' || rawStr === 'null';
+                metricVal = parseFloat(rawStr);
                 if (isNaN(metricVal)) metricVal = 0;
             }
 
-            groups[mainKey].count += 1;
+            let secMetricVal = 0;
+            let secMetricIsEmpty = false;
+            if (secondaryMetricCol) {
+                const rawSecMetric = row[secondaryMetricCol];
+                const secRawStr = String(rawSecMetric ?? '').trim();
+                secMetricIsEmpty = secRawStr === '' || secRawStr === 'undefined' || secRawStr === 'null';
+                secMetricVal = parseFloat(secRawStr);
+                if (isNaN(secMetricVal)) secMetricVal = 0;
+            }
+
+            // When counting with a metric column selected, skip rows where metric is empty
+            const shouldCount = aggregation !== 'count' || !metricCol || !metricIsEmpty;
+            const shouldSecCount = secondaryAggregation !== 'count' || !secondaryMetricCol || !secMetricIsEmpty;
+
+            if (shouldCount) {
+                groups[mainKey].count += 1;
+            }
+            if (shouldSecCount) {
+                groups[mainKey].secCount += 1;
+            }
+
             groups[mainKey].sum += metricVal;
             groups[mainKey]._values.push(metricVal);
+            groups[mainKey].secSum += secMetricVal;
 
             if (breakdownCol) {
-                let subKey = String(row[breakdownCol]);
-                if (!subKey || subKey === 'undefined') subKey = '(未定义)';
+                const bCols = breakdownCol.split(':::');
+                let subKey = '';
 
-                // Apply column binning if enabled
-                if (enableColBinning && colBins.length > 0) {
-                    const numVal = parseFloat(subKey);
-                    if (!isNaN(numVal)) {
-                        const matchedBin = colBins.find(bin => numVal >= bin.min && numVal < (bin.max === Infinity ? Number.MAX_VALUE : bin.max));
-                        subKey = matchedBin ? matchedBin.label : '(其他)';
-                    }
-                }
+                // Apply grouping mapping (and binning) for breakdown keys.
+                subKey = bCols.map(c => getDisplayValue(c, row[c])).join(' / ');
 
                 breakdownKeysSet.add(subKey);
 
                 if (!groups[mainKey][subKey]) groups[mainKey][subKey] = 0;
 
                 if (aggregation === 'count') {
-                    groups[mainKey][subKey] += 1;
+                    if (shouldCount) {
+                        groups[mainKey][subKey] += 1;
+                    }
                 } else if (aggregation === 'sum') {
                     groups[mainKey][subKey] += metricVal;
                 } else if (aggregation === 'avg') {
@@ -1012,21 +1570,71 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             }
         });
 
-        // Sort breakdown keys - if using column binning, sort by bin order
+        // Pre-calculate totals for all breakdown keys
+        const keyTotals = Array.from(breakdownKeysSet).map(key => {
+            let total = 0;
+            Object.values(groups).forEach((g: any) => { total += (g[key] || 0); });
+            return { key, total };
+        });
+
+        // Cap breakdown keys to prevent rendering freeze (max 15)
+        const MAX_BREAKDOWN_KEYS = 15;
         let breakdownKeys: string[];
-        if (enableColBinning && colBins.length > 0) {
-            // Sort by bin order
-            const binOrder = colBins.map(b => b.label);
-            breakdownKeys = Array.from(breakdownKeysSet).sort((a, b) => {
-                const idxA = binOrder.indexOf(a);
-                const idxB = binOrder.indexOf(b);
-                if (idxA === -1 && idxB === -1) return a.localeCompare(b);
-                if (idxA === -1) return 1;
-                if (idxB === -1) return -1;
-                return idxA - idxB;
+        
+        if (keyTotals.length > MAX_BREAKDOWN_KEYS) {
+            // Drop smallest
+            keyTotals.sort((a: any, b: any) => b.total - a.total);
+            const keepKeys = new Set(keyTotals.slice(0, MAX_BREAKDOWN_KEYS).map(k => k.key));
+            const dropKeys = keyTotals.slice(MAX_BREAKDOWN_KEYS).map(k => k.key);
+
+            // Merge dropped keys into '其他'
+            Object.values(groups).forEach((g: any) => {
+                let otherSum = 0;
+                dropKeys.forEach(dk => {
+                    otherSum += (g[dk] || 0);
+                    delete g[dk];
+                });
+                if (otherSum > 0) g['其他'] = otherSum;
+            });
+            breakdownKeys = [...Array.from(keepKeys), '其他'];
+        } else {
+            breakdownKeys = keyTotals.map(k => k.key);
+        }
+
+        // Apply advanced sorting to the final breakdownKeys
+        if (stackSortMode === 'manual') {
+            breakdownKeys.sort((a: any, b: any) => {
+                const idxA = stackManualOrder.indexOf(a);
+                const idxB = stackManualOrder.indexOf(b);
+                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                if (idxA !== -1) return -1;
+                if (idxB !== -1) return 1;
+                return a.localeCompare(b);
+            });
+        } else if (stackSortMode === 'asc' || stackSortMode === 'desc') {
+            const map = new Map(keyTotals.map(k => [k.key, k.total]));
+            breakdownKeys.sort((a: any, b: any) => {
+                if (a === '其他') return 1; // Always at end
+                if (b === '其他') return -1;
+                const vA = map.get(a) || 0;
+                const vB = map.get(b) || 0;
+                return stackSortMode === 'asc' ? vA - vB : vB - vA;
             });
         } else {
-            breakdownKeys = Array.from(breakdownKeysSet).sort();
+            // Default sort: if using column binning, sort by bin order, else alphabetical
+            if (enableColBinning && colBins.length > 0) {
+                const binOrder = colBins.map(b => b.label);
+                breakdownKeys.sort((a: any, b: any) => {
+                    const idxA = binOrder.indexOf(a);
+                    const idxB = binOrder.indexOf(b);
+                    if (idxA === -1 && idxB === -1) return a.localeCompare(b);
+                    if (idxA === -1) return 1;
+                    if (idxB === -1) return -1;
+                    return idxA - idxB;
+                });
+            } else {
+                breakdownKeys.sort();
+            }
         }
 
         // Step C: Format Output Data
@@ -1039,25 +1647,32 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             else if (aggregation === 'sum') value = group.sum;
             else if (aggregation === 'avg') value = group.count > 0 ? (group.sum / group.count) : 0;
 
+            let secondaryValue = 0;
+            if (secondaryAggregation === 'count') secondaryValue = group.secCount || 0;
+            else if (secondaryAggregation === 'sum') secondaryValue = group.secSum || 0;
+            else if (secondaryAggregation === 'avg') secondaryValue = group.secCount > 0 ? (group.secSum / group.secCount) : 0;
+
             value = parseFloat(value.toFixed(2));
+            secondaryValue = parseFloat(secondaryValue.toFixed(2));
             totalValue += value;
             totalCount += group.count;
 
             return {
                 ...group,
                 value,
+                secondaryValue,
                 _values: undefined
             };
         });
 
         // Calculate Percentages
-        const fullDataWithPercentage = fullData.map(d => ({
+        const fullDataWithPercentage = fullData.map((d: any) => ({
             ...d,
             percentage: totalValue > 0 ? parseFloat(((d.value / totalValue) * 100).toFixed(1)) : 0
         }));
 
         // Step D: Sort
-        fullDataWithPercentage.sort((a, b) => {
+        fullDataWithPercentage.sort((a: any, b: any) => {
             const factor = sortConfig.direction === 'asc' ? 1 : -1;
 
             if (enableBinning && sortConfig.key === 'name') {
@@ -1087,8 +1702,25 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             return (valA - valB) * factor;
         });
 
-        // Step E: Limit for Chart (Top N)
+        // Step E: Limit and Sort for Chart (Top N and Advanced Sort)
         let chartData = [...fullDataWithPercentage];
+
+        // Apply advanced sorting to chart data explicitly
+        if (xSortMode !== 'default') {
+            chartData.sort((a: any, b: any) => {
+                if (xSortMode === 'manual') {
+                    const idxA = xManualOrder.indexOf(a.name);
+                    const idxB = xManualOrder.indexOf(b.name);
+                    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                    if (idxA !== -1) return -1;
+                    if (idxB !== -1) return 1;
+                    return 0; // maintain original sort fallback
+                } else {
+                    const factor = xSortMode === 'asc' ? 1 : -1;
+                    return (a.value - b.value) * factor;
+                }
+            });
+        }
 
         if (!enableBinning && fullDataWithPercentage.length > maxItems) {
             const topN = fullDataWithPercentage.slice(0, maxItems);
@@ -1104,7 +1736,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             others.forEach(o => {
                 othersNode.value += o.value;
                 othersNode.count += o.count;
-                breakdownKeys.forEach(k => {
+                breakdownKeys.forEach((k: string) => {
                     if (o[k]) othersNode[k] = (othersNode[k] || 0) + o[k];
                 });
             });
@@ -1114,15 +1746,41 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             chartData = [...topN, othersNode];
         }
 
-        return {
+        const result = {
             chartData,
             tableData: fullDataWithPercentage,
             totalValue,
             totalCount,
-            breakdownKeys
+            breakdownKeys,
+            availableQuickFilters
         };
 
-    }, [data, filters, chartType, dimensionCol, subDimensionCol, metricCol, breakdownCol, scatterXCol, aggregation, enableBinning, bins, enableColBinning, colBins, excludeEmpty, sortConfig, maxItems, isLargeDataset, needsRecalculation, calculationVersion, chartGenerated]);
+        // Cache for debounce
+        processedDataCache.current = result;
+        return result;
+
+    }, [data, filters, chartType, dimensionCol, subDimensionCol, metricCol, breakdownCol, scatterXCol, aggregation, enableBinning, bins, enableColBinning, colBins, perColBins, subDimensionGroups, excludeEmpty, sortConfig, maxItems, isLargeDataset, needsRecalculation, calculationVersion, chartGenerated, dateColumnsSet, dateGranularity, groupDateByGranularity, computeReady, showYearInDate, xSortMode, xManualOrder, stackSortMode, stackManualOrder, colQuickUnchecked]);
+
+    const xTickLabelMap = useMemo(() => {
+        const map = new Map<string, string>();
+        const subKey = xTickDisplayField.startsWith('sub:') ? xTickDisplayField.slice(4) : '';
+        (processedData.chartData || []).forEach((item: any) => {
+            const raw = String(item?.name ?? '');
+            let display = raw;
+            if (xTickDisplayField === 'dimension') {
+                display = String(item?._primaryLabel ?? raw);
+            } else if (subKey) {
+                display = String(item?._subLabelByCol?.[subKey] ?? raw);
+            }
+            map.set(raw, display);
+        });
+        return map;
+    }, [processedData.chartData, xTickDisplayField]);
+
+    const formatXAxisTick = useCallback((value: any) => {
+        const key = String(value ?? '');
+        return xTickLabelMap.get(key) ?? key;
+    }, [xTickLabelMap]);
 
     // --- ACTIONS ---
     const handleCopyTable = () => {
@@ -1131,10 +1789,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         if (breakdownKeys.length > 0) {
             header += `\t` + breakdownKeys.join('\t');
         }
-        const body = tableData.map(d => {
+        const body = tableData.map((d: any) => {
             let row = `${d.name}\t${d.value}\t${d.percentage}%`;
             if (breakdownKeys.length > 0) {
-                row += `\t` + breakdownKeys.map(k => d[k] || 0).join('\t');
+                row += `\t` + breakdownKeys.map((k: string) => d[k] || 0).join('\t');
             }
             return row;
         }).join('\n');
@@ -1146,6 +1804,223 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         });
     };
 
+    const handleCopyChartImage = useCallback(async () => {
+        if (!chartCaptureRef.current || copyingChart) return;
+        setCopyingChart(true);
+        try {
+            const node = chartCaptureRef.current;
+            const width = Math.max(1, Math.floor(node.clientWidth));
+            const height = Math.max(1, Math.floor(node.clientHeight));
+            const exportScale = 3;
+
+            const blob = await toBlob(node, {
+                width,
+                height,
+                canvasWidth: width * exportScale,
+                canvasHeight: height * exportScale,
+                pixelRatio: 1,
+                cacheBust: true,
+                backgroundColor: '#ffffff'
+            });
+            if (!blob) throw new Error('Failed to render chart image');
+
+            if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+                await navigator.clipboard.write([
+                    new ClipboardItem({ [blob.type]: blob })
+                ]);
+                setChartCopied(true);
+                setTimeout(() => setChartCopied(false), 2000);
+                return;
+            }
+
+            // Fallback: download as PNG when image clipboard API is unavailable.
+            const imageUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = imageUrl;
+            a.download = `chart-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+            a.click();
+            URL.revokeObjectURL(imageUrl);
+        } catch (err) {
+            console.error('Copy chart image failed:', err);
+        } finally {
+            setCopyingChart(false);
+        }
+    }, [copyingChart]);
+
+    const getRawColumnValueOptions = useCallback((col: string) => {
+        const cached = rawValueOptionsCacheRef.current[col];
+        if (cached) return cached;
+
+        const seen = new Set<string>();
+        for (const row of data.rows) {
+            let val = String(row[col] ?? '');
+            if (!val || val === 'undefined' || val === 'null') val = '(未定义)';
+            seen.add(val);
+            if (seen.size >= 500) break;
+        }
+
+        const options = Array.from(seen).sort((a, b) => a.localeCompare(b));
+        rawValueOptionsCacheRef.current[col] = options;
+        return options;
+    }, [data.rows]);
+
+    const normalizeGroupText = useCallback((value: any) => String(value ?? '').trim(), []);
+
+    const getGroupRowsForColumn = useCallback((col: string) => {
+        const groupedMap = new Map<string, string[]>();
+        (subDimensionGroups[col]?.rules || []).forEach((rule) => {
+            const source = normalizeGroupText(rule.source);
+            const group = normalizeGroupText(rule.groupName);
+            if (!source || !group) return;
+            const current = groupedMap.get(group) || [];
+            if (!current.includes(source)) current.push(source);
+            groupedMap.set(group, current);
+        });
+
+        const draftNames = (groupDraftNames[col] || []).map(normalizeGroupText).filter(Boolean);
+        const mergedNames = Array.from(new Set([...Array.from(groupedMap.keys()), ...draftNames]));
+
+        return mergedNames.map((groupName) => ({
+            groupName,
+            values: (groupedMap.get(groupName) || []).sort((a, b) => a.localeCompare(b))
+        }));
+    }, [groupDraftNames, normalizeGroupText, subDimensionGroups]);
+
+    const createGroupForColumn = useCallback((col: string, name: string) => {
+        const nextName = normalizeGroupText(name);
+        if (!nextName) return;
+        setGroupDraftNames((prev) => {
+            const current = prev[col] || [];
+            if (current.includes(nextName)) return prev;
+            return { ...prev, [col]: [...current, nextName] };
+        });
+        setGroupNewName((prev) => ({ ...prev, [col]: '' }));
+    }, [normalizeGroupText]);
+
+    const renameGroupForColumn = useCallback((col: string, oldName: string, newName: string) => {
+        const oldNormalized = normalizeGroupText(oldName);
+        const newNormalized = normalizeGroupText(newName);
+        if (!oldNormalized || !newNormalized || oldNormalized === newNormalized) return;
+
+        setSubDimensionGroups((prev) => {
+            const prevCfg = prev[col] || { enabled: true, rules: [] as SubDimensionGroupRule[] };
+            const nextRules = (prevCfg.rules || []).map((rule) => (
+                normalizeGroupText(rule.groupName) === oldNormalized
+                    ? { ...rule, groupName: newNormalized }
+                    : rule
+            ));
+            return { ...prev, [col]: { enabled: true, rules: nextRules } };
+        });
+
+        setGroupDraftNames((prev) => {
+            const current = prev[col] || [];
+            const renamed = current.map((name) => normalizeGroupText(name) === oldNormalized ? newNormalized : name);
+            return { ...prev, [col]: Array.from(new Set(renamed)) };
+        });
+    }, [normalizeGroupText]);
+
+    const removeGroupForColumn = useCallback((col: string, groupName: string) => {
+        const target = normalizeGroupText(groupName);
+        if (!target) return;
+
+        setSubDimensionGroups((prev) => {
+            const prevCfg = prev[col] || { enabled: true, rules: [] as SubDimensionGroupRule[] };
+            const nextRules = (prevCfg.rules || []).filter((rule) => normalizeGroupText(rule.groupName) !== target);
+            return { ...prev, [col]: { enabled: true, rules: nextRules } };
+        });
+
+        setGroupDraftNames((prev) => {
+            const current = prev[col] || [];
+            return { ...prev, [col]: current.filter((name) => normalizeGroupText(name) !== target) };
+        });
+    }, [normalizeGroupText]);
+
+    const moveGroupRankForColumn = useCallback((col: string, groupName: string, direction: -1 | 1) => {
+        setGroupDraftNames((prev) => {
+            const currentDraft = (prev[col] || []).map(normalizeGroupText).filter(Boolean);
+            const subGroups = subDimensionGroups[col]?.rules || [];
+            const existingRuleGroups = new Set(subGroups.map(r => normalizeGroupText(r.groupName)).filter(Boolean));
+            const fullOrder = Array.from(new Set([...currentDraft, ...Array.from(existingRuleGroups)]));
+            
+            const targetName = normalizeGroupText(groupName);
+            const idx = fullOrder.indexOf(targetName);
+            if (idx === -1) return prev;
+            
+            const newIdx = idx + direction;
+            if (newIdx < 0 || newIdx >= fullOrder.length) return prev;
+            
+            const newOrder = [...fullOrder];
+            const temp = newOrder[idx];
+            newOrder[idx] = newOrder[newIdx];
+            newOrder[newIdx] = temp;
+            
+            return { ...prev, [col]: newOrder };
+        });
+    }, [normalizeGroupText, subDimensionGroups]);
+
+    const clearGroupValuesForColumn = useCallback((col: string, groupName: string) => {
+        const target = normalizeGroupText(groupName);
+        if (!target) return;
+
+        setSubDimensionGroups((prev) => {
+            const prevCfg = prev[col] || { enabled: true, rules: [] as SubDimensionGroupRule[] };
+            const nextRules = (prevCfg.rules || []).filter((rule) => normalizeGroupText(rule.groupName) !== target);
+            return { ...prev, [col]: { enabled: true, rules: nextRules } };
+        });
+
+        setGroupDraftNames((prev) => {
+            const current = prev[col] || [];
+            if (current.includes(target)) return prev;
+            return { ...prev, [col]: [...current, target] };
+        });
+    }, [normalizeGroupText]);
+
+    const setValueGroupForColumn = useCallback((col: string, value: string, groupName: string | null) => {
+        const normalizedValue = normalizeGroupText(value);
+        const normalizedGroup = normalizeGroupText(groupName);
+        if (!normalizedValue) return;
+
+        setSubDimensionGroups((prev) => {
+            const prevCfg = prev[col] || { enabled: true, rules: [] as SubDimensionGroupRule[] };
+            const nextRules = (prevCfg.rules || []).filter((rule) => normalizeGroupText(rule.source) !== normalizedValue);
+            if (normalizedGroup) {
+                nextRules.push({
+                    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                    source: normalizedValue,
+                    groupName: normalizedGroup
+                });
+            }
+            return { ...prev, [col]: { enabled: true, rules: nextRules } };
+        });
+    }, [normalizeGroupText]);
+
+    const setValuesGroupForColumn = useCallback((col: string, values: string[], groupName: string) => {
+        const normalizedGroup = normalizeGroupText(groupName);
+        if (!normalizedGroup || values.length === 0) return;
+        const valueSet = new Set(values.map((v) => normalizeGroupText(v)).filter(Boolean));
+        if (valueSet.size === 0) return;
+
+        setSubDimensionGroups((prev) => {
+            const prevCfg = prev[col] || { enabled: true, rules: [] as SubDimensionGroupRule[] };
+            const nextRules = (prevCfg.rules || []).filter((rule) => !valueSet.has(normalizeGroupText(rule.source)));
+            Array.from(valueSet).forEach((source) => {
+                nextRules.push({
+                    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                    source,
+                    groupName: normalizedGroup
+                });
+            });
+            return { ...prev, [col]: { enabled: true, rules: nextRules } };
+        });
+    }, [normalizeGroupText]);
+
+    const toggleGroupRowCollapsed = useCallback((rowKey: string) => {
+        setGroupCollapsedRows((prev) => ({
+            ...prev,
+            [rowKey]: !prev[rowKey]
+        }));
+    }, []);
+
     const addFilter = () => {
         const firstCol = data.columns[0];
         setFilters([...filters, { id: Date.now().toString(), column: firstCol, operator: 'eq', value: '' }]);
@@ -1156,13 +2031,315 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
     const removeFilter = (id: string) => setFilters(filters.filter(f => f.id !== id));
 
     const addBin = () => setBins([...bins, { id: Date.now().toString(), label: `范围 ${bins.length + 1}`, min: 0, max: 100 }]);
-    const removeBin = (id: string) => setBins(bins.filter(b => b.id !== id));
+    const removeBin = (id: string) => setBins(bins.filter((b: any) => b.id !== id));
     const updateBin = (id: string, field: keyof BinRange, val: string | number) => {
-        setBins(bins.map(b => b.id === id ? { ...b, [field]: val } : b));
+        setBins(bins.map((b: any) => b.id === id ? { ...b, [field]: val } : b));
     };
 
+    const stackIdMapping = useMemo(() => {
+        if (!breakdownCol) return undefined;
+        const bCols = breakdownCol.split(':::');
+        const mapping: Record<string, string> = {};
+        
+        processedData.breakdownKeys.forEach((key: string) => {
+            const parts = key.split(' - ');
+            let sidParts: string[] = [];
+            bCols.forEach((col, i) => {
+                const mode = bColGroupModes[col] || 'grouped';
+                if (mode === 'grouped' && i < parts.length) {
+                    sidParts.push(parts[i]);
+                }
+            });
+            mapping[key] = sidParts.length > 0 ? sidParts.join('-') : 'a';
+        });
+        return mapping;
+    }, [breakdownCol, bColGroupModes, processedData.breakdownKeys]);
+
+    const renderCustomGroupingBlock = (col: string, isMain: boolean = false) => {
+        const isText = isMain ? true : (subDimensionCol ? subDimensionCol.split(':::') : []).includes(col);
+        return (
+            <div className={`${isMain ? "mt-4" : "pl-5 mt-2"} p-2.5 bg-purple-50 rounded border border-purple-200 space-y-2`}>
+                {!isMain && (
+                    <>
+                        <label className="text-xs flex items-center gap-1.5 cursor-pointer select-none text-purple-800 font-medium">
+                            <input
+                                type="checkbox"
+                                checked={subDimensionGroups[col]?.enabled || false}
+                                onChange={(e) => {
+                                    const enabled = e.target.checked;
+                                    if (enabled) {
+                                        const sCols = subDimensionCol ? subDimensionCol.split(':::') : [];
+                                        if (!sCols.includes(col)) {
+                                            setSubDimensionCol([...sCols, col].join(':::'));
+                                        }
+                                    }
+                                    setSubDimensionGroups(prev => ({
+                                        ...prev,
+                                        [col]: {
+                                            enabled,
+                                            rules: prev[col]?.rules?.length ? prev[col].rules : []
+                                        }
+                                    }));
+                                }}
+                                className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4"
+                            />
+                            开启副维度分组映射（归类替换）
+                        </label>
+                        {!isText && (
+                            <p className="text-xs text-purple-700">提示：启用后会自动勾选“作为X坐标副维度”。</p>
+                        )}
+                    </>
+                )}
+
+                                                                        {subDimensionGroups[col]?.enabled && (() => {
+                                                                            const groupRows = getGroupRowsForColumn(col);
+                                                                            const valueOptions = getRawColumnValueOptions(col).slice(0, 200);
+                                                                            return (
+                                                                                <div className="space-y-2">
+                                                                                    <div className="flex items-center justify-between gap-2">
+                                                                                        <span className="text-xs text-purple-700">每一行是一个组，组内勾选“包含值”</span>
+                                                                                        <div className="flex items-center gap-1">
+                                                                                            <input
+                                                                                                value={groupNewName[col] || ''}
+                                                                                                onChange={(e) => setGroupNewName(prev => ({ ...prev, [col]: e.target.value }))}
+                                                                                                className="w-24 min-w-0 px-2 py-1 border border-purple-300 rounded text-xs text-slate-800 bg-white"
+                                                                                                placeholder="新组名"
+                                                                                            />
+                                                                                            <button
+                                                                                                onClick={() => createGroupForColumn(col, groupNewName[col] || '')}
+                                                                                                className="text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200"
+                                                                                            >
+                                                                                                新增组
+                                                                                            </button>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {groupRows.length === 0 && (
+                                                                                        <div className="text-xs text-purple-700 bg-white border border-purple-200 rounded p-2">
+                                                                                            先新增一个组，然后在组内勾选要包含的值。
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    {groupRows.map((group, idx) => {
+                                                                                        const rowKey = `${col}::${group.groupName}`;
+                                                                                        const keyword = (groupRowSearch[rowKey] || '').trim().toLowerCase();
+                                                                                        const valueOwnerMap = new Map<string, string>();
+                                                                                        const colRules = subDimensionGroups[col]?.rules || [];
+                                                                                        groupRows.forEach((g) => {
+                                                                                            g.values.forEach((v) => {
+                                                                                                if (!valueOwnerMap.has(v)) valueOwnerMap.set(v, g.groupName);
+                                                                                            });
+                                                                                        });
+                                                                                        valueOptions.forEach(v => {
+                                                                                            if (valueOwnerMap.has(v)) return;
+                                                                                            const normalizedBase = normalizeGroupKey(v);
+                                                                                            const matchedRule = colRules.find(rule => matchesRule(normalizedBase, rule));
+                                                                                            if (matchedRule) {
+                                                                                                valueOwnerMap.set(v, matchedRule.groupName);
+                                                                                            }
+                                                                                        });
+                                                                                        const visibleValues = valueOptions
+                                                                                            .filter(v => !keyword || v.toLowerCase().includes(keyword))
+                                                                                            .sort((a, b) => {
+                                                                                                const ownerA = valueOwnerMap.get(a) || '';
+                                                                                                const ownerB = valueOwnerMap.get(b) || '';
+                                                                                                const weightA = ownerA === group.groupName ? 2 : ownerA ? 1 : 0;
+                                                                                                const weightB = ownerB === group.groupName ? 2 : ownerB ? 1 : 0;
+                                                                                                if (weightA !== weightB) return weightA - weightB;
+                                                                                                return a.localeCompare(b);
+                                                                                            });
+                                                                                        const groupValueSet = new Set(group.values);
+                                                                                        const collapsed = !!groupCollapsedRows[rowKey];
+                                                                                        return (
+                                                                                            <div key={`${group.groupName}_${idx}`} className="bg-white border border-purple-200 rounded p-2.5 space-y-2">
+                                                                                                <div className="flex items-center gap-1.5">
+                                                                                                    <input
+                                                                                                        defaultValue={group.groupName}
+                                                                                                        onBlur={(e) => {
+                                                                                                            const newName = e.target.value.trim();
+                                                                                                            if (newName && newName !== group.groupName) {
+                                                                                                                renameGroupForColumn(col, group.groupName, newName);
+                                                                                                            }
+                                                                                                        }}
+                                                                                                        onKeyDown={(e) => {
+                                                                                                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) (e.target as HTMLInputElement).blur();
+                                                                                                        }}
+                                                                                                        className="w-full min-w-0 px-2 py-1 border border-purple-200 rounded text-xs text-slate-800 bg-slate-50 hover:bg-white focus:bg-white focus:border-purple-400 focus:ring-1 focus:ring-purple-300 outline-none transition-colors"
+                                                                                                    />
+                                                                                                    <span className="text-xs text-purple-700 whitespace-nowrap">含 {group.values.length} 值</span>
+                                                                                                    <div className="flex bg-slate-100 rounded mr-1">
+                                                                                                        <button onClick={() => moveGroupRankForColumn(col, group.groupName, -1)} disabled={idx === 0} className={`p-1 rounded-l ${idx === 0 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-200'}`}><ArrowUp size={12} /></button>
+                                                                                                        <button onClick={() => moveGroupRankForColumn(col, group.groupName, 1)} disabled={idx === groupRows.length - 1} className={`p-1 rounded-r border-l border-white ${idx === groupRows.length - 1 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-200'}`}><ArrowDown size={12} /></button>
+                                                                                                    </div>
+                                                                                                    <button
+                                                                                                        onClick={() => toggleGroupRowCollapsed(rowKey)}
+                                                                                                        className="text-xs px-2 py-1 bg-white border border-purple-300 text-purple-800 rounded hover:bg-purple-50 whitespace-nowrap"
+                                                                                                    >
+                                                                                                        {collapsed ? '展开' : '收起'}
+                                                                                                    </button>
+                                                                                                    <button
+                                                                                                        onClick={() => clearGroupValuesForColumn(col, group.groupName)}
+                                                                                                        className="text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded hover:bg-purple-200 whitespace-nowrap"
+                                                                                                    >
+                                                                                                        清空值
+                                                                                                    </button>
+                                                                                                    <button
+                                                                                                        onClick={() => removeGroupForColumn(col, group.groupName)}
+                                                                                                        className="text-xs px-2 py-1 bg-white border border-red-300 text-red-600 rounded hover:bg-red-50 whitespace-nowrap"
+                                                                                                    >
+                                                                                                        删组
+                                                                                                    </button>
+                                                                                                </div>
+
+                                                                                                {!collapsed && (
+                                                                                                    <>
+                                                                                                        {/* === Smart Rules (条件规则) === */}
+                                                                                                        {(() => {
+                                                                                                            const MATCH_MODE_LABELS: Record<GroupMatchMode, string> = {
+                                                                                                                exact: '等于', contains: '包含', notContains: '不包含', startsWith: '开头是', endsWith: '结尾是',
+                                                                                                                gt: '大于', gte: '≥ 大于等于', lt: '小于', lte: '≤ 小于等于',
+                                                                                                                range: '范围', notEquals: '不等于', isEmpty: '为空', isNotEmpty: '非空', inList: '在列表中', regex: '正则'
+                                                                                                            };
+                                                                                                            const smartRulesForGroup = (subDimensionGroups[col]?.rules || []).filter(
+                                                                                                                r => normalizeGroupText(r.groupName) === normalizeGroupText(group.groupName) && r.matchMode && r.matchMode !== 'exact'
+                                                                                                            );
+                                                                                                            const smartRuleKey = `smart_${rowKey}`;
+                                                                                                            return (
+                                                                                                                <div className="space-y-1.5 border border-blue-200 rounded p-2 bg-blue-50/50">
+                                                                                                                    <div className="flex items-center justify-between">
+                                                                                                                        <span className="text-[10px] font-medium text-blue-700">🧠 条件规则（自动匹配）</span>
+                                                                                                                    </div>
+                                                                                                                    {smartRulesForGroup.map((rule) => (
+                                                                                                                        <div key={rule.id} className="flex items-center gap-1 text-[10px] bg-white rounded px-1.5 py-1 border border-blue-200">
+                                                                                                                            <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">{MATCH_MODE_LABELS[rule.matchMode!]}</span>
+                                                                                                                            <span className="text-slate-700 truncate max-w-[80px]" title={rule.source}>{rule.source}</span>
+                                                                                                                            {rule.matchMode === 'range' && rule.source2 && (
+                                                                                                                                <><span className="text-slate-400">~</span><span className="text-slate-700">{rule.source2}</span></>
+                                                                                                                            )}
+                                                                                                                            <button onClick={() => {
+                                                                                                                                setSubDimensionGroups(prev => {
+                                                                                                                                    const prevCfg = prev[col] || { enabled: true, rules: [] };
+                                                                                                                                    return { ...prev, [col]: { ...prevCfg, rules: prevCfg.rules.filter(r => r.id !== rule.id) } };
+                                                                                                                                });
+                                                                                                                            }} className="ml-auto text-red-400 hover:text-red-600"><X size={10} /></button>
+                                                                                                                        </div>
+                                                                                                                    ))}
+                                                                                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                                                                                        <select
+                                                                                                                            id={`smart_mode_${smartRuleKey}`}
+                                                                                                                            defaultValue="contains"
+                                                                                                                            className="px-1 py-0.5 border border-blue-300 rounded text-[10px] bg-white text-slate-800"
+                                                                                                                            onChange={(e) => {
+                                                                                                                                const val2El = document.getElementById(`smart_val2_${smartRuleKey}`) as HTMLInputElement;
+                                                                                                                                const valEl = document.getElementById(`smart_val_${smartRuleKey}`) as HTMLInputElement;
+                                                                                                                                if (val2El) val2El.style.display = e.target.value === 'range' ? 'block' : 'none';
+                                                                                                                                const noValueModes = ['isEmpty', 'isNotEmpty'];
+                                                                                                                                if (valEl) {
+                                                                                                                                    valEl.style.display = noValueModes.includes(e.target.value) ? 'none' : 'block';
+                                                                                                                                    if (e.target.value === 'inList') valEl.placeholder = '值1,值2,值3';
+                                                                                                                                    else valEl.placeholder = '值';
+                                                                                                                                }
+                                                                                                                            }}
+                                                                                                                        >
+                                                                                                                            {(Object.entries(MATCH_MODE_LABELS) as [GroupMatchMode, string][])
+                                                                                                                                .filter(([k]) => k !== 'exact')
+                                                                                                                                .map(([k, label]) => (
+                                                                                                                                    <option key={k} value={k}>{label}</option>
+                                                                                                                                ))
+                                                                                                                            }
+                                                                                                                        </select>
+                                                                                                                        <input
+                                                                                                                            id={`smart_val_${smartRuleKey}`}
+                                                                                                                            className="flex-1 min-w-0 px-1.5 py-0.5 border border-blue-300 rounded text-[10px] bg-white text-slate-800"
+                                                                                                                            placeholder="值"
+                                                                                                                        />
+                                                                                                                        <input
+                                                                                                                            id={`smart_val2_${smartRuleKey}`}
+                                                                                                                            className="w-14 px-1.5 py-0.5 border border-blue-300 rounded text-[10px] bg-white text-slate-800"
+                                                                                                                            placeholder="上限"
+                                                                                                                            style={{ display: 'none' }}
+                                                                                                                        />
+                                                                                                                        <button
+                                                                                                                            onClick={() => {
+                                                                                                                                const modeEl = document.getElementById(`smart_mode_${smartRuleKey}`) as HTMLSelectElement;
+                                                                                                                                const valEl = document.getElementById(`smart_val_${smartRuleKey}`) as HTMLInputElement;
+                                                                                                                                const val2El = document.getElementById(`smart_val2_${smartRuleKey}`) as HTMLInputElement;
+                                                                                                                                if (!modeEl) return;
+                                                                                                                                const mode = modeEl.value as GroupMatchMode;
+                                                                                                                                const noValueModes = ['isEmpty', 'isNotEmpty'];
+                                                                                                                                if (!noValueModes.includes(mode) && (!valEl || !valEl.value.trim())) return;
+                                                                                                                                const newRule: SubDimensionGroupRule = {
+                                                                                                                                    id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                                                                                                                                    source: noValueModes.includes(mode) ? '' : valEl.value.trim(),
+                                                                                                                                    source2: mode === 'range' ? val2El?.value.trim() : undefined,
+                                                                                                                                    groupName: group.groupName,
+                                                                                                                                    matchMode: mode
+                                                                                                                                };
+                                                                                                                                setSubDimensionGroups(prev => {
+                                                                                                                                    const prevCfg = prev[col] || { enabled: true, rules: [] };
+                                                                                                                                    return { ...prev, [col]: { ...prevCfg, rules: [...prevCfg.rules, newRule] } };
+                                                                                                                                });
+                                                                                                                                if (valEl) valEl.value = '';
+                                                                                                                                if (val2El) val2El.value = '';
+                                                                                                                            }}
+                                                                                                                            className="text-[10px] px-1.5 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                                                                                                                        >+ 添加</button>
+                                                                                                                    </div>
+                                                                                                                </div>
+                                                                                                            );
+                                                                                                        })()}
+
+                                                                                                        {/* === Exact Match (精确值勾选) === */}
+                                                                                                        <div className="flex items-center gap-1.5">
+                                                                                                            <input
+                                                                                                                value={groupRowSearch[rowKey] || ''}
+                                                                                                                onChange={(e) => setGroupRowSearch(prev => ({ ...prev, [rowKey]: e.target.value }))}
+                                                                                                                className="w-full min-w-0 px-2 py-1 border border-purple-300 rounded text-xs text-slate-800 bg-white"
+                                                                                                                placeholder="搜索此组要包含的值..."
+                                                                                                            />
+                                                                                                            <button
+                                                                                                                onClick={() => setValuesGroupForColumn(col, visibleValues, group.groupName)}
+                                                                                                                className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 whitespace-nowrap"
+                                                                                                            >
+                                                                                                                全选筛选结果
+                                                                                                            </button>
+                                                                                                        </div>
+
+                                                                                                <div className="max-h-36 overflow-y-auto space-y-1 border border-purple-200 rounded p-1.5 bg-purple-50/40">
+                                                                                                    {visibleValues.map((v) => {
+                                                                                                        const owner = valueOwnerMap.get(v) || '';
+                                                                                                        const checked = owner === group.groupName;
+                                                                                                        const selectedByOther = !!owner && owner !== group.groupName;
+                                                                                                        return (
+                                                                                                            <label key={v} className={`flex items-center gap-1.5 px-1.5 py-1 text-xs rounded cursor-pointer ${selectedByOther ? 'text-slate-400 bg-slate-50 hover:bg-slate-100' : 'text-purple-900 hover:bg-purple-100'}`}>
+                                                                                                                <input
+                                                                                                                    type="checkbox"
+                                                                                                                    checked={checked}
+                                                                                                                    onChange={() => setValueGroupForColumn(col, v, checked ? null : group.groupName)}
+                                                                                                                    className="rounded text-purple-600 w-4 h-4"
+                                                                                                                />
+                                                                                                                <span className="truncate" title={v}>{v}</span>
+                                                                                                                {selectedByOther && (
+                                                                                                                    <span className="text-[10px] text-slate-400 ml-auto">{owner}</span>
+                                                                                                                )}
+                                                                                                            </label>
+                                                                                                        );
+                                                                                                    })}
+                                                                                                </div>
+                                                                                                    </>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        );
+                                                                                    })}
+                                                                                </div>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+        );
+    };
     const handleAddToSnapshot = () => {
         const { chartData, breakdownKeys } = processedData;
+
         const newSnapshot: ChartSnapshot = {
             id: Date.now().toString(),
             title: `${dimensionCol}${subDimensionCol ? ' + ' + subDimensionCol : ''} - ${aggregation === 'count' ? '数量' : aggregation}分布`,
@@ -1334,10 +2511,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
 
 
             {/* CONFIGURATION PANEL */}
-            <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+            <div className="flex flex-col xl:flex-row gap-6">
 
                 {/* Left: Settings */}
-                <div className="xl:col-span-1 space-y-6">
+                <div className="w-full min-w-0 space-y-6 xl:w-[420px] xl:min-w-[340px] xl:max-w-[70vw] xl:shrink-0 xl:resize-x xl:overflow-x-auto">
 
                     {/* 1. Axes Configuration */}
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -1372,28 +2549,132 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                             {chartType === 'scatter' ? (
                                 <div>
                                     <label className="block text-xs font-medium text-slate-500 mb-1">X 轴数值列</label>
-                                    <select value={scatterXCol} onChange={(e) => setScatterXCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm">
+                                    <select value={scatterXCol} onChange={(e) => setScatterXCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm text-slate-800 bg-white">
                                         <option value="">请选择数值列...</option>
                                         {data.columns.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 </div>
                             ) : (
                                 <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">行字段 (分组依据)</label>
-                                    <select value={dimensionCol} onChange={(e) => setDimensionCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm bg-slate-50">
+                                    <div className="flex items-center justify-between mb-1 gap-2">
+                                        <label className="text-xs font-bold text-slate-800 whitespace-nowrap shrink-0">主维度 (X轴)</label>
+                                        <input type="text" placeholder="自定义显示名" value={customXLabel} onChange={e => setCustomXLabel(e.target.value)} className="w-[72px] min-w-0 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded text-slate-600 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-slate-50" title="在图表上显示的自定义X轴名称" />
+                                    </div>
+                                    <select value={dimensionCol} onChange={(e) => setDimensionCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm text-slate-800 bg-white">
                                         {data.columns.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
-
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <input type="checkbox" id="enableRowBinning" checked={enableRowBinning} onChange={(e) => setEnableRowBinning(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500" />
-                                        <label htmlFor="enableRowBinning" className="text-xs text-slate-700 cursor-pointer select-none">对行字段启用数值分段</label>
+                                    <div className="mt-2">
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">字段数据分组 (可选)</label>
+                                        <select
+                                            value={
+                                                enableRowBinning ? 'binning' : (dimensionCol && subDimensionGroups[dimensionCol]?.enabled ? 'mapping' : 'none')
+                                            }
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (val === 'none') {
+                                                    setEnableRowBinning(false);
+                                                    if (dimensionCol) {
+                                                        setSubDimensionGroups(prev => ({
+                                                            ...prev,
+                                                            [dimensionCol]: { enabled: false, rules: prev[dimensionCol]?.rules || [] }
+                                                        }));
+                                                    }
+                                                } else if (val === 'binning') {
+                                                    setEnableRowBinning(true);
+                                                    if (dimensionCol) {
+                                                        setSubDimensionGroups(prev => ({
+                                                            ...prev,
+                                                            [dimensionCol]: { enabled: false, rules: prev[dimensionCol]?.rules || [] }
+                                                        }));
+                                                    }
+                                                } else if (val === 'mapping') {
+                                                    setEnableRowBinning(false);
+                                                    if (dimensionCol) {
+                                                        setSubDimensionGroups(prev => ({
+                                                            ...prev,
+                                                            [dimensionCol]: { enabled: true, rules: prev[dimensionCol]?.rules || [] }
+                                                        }));
+                                                    }
+                                                }
+                                            }}
+                                            className="w-full p-1.5 border border-slate-300 rounded text-xs text-slate-800 bg-white"
+                                        >
+                                            <option value="none">不进行处理 (默认)</option>
+                                            <option value="mapping">文本归类映射 (分组重命名)</option>
+                                            <option value="binning">数值区间分箱 (按数值分段)</option>
+                                        </select>
                                     </div>
+
+                                    {dimensionCol && subDimensionGroups[dimensionCol]?.enabled && renderCustomGroupingBlock(dimensionCol, true)}
+
+                                    <div className="mt-2">
+                                        <label className="block text-xs font-medium text-slate-500 mb-1">坐标轴标签显示</label>
+                                        <select
+                                            value={xTickDisplayField}
+                                            onChange={(e) => setXTickDisplayField(e.target.value)}
+                                            className="w-full p-1.5 border border-slate-300 rounded text-xs text-slate-800 bg-white"
+                                        >
+                                            <option value="all">显示组合名称（默认）</option>
+                                            <option value="dimension">仅显示主字段：{dimensionCol || '主字段'}</option>
+                                            {(subDimensionCol ? subDimensionCol.split(':::').filter(Boolean) : []).map((c) => (
+                                                <option key={c} value={`sub:${c}`}>仅显示副字段：{c}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {isAnyDateSelected && (
+                                        <div className="mt-2 p-2 bg-sky-50 rounded-lg border border-sky-100 space-y-2">
+                                            <div className="flex items-center gap-1">
+                                                {[
+                                                    { value: 'day' as const, label: '天' },
+                                                    { value: 'week' as const, label: '周' },
+                                                    { value: 'month' as const, label: '月' },
+                                                    { value: 'quarter' as const, label: '季' },
+                                                    { value: 'year' as const, label: '年' },
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.value}
+                                                        onClick={() => setDateGranularity(opt.value)}
+                                                        className={`flex-1 py-1 text-[11px] rounded font-medium transition-all ${dateGranularity === opt.value
+                                                            ? 'bg-sky-600 text-white shadow-sm'
+                                                            : 'text-sky-700 hover:bg-sky-100'
+                                                        }`}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                                    <input type="checkbox" checked={showYearInDate} onChange={(e) => setShowYearInDate(e.target.checked)} className="rounded text-sky-600 w-3 h-3" />
+                                                    <span className="text-[10px] text-sky-600">显示年份</span>
+                                                </label>
+                                                {(dateGranularity === 'month' || dateGranularity === 'quarter') && (
+                                                    <div className="flex items-center gap-1">
+                                                        <span className="text-[10px] text-sky-500">每月</span>
+                                                        <select
+                                                            value={monthStartDay}
+                                                            onChange={(e) => setMonthStartDay(parseInt(e.target.value))}
+                                                            className="text-[11px] py-0.5 px-1 border border-sky-200 rounded bg-white text-sky-800 w-12"
+                                                        >
+                                                            {Array.from({length: 28}, (_, i) => i + 1).map((d: any) => (
+                                                                <option key={d} value={d}>{d}号</option>
+                                                            ))}
+                                                        </select>
+                                                        <span className="text-[10px] text-sky-500">起算</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+
 
                                     {/* Row Binning Settings */}
                                     {enableRowBinning && (
                                         <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100 space-y-2">
                                             <div className="flex justify-between items-center">
-                                                <span className="text-xs font-medium text-blue-700">行字段分段设置</span>
+                                                <span className="text-xs font-medium text-blue-700">数据分箱设置</span>
                                                 <div className="flex gap-1">
                                                     <button onClick={handleAutoBinning} className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-600 rounded hover:bg-blue-200">⚡ 自动</button>
                                                     <button onClick={() => setRowBins([...rowBins, { id: Date.now().toString(), label: `区间${rowBins.length + 1}`, min: 0, max: 100 }])} className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-600 rounded hover:bg-blue-200">+ 添加</button>
@@ -1413,198 +2694,244 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                 </div>
                             )}
 
-                            {/* Secondary X Dimension (New Feature) */}
-                            {!chartType.includes('scatter') && (
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                                        <Split size={12} /> 行字段二 (组合显示)
-                                    </label>
-                                    <select value={subDimensionCol} onChange={(e) => setSubDimensionCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm bg-white">
-                                        <option value="">(无)</option>
-                                        {data.columns.filter(c => c !== dimensionCol).map(c => <option key={c} value={c}>{c}</option>)}
+                            {/* X Sort Order */}
+                            {chartType !== 'scatter' && (
+                                <div className="mt-4">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-xs font-bold text-slate-800 flex items-center gap-1"><ArrowUpDown size={12} /> X轴排序规则</label>
+                                    </div>
+                                    <select 
+                                        value={xSortMode}
+                                        onChange={(e) => {
+                                            setXSortMode(e.target.value as any);
+                                            if (e.target.value === 'manual' && xManualOrder.length === 0) {
+                                                setXManualOrder(processedData.tableData.map((d: any) => d.name).filter(n => n && !n.startsWith('其他')));
+                                            }
+                                        }}
+                                        className="w-full p-1.5 border border-slate-200 rounded text-xs text-slate-700 bg-slate-50 outline-none focus:border-indigo-300"
+                                    >
+                                        <option value="default">默认 (按字段名/跟随数据表)</option>
+                                        <option value="desc">按当前指标降序 (从大到小)</option>
+                                        <option value="asc">按当前指标升序 (从小到大)</option>
+                                        <option value="manual">自定义手动拖拽</option>
                                     </select>
-                                    <p className="text-[10px] text-slate-400 mt-1">
-                                        选择后行标签会显示为"人员 / 类型"的组合
-                                    </p>
+                                    {xSortMode === 'manual' && (
+                                        <DraggableList items={xManualOrder} setItems={setXManualOrder} label="X轴项" />
+                                    )}
                                 </div>
                             )}
 
+                            {/* Secondary Fields (Unified Free UI) */}
+                            {chartType !== 'scatter' && (() => {
+                                const bCols = breakdownCol ? breakdownCol.split(':::') : [];
+                                const sCols = subDimensionCol ? subDimensionCol.split(':::') : [];
+                                const allSecCols = Array.from(new Set([...bCols, ...sCols]));
 
-                            {/* Column Field (Breakdown/Cross-tab) - Available for all chart types */}
-                            {chartType !== 'scatter' && (
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                                        <Layers size={12} /> 列字段 (交叉分类)
-                                    </label>
-                                    <select value={breakdownCol} onChange={(e) => setBreakdownCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm bg-white">
-                                        <option value="">(无)</option>
-                                        {data.columns.filter(c => c !== dimensionCol && c !== subDimensionCol).map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-
-                                    {breakdownCol && (
-                                        <div className="mt-2 flex items-center gap-2">
-                                            <input type="checkbox" id="enableColBinning" checked={enableColBinning} onChange={(e) => setEnableColBinning(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
-                                            <label htmlFor="enableColBinning" className="text-xs text-slate-700 cursor-pointer select-none">对列字段启用数值分段</label>
-                                        </div>
-                                    )}
-
-                                    {/* Column Binning Settings */}
-                                    {breakdownCol && enableColBinning && (
-                                        <div className="mt-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100 space-y-2">
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-xs font-medium text-indigo-700">列字段分段设置</span>
-                                                <div className="flex gap-1">
-                                                    <button onClick={() => {
-                                                        // Auto-generate bins for column field
-                                                        const vals = data.rows.map(r => parseFloat(String(r[breakdownCol]))).filter(n => !isNaN(n));
-                                                        if (vals.length === 0) return;
-                                                        const minVal = Math.min(...vals);
-                                                        const maxVal = Math.max(...vals);
-                                                        const step = Math.ceil((maxVal - minVal) / 4);
-                                                        const newBins = [];
-                                                        for (let i = 0; i < 4; i++) {
-                                                            const start = minVal + i * step;
-                                                            const end = i === 3 ? Infinity : minVal + (i + 1) * step;
-                                                            newBins.push({ id: `cb${i}`, label: end === Infinity ? `${start}+` : `${start}-${end}`, min: start, max: end });
-                                                        }
-                                                        setColBins(newBins);
-                                                    }} className="text-[10px] px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded hover:bg-indigo-200">⚡ 自动</button>
-                                                    <button onClick={() => setColBins([...colBins, { id: Date.now().toString(), label: `区间${colBins.length + 1}`, min: 0, max: 100 }])} className="text-[10px] px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded hover:bg-indigo-200">+ 添加</button>
-                                                </div>
-                                            </div>
-                                            {/* Preset buttons */}
-                                            <div className="flex gap-1 flex-wrap">
-                                                <button onClick={() => setColBins([
-                                                    { id: 'p1', label: '普通', min: 0, max: 1000 },
-                                                    { id: 'p2', label: '爆贴', min: 1001, max: 2500 },
-                                                    { id: 'p3', label: '大爆贴', min: 2501, max: Infinity }
-                                                ])} className="text-[10px] px-2 py-0.5 bg-white border border-indigo-200 text-indigo-600 rounded hover:bg-indigo-50">评论量</button>
-                                            </div>
-                                            {colBins.map((bin, idx) => (
-                                                <div key={bin.id} className="flex items-center gap-1 text-xs">
-                                                    <input value={bin.label} onChange={(e) => setColBins(colBins.map(b => b.id === bin.id ? { ...b, label: e.target.value } : b))} className="flex-1 px-2 py-1 border rounded text-xs" placeholder="标签" />
-                                                    <input type="number" value={bin.min === -Infinity ? '' : bin.min} onChange={(e) => setColBins(colBins.map(b => b.id === bin.id ? { ...b, min: Number(e.target.value) } : b))} className="w-16 px-2 py-1 border rounded text-xs text-center" placeholder="起" />
-                                                    <span className="text-slate-400">~</span>
-                                                    <input type="number" value={bin.max === Infinity ? '' : bin.max} onChange={(e) => setColBins(colBins.map(b => b.id === bin.id ? { ...b, max: e.target.value === '' ? Infinity : Number(e.target.value) } : b))} className="w-16 px-2 py-1 border rounded text-xs text-center" placeholder="止" />
-                                                    <button onClick={() => setColBins(colBins.filter(b => b.id !== bin.id))} className="text-red-400 hover:text-red-600 p-1"><X size={12} /></button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Chart Display Mode - only show when breakdowns exist */}
-                                    {breakdownCol && (
-                                        <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-100 space-y-2">
-                                            <span className="text-xs font-medium text-emerald-700">图表显示模式</span>
-                                            <div className="flex gap-1 flex-wrap">
+                                return (
+                                    <div className="space-y-3 relative mt-6 pt-4 border-t border-slate-200">
+                                        <div className="absolute -top-3 right-0 z-10">
+                                            {allSecCols.length > 0 && (
                                                 <button
-                                                    onClick={() => setChartDisplayMode('total')}
-                                                    className={`text-[10px] px-2 py-1 rounded ${chartDisplayMode === 'total' ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
-                                                >
-                                                    <BarChart2 size={12} className="inline mr-1" /> 总和
-                                                </button>
-                                                <button
-                                                    onClick={() => setChartDisplayMode('faceted')}
-                                                    className={`text-[10px] px-2 py-1 rounded ${chartDisplayMode === 'faceted' ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
-                                                >
-                                                    <Grid size={12} className="inline mr-1" /> 分面 (多图)
-                                                </button>
-                                                <button
+                                                    title="快捷对换：将主 X 轴字段与当前首个副字段交换"
                                                     onClick={() => {
-                                                        setChartDisplayMode('filtered');
-                                                        // 如果之前没有选择任何分段，则自动全选
-                                                        if (selectedBreakdowns.length === 0) {
-                                                            setSelectedBreakdowns(processedData.breakdownKeys);
-                                                        }
+                                                        const currentMain = dimensionCol;
+                                                        const targetSec = allSecCols[0];
+                                                        
+                                                        setDimensionCol(targetSec);
+                                                        
+                                                        const newBCols = bCols.map(c => c === targetSec ? currentMain : c);
+                                                        const newSCols = sCols.map(c => c === targetSec ? currentMain : c);
+                                                        
+                                                        setBreakdownCol(newBCols.join(':::'));
+                                                        setSubDimensionCol(newSCols.join(':::'));
                                                     }}
-                                                    className={`text-[10px] px-2 py-1 rounded ${chartDisplayMode === 'filtered' ? 'bg-emerald-600 text-white' : 'bg-white border border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}
+                                                    className="flex items-center justify-center p-1.5 bg-white border border-indigo-200 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded shadow-sm transition-all text-[10px] gap-1"
                                                 >
-                                                    <Target size={12} className="inline mr-1" /> 筛选
+                                                    <ArrowUpDown size={12} /> <span className="font-medium">主副对换</span>
                                                 </button>
-                                            </div>
-
-                                            {/* Breakdown selection for filtered mode */}
-                                            {chartDisplayMode === 'filtered' && processedData.breakdownKeys.length > 0 && (
-                                                <div className="flex gap-1 flex-wrap mt-2">
-                                                    {processedData.breakdownKeys.map(key => (
-                                                        <label key={key} className="flex items-center gap-1 text-xs cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedBreakdowns.includes(key)}
-                                                                onChange={(e) => {
-                                                                    if (e.target.checked) {
-                                                                        setSelectedBreakdowns([...selectedBreakdowns, key]);
-                                                                    } else {
-                                                                        setSelectedBreakdowns(selectedBreakdowns.filter(k => k !== key));
-                                                                    }
-                                                                }}
-                                                                className="rounded text-emerald-600"
-                                                            />
-                                                            <span className="text-emerald-700">{key}</span>
-                                                        </label>
-                                                    ))}
-                                                    <button
-                                                        onClick={() => setSelectedBreakdowns(processedData.breakdownKeys)}
-                                                        className="text-[10px] px-1 text-emerald-600 hover:underline"
-                                                    >全选</button>
-                                                    <button
-                                                        onClick={() => setSelectedBreakdowns([])}
-                                                        className="text-[10px] px-1 text-emerald-600 hover:underline"
-                                                    >清空</button>
-                                                </div>
                                             )}
                                         </div>
-                                    )}
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center gap-1">
+                                                <Layers size={13} className="text-indigo-500" /> 拆分维度 (副X轴/细分)
+                                            </label>
+
+                                            <div className="mb-2">
+                                                <select 
+                                                    value="" 
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (val && !allSecCols.includes(val)) {
+                                                            const newBCols = breakdownCol ? breakdownCol.split(':::') : [];
+                                                            setBreakdownCol([...newBCols, val].join(':::'));
+                                                        }
+                                                    }}
+                                                    className="w-full p-2 border border-indigo-200 border-dashed rounded text-sm text-indigo-600 bg-indigo-50/50 outline-none hover:bg-indigo-50 cursor-pointer"
+                                                >
+                                                    <option value="">+ 添加拆分维度...</option>
+                                                    {data.columns.filter((c: string) => c !== dimensionCol && !allSecCols.includes(c)).map((c: string) => (
+                                                        <option key={c} value={c}>{c}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            
+                                            <div className="flex flex-col gap-2">
+                                                {allSecCols.map(col => {
+                                                    const isColor = bCols.includes(col);
+                                                    const isText = sCols.includes(col);
+                                                    
+                                                    return (
+                                                        <div key={col} className="border border-indigo-100 rounded p-2.5 bg-indigo-50/30">
+                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                <span className="font-bold text-xs text-indigo-800 bg-indigo-100 px-1.5 py-0.5 rounded">{col}</span>
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        setBreakdownCol(bCols.filter(c => c !== col).join(':::'));
+                                                                        setSubDimensionCol(sCols.filter(c => c !== col).join(':::'));
+                                                                    }}
+                                                                    className="text-slate-400 hover:text-red-500"
+                                                                >
+                                                                    <X size={12} />
+                                                                </button>
+                                                            </div>
+                                                            <div className="flex flex-col gap-1.5 pl-1">
+                                                                <label className={"text-xs flex items-center gap-1.5 cursor-pointer select-none " + (isColor ? "text-slate-800 font-medium" : "text-slate-500")}>
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={isColor} 
+                                                                        onChange={(e) => {
+                                                                            if (e.target.checked) setBreakdownCol([...bCols, col].join(':::'));
+                                                                            else setBreakdownCol(bCols.filter(c => c !== col).join(':::'));
+                                                                        }}
+                                                                        className="rounded text-indigo-500"
+                                                                    />
+                                                                    分类维度 (颜色/图例)
+                                                                </label>
+                                                                {isColor && (
+                                                                    <div className="pl-5 mt-1 flex items-center gap-2">
+                                                                        <span className="text-xs text-slate-600 shrink-0">📊 排列方式:</span>
+                                                                        <select
+                                                                            value={bColGroupModes[col] || 'grouped'}
+                                                                            onChange={(e) => setBColGroupModes({...bColGroupModes, [col]: e.target.value as any})}
+                                                                            className="flex-1 min-w-0 p-1 border border-indigo-200 rounded text-xs bg-white text-indigo-700 outline-none"
+                                                                        >
+                                                                            <option value="stacked">堆叠 (Stacked)</option>
+                                                                            <option value="grouped">独立分组 (并排)</option>
+                                                                        </select>
+                                                                    </div>
+                                                                )}
+                                                                <label className={"text-xs flex items-center gap-1.5 cursor-pointer select-none " + (isText ? "text-slate-800 font-medium" : "text-slate-500")}>
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={isText} 
+                                                                        onChange={(e) => {
+                                                                            if (e.target.checked) setSubDimensionCol([...sCols, col].join(':::'));
+                                                                            else setSubDimensionCol(sCols.filter(c => c !== col).join(':::'));
+                                                                        }}
+                                                                        className="rounded text-indigo-500"
+                                                                    />
+                                                                    子维度 (拼接至X轴)
+                                                                </label>
+
+                                                                {renderCustomGroupingBlock(col, false)}
+                                                                
+                                                                {/* Per-column Binning Configuration */}
+                                                                <div className="pl-5 mt-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            checked={!!perColBins[col]?.enabled}
+                                                                            onChange={(e) => setPerColBins(prev => ({...prev, [col]: {...(prev[col] || { bins: [] }), enabled: e.target.checked}}))}
+                                                                            className="rounded text-indigo-500 w-3 h-3"
+                                                                        />
+                                                                        <span className="text-[10px] text-slate-500">仅对此字段启用分段</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Default Primary Y-Axis */}
+                            <div className="pt-6 mt-4 border-t-2 border-slate-200">
+                                <div className="flex items-center justify-between mb-1 gap-2">
+                                    <label className="text-sm font-bold text-slate-800 flex items-center gap-1 whitespace-nowrap shrink-0">主指标 (左Y轴)</label>
+                                    <input type="text" placeholder="自定义显示名" value={customYLabel} onChange={e => setCustomYLabel(e.target.value)} className="w-[72px] min-w-0 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded text-slate-600 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 bg-slate-50" title="在图表上显示的自定义Y轴名称" />
+                                </div>
+                                <select value={metricCol} onChange={(e) => setMetricCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm text-slate-800 bg-white">
+                                    {data.columns.map((c: string) => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
+
+                            {chartType !== 'scatter' && (
+                                <div className="mt-2">
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">计算规则 (聚合)</label>
+                                    <div className="flex bg-slate-100 p-1 rounded">
+                                        <button onClick={() => setAggregation('count')} className={`flex-1 py-1 text-xs rounded ${aggregation === 'count' ? 'bg-white shadow text-slate-800 font-medium' : 'text-slate-500 hover:bg-slate-200'}`}>计数</button>
+                                        <button onClick={() => setAggregation('sum')} className={`flex-1 py-1 text-xs rounded ${aggregation === 'sum' ? 'bg-white shadow text-slate-800 font-medium' : 'text-slate-500 hover:bg-slate-200'}`}>求和</button>
+                                        <button onClick={() => setAggregation('avg')} className={`flex-1 py-1 text-xs rounded ${aggregation === 'avg' ? 'bg-white shadow text-slate-800 font-medium' : 'text-slate-500 hover:bg-slate-200'}`}>平均</button>
+                                    </div>
                                 </div>
                             )}
-
-                            <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">指标 (数值/Y轴)</label>
-                                <select value={metricCol} onChange={(e) => setMetricCol(e.target.value)} className="w-full p-2 border border-slate-300 rounded text-sm">
-                                    <option value="">(无 - 默认计数)</option>
+                            {/* Secondary Y-Axis */}
+                            <div className="mt-4 pt-4 border-t border-slate-200">
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-xs font-bold text-amber-600 flex items-center gap-1"><Layers size={12}/> 副指标 (右Y轴)</label>
+                                </div>
+                                <select value={secondaryMetricCol} onChange={(e) => setSecondaryMetricCol(e.target.value)} className="w-full p-2 border border-amber-200 rounded text-sm text-slate-800 bg-amber-50 outline-none">
+                                    <option value="">(不使用副轴)</option>
                                     {data.columns.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
 
-                            {metricCol && (
+                            {secondaryMetricCol && (
                                 <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">聚合方式</label>
-                                    <div className="flex bg-slate-100 p-1 rounded">
-                                        <button onClick={() => setAggregation('count')} className={`flex-1 py-1 text-xs rounded ${aggregation === 'count' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>计数</button>
-                                        <button onClick={() => setAggregation('sum')} className={`flex-1 py-1 text-xs rounded ${aggregation === 'sum' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>求和</button>
-                                        <button onClick={() => setAggregation('avg')} className={`flex-1 py-1 text-xs rounded ${aggregation === 'avg' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`}>平均</button>
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">副轴计算规则 (聚合)</label>
+                                    <div className="flex bg-amber-100 p-1 rounded">
+                                        <button onClick={() => setSecondaryAggregation('count')} className={`flex-1 py-1 text-xs rounded ${secondaryAggregation === 'count' ? 'bg-white shadow text-amber-600' : 'text-slate-500'}`}>计数</button>
+                                        <button onClick={() => setSecondaryAggregation('sum')} className={`flex-1 py-1 text-xs rounded ${secondaryAggregation === 'sum' ? 'bg-white shadow text-amber-600' : 'text-slate-500'}`}>求和</button>
+                                        <button onClick={() => setSecondaryAggregation('avg')} className={`flex-1 py-1 text-xs rounded ${secondaryAggregation === 'avg' ? 'bg-white shadow text-amber-600' : 'text-slate-500'}`}>平均</button>
                                     </div>
-                                </div>
-                            )}
-
-                            {/* Chart Limit Control */}
-                            {!enableBinning && chartType !== 'scatter' && (
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="text-xs font-medium text-slate-500 flex items-center gap-1"><SlidersHorizontal size={12} /> 图表显示数量</label>
-                                        <span className="text-xs text-blue-600 font-mono">{maxItems} 项</span>
-                                    </div>
-                                    <input
-                                        type="range"
-                                        min="5"
-                                        max="50"
-                                        step="5"
-                                        value={maxItems}
-                                        onChange={(e) => setMaxItems(Number(e.target.value))}
-                                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                                    />
-                                    <p className="text-[10px] text-slate-400 mt-1">超出部分将合并为“其他”</p>
                                 </div>
                             )}
 
                             <div>
-                                <label className="flex items-center gap-2 cursor-pointer select-none text-xs mt-2">
-                                    <input type="checkbox" checked={showValues} onChange={(e) => setShowValues(e.target.checked)} className="rounded text-blue-600" />
-                                    <span className="text-slate-600">显示数值标签</span>
-                                </label>
+
+
+                                    {/* 堆叠/分组排序 */}
+                                    {processedData.breakdownKeys.length > 0 && (
+                                        <div>
+                                            <label className="block text-[10px] text-slate-500 mb-1">副字段排序</label>
+                                            <select 
+                                                value={stackSortMode}
+                                                onChange={(e) => {
+                                                    setStackSortMode(e.target.value as any);
+                                                    if (e.target.value === 'manual' && stackManualOrder.length === 0) {
+                                                        // 初始化预设
+                                                        setStackManualOrder([...processedData.breakdownKeys].filter(k => k !== '其他'));
+                                                    }
+                                                }}
+                                                className="w-full p-1.5 border border-slate-200 rounded text-xs text-slate-700 bg-slate-50 outline-none focus:border-indigo-300"
+                                            >
+                                                <option value="default">默认 (字母顺序/预设分段)</option>
+                                                <option value="desc">按总和数据降序 (从大到小)</option>
+                                                <option value="asc">按总和数据升序 (从小到大)</option>
+                                                <option value="manual">自定义手动拖拽</option>
+                                            </select>
+                                            {stackSortMode === 'manual' && (
+                                                <DraggableList items={stackManualOrder} setItems={setStackManualOrder} label="分色组" />
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
 
 
                     {/* Filtering - moved below */}
@@ -1642,51 +2969,113 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                         </div>
                     </div>
 
+                    {/* Advanced Settings */}
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Settings2 size={16} /> 高级配置</h3>
+                        </div>
+
+                        <div className="space-y-4">
+                            <label className="flex items-center gap-2 cursor-pointer select-none text-xs">
+                                <input type="checkbox" checked={showValues} onChange={(e) => setShowValues(e.target.checked)} className="rounded text-blue-600" />
+                                <span className="text-slate-700 font-medium">在图表上显示具体数值标签</span>
+                            </label>
+
+                            {processedData.breakdownKeys.length > 0 && (
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">多维度展示模式</label>
+                                    <select value={chartDisplayMode} onChange={(e) => setChartDisplayMode(e.target.value as any)} className="w-full p-2 border border-slate-300 rounded text-xs text-slate-800 bg-white">
+                                        <option value="total">标准图表 (合并视图)</option>
+                                        <option value="faceted">分面网格视图 (图表墙)</option>
+                                    </select>
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">最大显示项数 (Top N)</label>
+                                <input type="number" min="1" max="500" value={maxItems} onChange={(e) => setMaxItems(parseInt(e.target.value) || 20)} className="w-full p-2 border border-slate-300 rounded text-xs text-slate-800 bg-white" />
+                                <p className="text-[10px] text-slate-400 mt-1">超出部分将自动合并为"其他"</p>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
                 {/* Right: Charts & Data */}
-                <div className="xl:col-span-3 space-y-6">
+                <div className="flex-1 min-w-0 space-y-6">
 
                     {/* 1. Main Chart Editor */}
                     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-[500px] flex flex-col relative">
-                        <div className="flex justify-between items-center mb-4">
-                            <div className="flex items-center gap-3">
-                                <h3 className="font-bold text-slate-700">配置工作台</h3>
-                                <div className="text-xs text-slate-400 px-2 py-1 bg-slate-50 rounded flex items-center gap-2">
-                                    {isProcessing && <Loader2 size={12} className="animate-spin" />}
-                                    {data.rows.length > 5000 && <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={12} /> 大数据</span>}
-                                    {breakdownCol ? '堆叠模式' : `Top ${maxItems}`} | 总计: {processedData.totalValue.toLocaleString()} | 行数: {data.rows.length.toLocaleString()}
-                                </div>
-                            </div>
-                            <button
-                                onClick={handleAddToSnapshot}
-                                className="text-xs bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm shadow-blue-200"
-                            >
-                                <Pin size={14} /> 添加到报告
-                            </button>
-                            <button
-                                onClick={handleGenerateChart}
-                                className="text-xs bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm shadow-emerald-200"
-                            >
-                                {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                                {chartGenerated ? '重新生成' : '生成图表'}
-                            </button>
+                        {/* 🗣 自然语言面包屑 - 实时解读当前图表配置 */}
+                        <div className="px-3 py-2 mb-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-lg">
+                            <p className="text-xs text-blue-800 flex items-center gap-1.5 flex-wrap">
+                                <Target size={12} className="text-blue-500 shrink-0" />
+                                <span>📊 按</span>
+                                <span className="font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">{enableBinning ? `${dimensionCol} (分段)` : dateColumnsSet.has(dimensionCol) && dateGranularity !== 'day' ? `${dimensionCol} (${dateGranularity === 'week' ? '按周' : dateGranularity === 'month' ? '按月' : dateGranularity === 'quarter' ? '按季' : '按年'})` : dimensionCol || '未选择'}</span>
+                                <span>{aggregation === 'count' ? '统计数量' : aggregation === 'sum' ? `求和 ${metricCol || ''}` : `求平均 ${metricCol || ''}`}</span>
+                                {breakdownCol && (<>
+                                    <span>，按</span>
+                                    <span className="font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">{breakdownCol}</span>
+                                    <span>拆分颜色</span>
+                                </>)}
+                                {subDimensionCol && (<>
+                                    <span>，二级维度</span>
+                                    <span className="font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">{subDimensionCol}</span>
+                                </>)}
+                                {filters.length > 0 && (
+                                    <span className="text-amber-700">，已过滤 {filters.length} 条规则</span>
+                                )}
+                                <span className="text-slate-400 ml-1">| {processedData.chartData.length} 项 · 总计 {processedData.totalValue.toLocaleString()}</span>
+                            </p>
                         </div>
-                        <div className="flex-1 w-full min-h-0 overflow-auto">
-                            {/* 如果未生成图表，显示提示 */}
-                            {!chartGenerated ? (
-                                <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50 rounded-lg">
-                                    <BarChart3 size={64} className="mb-4 opacity-30" />
-                                    <p className="text-lg font-medium text-slate-500">设置完成后点击"生成图表"</p>
-                                    <p className="text-sm mt-2 text-slate-400">左侧选择维度、指标等设置项</p>
+                        <div className="flex justify-between items-center mb-3">
+                            <div className="flex items-center gap-3">
+                                {isProcessing && <Loader2 size={14} className="animate-spin text-blue-500" />}
+                                {data.rows.length > 5000 && <span className="text-xs text-amber-500 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded"><AlertTriangle size={12} /> 大数据集</span>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {/* 智能推荐入口按钮 */}
+                                {recommendations.length > 0 && (
                                     <button
-                                        onClick={handleGenerateChart}
-                                        className="mt-6 px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-medium shadow-lg shadow-emerald-100"
+                                        onClick={() => setShowRecommendations(!showRecommendations)}
+                                        className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors ${showRecommendations ? 'bg-violet-100 text-violet-700' : 'bg-violet-50 text-violet-600 hover:bg-violet-100'}`}
                                     >
-                                        <Zap size={18} /> 生成图表
+                                        <Sparkles size={14} /> 推荐 ({recommendations.length})
                                     </button>
-                                </div>
-                            ) : chartType === 'pivot' ? (
+                                )}
+                                <button
+                                    onClick={handleCopyChartImage}
+                                    disabled={copyingChart}
+                                    className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors border border-indigo-200 disabled:opacity-60"
+                                >
+                                    {copyingChart ? <Loader2 size={14} className="animate-spin" /> : chartCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                                    {copyingChart ? '复制中...' : chartCopied ? '已复制图片' : '复制图表图'}
+                                </button>
+                                <button
+                                    onClick={handleAddToSnapshot}
+                                    className="text-xs bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors shadow-sm shadow-blue-200"
+                                >
+                                    <Pin size={14} /> 添加到报告
+                                </button>
+                            </div>
+                        </div>
+                        {/* 智能推荐浮层 */}
+                        {showRecommendations && recommendations.length > 0 && (
+                            <div className="mb-3 grid grid-cols-2 lg:grid-cols-3 gap-2">
+                                {recommendations.slice(0, 6).map(rec => (
+                                    <button
+                                        key={rec.id}
+                                        onClick={() => applyRecommendation(rec)}
+                                        className="group p-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-400 rounded-lg text-left transition-all text-xs"
+                                    >
+                                        <p className="font-medium text-slate-700 group-hover:text-violet-700 truncate">{rec.title}</p>
+                                        <p className="text-[10px] text-slate-400 mt-0.5 truncate">{rec.description}</p>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        <div ref={chartCaptureRef} className="flex-1 w-full min-h-0 overflow-hidden relative bg-white">
+                            {chartType === 'pivot' ? (
                                 /* Pivot Table View */
                                 <div className="h-full">
                                     {!breakdownCol ? (
@@ -1702,7 +3091,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                     <th className="px-4 py-3 text-left font-bold text-slate-700 bg-slate-100 border border-slate-200 sticky left-0 z-10">
                                                         {enableBinning ? '范围' : dimensionCol}
                                                     </th>
-                                                    {processedData.breakdownKeys.map(key => (
+                                                    {processedData.breakdownKeys.map((key: string) => (
                                                         <th key={key} className="px-4 py-3 text-center font-bold text-slate-700 bg-slate-100 border border-slate-200 whitespace-nowrap min-w-[80px]">
                                                             {key}
                                                         </th>
@@ -1713,12 +3102,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {processedData.tableData.slice(0, 100).map((item, idx) => (
+                                                {processedData.tableData.slice(0, 100).map((item: any, idx: number) => (
                                                     <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                                                         <td className="px-4 py-2 font-medium text-slate-700 border border-slate-200 sticky left-0 bg-inherit whitespace-nowrap">
                                                             {item.name}
                                                         </td>
-                                                        {processedData.breakdownKeys.map(key => (
+                                                        {processedData.breakdownKeys.map((key: string) => (
                                                             <td key={key} className="px-4 py-2 text-center text-slate-600 border border-slate-200 tabular-nums">
                                                                 {(item[key] || 0).toLocaleString()}
                                                             </td>
@@ -1740,8 +3129,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                     <td className="px-4 py-2 font-bold text-slate-700 border border-slate-200 sticky left-0 bg-slate-100">
                                                         总计
                                                     </td>
-                                                    {processedData.breakdownKeys.map(key => {
-                                                        const colTotal = processedData.tableData.reduce((sum, item) => sum + (item[key] || 0), 0);
+                                                    {processedData.breakdownKeys.map((key: string) => {
+                                                        const colTotal = processedData.tableData.reduce((sum: number, item: any) => sum + (item[key] || 0), 0);
                                                         return (
                                                             <td key={key} className="px-4 py-2 text-center text-slate-700 border border-slate-200 tabular-nums">
                                                                 {colTotal.toLocaleString()}
@@ -1758,26 +3147,26 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                 </div>
                             ) : chartDisplayMode === 'faceted' && processedData.breakdownKeys.length > 0 ? (
                                 /* Faceted View - Multiple Charts */
-                                <div className="h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-auto p-2">
-                                    {processedData.breakdownKeys.map((key) => {
+                                <div className="h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto p-2 pb-8">
+                                    {processedData.breakdownKeys.map((key: string) => {
                                         // Create data for this specific breakdown
-                                        let facetData = processedData.tableData.map(item => ({
+                                        let facetData = processedData.tableData.map((item: any) => ({
                                             name: item.name,
                                             value: (item as any)[key] || 0,
                                             percentage: 0
-                                        })).filter(d => d.value > 0);
+                                        })).filter((d: any) => d.value > 0);
 
-                                        const facetTotal = facetData.reduce((s, d) => s + d.value, 0);
-                                        facetData.forEach(d => d.percentage = facetTotal > 0 ? parseFloat(((d.value / facetTotal) * 100).toFixed(1)) : 0);
+                                        const facetTotal = facetData.reduce((s: number, d: any) => s + d.value, 0);
+                                        facetData.forEach((d: any) => d.percentage = facetTotal > 0 ? parseFloat(((d.value / facetTotal) * 100).toFixed(1)) : 0);
 
                                         // Sort by value and take top 6 for pie charts to avoid label overlap
-                                        facetData = facetData.sort((a, b) => b.value - a.value);
+                                        facetData = facetData.sort((a: any, b: any) => b.value - a.value);
                                         const displayData = facetData.length > 6 ? [
                                             ...facetData.slice(0, 5),
                                             {
                                                 name: `其他(${facetData.length - 5}项)`,
-                                                value: facetData.slice(5).reduce((s, d) => s + d.value, 0),
-                                                percentage: facetData.slice(5).reduce((s, d) => s + d.percentage, 0)
+                                                value: facetData.slice(5).reduce((s: number, d: any) => s + d.value, 0),
+                                                percentage: facetData.slice(5).reduce((s: number, d: any) => s + d.percentage, 0)
                                             }
                                         ] : facetData;
 
@@ -1793,10 +3182,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                                         data={displayData}
                                                         breakdownKeys={[]}
                                                         aggregation={aggregation}
-                                                        metricLabel={key}
-                                                        xAxisLabel={enableBinning ? '范围区间' : dimensionCol}
+                                                        metricLabel={customYLabel || key}
+                                                        xAxisLabel={customXLabel || (enableBinning ? '范围区间' : dimensionCol)}
                                                         isStacked={false}
                                                         showValues={false}
+                                                        stackIdMapping={stackIdMapping}
+                                                        xTickFormatter={formatXAxisTick}
                                                     />
                                                 </div>
                                                 <div className="text-center text-xs text-slate-500 mt-2">
@@ -1806,86 +3197,20 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                         );
                                     })}
                                 </div>
-                            ) : chartDisplayMode === 'filtered' ? (
-                                /* Filtered View - Only selected breakdowns */
-                                selectedBreakdowns.length > 0 ? (
-                                    chartType === 'pie' ? (
-                                        /* 饼图筛选模式：每个选中的分段显示一个独立饼图 */
-                                        <div className="h-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-auto p-2">
-                                            {selectedBreakdowns.map((key) => {
-                                                // 为每个分段创建独立的饼图数据
-                                                let facetData = processedData.tableData.map(item => ({
-                                                    name: item.name,
-                                                    value: (item as any)[key] || 0,
-                                                    percentage: 0
-                                                })).filter(d => d.value > 0);
-
-                                                const facetTotal = facetData.reduce((s, d) => s + d.value, 0);
-                                                facetData.forEach(d => d.percentage = facetTotal > 0 ? parseFloat(((d.value / facetTotal) * 100).toFixed(1)) : 0);
-
-                                                // 限制显示项数
-                                                facetData = facetData.sort((a, b) => b.value - a.value);
-                                                const displayData = facetData.length > 6 ? [
-                                                    ...facetData.slice(0, 5),
-                                                    {
-                                                        name: `其他(${facetData.length - 5}项)`,
-                                                        value: facetData.slice(5).reduce((s, d) => s + d.value, 0),
-                                                        percentage: facetData.slice(5).reduce((s, d) => s + d.percentage, 0)
-                                                    }
-                                                ] : facetData;
-
-                                                return (
-                                                    <div key={key} className="bg-slate-50 rounded-lg p-3 border border-slate-200 min-h-[280px]">
-                                                        <h4 className="text-sm font-bold text-slate-700 mb-2 text-center">{key}</h4>
-                                                        <div className="h-[200px]">
-                                                            <GenericChart
-                                                                type="pie"
-                                                                data={displayData}
-                                                                breakdownKeys={[]}
-                                                                aggregation={aggregation}
-                                                                metricLabel={key}
-                                                                xAxisLabel={enableBinning ? '范围区间' : dimensionCol}
-                                                                isStacked={false}
-                                                                showValues={false}
-                                                            />
-                                                        </div>
-                                                        <div className="text-center text-xs text-slate-500 mt-2">
-                                                            总计: {facetTotal.toLocaleString()} ({facetData.length}项)
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
                                     ) : (
-                                        <GenericChart
-                                            type={chartType}
-                                            data={processedData.chartData}
-                                            breakdownKeys={selectedBreakdowns}
-                                            aggregation={aggregation}
-                                            metricLabel={metricCol}
-                                            xAxisLabel={enableBinning ? '范围区间' : dimensionCol}
-                                            isStacked={selectedBreakdowns.length > 0 && ['bar', 'bar-horizontal', 'area', 'line'].includes(chartType)}
-                                            showValues={showValues}
-                                        />
-                                    )
-                                ) : (
-                                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                        <Target size={40} className="mb-3" />
-                                        <p className="text-sm font-medium">请在左侧勾选要显示的分段</p>
-                                        <p className="text-xs mt-1">勾选后将只显示选中的分段数据</p>
-                                    </div>
-                                )
-                            ) : (
-                                /* Total/Default View */
+                                        /* Total/Default View */
                                 <GenericChart
                                     type={chartType}
                                     data={processedData.chartData}
                                     breakdownKeys={processedData.breakdownKeys}
                                     aggregation={aggregation}
-                                    metricLabel={metricCol}
-                                    xAxisLabel={enableBinning ? '范围区间' : dimensionCol}
+                                    metricLabel={customYLabel || metricCol}
+                                    secondaryMetricLabel={secondaryMetricCol ? `${secondaryMetricCol} (${secondaryAggregation})` : undefined}
+                                    xAxisLabel={customXLabel || (enableBinning ? '范围区间' : dimensionCol)}
                                     isStacked={processedData.breakdownKeys.length > 0 && ['bar', 'bar-horizontal', 'area', 'line'].includes(chartType)}
                                     showValues={showValues}
+                                    stackIdMapping={stackIdMapping}
+                                    xTickFormatter={formatXAxisTick}
                                 />
                             )}
                         </div>
@@ -1899,22 +3224,22 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                 {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />} {copied ? '已复制' : '复制数据'}
                             </button>
                         </div>
-                        <div className="overflow-auto flex-1">
+                        <div className="overflow-hidden flex-1">
                             <table className="w-full text-sm text-left border-collapse">
                                 <thead className="bg-slate-100 text-xs uppercase text-slate-500 sticky top-0 z-10">
                                     <tr>
-                                        <th className="px-4 py-3 cursor-pointer hover:bg-slate-200 border-b" onClick={() => setSortConfig({ key: 'name', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+                                        <th className="px-4 py-3 cursor-pointer hover:bg-slate-200 border-b" onClick={() => setSortConfig({ key: 'name', direction: sortConfig.key === 'name' && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
                                             {enableBinning ? '范围' : dimensionCol} {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                                         </th>
-                                        <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-200 border-b" onClick={() => setSortConfig({ key: 'value', direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+                                        <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-200 border-b" onClick={() => setSortConfig({ key: 'value', direction: sortConfig.key === 'value' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>
                                             总{aggregation === 'count' ? '数量' : '数值'} {sortConfig.key === 'value' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                                         </th>
-                                        <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-200 border-b" onClick={() => setSortConfig({ key: 'percentage', direction: sortConfig.key === 'percentage' && sortConfig.direction === 'asc' ? 'desc' : 'asc' })}>
+                                        <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-200 border-b" onClick={() => setSortConfig({ key: 'percentage', direction: sortConfig.key === 'percentage' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>
                                             占比 {sortConfig.key === 'percentage' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                                         </th>
 
                                         {/* Dynamic Headers for Breakdown - Clickable for Sorting */}
-                                        {processedData.breakdownKeys.map(k => (
+                                        {processedData.breakdownKeys.map((k: string) => (
                                             <th
                                                 key={k}
                                                 className="px-4 py-3 text-right border-b text-blue-600 whitespace-nowrap cursor-pointer hover:bg-slate-200"
@@ -1926,14 +3251,14 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {processedData.tableData.slice(0, 200).map((item, idx) => (
+                                    {processedData.tableData.slice(0, 200).map((item: any, idx: number) => (
                                         <tr key={idx} className="hover:bg-slate-50">
                                             <td className="px-4 py-2 font-medium text-slate-700 truncate max-w-[200px]" title={item.name}>{item.name}</td>
                                             <td className="px-4 py-2 text-right font-mono text-slate-900 font-bold bg-slate-50/50">{item.value.toLocaleString()}</td>
                                             <td className="px-4 py-2 text-right text-slate-400">{item.percentage}%</td>
 
                                             {/* Dynamic Cells for Breakdown */}
-                                            {processedData.breakdownKeys.map(k => (
+                                            {processedData.breakdownKeys.map((k: string) => (
                                                 <td key={k} className="px-4 py-2 text-right font-mono text-slate-600">
                                                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                                     {(item as any)[k] ? (item as any)[k].toLocaleString() : '-'}
@@ -1954,7 +3279,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                         <td className="px-4 py-3">总计</td>
                                         <td className="px-4 py-3 text-right">{processedData.totalValue.toLocaleString()}</td>
                                         <td className="px-4 py-3 text-right">100%</td>
-                                        {processedData.breakdownKeys.map(k => <td key={k} className="px-4 py-3"></td>)}
+                                        {processedData.breakdownKeys.map((k: string) => <td key={k} className="px-4 py-3"></td>)}
                                     </tr>
                                 </tfoot>
                             </table>
@@ -1963,8 +3288,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
 
                 </div>
             </div>
-
-        </div >
+        </div>
     );
 };
 

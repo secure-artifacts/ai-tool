@@ -30,11 +30,25 @@ interface UpdateNoticeProps {
 // 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v3.8.5',
+        date: '2026-04-06',
+        description: 'v3.8.5 修复图片智能分拣，优化多账户配置与 UI',
+        url: '#',
+        isCurrent: true
+    },
+    {
+        version: 'v3.8.4',
+        date: '2026-04-03',
+        description: 'v3.8.4 常规版本更新',
+        url: 'https://ai-toolkit-b2b78--v3-8-4.web.app',
+        isCurrent: false
+    },
+    {
         version: 'v3.8.1',
         date: '2026-03-28',
         description: 'v3.8.1 优化超级改写，启用语义化提取正文，支持纯自定义改写指令',
-        url: '#',
-        isCurrent: true
+        url: 'https://ai-toolkit-b2b78--v3-8-1.web.app',
+        isCurrent: false
     },
     {
         version: 'v3.8.0',
@@ -176,18 +190,28 @@ const versionHistory: VersionInfo[] = [
 
 // 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v3.8.1',
-    date: '2026-03-28',
+    version: 'v3.8.5',
+    date: '2026-04-06',
     features: {
         en: [
-            'Super Rewrite tool optimization',
-            'Semantic-based body extraction',
-            'Full support for custom prompt instructions'
+            'Fixed image sorting alignment',
+            'Optimized UI styling for subtitles and AI batch tools',
+            'Super Rewrite tool optimization'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
+            '2026.04.06 v3.8.5',
+            '-',
+            '🚀 核心模块体验优化',
+            '• 图片分拣：修复 AI 识别信息与对应图片的关联错乱问题',
+            '• 字幕引擎：改进了视频字幕投影设置，支持卡片偏移精控',
+            '• 界面升级：优化任务模板管理、AI文本处理等细节',
+            '-',
+            '-',
+            '-',
+            '',
             '2026.03.28 v3.8.1',
             '-',
             '🚀 提示词工具（超级改写）优化',

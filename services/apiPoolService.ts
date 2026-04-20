@@ -288,7 +288,6 @@ export class ApiKeyPool {
             const nick = this.nicknames.get(key) || key.substring(0, 10) + '...';
             console.warn(`[ApiKeyPool] 标记 ${nick} 为耗尽: ${reason}`);
         }
-        this.rotateToNext();
     }
 
     /**
@@ -297,6 +296,7 @@ export class ApiKeyPool {
     markCurrentAsFailed(reason: string = '额度用完'): void {
         const currentKey = this.keys[this.currentIndex];
         this.markKeyAsFailed(currentKey, reason);
+        this.rotateToNext();
     }
 
     /**
@@ -360,22 +360,48 @@ export class ApiKeyPool {
         failedAt: string | null;
         failReason: string;
         cooldownRemaining: number; // 剩余冷却秒数
+        modelUsage: Record<string, number>; // 模型使用分布
     }> {
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        
         return this.keys.map((key, idx) => {
             const stats = this.keyStats.get(key) || { failedAt: null, failReason: '' };
             const isExhausted = this.isKeyExhausted(key);
             const cooldownRemaining = stats.failedAt
                 ? Math.max(0, Math.ceil((this.cooldownMs - (Date.now() - stats.failedAt)) / 1000))
                 : 0;
+            
+            // 获取按模型统计的数据
+            const modelUsage: Record<string, number> = {};
+            const keyId = key.substring(0, 12);
+            let computedCallCount = 0;
+            const prefix = `api_model_count_${todayUtc}_${keyId}_`;
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(prefix)) {
+                    let modelName = k.slice(prefix.length);
+                    if (modelName.startsWith('models/')) modelName = modelName.slice(7);
+                    const count = parseInt(localStorage.getItem(k) || '0', 10);
+                    if (count > 0) {
+                        modelUsage[modelName] = (modelUsage[modelName] || 0) + count;
+                        computedCallCount += count;
+                    }
+                }
+            }
+
+            const oldCallCount = getDailyCallCount(key);
+            const finalCallCount = Math.max(oldCallCount, computedCallCount);
+
             return {
                 index: idx + 1,
                 nickname: this.nicknames.get(key) || `Key ${idx + 1}`,
                 keyPrefix: key.substring(0, 8) + '...',
-                callCount: getDailyCallCount(key),
+                callCount: finalCallCount,
                 isExhausted,
                 failedAt: stats.failedAt ? new Date(stats.failedAt).toLocaleTimeString() : null,
                 failReason: stats.failReason,
                 cooldownRemaining,
+                modelUsage,
             };
         });
     }

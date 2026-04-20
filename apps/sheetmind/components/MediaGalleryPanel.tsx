@@ -33,6 +33,7 @@ import {
 } from '../services/firebaseService';
 import { getGoogleAccessToken } from '@/services/authService';
 import { openExternalUrl } from '../utils/openExternal';
+import { tsvEscapeCell } from '../utils/tsvEscape';
 import JSZip from 'jszip';
 
 // Native saveAs implementation (replaces file-saver dependency for AI Studio compatibility)
@@ -4849,7 +4850,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     // Copy data to clipboard based on current view
     const copyDataToClipboard = useCallback(() => {
         const { headers, rows } = generateExportData();
-        const text = headers.join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
+        const text = headers.map(tsvEscapeCell).join('\t') + '\n' + rows.map(r => r.map(tsvEscapeCell).join('\t')).join('\n');
         navigator.clipboard.writeText(text).then(() => {
             setCopyFeedback(`✅ 已复制 ${rows.length} 行数据到剪贴板 (${config.viewMode}视图)`); setTimeout(() => setCopyFeedback(null), 3000);
         });
@@ -5182,8 +5183,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             outputRows.push([]);
         });
 
-        // Convert to TSV format
-        const text = outputRows.map(row => row.join('\t')).join('\n');
+        // Convert to TSV format (with proper cell escaping for newlines)
+        const text = outputRows.map(row => row.map(tsvEscapeCell).join('\t')).join('\n');
 
         navigator.clipboard.writeText(text).then(() => {
             const groupCount = orderedGroups.length;
@@ -5215,10 +5216,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         // Generate headers - use all columns from the data
         const headers = data.columns;
         const rows = groupRows.map(row =>
-            headers.map(col => String(row[col] ?? ''))
+            headers.map(col => tsvEscapeCell(row[col] ?? ''))
         );
 
-        const text = headers.join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
+        const text = headers.map(tsvEscapeCell).join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
         navigator.clipboard.writeText(text).then(() => {
             setCopyFeedback(`✅ 已复制「${groupKey}」${groupRows.length} 行数据`);
             setTimeout(() => setCopyFeedback(null), 2500);

@@ -1,0 +1,3227 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    html, body { height: 100%; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f7f8fb; color: #222; overflow: auto; }
+    .wrap {
+      padding: 8px 10px 10px;
+      height: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      overflow: auto;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      padding: 4px 2px;
+      min-height: 36px;
+    }
+    .field label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; }
+    .field select, .field input, .field textarea {
+      width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #d8d8d8; border-radius: 7px; font-size: 14px;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.95fr) minmax(340px, 1.45fr) minmax(300px, 1fr);
+      gap: 12px;
+      flex: 1 1 auto;
+      min-height: 0;
+      min-width: 0;
+      width: 100%;
+      overflow: auto;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e7e7e7;
+      border-radius: 10px;
+      padding: 12px;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .workspace > .card:nth-child(3) {
+      overflow-y: auto;
+    }
+    .title { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+    .hint { font-size: 12px; color: #666; margin-top: 6px; }
+    .hidden { display: none; }
+    .status {
+      margin-left: auto;
+      font-size: 11px;
+      color: #667085;
+      max-width: 180px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .counter {
+      font-size: 11px;
+      color: #2d4bd3;
+      font-weight: 700;
+      background: #edf2ff;
+      border: 1px solid #dbe6ff;
+      border-radius: 999px;
+      padding: 3px 8px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .link { display: none; font-size: 12px; word-break: break-all; margin-top: 6px; }
+    .topbar .field {
+      width: 220px;
+      min-width: 190px;
+      flex: 0 0 220px;
+    }
+    .topbar .field label { display: none; }
+    .topbar .field select { padding: 5px 8px; font-size: 12px; min-height: 32px; }
+    .topbar button { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+    .btn-icon { display: inline-flex; align-items: center; gap: 5px; }
+    .btn-icon .ic { font-size: 12px; line-height: 1; opacity: 0.78; }
+
+    .preview-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      min-width: 0;
+    }
+    .preview-header .title {
+      margin: 0;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .preview-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 0;
+      flex-wrap: nowrap;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .preview-toolbar .field {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .preview-toolbar .field label {
+      font-size: 11px;
+      margin: 0;
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .preview-toolbar .field select {
+      min-height: 30px;
+      padding: 4px 8px;
+      font-size: 12px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .preview-actions { display: flex; align-items: center; gap: 4px; }
+    .preview-actions .preview-btn {
+      min-height: 30px;
+      padding: 5px 8px;
+      font-size: 11px;
+      border-radius: 7px;
+      line-height: 1.1;
+    }
+    .preview-zoom-label {
+      min-width: 46px;
+      text-align: center;
+      font-size: 11px;
+      color: #3b4d7b;
+      background: #eef2ff;
+      border: 1px solid #dce5ff;
+      border-radius: 7px;
+      padding: 5px 4px;
+      box-sizing: border-box;
+    }
+    .media-box {
+      width: 100%;
+      height: auto;
+      flex: 1 1 auto;
+      min-height: 360px;
+      background: #f1f3f7;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    .media-box img, .media-box video, .media-box iframe { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; border: 0; }
+    .zoom-target { transition: transform 0.06s linear; transform-origin: center center; }
+    .text-box { white-space: pre-wrap; font-size: 13px; padding: 12px; width: 100%; height: 100%; overflow: auto; }
+
+    .rows-panel-controls { margin-bottom: 8px; }
+    .header-checks { max-height: 120px; overflow: auto; border: 1px solid #e4e4e4; border-radius: 8px; padding: 6px; background: #fafafa; }
+    .header-check-item { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 4px 0; }
+    .row-list {
+      margin-top: 10px;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      border: 1px solid #ececec;
+      border-radius: 8px;
+    }
+    .row-item { padding: 8px; border-bottom: 1px solid #f1f1f1; cursor: pointer; }
+    .row-item:last-child { border-bottom: 0; }
+    .row-item.active { background: #eef3ff; }
+    .row-item.folder-warning { background: #fff6f6; }
+    .row-item.folder-warning.active { background: #ffeef0; }
+    .row-body { display: flex; gap: 8px; align-items: flex-start; }
+    .row-meta { min-width: 0; flex: 1; }
+    .row-thumb {
+      width: 56px;
+      height: 56px;
+      border-radius: 8px;
+      border: 1px solid #e3e8f5;
+      background: #f2f5ff;
+      flex: 0 0 56px;
+      object-fit: cover;
+      display: block;
+    }
+    .row-thumb-video {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #4a5d8f;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .row-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .row-head-right { display: inline-flex; align-items: center; gap: 6px; }
+    .row-tag { font-size: 12px; font-weight: 700; color: #2d4bd3; }
+    .row-status { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: #f1f3f7; color: #444; }
+    .row-status-warning { background: #ffe3e3; color: #b71c1c; }
+    .row-status-pass { background: #d8f0d0; color: #167a45; }
+    .row-status-edit { background: #f8dcc7; color: #8f4c13; }
+    .row-status-reject { background: #f5d5d5; color: #b42318; }
+    .row-status-unknown { background: #eceff6; color: #4c5875; }
+    .row-sync { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: #eef2ff; color: #3b4d7b; }
+    .row-sync-dirty { background: #fff6db; color: #7f5600; }
+    .row-sync-saving { background: #eef4ff; color: #2b5fcf; }
+    .row-sync-saved { background: #e8f7ee; color: #167a45; }
+    .row-sync-submitting { background: #eaf2ff; color: #1f55cc; }
+    .row-sync-submitted { background: #e5f7ec; color: #0e7a43; }
+    .row-sync-failed { background: #ffe9e9; color: #b42318; }
+    .row-cell-line { font-size: 12px; color: #333; margin: 2px 0; }
+    .row-advice-line { color: #1f3e8a; font-weight: 600; }
+    .row-cell-key { color: #666; }
+    .row-warning { font-size: 11px; color: #c62828; margin-top: 4px; }
+
+    .shot-preview-list {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+      gap: 8px;
+      min-height: 0;
+    }
+    .shot-item {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #e3e8f5;
+      background: #f1f3f7;
+    }
+    .shot-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .shot-remove {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 0;
+      background: rgba(22, 30, 54, 0.72);
+      color: #fff;
+      font-size: 12px;
+      line-height: 18px;
+      text-align: center;
+      padding: 0;
+      cursor: pointer;
+    }
+    .shot-status {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0, 0, 0, 0.65);
+      color: #fff;
+      font-size: 10px;
+      padding: 2px 4px;
+      text-align: center;
+      pointer-events: none;
+      backdrop-filter: blur(2px);
+    }
+    .shot-status.done {
+      background: rgba(14, 122, 67, 0.85);
+    }
+    .shot-status.error {
+      background: rgba(180, 35, 24, 0.85);
+    }
+    .shot-picker {
+      width: 100%;
+      min-height: 52px;
+      border: 1px dashed #c7cfdf;
+      border-radius: 8px;
+      background: #f7f9ff;
+      color: #2f3d63;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      margin-top: 4px;
+      padding: 8px;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .shot-picker:focus {
+      outline: 2px solid #9cb3ff;
+      outline-offset: 1px;
+    }
+    .shot-picker.active {
+      border-color: #8aa1f4;
+      background: #edf2ff;
+    }
+    .actions { margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end; }
+    button { border: 0; padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+    .btn-main { background: #2d4bd3; color: #fff; }
+    .btn-sub { background: #eceff6; color: #333; }
+    .btn-warn { background: #fff5f5; color: #c62828; border: 1px solid #ffcaca; }
+
+    .settings-panel {
+      margin-bottom: 8px;
+      flex: 0 0 auto;
+      max-height: 48vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .settings-grid { display: grid; gap: 8px; max-height: 32vh; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
+    .setting-row { display: grid; grid-template-columns: 150px 110px 1fr 140px; gap: 8px; align-items: center; }
+    .setting-label { font-size: 12px; color: #333; font-weight: 700; }
+    .settings-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      position: sticky;
+      bottom: 0;
+      padding-top: 8px;
+      background: #fff;
+      border-top: 1px solid #f0f1f6;
+    }
+    .settings-basic {
+      display: grid;
+      grid-template-columns: 110px 140px 1fr;
+      gap: 8px;
+      align-items: center;
+      margin: 4px 0 8px;
+    }
+    .settings-basic .setting-label {
+      margin: 0;
+    }
+    .settings-basic .hint {
+      margin: 0;
+      font-size: 11px;
+    }
+    .inline-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 8px;
+      font-size: 12px;
+      color: #666;
+      font-weight: 400;
+    }
+    .mapped-col-hint {
+      margin-left: 6px;
+      font-size: 11px;
+      color: #60729d;
+      font-weight: 500;
+    }
+    .field-compact select {
+      height: 34px;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+    .quick-options {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .quick-btn {
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #dbe3f7;
+      background: #f7f9ff;
+      color: #344674;
+      font-size: 12px;
+      line-height: 1.2;
+      cursor: pointer;
+      user-select: none;
+    }
+    .review-group-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .group-tab-btn {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #dbe3f7;
+      background: #f7f9ff;
+      color: #344674;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      flex: 1;
+      text-align: center;
+      transition: all 0.2s;
+    }
+    .group-tab-btn:hover {
+      background: #eef2ff;
+      border-color: #8aa1f4;
+    }
+    .group-tab-btn.active {
+      background: #2d4bd3;
+      border-color: #2d4bd3;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(45, 75, 211, 0.3);
+    }
+    .group-tab-btn[disabled] {
+      opacity: 0.62;
+      cursor: not-allowed;
+    }
+    .group-switch-hint {
+      margin-top: 6px;
+      min-height: 16px;
+      font-size: 12px;
+      color: #667085;
+      line-height: 1.35;
+    }
+    .group-switch-hint.busy {
+      color: #2d4bd3;
+      font-weight: 600;
+    }
+
+    @media (max-width: 1180px) {
+      .topbar { flex-wrap: wrap; row-gap: 6px; }
+      .topbar .field { width: min(100%, 260px); flex: 1 1 220px; }
+      .topbar .status { margin-left: 0; max-width: none; flex: 1 1 100%; }
+      .workspace {
+        grid-template-columns: minmax(260px, 0.95fr) minmax(340px, 1.45fr) minmax(300px, 1fr);
+        min-width: 980px;
+        overflow-x: auto;
+        overflow-y: hidden;
+      }
+      .workspace > .card:nth-child(3) {
+        overflow-y: auto;
+      }
+      .preview-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+      .media-box {
+        min-height: 260px;
+      }
+    }
+
+    @media (max-height: 860px) {
+      .media-box {
+        min-height: 220px;
+      }
+      .settings-panel {
+        max-height: 42vh;
+      }
+      .settings-grid {
+        max-height: 28vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="field">
+        <label>选择行（当前批次）</label>
+        <select id="rowSelect" aria-label="选择行（当前批次）"></select>
+      </div>
+      <div class="counter" id="counter">-</div>
+      <button class="btn-sub btn-icon" type="button" onclick="goPrev()">
+        <span class="ic" aria-hidden="true">&#9664;</span><span>上一条</span>
+      </button>
+      <button class="btn-sub btn-icon" type="button" onclick="goNext()">
+        <span class="ic" aria-hidden="true">&#9654;</span><span>下一条</span>
+      </button>
+      <button class="btn-sub btn-icon" type="button" onclick="toggleSettings()">
+        <span class="ic" aria-hidden="true">&#9881;</span><span>列设置</span>
+      </button>
+      <div id="status" class="status">加载中...</div>
+    </div>
+
+    <div id="settingsPanel" class="card settings-panel hidden">
+      <div class="title">列设置</div>
+      <div class="hint">保存后会记住，下次打开自动加载。审核人/审核状态/严重程度的“选项来源”只按范围读取（如：数据验证!B2:B），不再从来源列推断。自动匹配遇到“审核人员1/2/3”这类多列时不会强制猜测。</div>
+      <div class="settings-basic">
+        <div class="setting-label">表头行</div>
+        <select id="headerRowSelect"></select>
+        <div id="headerRowHint" class="hint"></div>
+      </div>
+      <div id="settingsRows" class="settings-grid"></div>
+      <div class="settings-actions">
+        <button class="btn-sub" type="button" onclick="autoMatchByHeader()">按表头自动匹配</button>
+        <button class="btn-sub" type="button" onclick="renderSettingsRows()">重置未保存修改</button>
+        <button class="btn-main" type="button" onclick="saveSettings()">保存设置</button>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="card">
+        <div class="title">选中行面板（可多列）</div>
+        <div class="rows-panel-controls">
+          <div class="hint">勾选要显示的列</div>
+          <div id="panelHeaderChecks" class="header-checks"></div>
+        </div>
+        <div id="rowList" class="row-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="preview-header">
+          <div class="title">内容预览</div>
+          <div class="preview-toolbar">
+            <div class="field">
+              <label>预览列</label>
+              <select id="viewHeaderSelect"></select>
+            </div>
+            <div class="preview-actions">
+              <button id="zoomOutBtn" class="btn-sub preview-btn" type="button" onclick="zoomOutPreview()" title="缩小">-</button>
+              <div id="zoomLabel" class="preview-zoom-label">100%</div>
+              <button id="zoomInBtn" class="btn-sub preview-btn" type="button" onclick="zoomInPreview()" title="放大">+</button>
+              <button id="zoomResetBtn" class="btn-sub preview-btn" type="button" onclick="resetPreviewZoom(true)" title="重置缩放">重置</button>
+              <button id="downloadBtn" class="btn-sub preview-btn" type="button" onclick="downloadCurrentPreview()" title="下载当前预览">下载</button>
+            </div>
+          </div>
+        </div>
+        <div id="previewBox" class="media-box">暂无内容</div>
+        <div id="sourceLink" class="link"></div>
+      </div>
+
+      <div class="card">
+        <div class="title">反馈填写（自动保存）</div>
+
+        <div class="field field-compact">
+          <label>审核组快速切换</label>
+          <div id="reviewGroupButtons" class="review-group-btns"></div>
+          <div id="reviewGroupSwitchHint" class="group-switch-hint"></div>
+        </div>
+
+        <div class="field">
+          <label>审核人
+            <span id="reviewerMappedHeader" class="mapped-col-hint"></span>
+            <span class="inline-check">
+              <input id="syncReviewerToggle" type="checkbox" checked />
+              统一剩余行
+            </span>
+          </label>
+          <select id="reviewer"></select>
+          <div id="reviewerQuick" class="quick-options"></div>
+        </div>
+
+        <div class="field">
+          <label>本次审核结果<span id="reviewResultMappedHeader" class="mapped-col-hint"></span></label>
+          <select id="reviewResult"></select>
+          <div id="reviewResultQuick" class="quick-options"></div>
+        </div>
+
+        <div class="field">
+          <label>严重程度<span id="severityMappedHeader" class="mapped-col-hint"></span></label>
+          <select id="severity"></select>
+          <div id="severityQuick" class="quick-options"></div>
+        </div>
+
+        <div class="field">
+          <label>建议反馈<span id="textAdviceMappedHeader" class="mapped-col-hint"></span></label>
+          <textarea id="textAdvice" placeholder="输入反馈建议"></textarea>
+        </div>
+
+        <div class="field">
+          <label>建议截图（上传或粘贴）
+            <span id="shotLinkMappedHeader" class="mapped-col-hint"></span>
+            <span id="shotFormulaMappedHeader" class="mapped-col-hint" style="margin-left: 10px; color: #667085;"></span>
+          </label>
+          <input id="fileInput" type="file" accept="image/*" multiple style="display:none;" />
+          <div id="shotPicker" class="shot-picker" tabindex="0">单击选中后粘贴 / 双击选择文件（可多选）</div>
+          <div id="shotPreviewList" class="shot-preview-list"></div>
+          <div class="hint">单击先选中截图区，再按 Ctrl/Cmd + V 手动粘贴。支持一次粘贴多张。</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn-warn" type="button" onclick="clearShot()">清空截图</button>
+          <button class="btn-sub" type="button" onclick="submitAllReviewed()">批量提交已填写</button>
+          <button class="btn-sub" type="button" onclick="google.script.host.close()">关闭</button>
+          <button class="btn-main" type="button" onclick="submitData(false)">提交</button>
+          <button class="btn-main" type="button" onclick="submitData(true)">提交并下一条</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let init = null;
+    let currentSettings = null;
+    let currentIndex = 0;
+    let screenshotDataUrls = [];
+    let clearScreenshotFlag = false;
+    let rowsDataMap = {};
+    let autoSaveTimer = null;
+    let autoSaveSeq = 0;
+    let isApplyingRow = false;
+    let shotPickerSelected = false;
+    let previewScale = 1;
+    let previewPanX = 0;
+    let previewPanY = 0;
+    let isPreviewDragging = false;
+    let previewDragStartX = 0;
+    let previewDragStartY = 0;
+    let currentPreviewType = 'none';
+    let currentPreviewUrl = '';
+    let sharedReviewerValue = '';
+    let reviewGroupPairs = [];
+    let isReviewGroupSwitching = false;
+    let reviewGroupSwitchHintTimer = null;
+    const AUTO_FORCE_WRITE_ON_VALIDATION_MISMATCH = true;
+    const ENABLE_VIDEO_THUMB_PRELOAD_IN_LIST = false;
+    const FALLBACK_REVIEW_RESULT_OPTIONS = ['通过', '需修改', '驳回', '已反馈'];
+    const FALLBACK_SEVERITY_OPTIONS = ['低', '中', '高', '紧急'];
+
+    function setStatus(msg) {
+      document.getElementById('status').textContent = msg;
+    }
+
+    function setReviewGroupSwitchHint(text, busy) {
+      const el = document.getElementById('reviewGroupSwitchHint');
+      if (!el) return;
+      el.textContent = String(text || '');
+      if (busy) el.classList.add('busy');
+      else el.classList.remove('busy');
+    }
+
+    function deepClone(obj) {
+      return JSON.parse(JSON.stringify(obj || {}));
+    }
+
+    function getFieldDefByKey(fieldKey) {
+      const defs = init && Array.isArray(init.fieldDefs) ? init.fieldDefs : [];
+      for (let i = 0; i < defs.length; i++) {
+        if (defs[i] && defs[i].key === fieldKey) return defs[i];
+      }
+      return null;
+    }
+
+    function columnLetterToIndexClient(letter) {
+      const s = String(letter || '').trim().toUpperCase();
+      if (!/^[A-Z]+$/.test(s)) return 0;
+      let n = 0;
+      for (let i = 0; i < s.length; i++) {
+        n = n * 26 + (s.charCodeAt(i) - 64);
+      }
+      return n;
+    }
+
+    function getFieldTokenFromCurrentSettings(fieldKey) {
+      const columns = (currentSettings && currentSettings.columns) ? currentSettings.columns : {};
+      const cfg = columns[fieldKey] || {};
+      const mode = String(cfg.mode || '').toLowerCase();
+      const value = String(cfg.value || '').trim();
+      const headerOptions = getHeaderOptionsList();
+
+      if (mode === 'header') {
+        const def = getFieldDefByKey(fieldKey);
+        const fallbackHeader = def ? def.defaultHeader : '';
+        return resolveHeaderSelectionToken(value, fallbackHeader, !!(def && def.optional), headerOptions);
+      }
+      if (mode === 'letter') {
+        const idx = columnLetterToIndexClient(value);
+        return idx > 0 ? ('__COL__' + idx) : '';
+      }
+      return '';
+    }
+
+    function getHeaderOptionByToken(token) {
+      const t = String(token || '').trim();
+      if (!t) return null;
+      const list = getHeaderOptionsList();
+      for (let i = 0; i < list.length; i++) {
+        if (String(list[i].token || '') === t) return list[i];
+      }
+      return null;
+    }
+
+    function getMappedColumnLabel(fieldKey) {
+      const columns = (currentSettings && currentSettings.columns) ? currentSettings.columns : {};
+      const cfg = columns[fieldKey] || {};
+      const mode = String(cfg.mode || 'header').toLowerCase();
+      const value = String(cfg.value || '').trim();
+      const def = getFieldDefByKey(fieldKey);
+      const isOptional = !!(def && def.optional);
+
+      if (mode === 'range') {
+        return value ? ('按范围：' + value) : '按范围（未设置）';
+      }
+
+      if (mode === 'letter') {
+        if (!value) return isOptional ? '未设置' : '未设置';
+        const idx = columnLetterToIndexClient(value);
+        if (!idx) return value + ' 列';
+        const opt = getHeaderOptionByToken('__COL__' + idx);
+        if (opt) return opt.label;
+        return value + ' 列';
+      }
+
+      const token = getFieldTokenFromCurrentSettings(fieldKey);
+      if (token) {
+        const opt = getHeaderOptionByToken(token);
+        if (opt) return opt.label;
+      }
+      if (value) return value;
+      return isOptional ? '未设置' : '未设置';
+    }
+
+    function renderMappedColumnHints() {
+      const fieldKeys = ['reviewer', 'reviewResult', 'severity', 'textAdvice', 'shotLink', 'shotFormula'];
+      for (let i = 0; i < fieldKeys.length; i++) {
+        const key = fieldKeys[i];
+        const el = document.getElementById(key + 'MappedHeader');
+        if (!el) continue;
+        
+        const cur = getFieldTokenFromCurrentSettings(key);
+        if (cur) {
+          const opt = getHeaderOptionByToken(cur);
+          const h = opt ? opt.label : cur;
+          if (key === 'reviewResult') {
+            el.textContent = ' (本次审核结果列: ' + h + ')';
+          } else if (key === 'shotFormula') {
+            el.textContent = ' (公式列: ' + h + ')';
+          } else if (key === 'shotLink') {
+            el.textContent = ' (链接列: ' + h + ')';
+          } else {
+            el.textContent = ' (当前列: ' + h + ')';
+          }
+        } else {
+          el.textContent = ' (未绑定)';
+        }
+      }
+    }
+
+    function parseReviewerGroupId(header) {
+      const text = String(header || '').replace(/\s+/g, '');
+      if (!text) return '';
+      let m = text.match(/(?:审核人员|审核人|reviewer)(\d+)$/i);
+      if (m && m[1]) return m[1];
+      m = text.match(/(?:审核人员|审核人|reviewer)[^\d]*?(\d+)$/i);
+      return (m && m[1]) ? m[1] : '';
+    }
+
+    function parseReviewResultGroupId(header) {
+      const text = String(header || '').replace(/\s+/g, '');
+      if (!text) return '';
+      let m = text.match(/(?:审核结果|审核状态|result|status)(\d+)$/i);
+      if (m && m[1]) return m[1];
+      m = text.match(/(?:审核结果|审核状态|result|status)[^\d]*?(\d+)$/i);
+      return (m && m[1]) ? m[1] : '';
+    }
+
+    function parseSeverityGroupId(header) {
+      const text = String(header || '').replace(/\s+/g, '');
+      if (!text) return '';
+      let m = text.match(/(?:严重程度|severity)(\d+)$/i);
+      if (m && m[1]) return m[1];
+      m = text.match(/(?:严重程度|severity)[^\d]*?(\d+)$/i);
+      return (m && m[1]) ? m[1] : '';
+    }
+
+    function detectReviewGroupPairs() {
+      const headerOptions = getHeaderOptionsList();
+      const byId = {};
+
+      // 语义关键词（顺序从长到短，防止"审核人员"被"审核人"截断）
+      const KEYWORDS = [
+        { kw: '\u5ba1\u6838\u4eba\u5458', role: 'reviewer' }, // 审核人员
+        { kw: '\u5ba1\u6838\u72b6\u6001', role: 'reviewResult' }, // 审核状态
+        { kw: '\u5ba1\u6838\u7ed3\u679c', role: 'reviewResult' }, // 审核结果
+        { kw: '\u5ba1\u6838\u4eba',   role: 'reviewer' }, // 审核人
+        { kw: '\u4e25\u91cd\u7a0b\u5ea6', role: 'severity' }, // 严重程度
+        
+        { kw: '\u5efa\u8bae\u622a\u56fe\u94fe\u63a5', role: 'shotLink' }, // 建议截图链接
+        { kw: '\u622a\u56fe\u94fe\u63a5', role: 'shotLink' }, // 截图链接
+        { kw: '\u6807\u6ce8\u94fe\u63a5', role: 'shotLink' }, // 标注链接
+        { kw: '\u53cd\u9988\u94fe\u63a5', role: 'shotLink' }, // 反馈链接
+        { kw: '\u6807\u6ce8',         role: 'shotLink' }, // 标注
+        
+        { kw: '\u5efa\u8bae\u622a\u56fe\u516c\u5f0f', role: 'shotFormula' }, // 建议截图公式
+        { kw: '\u622a\u56fe\u516c\u5f0f', role: 'shotFormula' }, // 截图公式
+        { kw: '\u56fe\u7247\u516c\u5f0f', role: 'shotFormula' }, // 图片公式
+        { kw: '\u7f29\u7565\u56fe',   role: 'shotFormula' }, // 缩略图
+        { kw: '\u914d\u56fe',         role: 'shotFormula' }, // 配图
+        
+        { kw: '\u6587\u5b57\u5efa\u8bae', role: 'textAdvice' }, // 文字建议
+        { kw: '\u5efa\u8bae\u53cd\u9988', role: 'textAdvice' }, // 建议反馈
+        { kw: '\u5ba1\u6838\u5efa\u8bae', role: 'textAdvice' }, // 审核建议
+        { kw: '\u5177\u4f53\u5efa\u8bae', role: 'textAdvice' }, // 具体建议
+        { kw: '\u53cd\u9988\u5efa\u8bae', role: 'textAdvice' }, // 反馈建议
+        { kw: '\u5efa\u8bae',         role: 'textAdvice' } // 建议
+      ];
+
+      for (let i = 0; i < headerOptions.length; i++) {
+        const opt = headerOptions[i];
+        const h = String(opt.header || '').replace(/\s+/g, '');
+
+        // 必须有数字结尾
+        const m = h.match(/^(.*?)(\d+)$/);
+        if (!m) continue;
+        const base = m[1]; // 数字前的部分，如"返修审核人员"
+        const num  = m[2]; // 末尾数字
+
+        // 匹配关键词，提取前缀
+        let matched = null;
+        for (let k = 0; k < KEYWORDS.length; k++) {
+          const idx = base.indexOf(KEYWORDS[k].kw);
+          if (idx >= 0) {
+            matched = { prefix: base.slice(0, idx), role: KEYWORDS[k].role };
+            break;
+          }
+        }
+        if (!matched) continue;
+
+        // 组ID = "前缀:数字"，让"审核组1"和"返修组1"严格隔离
+        const groupKey = matched.prefix + ':' + num;
+        if (!byId[groupKey]) byId[groupKey] = { id: groupKey, num: num, prefix: matched.prefix };
+        const target = byId[groupKey];
+
+        if (matched.role === 'reviewer') {
+          target.reviewerToken  = opt.token;
+          target.reviewerHeader = opt.header;
+        } else if (matched.role === 'reviewResult') {
+          target.reviewResultToken  = opt.token;
+          target.reviewResultHeader = opt.header;
+        } else if (matched.role === 'severity') {
+          target.severityToken = opt.token;
+        } else if (matched.role === 'shotLink') {
+          target.shotLinkToken = opt.token;
+        } else if (matched.role === 'shotFormula') {
+          target.shotFormulaToken = opt.token;
+        } else if (matched.role === 'textAdvice') {
+          target.textAdviceToken = opt.token;
+        }
+      }
+
+      const out = [];
+      const keys = Object.keys(byId);
+      for (let j = 0; j < keys.length; j++) {
+        const pair = byId[keys[j]];
+        if (pair.reviewerToken && pair.reviewResultToken) {
+          // 按钮名：有前缀显示"返修组1"，否则"审核组1"
+          pair.label = pair.prefix
+            ? (pair.prefix + '\u7ec4' + pair.num)
+            : ('\u5ba1\u6838\u7ec4 ' + pair.num);
+          out.push(pair);
+        }
+      }
+
+      out.sort(function(a, b) {
+        const na = Number(a.num || 0), nb = Number(b.num || 0);
+        if (na !== nb) return na - nb;
+        return (a.prefix || '').localeCompare(b.prefix || '');
+      });
+      return out;
+    }
+
+
+    function renderReviewGroupSelector() {
+      const wrap = document.getElementById('reviewGroupButtons');
+      if (!wrap) return;
+
+      reviewGroupPairs = detectReviewGroupPairs();
+      wrap.innerHTML = '';
+      
+      if (!reviewGroupPairs.length) {
+        wrap.innerHTML = '<div class="hint" style="margin:0; font-size:11px; line-height: 1.5; color: #b42318; background: #fff1f1; padding: 8px; border-radius: 6px; border: 1px solid #ffdcdc;">' +
+          '<strong>未识别到自动审核组。</strong><br/>' +
+          '请确保表头包含数字后缀（如：审核人员1、审核结果1）。<br/>' +
+          '建议格式：<br/>' +
+          '• 组1：审核人员1、审核结果1、文字建议1<br/>' +
+          '• 组2：审核人员2、审核结果2、文字建议2' +
+          '</div>';
+        return;
+      }
+
+      const curReviewer = getFieldTokenFromCurrentSettings('reviewer');
+      const curResult = getFieldTokenFromCurrentSettings('reviewResult');
+      let activeFound = false;
+
+      reviewGroupPairs.forEach(function(pair) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'group-tab-btn';
+        
+        const isActive = pair.reviewerToken === curReviewer && pair.reviewResultToken === curResult;
+        if (isActive) {
+          btn.classList.add('active');
+          activeFound = true;
+        }
+
+        btn.textContent = pair.label;
+        btn.title = pair.reviewerHeader + ' / ' + pair.reviewResultHeader;
+        btn.disabled = isReviewGroupSwitching;
+        btn.onclick = function() { applyReviewGroup(pair.id); };
+        wrap.appendChild(btn);
+      });
+
+      // 自定义项（当没匹配到任何预设组时显示）
+      const customBtn = document.createElement('button');
+      customBtn.type = 'button';
+      customBtn.className = 'group-tab-btn';
+      customBtn.textContent = '自定义';
+      customBtn.disabled = isReviewGroupSwitching;
+      if (!activeFound) customBtn.classList.add('active');
+      customBtn.onclick = function() {
+        var allBtns = wrap.querySelectorAll('.group-tab-btn');
+        for (var k = 0; k < allBtns.length; k++) allBtns[k].classList.remove('active');
+        customBtn.classList.add('active');
+        setStatus('当前为自定义模式，可在「列设置」中手动调整各列映射');
+      };
+      wrap.appendChild(customBtn);
+    }
+
+    function applyReviewGroup(groupId) {
+      if (isReviewGroupSwitching) return;
+      const id = String(groupId || '').trim();
+      const pair = reviewGroupPairs.find(function(p) { return String(p.id) === id; });
+      if (!pair || !currentSettings) return;
+      currentSettings.columns = currentSettings.columns || {};
+      currentSettings.columnMappingMode = 'custom';
+      isReviewGroupSwitching = true;
+      if (reviewGroupSwitchHintTimer) {
+        clearTimeout(reviewGroupSwitchHintTimer);
+        reviewGroupSwitchHintTimer = null;
+      }
+      setReviewGroupSwitchHint('正在切换到 ' + pair.label + ' ...', true);
+
+      function applyTokenIfPresent(fieldKey, token) {
+        if (!token) return;
+        currentSettings.columns[fieldKey] = { mode: 'header', value: token };
+      }
+      applyTokenIfPresent('reviewer', pair.reviewerToken);
+      applyTokenIfPresent('reviewResult', pair.reviewResultToken);
+      applyTokenIfPresent('severity', pair.severityToken);
+      applyTokenIfPresent('shotLink', pair.shotLinkToken);
+      applyTokenIfPresent('shotFormula', pair.shotFormulaToken);
+      applyTokenIfPresent('textAdvice', pair.textAdviceToken);
+
+      renderSettingsRows();
+      renderMappedColumnHints();
+      renderReviewGroupSelector();
+      setStatus('已切换到审核组 ' + id + ' 并联动相关列，刷新中...');
+      refreshBatchData(true, { reason: 'groupSwitch', groupLabel: pair.label });
+    }
+
+    function ensureRowDataObject(row) {
+      const r = Number(row);
+      if (!rowsDataMap[r]) rowsDataMap[r] = { row: r, cells: {} };
+      return rowsDataMap[r];
+    }
+
+    function getRowIdentityKeyByRow(row) {
+      const data = rowsDataMap[Number(row)] || null;
+      return String(data && data.rowKey || '').trim();
+    }
+
+    function getRowIdByRow(row) {
+      const data = rowsDataMap[Number(row)] || null;
+      return String(data && data.rowId || '').trim();
+    }
+
+    function migrateRowContext(fromRow, toRow) {
+      if (!init) return;
+      const from = Number(fromRow || 0);
+      const to = Number(toRow || 0);
+      if (!from || !to || from === to) return;
+
+      const idx = init.selectedRows.indexOf(from);
+      const existingIdx = init.selectedRows.indexOf(to);
+      if (idx >= 0) {
+        if (existingIdx >= 0 && existingIdx !== idx) {
+          init.selectedRows.splice(idx, 1);
+          if (currentIndex > idx) currentIndex -= 1;
+          if (currentIndex === idx) {
+            currentIndex = existingIdx > idx ? existingIdx - 1 : existingIdx;
+          }
+        } else {
+          init.selectedRows[idx] = to;
+        }
+      }
+
+      const fromData = rowsDataMap[from];
+      if (fromData) {
+        const existing = rowsDataMap[to] || {};
+        rowsDataMap[to] = Object.assign({}, existing, fromData, { row: to });
+        delete rowsDataMap[from];
+      } else {
+        ensureRowDataObject(to).row = to;
+      }
+
+      const draft = loadLocalDraft(from);
+      if (draft) {
+        saveLocalDraft(to, draft);
+        clearLocalDraft(from);
+      }
+    }
+
+    function setRowSyncState(row, state, message) {
+      const data = ensureRowDataObject(row);
+      data._syncState = String(state || '');
+      data._syncMessage = String(message || '');
+      data._syncAt = Date.now();
+    }
+
+    function getRowSyncInfo(data) {
+      const st = String(data && data._syncState || '');
+      if (!st) return null;
+      const map = {
+        dirty: { text: '待保存', cls: 'row-sync-dirty' },
+        saving: { text: '保存中', cls: 'row-sync-saving' },
+        saved: { text: '已保存', cls: 'row-sync-saved' },
+        save_failed: { text: '保存失败', cls: 'row-sync-failed' },
+        submitting: { text: '提交中', cls: 'row-sync-submitting' },
+        submitted: { text: '已提交', cls: 'row-sync-submitted' },
+        submit_failed: { text: '提交失败', cls: 'row-sync-failed' }
+      };
+      return map[st] || null;
+    }
+
+    function getReviewResultVisualClass(value) {
+      const txt = String(value || '').trim().toLowerCase();
+      if (!txt || txt === '-') return 'row-status-unknown';
+
+      if (
+        txt.indexOf('可以使用') >= 0 ||
+        txt.indexOf('通过') >= 0 ||
+        txt.indexOf('可用') >= 0 ||
+        txt.indexOf('pass') >= 0
+      ) {
+        return 'row-status-pass';
+      }
+
+      if (
+        txt.indexOf('需要修改') >= 0 ||
+        txt.indexOf('需修改') >= 0 ||
+        txt.indexOf('修改') >= 0 ||
+        txt.indexOf('待修改') >= 0 ||
+        txt.indexOf('revise') >= 0
+      ) {
+        return 'row-status-edit';
+      }
+
+      if (
+        txt.indexOf('不可以使用') >= 0 ||
+        txt.indexOf('不可用') >= 0 ||
+        txt.indexOf('驳回') >= 0 ||
+        txt.indexOf('拒绝') >= 0 ||
+        txt.indexOf('reject') >= 0
+      ) {
+        return 'row-status-reject';
+      }
+
+      return 'row-status-unknown';
+    }
+
+    function uniqueNonEmptyOptions(list) {
+      const out = [];
+      const seen = {};
+      (list || []).forEach(function(x) {
+        const v = String(x || '').trim();
+        if (!v || seen[v]) return;
+        seen[v] = true;
+        out.push(v);
+      });
+      return out;
+    }
+
+    function normalizeOptionItems(list) {
+      const out = [];
+      const seen = {};
+      (list || []).forEach(function(item) {
+        const value = typeof item === 'string'
+          ? String(item || '').trim()
+          : String(item && item.value || '').trim();
+        if (!value || seen[value]) return;
+        seen[value] = true;
+        out.push({
+          value: value,
+          bg: String(item && item.bg || '').trim(),
+          fg: String(item && item.fg || '').trim()
+        });
+      });
+      return out;
+    }
+
+    function findOptionItemByValue(optionItems, value) {
+      const target = String(value || '').trim();
+      if (!target) return null;
+      const list = optionItems || [];
+      for (let i = 0; i < list.length; i++) {
+        if (String(list[i] && list[i].value || '').trim() === target) return list[i];
+      }
+      return null;
+    }
+
+    function applySelectStyleByOption(select, optionItems) {
+      if (!select) return;
+      const matched = findOptionItemByValue(optionItems, select.value);
+      if (matched && matched.bg && matched.bg.toLowerCase() !== '#ffffff') {
+        select.style.backgroundColor = matched.bg;
+        select.style.borderColor = matched.bg;
+        select.style.color = matched.fg || '#222';
+      } else {
+        select.style.backgroundColor = '';
+        select.style.borderColor = '';
+        select.style.color = '';
+      }
+    }
+
+    function renderQuickOptions(selectId, wrapId, options, maxCount) {
+      const wrap = document.getElementById(wrapId);
+      const select = document.getElementById(selectId);
+      if (!wrap || !select) return;
+
+      // 这里的 options 现在可能是 [{value, bg, fg}, ...] 或 [string, ...]
+      const vals = (options || []).filter(function(o) {
+        return o && (typeof o === 'string' ? o.trim() : (o.value && o.value.trim()));
+      });
+      
+      const limited = typeof maxCount === 'number' && maxCount > 0
+        ? vals.slice(0, maxCount)
+        : vals;
+      wrap.innerHTML = '';
+      if (!limited.length) return;
+
+      const current = String(select.value || '').trim();
+      limited.forEach(function(o) {
+        const v = typeof o === 'string' ? o : o.value;
+        const bg = (o && o.bg) || '';
+        const fg = (o && o.fg) || '';
+        
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'quick-btn' + (current === v ? ' active' : '');
+        btn.textContent = v;
+        btn.title = '点击选择：' + v;
+        
+        // 如果有样式，直接应用
+        if (bg && bg !== '#ffffff') {
+          btn.style.backgroundColor = bg;
+          btn.style.borderColor = bg;
+          if (fg) btn.style.color = fg;
+          // 加一点芯片感
+          btn.style.borderRadius = '16px';
+          btn.style.padding = '4px 12px';
+          btn.style.fontWeight = '500';
+        }
+
+        btn.addEventListener('click', function() {
+          select.value = v;
+          select.dispatchEvent(new Event('change'));
+        });
+        wrap.appendChild(btn);
+      });
+    }
+
+    function refreshQuickOptionActive(selectId, wrapId) {
+      const wrap = document.getElementById(wrapId);
+      const select = document.getElementById(selectId);
+      if (!wrap || !select) return;
+      const current = String(select.value || '').trim();
+      Array.from(wrap.querySelectorAll('.quick-btn')).forEach(function(btn) {
+        if (String(btn.textContent || '').trim() === current) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    }
+
+    function toggleSettings() {
+      const panel = document.getElementById('settingsPanel');
+      panel.classList.toggle('hidden');
+    }
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function shortText(s, maxLen) {
+      const t = String(s || '');
+      if (t.length <= maxLen) return t;
+      return t.slice(0, maxLen) + '...';
+    }
+
+    function extractFirstUrl(s) {
+      const matches = String(s || '').match(/https?:\/\/[^\s"'<>]+/ig) || [];
+      for (let i = 0; i < matches.length; i++) {
+        const cleaned = sanitizeUrlCandidate(matches[i]);
+        if (/^https?:\/\/\S+/i.test(cleaned)) return cleaned;
+      }
+      return '';
+    }
+
+    function sanitizeUrlCandidate(input) {
+      let url = String(input || '').trim();
+      if (!url) return '';
+      url = url
+        .replace(/&amp;/gi, '&')
+        .replace(/\u200B/g, '')
+        .replace(/\uFEFF/g, '')
+        .replace(/^[<\[\(\{'"`]+/, '')
+        .replace(/[>\]\)\}'"`.,;:!?，。；：！？、）】》]+$/, '');
+
+      const m = url.match(/^https?:\/\/(?:www\.)?google\.[^/]+\/url\?(.*)$/i);
+      if (m && m[1]) {
+        const params = new URLSearchParams(m[1]);
+        const q = params.get('q') || params.get('url');
+        if (q) {
+          try {
+            const decoded = decodeURIComponent(q);
+            if (/^https?:\/\//i.test(decoded)) url = decoded;
+          } catch (e) {
+            if (/^https?:\/\//i.test(q)) url = q;
+          }
+        }
+      }
+      return url.trim();
+    }
+
+    function isSafeHttpUrl(url) {
+      const text = String(url || '').trim();
+      if (!text) return false;
+      if (!/^https?:\/\//i.test(text)) return false;
+      if (/[\u0000-\u001F\u007F]/.test(text)) return false;
+      return true;
+    }
+
+    function createVideoElement(src) {
+      const video = document.createElement('video');
+      video.className = 'zoom-target';
+      video.controls = true;
+      video.src = src;
+      return video;
+    }
+
+    function createIframeElement(src, className, allow, allowFullscreen) {
+      const iframe = document.createElement('iframe');
+      if (className) iframe.className = className;
+      iframe.src = src;
+      if (allow) iframe.setAttribute('allow', allow);
+      if (allowFullscreen) iframe.setAttribute('allowfullscreen', '');
+      return iframe;
+    }
+
+    // ====== 草稿系统：仅内存存储，关闭弹框自动清零 ======
+    const _draftCache = {};
+
+    function _draftKey(row) {
+      return String(row || 0);
+    }
+
+    function saveLocalDraft(row, data) {
+      _draftCache[_draftKey(row)] = Object.assign({}, data || {});
+    }
+
+    function loadLocalDraft(row) {
+      return _draftCache[_draftKey(row)] || null;
+    }
+
+    function clearLocalDraft(row) {
+      delete _draftCache[_draftKey(row)];
+    }
+
+    function mergeLocalDraft(row, patch) {
+      const base = loadLocalDraft(row) || {};
+      _draftCache[_draftKey(row)] = Object.assign({}, base, patch || {});
+    }
+
+    function isSyncReviewerEnabled() {
+      const cb = document.getElementById('syncReviewerToggle');
+      return !!(cb && cb.checked);
+    }
+
+    function applyReviewerToRemainingRows(value) {
+      if (!init) return;
+      const reviewer = String(value || '').trim();
+      sharedReviewerValue = reviewer;
+      if (!isSyncReviewerEnabled()) return;
+
+      for (let i = currentIndex; i < init.selectedRows.length; i++) {
+        const row = init.selectedRows[i];
+        const data = ensureRowDataObject(row);
+        const changed = String(data.reviewer || '') !== reviewer;
+        data.reviewer = reviewer;
+        if (changed) setRowSyncState(row, 'dirty');
+        mergeLocalDraft(row, { reviewer: reviewer });
+      }
+      renderRowList();
+    }
+
+    function handleSyncReviewerToggleChange() {
+      if (!init) return;
+      if (!isSyncReviewerEnabled()) {
+        sharedReviewerValue = '';
+        setStatus('已关闭统一审核人');
+        return;
+      }
+      const current = document.getElementById('reviewer').value.trim();
+      if (current) {
+        applyReviewerToRemainingRows(current);
+        setStatus('已应用统一审核人到剩余行');
+      } else {
+        setStatus('已开启统一审核人，选择审核人后会应用到剩余行');
+      }
+    }
+
+    function isVideoUrl(url) {
+      const u = sanitizeUrlCandidate(url);
+      return /\.(mp4|mov|webm|m4v|ogg)(\?|#|$)/i.test(u);
+    }
+
+    function isImageUrl(url) {
+      const u = sanitizeUrlCandidate(url);
+      return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u) || /i\.gyazo\.com/i.test(u);
+    }
+
+    function looksLikeVideoText(text) {
+      return /\.(mp4|mov|webm|m4v|ogg)\b/i.test(String(text || ''));
+    }
+
+    function looksLikeImageText(text) {
+      return /\.(png|jpe?g|gif|webp|bmp|svg)\b/i.test(String(text || ''));
+    }
+
+    function getYouTubeEmbed(url) {
+      const m1 = url.match(/youtube\.com\/watch\?v=([^&]+)/i);
+      if (m1) return 'https://www.youtube.com/embed/' + m1[1];
+      const m2 = url.match(/youtu\.be\/([^?&]+)/i);
+      if (m2) return 'https://www.youtube.com/embed/' + m2[1];
+      return '';
+    }
+
+    function getDrivePreview(url) {
+      const id = extractDriveFileId(url);
+      if (id) {
+        return appendDriveResourceKey(
+          'https://drive.google.com/file/d/' + id + '/preview',
+          extractDriveResourceKey(url)
+        );
+      }
+      return '';
+    }
+
+    function isDriveFolderUrl(url) {
+      const text = sanitizeUrlCandidate(url);
+      if (!text) return false;
+      if (!/drive\.google\.com/i.test(text)) return false;
+      return /\/drive\/(?:u\/\d+\/)?folders\/[a-zA-Z0-9_-]+/i.test(text) ||
+             /\/folders\/[a-zA-Z0-9_-]+/i.test(text) ||
+             /drive\.google\.com\/folderview/i.test(text);
+    }
+
+    function extractDriveFileId(url) {
+      const text = sanitizeUrlCandidate(url);
+      if (!text) return '';
+
+      let m = text.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/i);
+      if (m && m[1]) return m[1];
+      m = text.match(/docs\.google\.com\/(?:document|spreadsheets|presentation|forms|drawings)\/d\/([a-zA-Z0-9_-]+)/i);
+      if (m && m[1]) return m[1];
+      m = text.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+      if (m && m[1]) return m[1];
+      m = text.match(/\/uc\?(?:[^#]*&)?id=([a-zA-Z0-9_-]+)/i);
+      if (m && m[1]) return m[1];
+      return '';
+    }
+
+    function getDownloadUrl(url) {
+      const id = extractDriveFileId(url);
+      if (id) {
+        return appendDriveResourceKey(
+          'https://drive.google.com/uc?export=download&id=' + id,
+          extractDriveResourceKey(url)
+        );
+      }
+      return sanitizeUrlCandidate(url);
+    }
+
+    function getDriveViewUrl(url) {
+      const id = extractDriveFileId(url);
+      return id
+        ? appendDriveResourceKey(
+            'https://drive.google.com/uc?export=view&id=' + id,
+            extractDriveResourceKey(url)
+          )
+        : '';
+    }
+
+    function getDriveThumbUrl(url, size) {
+      const id = extractDriveFileId(url);
+      if (!id) return '';
+      const s = Number(size) > 0 ? Number(size) : 320;
+      return appendDriveResourceKey(
+        'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + s,
+        extractDriveResourceKey(url)
+      );
+    }
+
+    function extractDriveResourceKey(url) {
+      const text = sanitizeUrlCandidate(url);
+      if (!text) return '';
+      const m = text.match(/[?&]resourcekey=([^&#]+)/i);
+      return m && m[1] ? m[1] : '';
+    }
+
+    function appendDriveResourceKey(url, resourceKey) {
+      const rk = String(resourceKey || '').trim();
+      if (!rk) return url;
+      return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'resourcekey=' + encodeURIComponent(rk);
+    }
+
+    function createImageBadgeElement() {
+      const tag = document.createElement('div');
+      tag.className = 'row-thumb row-thumb-video';
+      tag.textContent = 'IMG';
+      return tag;
+    }
+
+    function updatePreviewActionState() {
+      const zoomable = (currentPreviewType === 'image' || currentPreviewType === 'video');
+      ['zoomOutBtn', 'zoomInBtn', 'zoomResetBtn'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !zoomable;
+      });
+      const dl = document.getElementById('downloadBtn');
+      if (dl) dl.disabled = !currentPreviewUrl;
+      const label = document.getElementById('zoomLabel');
+      if (label) label.textContent = Math.round(previewScale * 100) + '%';
+    }
+
+    function applyPreviewZoom() {
+      const target = document.querySelector('#previewBox .zoom-target');
+      if (target) {
+        const canDrag = (currentPreviewType === 'image' && previewScale > 1);
+        target.style.transform = 'translate(' + previewPanX + 'px,' + previewPanY + 'px) scale(' + previewScale + ')';
+        target.style.cursor = canDrag ? (isPreviewDragging ? 'grabbing' : 'grab') : 'default';
+      }
+      const label = document.getElementById('zoomLabel');
+      if (label) label.textContent = Math.round(previewScale * 100) + '%';
+    }
+
+    function resetPreviewZoom(silent) {
+      previewScale = 1;
+      previewPanX = 0;
+      previewPanY = 0;
+      isPreviewDragging = false;
+      applyPreviewZoom();
+      if (!silent) setStatus('缩放已重置');
+    }
+
+    function zoomInPreview() {
+      if (!(currentPreviewType === 'image' || currentPreviewType === 'video')) return;
+      previewScale = Math.min(4, previewScale + 0.12);
+      applyPreviewZoom();
+    }
+
+    function zoomOutPreview() {
+      if (!(currentPreviewType === 'image' || currentPreviewType === 'video')) return;
+      previewScale = Math.max(0.5, previewScale - 0.12);
+      applyPreviewZoom();
+    }
+
+    function handlePreviewWheel(event) {
+      if (!(currentPreviewType === 'image' || currentPreviewType === 'video')) return;
+      const box = document.getElementById('previewBox');
+      if (!box || !box.contains(event.target)) return;
+      event.preventDefault();
+      if (event.deltaY < 0) {
+        previewScale = Math.min(4, previewScale + 0.12);
+      } else {
+        previewScale = Math.max(0.5, previewScale - 0.12);
+      }
+      applyPreviewZoom();
+    }
+
+    function downloadCurrentPreview() {
+      if (!currentPreviewUrl) return;
+      const url = getDownloadUrl(currentPreviewUrl);
+      window.open(url, '_blank');
+    }
+
+    function handlePreviewMouseDown(event) {
+      const target = document.querySelector('#previewBox .zoom-target');
+      if (!target) return;
+      if (!(currentPreviewType === 'image' && previewScale > 1)) return;
+      isPreviewDragging = true;
+      previewDragStartX = event.clientX - previewPanX;
+      previewDragStartY = event.clientY - previewPanY;
+      applyPreviewZoom();
+      event.preventDefault();
+    }
+
+    function handlePreviewMouseMove(event) {
+      if (!isPreviewDragging) return;
+      previewPanX = event.clientX - previewDragStartX;
+      previewPanY = event.clientY - previewDragStartY;
+      applyPreviewZoom();
+      event.preventDefault();
+    }
+
+    function stopPreviewDrag() {
+      if (!isPreviewDragging) return;
+      isPreviewDragging = false;
+      applyPreviewZoom();
+    }
+
+    function renderImagePreviewWithFallback(box, urls, onFail) {
+      const seen = {};
+      const candidates = (urls || [])
+        .map(function(u) { return sanitizeUrlCandidate(u); })
+        .filter(function(u) {
+          if (!u || seen[u]) return false;
+          seen[u] = true;
+          return true;
+        });
+
+      if (!candidates.length) {
+        box.innerHTML = '<div class="text-box">图片地址无效，无法预览。</div>';
+        currentPreviewType = 'none';
+        updatePreviewActionState();
+        return;
+      }
+
+      const img = document.createElement('img');
+      img.className = 'zoom-target';
+      img.alt = 'image';
+      let idx = 0;
+      let loadingTimer = null;
+
+      function clearLoadingTimer() {
+        if (loadingTimer) {
+          clearTimeout(loadingTimer);
+          loadingTimer = null;
+        }
+      }
+
+      function tryNext() {
+        clearLoadingTimer();
+        if (idx >= candidates.length) {
+          if (typeof onFail === 'function') {
+            onFail();
+          } else {
+            box.innerHTML = '<div class="text-box">图片预览失败，请点击下方链接在新窗口查看。</div>';
+            currentPreviewType = 'none';
+            updatePreviewActionState();
+          }
+          return;
+        }
+        img.src = candidates[idx++];
+        loadingTimer = setTimeout(function() {
+          tryNext();
+        }, 1200);
+      }
+
+      img.addEventListener('load', function() {
+        clearLoadingTimer();
+      });
+      img.addEventListener('error', tryNext);
+      box.innerHTML = '';
+      box.appendChild(img);
+      currentPreviewType = 'image';
+      updatePreviewActionState();
+      applyPreviewZoom();
+      tryNext();
+    }
+
+    function renderDriveEmbedPreview(box, previewUrl, asType) {
+      const drive = getDrivePreview(previewUrl);
+      if (isSafeHttpUrl(drive)) {
+        box.innerHTML = '';
+        box.appendChild(createIframeElement(drive, 'zoom-target', 'autoplay', false));
+        currentPreviewType = asType || 'embed';
+        updatePreviewActionState();
+        applyPreviewZoom();
+        return true;
+      }
+      return false;
+    }
+
+    function renderPreview(previewUrl, previewText) {
+      const box = document.getElementById('previewBox');
+      const linkEl = document.getElementById('sourceLink');
+      const normalizedRawUrl = sanitizeUrlCandidate(previewUrl || '');
+      const normalizedUrl = isSafeHttpUrl(normalizedRawUrl) ? normalizedRawUrl : '';
+      currentPreviewUrl = normalizedUrl;
+      currentPreviewType = 'none';
+      resetPreviewZoom(true);
+
+      if (normalizedUrl) {
+        linkEl.innerHTML = '';
+        const link = document.createElement('a');
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.href = normalizedUrl;
+        link.textContent = normalizedUrl;
+        linkEl.appendChild(link);
+        if (isDriveFolderUrl(normalizedUrl)) {
+          box.innerHTML = '<div class="text-box">检测到这是 Google Drive 文件夹链接，无法直接预览。请改为单个文件链接。</div>';
+          currentPreviewType = 'none';
+          updatePreviewActionState();
+          return;
+        }
+        const driveId = extractDriveFileId(normalizedUrl);
+
+        if (driveId && looksLikeVideoText(previewText)) {
+          if (renderDriveEmbedPreview(box, normalizedUrl, 'video')) return;
+          const downloadUrl = sanitizeUrlCandidate(getDownloadUrl(normalizedUrl));
+          if (!isSafeHttpUrl(downloadUrl)) {
+            box.innerHTML = '<div class="text-box">视频地址无效，无法预览。</div>';
+            currentPreviewType = 'none';
+            updatePreviewActionState();
+            return;
+          }
+          box.innerHTML = '';
+          box.appendChild(createVideoElement(downloadUrl));
+          currentPreviewType = 'video';
+          updatePreviewActionState();
+          applyPreviewZoom();
+          return;
+        }
+        if (driveId && looksLikeImageText(previewText)) {
+          renderImagePreviewWithFallback(box, [
+            getDriveThumbUrl(normalizedUrl, 1600)
+          ], function() {
+            if (!renderDriveEmbedPreview(box, normalizedUrl, 'image')) {
+              box.innerHTML = '<div class="text-box">图片预览失败，请点击下方链接在新窗口查看。</div>';
+              currentPreviewType = 'none';
+              updatePreviewActionState();
+            }
+          });
+          return;
+        }
+
+        const yt = getYouTubeEmbed(normalizedUrl);
+        if (isSafeHttpUrl(yt)) {
+          box.innerHTML = '';
+          box.appendChild(createIframeElement(yt, '', '', true));
+          currentPreviewType = 'embed';
+          updatePreviewActionState();
+          return;
+        }
+        if (renderDriveEmbedPreview(box, normalizedUrl, 'embed')) return;
+        if (isVideoUrl(normalizedUrl)) {
+          box.innerHTML = '';
+          box.appendChild(createVideoElement(normalizedUrl));
+          currentPreviewType = 'video';
+          updatePreviewActionState();
+          applyPreviewZoom();
+          return;
+        }
+        if (isImageUrl(normalizedUrl)) {
+          renderImagePreviewWithFallback(box, [normalizedUrl]);
+          return;
+        }
+        box.innerHTML = '';
+        box.appendChild(createIframeElement(normalizedUrl, '', '', false));
+        currentPreviewType = 'embed';
+        updatePreviewActionState();
+        return;
+      }
+
+      linkEl.innerHTML = '';
+      if (normalizedRawUrl) {
+        box.innerHTML = '<div class="text-box">链接格式无效，无法预览。</div>';
+        updatePreviewActionState();
+        return;
+      }
+      if (previewText) {
+        let hint = '未检测到可预览链接。';
+        if (looksLikeVideoText(previewText) || looksLikeImageText(previewText)) {
+          hint = '检测到文件名，但未读取到文件链接（可能是文件智能芯片链接未返回）。';
+        }
+        box.innerHTML = '<div class="text-box">' + escapeHtml(previewText) + '\n\n' + hint + '</div>';
+      } else {
+        box.innerHTML = '该单元格没有可预览内容';
+      }
+      updatePreviewActionState();
+    }
+
+    function setReviewResultOptions(options, currentValue) {
+      const select = document.getElementById('reviewResult');
+      const sourceRaw = (options && options.length) ? options : FALLBACK_REVIEW_RESULT_OPTIONS;
+      const source = normalizeOptionItems(sourceRaw);
+      select.innerHTML = '';
+
+      source.forEach(function(o) {
+        const v = o.value;
+        const op = document.createElement('option');
+        op.value = v;
+        op.textContent = v;
+        if (o.bg && o.bg.toLowerCase() !== '#ffffff') {
+          op.style.backgroundColor = o.bg;
+          if (o.fg) op.style.color = o.fg;
+        }
+        select.appendChild(op);
+      });
+
+      const sourceValues = source.map(function(o) { return o.value; });
+      if (currentValue && sourceValues.indexOf(currentValue) === -1) {
+        const op = document.createElement('option');
+        op.value = currentValue;
+        op.textContent = currentValue + '（当前值）';
+        select.appendChild(op);
+      }
+
+      if (currentValue) {
+        select.value = currentValue;
+      } else if (sourceValues.length) {
+        select.value = sourceValues[0];
+      }
+
+      renderQuickOptions('reviewResult', 'reviewResultQuick', source, 8);
+      refreshQuickOptionActive('reviewResult', 'reviewResultQuick');
+      applySelectStyleByOption(select, source);
+    }
+
+    function setReviewerOptions(options, currentValue) {
+      const select = document.getElementById('reviewer');
+      const source = normalizeOptionItems(options || []);
+      select.innerHTML = '';
+
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '（请选择）';
+      select.appendChild(empty);
+
+      source.forEach(function(item) {
+        const v = item.value;
+        const op = document.createElement('option');
+        op.value = v;
+        op.textContent = v;
+        if (item.bg && item.bg.toLowerCase() !== '#ffffff') {
+          op.style.backgroundColor = item.bg;
+          if (item.fg) op.style.color = item.fg;
+        }
+        select.appendChild(op);
+      });
+
+      const sourceValues = source.map(function(item) { return item.value; });
+      if (currentValue && sourceValues.indexOf(currentValue) === -1) {
+        const op = document.createElement('option');
+        op.value = currentValue;
+        op.textContent = currentValue + '（当前值）';
+        select.appendChild(op);
+      }
+
+      if (currentValue) {
+        select.value = currentValue;
+      } else if (sourceValues.length) {
+        select.value = sourceValues[0];
+      } else {
+        select.value = '';
+      }
+
+      renderQuickOptions('reviewer', 'reviewerQuick', source, 10);
+      refreshQuickOptionActive('reviewer', 'reviewerQuick');
+      applySelectStyleByOption(select, source);
+    }
+
+    function setSeverityOptions(options, currentValue) {
+      const select = document.getElementById('severity');
+      const sourceRaw = (options && options.length) ? options : FALLBACK_SEVERITY_OPTIONS;
+      const source = normalizeOptionItems(sourceRaw);
+      select.innerHTML = '';
+
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '（不填）';
+      select.appendChild(empty);
+
+      source.forEach(function(item) {
+        const v = item.value;
+        const op = document.createElement('option');
+        op.value = v;
+        op.textContent = v;
+        if (item.bg && item.bg.toLowerCase() !== '#ffffff') {
+          op.style.backgroundColor = item.bg;
+          if (item.fg) op.style.color = item.fg;
+        }
+        select.appendChild(op);
+      });
+
+      const sourceValues = source.map(function(item) { return item.value; });
+      if (currentValue && sourceValues.indexOf(currentValue) === -1) {
+        const op = document.createElement('option');
+        op.value = currentValue;
+        op.textContent = currentValue + '（当前值）';
+        select.appendChild(op);
+      }
+
+      if (currentValue) {
+        select.value = currentValue;
+      } else {
+        select.value = '';
+      }
+
+      renderQuickOptions('severity', 'severityQuick', source, 8);
+      refreshQuickOptionActive('severity', 'severityQuick');
+      applySelectStyleByOption(select, source);
+    }
+
+    function fillTopSelectors() {
+      const rowSelect = document.getElementById('rowSelect');
+      rowSelect.innerHTML = '';
+      init.selectedRows.forEach((r, idx) => {
+        const op = document.createElement('option');
+        op.value = String(r);
+        op.textContent = '第 ' + r + ' 行';
+        if (idx === 0) op.selected = true;
+        rowSelect.appendChild(op);
+      });
+
+      const headerSelect = document.getElementById('viewHeaderSelect');
+      headerSelect.innerHTML = '';
+
+      const byConfigOp = document.createElement('option');
+      byConfigOp.value = '__CONFIG__';
+      byConfigOp.textContent = '按设置的预览来源列';
+      headerSelect.appendChild(byConfigOp);
+
+      init.viewHeaders.forEach(h => {
+        const op = document.createElement('option');
+        op.value = h;
+        op.textContent = h;
+        headerSelect.appendChild(op);
+      });
+
+      headerSelect.value = init.defaultViewHeader || '__CONFIG__';
+    }
+
+    function renderPanelHeaderChecks() {
+      const host = document.getElementById('panelHeaderChecks');
+      host.innerHTML = '';
+      const headers = init.viewHeaders || [];
+      const selected = new Set((currentSettings && currentSettings.panelHeaders) || []);
+
+      headers.forEach(h => {
+        const label = document.createElement('label');
+        label.className = 'header-check-item';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = h;
+        cb.checked = selected.has(h);
+        cb.addEventListener('change', function() {
+          const arr = (currentSettings.panelHeaders || []).slice();
+          if (cb.checked) {
+            if (arr.indexOf(h) === -1) arr.push(h);
+          } else {
+            const next = arr.filter(x => x !== h);
+            if (!next.length) {
+              cb.checked = true;
+              return;
+            }
+            currentSettings.panelHeaders = next;
+            renderRowList();
+            return;
+          }
+          currentSettings.panelHeaders = arr;
+          renderRowList();
+        });
+
+        const text = document.createElement('span');
+        text.textContent = h;
+
+        label.appendChild(cb);
+        label.appendChild(text);
+        host.appendChild(label);
+      });
+    }
+
+    function getHeaderOptionsList() {
+      const raw = Array.isArray(init && init.headerOptions) ? init.headerOptions : [];
+      const out = [];
+      const seen = {};
+
+      raw.forEach(function(item) {
+        const header = String(item && item.header || '').trim();
+        const col = Number(item && item.col || 0);
+        if (!header || !col) return;
+        const token = String(item && item.token || ('__COL__' + col));
+        if (seen[token]) return;
+        seen[token] = true;
+        out.push({
+          header: header,
+          col: col,
+          token: token,
+          label: String(item && item.label || (header + '（第 ' + col + ' 列）'))
+        });
+      });
+
+      if (!out.length) {
+        const headers = init.viewHeaders || [];
+        headers.forEach(function(h, idx) {
+          const header = String(h || '').trim();
+          if (!header) return;
+          const col = idx + 1;
+          const token = '__COL__' + col;
+          out.push({
+            header: header,
+            col: col,
+            token: token,
+            label: header + '（第 ' + col + ' 列）'
+          });
+        });
+      }
+
+      out.sort(function(a, b) { return a.col - b.col; });
+      return out;
+    }
+
+    function findHeaderOptionsByHeaderName(headerName, headerOptions) {
+      const target = String(headerName || '').trim();
+      if (!target) return [];
+      const list = headerOptions || getHeaderOptionsList();
+      return list.filter(function(item) {
+        return item.header === target;
+      });
+    }
+
+    function findHeaderOptionTokenSmart(candidate, headerOptions) {
+      const list = headerOptions || getHeaderOptionsList();
+      const target = String(candidate || '').trim();
+      if (!target || !list.length) return '';
+
+      const exact = list.find(function(item) {
+        return String(item.header || '').trim() === target;
+      });
+      if (exact) return exact.token;
+
+      const normalizedTarget = target.replace(/\s+/g, '');
+      const normalized = list.find(function(item) {
+        return String(item.header || '').trim().replace(/\s+/g, '') === normalizedTarget;
+      });
+      if (normalized) return normalized.token;
+
+      return '';
+    }
+
+    function resolveHeaderSelectionToken(value, fallbackHeader, isOptional, headerOptions) {
+      const list = headerOptions || getHeaderOptionsList();
+      if (!list.length) return '';
+
+      const raw = String(value || '').trim();
+      if (/^__COL__\d+$/.test(raw)) {
+        const hit = list.find(function(item) { return item.token === raw; });
+        if (hit) return hit.token;
+      }
+
+      const candidates = [];
+      const seen = {};
+      function pushCandidate(name) {
+        const text = String(name || '').trim();
+        if (!text || seen[text]) return;
+        seen[text] = true;
+        candidates.push(text);
+      }
+      function pushWithVariants(name) {
+        const base = String(name || '').trim();
+        if (!base) return;
+        pushCandidate(base);
+        pushCandidate(base + '1');
+        pushCandidate(base + '2');
+        const m = base.match(/^(.*?)(\d+)$/);
+        if (m && m[1]) pushCandidate(String(m[1]).trim());
+      }
+
+      pushWithVariants(raw);
+      pushWithVariants(fallbackHeader);
+
+      for (let i = 0; i < candidates.length; i++) {
+        const token = findHeaderOptionTokenSmart(candidates[i], list);
+        if (token) return token;
+      }
+
+      return '';
+    }
+
+    function updateHeaderRowHint() {
+      const sel = document.getElementById('headerRowSelect');
+      const hint = document.getElementById('headerRowHint');
+      if (!hint || !sel) return;
+      const n = Number(sel.value || 2);
+      hint.textContent = '默认第2行。当前：第 ' + n + ' 行为表头，数据从第 ' + (n + 1) + ' 行开始。';
+    }
+
+    function renderHeaderRowSelector() {
+      const sel = document.getElementById('headerRowSelect');
+      if (!sel) return;
+      if (!sel.options.length) {
+        for (let i = 1; i <= 20; i++) {
+          const op = document.createElement('option');
+          op.value = String(i);
+          op.textContent = '第 ' + i + ' 行';
+          sel.appendChild(op);
+        }
+      }
+      const current = Number(
+        (currentSettings && currentSettings.headerRow) ||
+        (init && init.headerRow) ||
+        2
+      );
+      sel.value = String(current > 0 ? current : 2);
+      updateHeaderRowHint();
+    }
+
+    function renderSettingsRows() {
+      renderHeaderRowSelector();
+      const host = document.getElementById('settingsRows');
+      host.innerHTML = '';
+
+      const defs = init.fieldDefs || [];
+      const headerOptions = getHeaderOptionsList();
+      const columns = (currentSettings && currentSettings.columns) ? currentSettings.columns : {};
+
+      defs.forEach(def => {
+        const isOptional = !!def.optional;
+        const allowRange = !!def.allowRange;
+        const cfg = columns[def.key] || (allowRange
+          ? { mode: 'range', value: '' }
+          : { mode: 'header', value: def.defaultHeader });
+
+        const row = document.createElement('div');
+        row.className = 'setting-row';
+        row.dataset.key = def.key;
+
+        const label = document.createElement('div');
+        label.className = 'setting-label';
+        label.textContent = def.label;
+
+        const mode = document.createElement('select');
+        mode.className = 'setting-mode';
+        mode.innerHTML = allowRange
+          ? '<option value="range">按范围</option>'
+          : '<option value="header">按表头</option><option value="letter">按列字母</option>';
+        mode.value = allowRange
+          ? 'range'
+          : ((cfg.mode === 'letter' || cfg.mode === 'range') ? cfg.mode : 'header');
+
+        const header = document.createElement('select');
+        header.className = 'setting-header';
+        if (allowRange) {
+          const onlyRange = document.createElement('option');
+          onlyRange.value = '';
+          onlyRange.textContent = '（此项仅按范围）';
+          header.appendChild(onlyRange);
+        } else if (isOptional) {
+          const emptyOp = document.createElement('option');
+          emptyOp.value = '';
+          emptyOp.textContent = '（未设置）';
+          header.appendChild(emptyOp);
+        } else {
+          const emptyOpRequired = document.createElement('option');
+          emptyOpRequired.value = '';
+          emptyOpRequired.textContent = '（未绑定）';
+          header.appendChild(emptyOpRequired);
+        }
+        if (!allowRange) {
+          headerOptions.forEach(function(item) {
+            const op = document.createElement('option');
+            op.value = item.token;
+            op.textContent = item.label;
+            header.appendChild(op);
+          });
+          const selectedToken = (cfg.mode === 'header')
+            ? resolveHeaderSelectionToken(cfg.value, def.defaultHeader, isOptional, headerOptions)
+            : resolveHeaderSelectionToken('', def.defaultHeader, isOptional, headerOptions);
+          if (selectedToken) header.value = selectedToken;
+        } else {
+          header.value = '';
+        }
+
+        const letter = document.createElement('input');
+        letter.className = 'setting-letter';
+        letter.placeholder = allowRange
+          ? '如 数据验证!B2:B'
+          : ((cfg.mode === 'range') ? '如 数据验证!B2:B' : '如 E / AA');
+        letter.value = allowRange
+          ? (cfg.value || '')
+          : ((cfg.mode === 'letter' || cfg.mode === 'range') ? (cfg.value || '') : '');
+
+        function applyMode() {
+          if (allowRange) {
+            mode.value = 'range';
+            header.disabled = true;
+            letter.disabled = false;
+            letter.style.opacity = '1';
+            letter.placeholder = '如 数据验证!B2:B';
+            return;
+          }
+          const m = mode.value;
+          const isHeader = m === 'header';
+          const isRange = m === 'range';
+          header.disabled = !isHeader;
+          letter.disabled = isHeader;
+          letter.style.opacity = isHeader ? '0.45' : '1';
+          letter.placeholder = isRange ? '如 数据验证!B2:B' : '如 E / AA';
+        }
+
+        mode.addEventListener('change', applyMode);
+        letter.addEventListener('input', function() {
+          if (mode.value === 'letter') {
+            this.value = this.value.toUpperCase().replace(/[^A-Z]/g, '');
+          }
+        });
+        applyMode();
+
+        row.appendChild(label);
+        row.appendChild(mode);
+        row.appendChild(header);
+        row.appendChild(letter);
+        host.appendChild(row);
+      });
+    }
+
+    function collectSettingsFromUI() {
+      const rows = Array.from(document.querySelectorAll('.setting-row'));
+      const settings = deepClone(currentSettings || { version: 1, columns: {}, panelHeaders: [] });
+      const headerRowSel = document.getElementById('headerRowSelect');
+      const headerRow = Number(headerRowSel && headerRowSel.value ? headerRowSel.value : 2);
+      settings.headerRow = headerRow > 0 ? headerRow : 2;
+      settings.dataStartRow = settings.headerRow + 1;
+
+      rows.forEach(row => {
+        const key = row.dataset.key;
+        const mode = row.querySelector('.setting-mode').value;
+        const header = row.querySelector('.setting-header').value;
+        const rawValue = row.querySelector('.setting-letter').value.trim();
+        const letter = rawValue.toUpperCase();
+        settings.columns[key] = {
+          mode: mode,
+          value: (mode === 'letter' || mode === 'range') ? (mode === 'letter' ? letter : rawValue) : header
+        };
+      });
+
+      settings.panelHeaders = (currentSettings.panelHeaders || []).slice();
+      return settings;
+    }
+
+    function normalizeText(s) {
+      return String(s || '')
+        .toLowerCase()
+        .replace(/\s+/g, '')
+        .replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
+    }
+
+    function getFieldHeaderCandidates(fieldKey) {
+      const map = {
+        preview: ['成品-单链接', '成品链接', '内容链接', '素材链接', '视频链接', '图片链接', '链接'],
+        reviewer: ['审核人员1', '审核人', '审核人员', 'reviewer'],
+        reviewerOptionsSource: ['审核人员1', '审核人', '审核人员', 'reviewer', '口播渲染人员'],
+        reviewResult: ['审核结果1', '审核状态', '审核结果', '状态'],
+        reviewResultOptionsSource: ['审核结果1', '审核状态', '审核结果', '状态'],
+        severity: ['严重程度', '优先级', '紧急程度'],
+        severityOptionsSource: ['严重程度', '优先级', '紧急程度'],
+        shotLink: ['建议截图链接', '标注链接', '截图链接', '标注地址', '反馈截图链接'],
+        shotFormula: ['建议截图公式', '缩略图', '截图公式', '标注缩略图', '图片公式'],
+        textAdvice: ['文字建议', '建议反馈', '反馈建议', '建议']
+      };
+      return map[fieldKey] || [];
+    }
+
+    function findMatchesByCandidates(headers, candidates) {
+      const normalizedHeaders = headers.map(h => ({ raw: h, n: normalizeText(h) }));
+      const cand = candidates.map(c => normalizeText(c));
+      const hits = [];
+      normalizedHeaders.forEach(h => {
+        for (let i = 0; i < cand.length; i++) {
+          const c = cand[i];
+          if (!c) continue;
+          if (h.n === c || h.n.includes(c) || c.includes(h.n)) {
+            hits.push(h.raw);
+            break;
+          }
+        }
+      });
+      return Array.from(new Set(hits));
+    }
+
+    function autoMatchByHeader() {
+      const headerRowSel = document.getElementById('headerRowSelect');
+      const uiHeaderRow = Number(headerRowSel && headerRowSel.value ? headerRowSel.value : (currentSettings && currentSettings.headerRow) || 2);
+      const activeHeaderRow = Number((currentSettings && currentSettings.headerRow) || 2);
+      if (uiHeaderRow !== activeHeaderRow) {
+        setStatus('你修改了表头行，请先点“保存设置”并刷新数据后再自动匹配。');
+        return;
+      }
+
+      const headers = init.viewHeaders || [];
+      const headerOptions = getHeaderOptionsList();
+      const defs = init.fieldDefs || [];
+      const rows = Array.from(document.querySelectorAll('.setting-row'));
+      const rowMap = {};
+      rows.forEach(r => { rowMap[r.dataset.key] = r; });
+
+      let skippedAmbiguous = [];
+
+      defs.forEach(def => {
+        if (def.key === 'reviewerOptionsSource' ||
+            def.key === 'reviewResultOptionsSource' ||
+            def.key === 'severityOptionsSource') {
+          return;
+        }
+        const row = rowMap[def.key];
+        if (!row) return;
+        const mode = row.querySelector('.setting-mode');
+        const header = row.querySelector('.setting-header');
+
+        const matches = findMatchesByCandidates(headers, getFieldHeaderCandidates(def.key));
+        if (!matches.length) return;
+
+        const matchedTokens = [];
+        matches.forEach(function(name) {
+          const hits = findHeaderOptionsByHeaderName(name, headerOptions);
+          hits.forEach(function(item) {
+            if (matchedTokens.indexOf(item.token) === -1) matchedTokens.push(item.token);
+          });
+        });
+        if (!matchedTokens.length) return;
+
+        if (
+          (def.key === 'reviewer' ||
+           def.key === 'reviewResult' ||
+           def.key === 'reviewerOptionsSource' ||
+           def.key === 'reviewResultOptionsSource' ||
+           def.key === 'severity' ||
+           def.key === 'severityOptionsSource') &&
+          matchedTokens.length > 1
+        ) {
+          // 多个审核人/审核状态列时，不自动猜列，避免匹配错
+          skippedAmbiguous.push(def.label + ': ' + matches.join(' / '));
+          return;
+        }
+
+        mode.value = 'header';
+        mode.dispatchEvent(new Event('change'));
+        header.value = matchedTokens[0];
+      });
+
+      if (skippedAmbiguous.length) {
+        setStatus('自动匹配完成（存在多候选列，已跳过：' + skippedAmbiguous.join('；') + '）');
+      } else {
+        setStatus('已按表头自动匹配，请检查后点击保存设置');
+      }
+    }
+
+    function saveSettings() {
+      if (!init) return;
+      const settings = collectSettingsFromUI();
+      setStatus('保存设置中...');
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          currentSettings = deepClone(res.settings || settings);
+          renderPanelHeaderChecks();
+          renderReviewGroupSelector();
+          renderMappedColumnHints();
+          setStatus('设置已保存，正在刷新数据...');
+          refreshBatchData(true);
+        })
+        .withFailureHandler(function(err) {
+          setStatus('保存失败');
+          alert('保存设置失败：' + (err && err.message ? err.message : err));
+        })
+        .saveDialogSettings({
+          sheetName: init.sheetName,
+          settings: settings,
+          panelHeaders: settings.panelHeaders
+        });
+    }
+
+    function updateCounter() {
+      document.getElementById('counter').textContent =
+        (currentIndex + 1) + ' / ' + init.selectedRows.length;
+    }
+
+    function currentRow() {
+      return init.selectedRows[currentIndex];
+    }
+
+    function currentHeader() {
+      return document.getElementById('viewHeaderSelect').value;
+    }
+
+    function switchToIndex(nextIndex, opts) {
+      if (!init) return;
+      const idx = Number(nextIndex);
+      if (isNaN(idx) || idx < 0 || idx >= init.selectedRows.length) return;
+      if (idx === currentIndex) return;
+      const skipAutoSave = !!(opts && opts.skipAutoSave);
+      if (!skipAutoSave) triggerImmediateAutoSave('切换行自动保存');
+      currentIndex = idx;
+      applyCurrentRowFromCache();
+    }
+
+    function goPrev() {
+      if (!init || currentIndex <= 0) return;
+      switchToIndex(currentIndex - 1);
+    }
+
+    function goNext() {
+      if (!init || currentIndex >= init.selectedRows.length - 1) return;
+      switchToIndex(currentIndex + 1);
+    }
+
+    function setCurrentIndexByRow(rowVal) {
+      const idx = init.selectedRows.indexOf(Number(rowVal));
+      if (idx >= 0) {
+        switchToIndex(idx);
+      }
+    }
+
+    function setShotPickerSelected(flag) {
+      shotPickerSelected = !!flag;
+      const el = document.getElementById('shotPicker');
+      if (!el) return;
+      if (shotPickerSelected) el.classList.add('active');
+      else el.classList.remove('active');
+    }
+
+    function refreshShotPickerText() {
+      const count = screenshotDataUrls.length;
+      if (count > 0) {
+        updateShotPickerText('已添加 ' + count + ' 张，Ctrl/Cmd+V 可继续粘贴，双击可继续选文件');
+      } else if (shotPickerSelected) {
+        updateShotPickerText('已选中，可按 Ctrl/Cmd+V 粘贴；双击选择文件（可多选）');
+      } else {
+        updateShotPickerText('单击选中后粘贴 / 双击选择文件（可多选）');
+      }
+    }
+
+    function renderShotPreviewList() {
+      const host = document.getElementById('shotPreviewList');
+      if (!host) return;
+      host.innerHTML = '';
+
+      screenshotDataUrls.forEach(function(item, idx) {
+        const card = document.createElement('div');
+        card.className = 'shot-item';
+        
+        const img = document.createElement('img');
+        img.src = item.dataUrl;
+        img.alt = item.name || ('shot-' + (idx + 1));
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'shot-remove';
+        del.textContent = '×';
+        del.title = '删除';
+        del.addEventListener('click', function(e) {
+          e.stopPropagation();
+          screenshotDataUrls.splice(idx, 1);
+          if (!screenshotDataUrls.length) clearScreenshotFlag = true;
+          renderShotPreviewList();
+          refreshShotPickerText();
+        });
+
+        const status = document.createElement('div');
+        status.className = 'shot-status';
+        if (item.status === 'uploading') {
+          status.textContent = '正在上传...';
+        } else if (item.status === 'done') {
+          status.classList.add('done');
+          status.textContent = '已上传';
+        } else if (item.status === 'error') {
+          status.classList.add('error');
+          status.textContent = '上传失败';
+          status.title = item.error || '点击重试';
+          status.style.pointerEvents = 'auto';
+          status.style.cursor = 'pointer';
+          status.onclick = function() { uploadImageItem(idx); };
+        } else {
+          status.textContent = '待上传';
+        }
+
+        card.appendChild(img);
+        card.appendChild(del);
+        card.appendChild(status);
+        host.appendChild(card);
+      });
+    }
+
+    function uploadImageItem(idx) {
+      if (!init || idx < 0 || idx >= screenshotDataUrls.length) return;
+      const item = screenshotDataUrls[idx];
+      if (item.status === 'uploading' || item.status === 'done') return;
+      const submitRow = currentRow();
+      const submitRowId = getRowIdByRow(submitRow);
+      const submitRowKey = getRowIdentityKeyByRow(submitRow);
+
+      item.status = 'uploading';
+      item.error = '';
+      renderShotPreviewList();
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (!screenshotDataUrls[idx] || screenshotDataUrls[idx].dataUrl !== item.dataUrl) return;
+          const resolvedRow = Number(res && res.row || submitRow);
+          if (resolvedRow && resolvedRow !== submitRow) {
+            migrateRowContext(submitRow, resolvedRow);
+          }
+          if (resolvedRow && rowsDataMap[resolvedRow]) {
+            rowsDataMap[resolvedRow].rowId = String(res && res.rowId || rowsDataMap[resolvedRow].rowId || '').trim();
+          }
+          screenshotDataUrls[idx].status = 'done';
+          screenshotDataUrls[idx].gyazoUrl = res.imageUrl;
+          screenshotDataUrls[idx].permalinkUrl = res.permalinkUrl;
+          renderShotPreviewList();
+          setStatus('截图上传成功');
+        })
+        .withFailureHandler(function(err) {
+          if (!screenshotDataUrls[idx] || screenshotDataUrls[idx].dataUrl !== item.dataUrl) return;
+          screenshotDataUrls[idx].status = 'error';
+          screenshotDataUrls[idx].error = String(err && err.message ? err.message : err);
+          renderShotPreviewList();
+          setStatus('截图上传失败: ' + screenshotDataUrls[idx].error);
+        })
+        .uploadScreenshotImmediate({
+          sheetName: init.sheetName,
+          row: submitRow,
+          rowId: submitRowId,
+          rowKey: submitRowKey,
+          dataUrl: item.dataUrl,
+          name: item.name,
+          settings: currentSettings
+        });
+    }
+
+    function clearShot() {
+      screenshotDataUrls = [];
+      clearScreenshotFlag = true;
+      document.getElementById('fileInput').value = '';
+      renderShotPreviewList();
+      refreshShotPickerText();
+    }
+
+    function fileToDataUrlPromise(file) {
+      return new Promise(function(resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = function() {
+          resolve({
+            dataUrl: String(reader.result || ''),
+            name: file && file.name ? String(file.name) : '截图'
+          });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function addFilesToScreenshots(files) {
+      const list = Array.from(files || []).filter(function(f) {
+        return f && f.type && f.type.indexOf('image/') === 0;
+      });
+      if (!list.length) return 0;
+
+      const startIndex = screenshotDataUrls.length;
+      for (let i = 0; i < list.length; i++) {
+        const one = await fileToDataUrlPromise(list[i]);
+        if (one && one.dataUrl) {
+          const newItem = {
+            dataUrl: one.dataUrl,
+            name: one.name,
+            status: 'pending'
+          };
+          screenshotDataUrls.push(newItem);
+        }
+      }
+      clearScreenshotFlag = false;
+      renderShotPreviewList();
+      refreshShotPickerText();
+
+      // 自动开始上传新添加的项目
+      for (let j = startIndex; j < screenshotDataUrls.length; j++) {
+        uploadImageItem(j);
+      }
+      return list.length;
+    }
+
+    function createVideoThumbElement(url) {
+      const v = document.createElement('video');
+      v.className = 'row-thumb';
+      v.src = url;
+      v.preload = 'metadata';
+      v.muted = true;
+      v.playsInline = true;
+      v.controls = false;
+      v.setAttribute('webkit-playsinline', 'true');
+      v.addEventListener('loadeddata', function() {
+        try {
+          if (v.duration && isFinite(v.duration)) v.currentTime = Math.min(0.1, v.duration / 3);
+        } catch (e) {}
+      });
+      return v;
+    }
+
+    function createVideoBadgeElement() {
+      const videoTag = document.createElement('div');
+      videoTag.className = 'row-thumb row-thumb-video';
+      videoTag.textContent = 'VIDEO';
+      return videoTag;
+    }
+
+    function updateShotPickerText(text) {
+      const el = document.getElementById('shotPicker');
+      if (el) el.textContent = text;
+    }
+
+    function handleShotPickerClick() {
+      setShotPickerSelected(true);
+      const picker = document.getElementById('shotPicker');
+      if (picker) picker.focus();
+      refreshShotPickerText();
+      setStatus('截图区已选中，请按 Ctrl/Cmd+V 粘贴');
+    }
+
+    function handleShotPickerDoubleClick() {
+      setShotPickerSelected(true);
+      refreshShotPickerText();
+      document.getElementById('fileInput').click();
+    }
+
+    function renderRowList() {
+      const host = document.getElementById('rowList');
+      host.innerHTML = '';
+      const headers = (currentSettings && currentSettings.panelHeaders) || [];
+
+      init.selectedRows.forEach((row, idx) => {
+        const data = rowsDataMap[row] || { cells: {}, reviewResult: '', textAdvice: '' };
+        const thumbUrl = sanitizeUrlCandidate(data.previewUrl || '');
+        const previewText = String(data.previewText || '');
+        const folderWarning = isDriveFolderUrl(thumbUrl);
+        const item = document.createElement('div');
+        item.className = 'row-item' + (idx === currentIndex ? ' active' : '');
+        if (folderWarning) item.classList.add('folder-warning');
+        item.addEventListener('click', function() {
+          switchToIndex(idx);
+        });
+
+        const head = document.createElement('div');
+        head.className = 'row-item-head';
+        const tag = document.createElement('span');
+        tag.className = 'row-tag';
+        tag.textContent = '第 ' + row + ' 行';
+        const right = document.createElement('div');
+        right.className = 'row-head-right';
+        const status = document.createElement('span');
+        status.className = 'row-status';
+        if (folderWarning) {
+          status.classList.add('row-status-warning');
+          status.textContent = '文件夹链接';
+        } else {
+          const rr = String(data.reviewResult || '').trim();
+          status.textContent = rr ? (rr + (data.severity ? ' / ' + data.severity : '')) : '-';
+          status.classList.add(getReviewResultVisualClass(rr));
+        }
+        const syncInfo = getRowSyncInfo(data);
+        if (syncInfo && !folderWarning) {
+          const sync = document.createElement('span');
+          sync.className = 'row-sync ' + syncInfo.cls;
+          sync.textContent = syncInfo.text;
+          right.appendChild(sync);
+        }
+        right.appendChild(status);
+        head.appendChild(tag);
+        head.appendChild(right);
+        item.appendChild(head);
+
+        const body = document.createElement('div');
+        body.className = 'row-body';
+
+        const driveId = extractDriveFileId(thumbUrl);
+        if (thumbUrl) {
+          if (isImageUrl(thumbUrl) || (driveId && looksLikeImageText(previewText))) {
+            const img = document.createElement('img');
+            img.className = 'row-thumb';
+            img.src = (driveId && looksLikeImageText(previewText))
+              ? (getDriveThumbUrl(thumbUrl, 160) || getDriveViewUrl(thumbUrl) || thumbUrl)
+              : thumbUrl;
+            img.alt = 'thumb';
+            img.loading = 'lazy';
+            img.addEventListener('error', function() {
+              if (img.parentNode) img.parentNode.replaceChild(createImageBadgeElement(), img);
+            });
+            body.appendChild(img);
+          } else if (isVideoUrl(thumbUrl) || (driveId && looksLikeVideoText(previewText))) {
+            if (driveId) {
+              const img = document.createElement('img');
+              img.className = 'row-thumb';
+              img.src = getDriveThumbUrl(thumbUrl, 240);
+              img.alt = 'video-thumb';
+              img.loading = 'lazy';
+              img.addEventListener('error', function() {
+                if (img.parentNode) img.parentNode.replaceChild(createVideoBadgeElement(), img);
+              });
+              body.appendChild(img);
+            } else if (ENABLE_VIDEO_THUMB_PRELOAD_IN_LIST) {
+              const videoSrc = (driveId && looksLikeVideoText(previewText)) ? getDownloadUrl(thumbUrl) : thumbUrl;
+              const v = createVideoThumbElement(videoSrc);
+              v.addEventListener('error', function() {
+                if (v.parentNode) v.parentNode.replaceChild(createVideoBadgeElement(), v);
+              });
+              body.appendChild(v);
+            } else {
+              body.appendChild(createVideoBadgeElement());
+            }
+          }
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'row-meta';
+        const resultToken = getFieldTokenFromCurrentSettings('reviewResult');
+        const optForResult = getHeaderOptionByToken(resultToken);
+        const resultHeaderName = optForResult ? optForResult.header : '';
+
+        headers.forEach(h => {
+          const line = document.createElement('div');
+          line.className = 'row-cell-line';
+          let labelText = h;
+          // 如果该列正是当前映射的“审核结果”列，则改名显示
+          if (resultHeaderName && h === resultHeaderName) {
+            labelText = '本次审核结果';
+          }
+          line.innerHTML = '<span class="row-cell-key">' + escapeHtml(labelText) + ':</span> ' + escapeHtml(shortText(data.cells && data.cells[h] || '', 36));
+          meta.appendChild(line);
+        });
+        const adviceText = String(data.textAdvice || '').trim();
+        if (adviceText) {
+          const adviceLine = document.createElement('div');
+          adviceLine.className = 'row-cell-line row-advice-line';
+          adviceLine.innerHTML = '<span class="row-cell-key">建议:</span> ' + escapeHtml(shortText(adviceText, 40));
+          meta.appendChild(adviceLine);
+        }
+        if (folderWarning) {
+          const warning = document.createElement('div');
+          warning.className = 'row-warning';
+          warning.textContent = '提示：当前是文件夹链接，请换成单文件链接';
+          meta.appendChild(warning);
+        }
+
+        body.appendChild(meta);
+        item.appendChild(body);
+
+        host.appendChild(item);
+      });
+    }
+
+    function getCurrentRowData() {
+      return rowsDataMap[currentRow()] || null;
+    }
+
+    function applyCurrentRowFromCache() {
+      if (!init) return;
+      updateCounter();
+
+      const row = currentRow();
+      document.getElementById('rowSelect').value = String(row);
+      renderRowList();
+
+      const data = getCurrentRowData();
+      if (!data) {
+        setStatus('该行数据未加载');
+        return;
+      }
+
+      isApplyingRow = true;
+      try {
+        let previewUrl = data.previewUrl || '';
+        let previewText = data.previewText || '';
+        const vh = currentHeader();
+        if (vh && vh !== '__CONFIG__') {
+          const txt = (data.cells && data.cells[vh]) || '';
+          previewUrl = extractFirstUrl(txt);
+          previewText = txt;
+        }
+        renderPreview(previewUrl, previewText);
+
+        const draft = loadLocalDraft(row);
+        const reviewerOptions = normalizeOptionItems(data.reviewerOptions || []);
+        const reviewerValues = reviewerOptions.map(function(item) { return item.value; });
+        // 无草稿时默认空白（不预填表格里的旧值），只有本次会话内切换行时才恢复草稿
+        const draftReviewer = draft && draft.reviewer !== undefined
+          ? String(draft.reviewer || '').trim()
+          : '';
+        let reviewer = draftReviewer;
+        if (draftReviewer && reviewerValues.length && reviewerValues.indexOf(draftReviewer) === -1) {
+          reviewer = '';
+        }
+        if (isSyncReviewerEnabled() && sharedReviewerValue) {
+          reviewer = sharedReviewerValue;
+        }
+        const reviewResult = draft && draft.reviewResult !== undefined ? draft.reviewResult : '';
+        const severity = draft && draft.severity !== undefined ? draft.severity : '';
+        const textAdvice = draft && draft.textAdvice !== undefined ? draft.textAdvice : '';
+
+        setReviewerOptions(reviewerOptions, reviewer);
+        setReviewResultOptions(data.reviewResultOptions || [], reviewResult);
+        setSeverityOptions(data.severityOptions || [], severity);
+        document.getElementById('textAdvice').value = textAdvice;
+        clearShot();
+      } finally {
+        isApplyingRow = false;
+      }
+
+      setStatus('就绪');
+    }
+
+    function refreshBatchData(keepCurrent, context) {
+      if (!init) return;
+      const ctx = context || {};
+      setStatus('批量读取中...');
+      const keepRow = keepCurrent ? currentRow() : init.selectedRows[0];
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res.settings) currentSettings = deepClone(res.settings);
+          if (Array.isArray(res.panelHeaders) && res.panelHeaders.length) {
+            currentSettings.panelHeaders = res.panelHeaders.slice();
+          }
+
+          rowsDataMap = {};
+          (res.rowsData || []).forEach(item => {
+            rowsDataMap[item.row] = item;
+          });
+
+          const idx = init.selectedRows.indexOf(keepRow);
+          currentIndex = idx >= 0 ? idx : 0;
+
+          if (ctx.reason === 'groupSwitch') {
+            isReviewGroupSwitching = false;
+          }
+          renderReviewGroupSelector();
+          renderMappedColumnHints();
+          renderPanelHeaderChecks();
+          renderRowList();
+          applyCurrentRowFromCache();
+          if (ctx.reason === 'groupSwitch') {
+            setReviewGroupSwitchHint('已切换到 ' + (ctx.groupLabel || '目标组'), false);
+            if (reviewGroupSwitchHintTimer) clearTimeout(reviewGroupSwitchHintTimer);
+            reviewGroupSwitchHintTimer = setTimeout(function() {
+              setReviewGroupSwitchHint('', false);
+              reviewGroupSwitchHintTimer = null;
+            }, 1600);
+          }
+          setStatus('就绪');
+        })
+        .withFailureHandler(function(err) {
+          if (ctx.reason === 'groupSwitch') {
+            isReviewGroupSwitching = false;
+            renderReviewGroupSelector();
+            setReviewGroupSwitchHint('切换失败，请重试', false);
+            if (reviewGroupSwitchHintTimer) clearTimeout(reviewGroupSwitchHintTimer);
+            reviewGroupSwitchHintTimer = setTimeout(function() {
+              setReviewGroupSwitchHint('', false);
+              reviewGroupSwitchHintTimer = null;
+            }, 2200);
+          }
+          setStatus('批量读取失败');
+          alert('读取失败：' + (err && err.message ? err.message : err));
+        })
+        .getRowsBatchData({
+          sheetName: init.sheetName,
+          rows: init.selectedRows,
+          settings: currentSettings,
+          panelHeaders: currentSettings.panelHeaders
+        });
+    }
+
+    function updateCurrentRowDataFromInputs(markDirty) {
+      const row = currentRow();
+      const data = ensureRowDataObject(row);
+      data.reviewer = document.getElementById('reviewer').value.trim();
+      data.reviewResult = document.getElementById('reviewResult').value;
+      data.severity = document.getElementById('severity').value;
+      data.textAdvice = document.getElementById('textAdvice').value;
+      if (markDirty) setRowSyncState(row, 'dirty');
+    }
+
+    function getCurrentInputSnapshot() {
+      return {
+        row: currentRow(),
+        reviewer: document.getElementById('reviewer').value.trim(),
+        reviewResult: document.getElementById('reviewResult').value,
+        severity: document.getElementById('severity').value,
+        textAdvice: document.getElementById('textAdvice').value
+      };
+    }
+
+    function scheduleAutoSave() {
+      if (!init || isApplyingRow) return;
+      updateCurrentRowDataFromInputs(true);
+
+      const snapshot = getCurrentInputSnapshot();
+      saveLocalDraft(snapshot.row, {
+        reviewer: snapshot.reviewer,
+        reviewResult: snapshot.reviewResult,
+        severity: snapshot.severity,
+        textAdvice: snapshot.textAdvice
+      });
+
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      const seq = ++autoSaveSeq;
+      autoSaveTimer = setTimeout(function() {
+        autoSaveTimer = null;
+        performAutoSave(seq, snapshot);
+      }, 1100);
+    }
+
+    function triggerImmediateAutoSave(statusMsg) {
+      if (!init || isApplyingRow) return;
+      if (!autoSaveTimer) return;
+      updateCurrentRowDataFromInputs(true);
+      renderRowList();
+
+      const snapshot = getCurrentInputSnapshot();
+      saveLocalDraft(snapshot.row, {
+        reviewer: snapshot.reviewer,
+        reviewResult: snapshot.reviewResult,
+        severity: snapshot.severity,
+        textAdvice: snapshot.textAdvice
+      });
+
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+      }
+      const seq = ++autoSaveSeq;
+      performAutoSave(seq, snapshot, statusMsg || '自动保存中...');
+    }
+
+    function performAutoSave(seq, snapshot, statusMsg) {
+      if (!init) return;
+      const payload = {
+        sheetName: init.sheetName,
+        row: snapshot.row,
+        rowId: getRowIdByRow(snapshot.row),
+        rowKey: getRowIdentityKeyByRow(snapshot.row),
+        reviewer: snapshot.reviewer,
+        reviewResult: snapshot.reviewResult,
+        severity: snapshot.severity,
+        textAdvice: snapshot.textAdvice,
+        forceWrite: AUTO_FORCE_WRITE_ON_VALIDATION_MISMATCH,
+        settings: currentSettings
+      };
+
+      setRowSyncState(payload.row, 'saving');
+      renderRowList();
+      setStatus(statusMsg || '自动保存中...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (seq !== autoSaveSeq) return;
+          const resolvedRow = Number(res && res.row || payload.row);
+          if (resolvedRow && resolvedRow !== payload.row) {
+            migrateRowContext(payload.row, resolvedRow);
+          }
+          if (resolvedRow && rowsDataMap[resolvedRow]) {
+            rowsDataMap[resolvedRow].rowId = String(res && res.rowId || rowsDataMap[resolvedRow].rowId || '').trim();
+          }
+          clearLocalDraft(payload.row);
+          clearLocalDraft(resolvedRow);
+          const data = ensureRowDataObject(resolvedRow);
+          data.reviewer = payload.reviewer;
+          data.reviewResult = payload.reviewResult;
+          data.severity = payload.severity;
+          data.textAdvice = payload.textAdvice;
+          setRowSyncState(resolvedRow, 'saved');
+          renderRowList();
+          setStatus('已自动保存');
+        })
+        .withFailureHandler(function(err) {
+          if (seq !== autoSaveSeq) return;
+          setRowSyncState(payload.row, 'save_failed');
+          renderRowList();
+          setStatus('自动保存失败');
+          console.error(err);
+        })
+        .autoSaveFeedbackDraft(payload);
+    }
+
+    function submitAllReviewed() {
+      if (!init) return;
+      updateCurrentRowDataFromInputs(true);
+      renderRowList();
+
+      const items = [];
+      init.selectedRows.forEach(function(row) {
+        const data = rowsDataMap[row] || {};
+        const reviewer = String(data.reviewer || '').trim();
+        const reviewResult = String(data.reviewResult || '').trim();
+        const severity = String(data.severity || '').trim();
+        const textAdvice = String(data.textAdvice || '').trim();
+        if (!reviewer && !reviewResult && !severity && !textAdvice) return;
+        items.push({
+          row: row,
+          rowId: getRowIdByRow(row),
+          rowKey: getRowIdentityKeyByRow(row),
+          reviewer: reviewer,
+          reviewResult: reviewResult,
+          severity: severity,
+          textAdvice: textAdvice
+        });
+      });
+
+      if (!items.length) {
+        setStatus('没有可批量提交的内容');
+        alert('没有检测到已填写的审核数据。');
+        return;
+      }
+
+      const ok = confirm('将批量提交 ' + items.length + ' 行已填写内容，是否继续？');
+      if (!ok) return;
+
+      items.forEach(function(item) {
+        setRowSyncState(item.row, 'submitting');
+      });
+      renderRowList();
+      setStatus('批量提交中...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+          const rowMappings = res && Array.isArray(res.rowMappings) ? res.rowMappings : [];
+          const successRows = res && Array.isArray(res.successRows) ? res.successRows : [];
+          if (rowMappings.length) {
+            rowMappings.forEach(function(mapItem) {
+              const requested = Number(mapItem && mapItem.requestedRow || 0);
+              const actual = Number(mapItem && mapItem.row || 0);
+              if (requested && actual && requested !== actual) {
+                migrateRowContext(requested, actual);
+              }
+              if (requested) clearLocalDraft(requested);
+              if (actual) {
+                clearLocalDraft(actual);
+                if (rowsDataMap[actual]) {
+                  rowsDataMap[actual].rowId = String(mapItem && mapItem.rowId || rowsDataMap[actual].rowId || '').trim();
+                }
+                setRowSyncState(actual, 'submitted');
+              }
+            });
+          } else {
+            successRows.forEach(function(row) {
+              clearLocalDraft(row);
+              setRowSyncState(row, 'submitted');
+            });
+          }
+
+          if (currentRow() && rowsDataMap[currentRow()]) {
+            applyCurrentRowFromCache();
+          } else {
+            renderRowList();
+          }
+
+          const errs = res && Array.isArray(res.errors) ? res.errors : [];
+          errs.forEach(function(e) {
+            setRowSyncState(Number(e.row || 0), 'submit_failed', e.message || '');
+          });
+          renderRowList();
+
+          const errCount = errs.length;
+          if (errCount) {
+            const first = errs[0];
+            setStatus('批量提交完成（部分失败）');
+            alert(
+              '批量提交完成：成功 ' + successRows.length +
+              '，失败 ' + errCount +
+              '。\n首个失败：第 ' + first.row + ' 行，' + first.message
+            );
+            return;
+          }
+          setStatus('批量提交成功：' + successRows.length + ' 行');
+        })
+        .withFailureHandler(function(err) {
+          items.forEach(function(item) {
+            setRowSyncState(item.row, 'submit_failed');
+          });
+          renderRowList();
+          setStatus('批量提交失败');
+          alert('批量提交失败：' + (err && err.message ? err.message : err));
+        })
+        .batchSubmitFeedback({
+          sheetName: init.sheetName,
+          settings: currentSettings,
+          forceWrite: AUTO_FORCE_WRITE_ON_VALIDATION_MISMATCH,
+          items: items
+        });
+    }
+
+    function submitPayloadWithState(payload, goNextAfterSubmit, allowImmediateJump) {
+      if (!init || !payload) return;
+      const row = Number(payload.row || 0);
+      if (!row) return;
+      const idx = init.selectedRows.indexOf(row);
+      const canJumpNow = !!goNextAfterSubmit && !!allowImmediateJump &&
+        idx >= 0 && idx < init.selectedRows.length - 1;
+
+      setRowSyncState(row, 'submitting');
+      renderRowList();
+      setStatus('提交中（第 ' + row + ' 行）...');
+
+      if (canJumpNow) {
+        switchToIndex(idx + 1, { skipAutoSave: true });
+      }
+
+      google.script.run
+        .withSuccessHandler(function(res) {
+          const resolvedRow = Number(res && res.row || row);
+          if (resolvedRow && resolvedRow !== row) {
+            migrateRowContext(row, resolvedRow);
+          }
+          if (resolvedRow && rowsDataMap[resolvedRow]) {
+            rowsDataMap[resolvedRow].rowId = String(res && res.rowId || rowsDataMap[resolvedRow].rowId || '').trim();
+          }
+          clearLocalDraft(row);
+          clearLocalDraft(resolvedRow);
+          const data = ensureRowDataObject(resolvedRow);
+          data.reviewer = String(payload.reviewer || '').trim();
+          data.reviewResult = String(payload.reviewResult || '').trim();
+          data.severity = String(payload.severity || '').trim();
+          data.textAdvice = String(payload.textAdvice || '').trim();
+          setRowSyncState(resolvedRow, 'submitted');
+          renderRowList();
+          setStatus('第 ' + resolvedRow + ' 行提交成功');
+        })
+        .withFailureHandler(function(err) {
+          const msg = (err && err.message ? err.message : String(err || ''));
+          if (!payload.forceWrite && msg.indexOf('必须使用下拉选项') >= 0) {
+            const ok = confirm(
+              '检测到与数据验证不匹配（第 ' + row + ' 行）：\n' + msg +
+              '\n\n是否强行填写？'
+            );
+            if (ok) {
+              const retryPayload = Object.assign({}, payload, { forceWrite: true });
+              submitPayloadWithState(retryPayload, goNextAfterSubmit, false);
+              return;
+            }
+          }
+          setRowSyncState(row, 'submit_failed', msg);
+          renderRowList();
+          setStatus('第 ' + row + ' 行提交失败');
+          alert('第 ' + row + ' 行提交失败：' + msg);
+        })
+        .submitFeedback(payload);
+    }
+
+    function submitData(goNextAfterSubmit, forceWrite) {
+      if (!init) return;
+      updateCurrentRowDataFromInputs(true);
+      renderRowList();
+
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = null;
+      }
+      autoSaveSeq += 1;
+
+      const useForceWrite = (typeof forceWrite === 'boolean')
+        ? forceWrite
+        : AUTO_FORCE_WRITE_ON_VALIDATION_MISMATCH;
+      const row = currentRow();
+      const payload = {
+        sheetName: init.sheetName,
+        row: row,
+        rowId: getRowIdByRow(row),
+        rowKey: getRowIdentityKeyByRow(row),
+        reviewer: document.getElementById('reviewer').value.trim(),
+        reviewResult: document.getElementById('reviewResult').value,
+        severity: document.getElementById('severity').value,
+        textAdvice: document.getElementById('textAdvice').value,
+        screenshotItems: screenshotDataUrls.map(function(x) {
+          return {
+            dataUrl: x.dataUrl,
+            name: x.name,
+            imageUrl: x.gyazoUrl,
+            permalinkUrl: x.permalinkUrl
+          };
+        }),
+        clearScreenshot: clearScreenshotFlag,
+        forceWrite: useForceWrite,
+        settings: currentSettings
+      };
+
+      submitPayloadWithState(payload, goNextAfterSubmit, true);
+    }
+
+    document.getElementById('rowSelect').addEventListener('change', function(e) {
+      setCurrentIndexByRow(e.target.value);
+    });
+
+    document.getElementById('viewHeaderSelect').addEventListener('change', function() {
+      applyCurrentRowFromCache();
+    });
+
+    document.getElementById('fileInput').addEventListener('change', async function(e) {
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      if (!files.length) return;
+      try {
+        const count = await addFilesToScreenshots(files);
+        if (count > 0) setStatus('已添加 ' + count + ' 张截图');
+      } catch (err) {
+        setStatus('读取截图失败');
+      }
+      e.target.value = '';
+    });
+    document.getElementById('previewBox').addEventListener('wheel', handlePreviewWheel, { passive: false });
+    document.getElementById('previewBox').addEventListener('mousedown', handlePreviewMouseDown);
+    window.addEventListener('mousemove', handlePreviewMouseMove);
+    window.addEventListener('mouseup', stopPreviewDrag);
+
+    document.getElementById('shotPicker').addEventListener('click', handleShotPickerClick);
+    document.getElementById('shotPicker').addEventListener('dblclick', handleShotPickerDoubleClick);
+    document.getElementById('shotPicker').addEventListener('blur', function() {
+      setShotPickerSelected(false);
+      refreshShotPickerText();
+    });
+    document.getElementById('shotPicker').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleShotPickerClick();
+      }
+    });
+
+    document.addEventListener('paste', async function(e) {
+      const picker = document.getElementById('shotPicker');
+      const isPickerFocused = document.activeElement === picker;
+      if (!shotPickerSelected && !isPickerFocused) return;
+
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      const files = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.type && it.type.indexOf('image') === 0) {
+          const file = it.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (!files.length) return;
+      e.preventDefault();
+      try {
+        const count = await addFilesToScreenshots(files);
+        if (count > 0) setStatus('已粘贴 ' + count + ' 张截图');
+      } catch (err) {
+        setStatus('粘贴截图失败');
+      }
+    });
+
+    document.getElementById('reviewer').addEventListener('change', function() {
+      const v = document.getElementById('reviewer').value.trim();
+      if (isSyncReviewerEnabled()) {
+        applyReviewerToRemainingRows(v);
+      }
+      refreshQuickOptionActive('reviewer', 'reviewerQuick');
+      applySelectStyleByOption(
+        document.getElementById('reviewer'),
+        normalizeOptionItems((getCurrentRowData() && getCurrentRowData().reviewerOptions) || [])
+      );
+      scheduleAutoSave();
+    });
+    document.getElementById('syncReviewerToggle').addEventListener('change', handleSyncReviewerToggleChange);
+    document.getElementById('reviewResult').addEventListener('change', function() {
+      updateCurrentRowDataFromInputs(true);
+      renderRowList();
+      refreshQuickOptionActive('reviewResult', 'reviewResultQuick');
+      applySelectStyleByOption(
+        document.getElementById('reviewResult'),
+        normalizeOptionItems((getCurrentRowData() && getCurrentRowData().reviewResultOptions) || FALLBACK_REVIEW_RESULT_OPTIONS)
+      );
+      scheduleAutoSave();
+    });
+    document.getElementById('severity').addEventListener('change', function() {
+      updateCurrentRowDataFromInputs(true);
+      renderRowList();
+      refreshQuickOptionActive('severity', 'severityQuick');
+      applySelectStyleByOption(
+        document.getElementById('severity'),
+        normalizeOptionItems((getCurrentRowData() && getCurrentRowData().severityOptions) || FALLBACK_SEVERITY_OPTIONS)
+      );
+      scheduleAutoSave();
+    });
+    document.getElementById('textAdvice').addEventListener('input', function() {
+      updateCurrentRowDataFromInputs(true);
+      renderRowList();
+      scheduleAutoSave();
+    });
+
+    google.script.run
+      .withSuccessHandler(function(res) {
+        init = res;
+        currentSettings = deepClone(res.settings || {});
+        if (!currentSettings.panelHeaders || !currentSettings.panelHeaders.length) {
+          const defaults = ['提交人员', '成品-单链接'].filter(h => (res.viewHeaders || []).indexOf(h) >= 0);
+          currentSettings.panelHeaders = defaults.length ? defaults : [res.viewHeaders[0]];
+        }
+        refreshShotPickerText();
+
+        fillTopSelectors();
+        renderSettingsRows();
+        renderReviewGroupSelector();
+        renderMappedColumnHints();
+        renderPanelHeaderChecks();
+        updatePreviewActionState();
+        currentIndex = 0;
+
+        rowsDataMap = {};
+        (res.rowsData || []).forEach(function(item) {
+          rowsDataMap[item.row] = item;
+        });
+
+        if ((res.rowsData || []).length) {
+          renderRowList();
+          applyCurrentRowFromCache();
+          setStatus('就绪');
+        } else {
+          refreshBatchData(false);
+        }
+      })
+      .withFailureHandler(function(err) {
+        setStatus('初始化失败');
+        alert('初始化失败：' + (err && err.message ? err.message : err));
+      })
+      .getDialogInit();
+  </script>
+</body>
+</html>

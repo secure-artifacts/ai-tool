@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, memo, useDeferredValue } from 'react';
 import { SheetData } from '../types';
 import { extractImageFromFormula } from '../utils/parser';
-import { Image, ExternalLink } from 'lucide-react';
+import { tsvEscapeCell } from '../utils/tsvEscape';
+import { Image, ExternalLink, Copy, CopyCheck } from 'lucide-react';
 
 interface DataGridProps {
   data: SheetData;
@@ -11,6 +12,7 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
   const [page, setPage] = useState(0);
   const [hoveredCell, setHoveredCell] = useState<string | null>(null);
   const [jumpToPage, setJumpToPage] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -249,9 +251,49 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
           <span className="bg-green-600 text-white text-xs px-2 py-1 rounded">表格</span>
           {data.fileName}
         </h3>
-        <span className="text-xs text-slate-500">
-          {data.rows.length} 行 • {data.columns.length} 列
-        </span>
+        <div className="flex items-center gap-2">
+          {copyFeedback && (
+            <span className="text-xs text-emerald-600 flex items-center gap-1 animate-pulse">
+              <CopyCheck size={12} />
+              {copyFeedback}
+            </span>
+          )}
+          <button
+            onClick={() => {
+              const headerRow = data.columns.map(tsvEscapeCell).join('\t');
+              const bodyRows = currentRows.map(row =>
+                data.columns.map(col => tsvEscapeCell(row[col] ?? '')).join('\t')
+              );
+              navigator.clipboard.writeText(headerRow + '\n' + bodyRows.join('\n')).then(() => {
+                setCopyFeedback(`本页 ${currentRows.length} 行`);
+                setTimeout(() => setCopyFeedback(null), 2500);
+              });
+            }}
+            className="px-2.5 py-1 text-xs font-medium bg-white border border-slate-300 rounded-md hover:bg-slate-100 transition-colors flex items-center gap-1.5 tooltip-bottom"
+            data-tip={`复制当前页 ${currentRows.length} 行`}
+          >
+            <Copy size={12} /> 复制本页
+          </button>
+          <button
+            onClick={() => {
+              const headerRow = data.columns.map(tsvEscapeCell).join('\t');
+              const bodyRows = data.rows.map(row =>
+                data.columns.map(col => tsvEscapeCell(row[col] ?? '')).join('\t')
+              );
+              navigator.clipboard.writeText(headerRow + '\n' + bodyRows.join('\n')).then(() => {
+                setCopyFeedback(`全部 ${data.rows.length} 行`);
+                setTimeout(() => setCopyFeedback(null), 2500);
+              });
+            }}
+            className="px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors flex items-center gap-1.5 tooltip-bottom"
+            data-tip={`复制全部 ${data.rows.length} 行（含表头）`}
+          >
+            <Copy size={12} /> 复制全部
+          </button>
+          <span className="text-xs text-slate-500">
+            {data.rows.length} 行 • {data.columns.length} 列
+          </span>
+        </div>
       </div>
 
       <div ref={containerRef} className="flex-1 overflow-auto" onScroll={handleScroll}>

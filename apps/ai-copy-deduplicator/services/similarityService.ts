@@ -2,6 +2,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { CopyItem, SimilarCopyItem, SimilarGroup, ExcludePatterns } from '../types';
 import { v4 as uuidv4 } from 'uuid';
+import { getGlobalTextModel } from '@/utils/getTextModel';
 
 // Embedding 模型（text-embedding-004 已于 2026/01 弃用）
 const EMBEDDING_MODEL = 'gemini-embedding-001';
@@ -218,7 +219,7 @@ ${text}`;
 
     try {
         const result = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: getGlobalTextModel(),
             contents: prompt,
         });
         return result.text?.trim() || text;

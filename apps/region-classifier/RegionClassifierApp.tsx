@@ -2,6 +2,8 @@ import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { MapPin, Copy, Check, Trash2, BarChart3, Globe, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, Download, X, Sparkles, Loader2 } from 'lucide-react';
 import { classifyBatch, getStats, GeoResult } from './geoDict';
 import { GoogleGenAI } from '@google/genai';
+import { playCompletionSound } from '@/utils/soundNotification';
+import { useToast } from '@/components/ui/Toast';
 
 const PAGE_SIZE = 200;
 
@@ -29,6 +31,7 @@ interface Props {
 }
 
 export default function RegionClassifierApp({ getAiInstance }: Props) {
+    const toast = useToast();
     const [results, setResults] = useState<GeoResult[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAiProcessing, setIsAiProcessing] = useState(false);
@@ -133,6 +136,7 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
         }
 
         setIsAiProcessing(false);
+        playCompletionSound();
     }, [getAiInstance, aiModel, aiBatchSize, aiConcurrency]);
 
     const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -140,87 +144,113 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
         const plain = e.clipboardData.getData('text/plain');
         if (!plain.trim()) return;
 
-        // 检测是否为三列数据（表头模式或数据模式）
-        const lines = plain.split(/\r?\n/).filter(l => l.trim());
-        let imported: GeoResult[] = [];
-        let isThreeColumn = false;
+        // ====== RFC 4180 TSV 解析器 ======
+        // Google Sheets 复制格式：Tab 分列，\n 分行
+        // 单元格内含换行/Tab/引号 → 用双引号包裹，内部 "" 转义为 "
+        const parseTsvRows = (text: string): string[][] => {
+            const rows: string[][] = [];
+            let currentRow: string[] = [];
+            let current = '';
+            let inQuote = false;
 
-        // 采样前 5 行，看看是否有大部分行包含至少 2 个 Tab
-        const sampleSize = Math.min(lines.length, 5);
-        let tabbedLines = 0;
-        for (let i = 0; i < sampleSize; i++) {
-            if ((lines[i].match(/\t/g) || []).length >= 2) tabbedLines++;
-        }
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const next = text[i + 1];
 
-        if (tabbedLines > sampleSize / 2) {
-            isThreeColumn = true;
-            for (const line of lines) {
-                const parts = line.split('\t');
-                if (parts.length >= 3) {
-                    const original = parts[0].trim();
-                    const country = parts[1].trim();
-                    const continent = parts[2].trim();
-
-                    // 跳过表头
-                    if (original === '原始地址' || original === 'original') continue;
-
-                    if (original) {
-                        const cleanCountry = country.match(/[\u4e00-\u9fff]+/)?.[0] || country;
-                        const cleanContinent = continent.match(/[\u4e00-\u9fff]+/)?.[0] || continent;
-                        imported.push({
-                            original,
-                            country: cleanCountry,
-                            countryCode: '',
-                            continent: cleanContinent,
-                            confidence: country && country !== '未知' ? 'ai' : 'unknown',
-                        });
+                if (inQuote) {
+                    if (char === '"') {
+                        if (next === '"') {
+                            // 转义引号 "" → "
+                            current += '"';
+                            i++;
+                        } else {
+                            // 引号结束
+                            inQuote = false;
+                        }
+                    } else {
+                        // 引号内的内容（包括换行、Tab）全部保留
+                        current += char;
+                    }
+                } else {
+                    if (char === '"') {
+                        inQuote = true;
+                    } else if (char === '\t') {
+                        // 列分隔
+                        currentRow.push(current);
+                        current = '';
+                    } else if (char === '\r' || char === '\n') {
+                        // 行分隔
+                        currentRow.push(current);
+                        current = '';
+                        rows.push(currentRow);
+                        currentRow = [];
+                        // 处理 \r\n
+                        if (char === '\r' && next === '\n') i++;
+                    } else {
+                        current += char;
                     }
                 }
             }
+            // 最后一个字段/行
+            currentRow.push(current);
+            // 只在最后一行非空时才推入（防止尾部空行）
+            if (currentRow.length > 1 || currentRow[0] !== '') {
+                rows.push(currentRow);
+            }
+            return rows;
+        };
+
+        const tsvRows = parseTsvRows(plain);
+        if (tsvRows.length === 0) return;
+
+        // ====== 检测是否为三列已分类数据（导入模式）======
+        const columnCount = tsvRows.length > 0 ? tsvRows[0].length : 0;
+        // 采样前 5 行，看列数是否 >= 3
+        const sampleSize = Math.min(tsvRows.length, 5);
+        let threeColCount = 0;
+        for (let i = 0; i < sampleSize; i++) {
+            if (tsvRows[i].length >= 3) threeColCount++;
         }
 
-        if (isThreeColumn && imported.length > 0) {
-            // 合并时去重：保留已有的，加入新的
-            setResults(prev => {
-                const existingSet = new Set(prev.map(r => r.original));
-                const newItems = imported.filter(r => !existingSet.has(r.original));
-                return [...prev, ...newItems];
-            });
-            setCurrentPage(0);
-            return;
-        }
+        if (threeColCount > sampleSize / 2 && columnCount >= 3) {
+            // 三列导入模式
+            const imported: GeoResult[] = [];
+            for (const row of tsvRows) {
+                if (row.length < 3) continue;
+                const original = row[0].trim();
+                const country = row[1].trim();
+                const continent = row[2].trim();
 
-        // 单列格式：更鲁棒的行分割提取
-        // 如果文本里有偶数个双引号，可能是 Excel 原生格式，用字符级解析
-        // 否则（引号不匹配）直接按行分割，防止整个文本被吞掉
-        const addresses: string[] = [];
-        const quoteCount = (plain.match(/"/g) || []).length;
+                // 跳过表头
+                if (original === '原始地址' || original === 'original') continue;
 
-        if (quoteCount % 2 === 0) {
-            let current = '';
-            let inQuote = false;
-            for (let i = 0; i < plain.length; i++) {
-                const char = plain[i];
-                const next = plain[i + 1];
-                if (char === '"') {
-                    if (inQuote && next === '"') { current += '"'; i++; }
-                    else { inQuote = !inQuote; }
-                } else if (!inQuote && (char === '\t' || char === '\n' || char === '\r')) {
-                    if (current.trim()) addresses.push(current.trim());
-                    current = '';
-                    if (char === '\r' && next === '\n') i++;
-                } else {
-                    current += char;
+                if (original) {
+                    const cleanCountry = country.match(/[\u4e00-\u9fff]+/)?.[0] || country;
+                    const cleanContinent = continent.match(/[\u4e00-\u9fff]+/)?.[0] || continent;
+                    imported.push({
+                        original,
+                        country: cleanCountry,
+                        countryCode: '',
+                        continent: cleanContinent,
+                        confidence: country && country !== '未知' ? 'ai' : 'unknown',
+                    });
                 }
             }
-            if (current.trim()) addresses.push(current.trim());
-        } else {
-            // 引号不匹配时，直接按换行符和 Tab 拆分
-            const rawParts = plain.split(/[\r\n\t]+/);
-            for (const part of rawParts) {
-                if (part.trim()) addresses.push(part.trim());
+
+            if (imported.length > 0) {
+                setResults(prev => [...prev, ...imported]);
+                setCurrentPage(0);
+                toast.success(`已导入 ${imported.length} 条已分类数据`);
+                return;
             }
         }
+
+        // ====== 单列/多列格式：提取第一列作为地址 ======
+        // 保留每一行（包括空行），维持与源表格的 1:1 行对齐
+        const addresses: string[] = tsvRows.map(row => {
+            // 取第一列（地址列），保留原始内容（包括内部换行、标点）
+            return row[0] ?? '';
+        });
 
         if (addresses.length === 0) return;
 
@@ -228,38 +258,53 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
         setProgress({ done: 0, total: addresses.length });
         setCurrentPage(0);
 
-        // 获取当前已有结果（用于去重）
-        let currentResults: GeoResult[] = [];
-        setResults(prev => {
-            currentResults = prev;
-            return prev;
-        });
+        // 分离空行和有效地址
+        const nonEmptyAddresses = addresses.filter(a => a.trim());
+        const emptyCount = addresses.length - nonEmptyAddresses.length;
 
-        // 对剪贴板提取出来的地址列表自身去重
-        const uniqueAddresses = Array.from(new Set(addresses));
+        // 保留所有行（不去重），维持与源表格的 1:1 行对齐
+        // 但内部只对唯一地址调用分类引擎，然后复制结果给重复行
+        const uniqueAddresses = Array.from(new Set(nonEmptyAddresses));
+        const dupCount = nonEmptyAddresses.length - uniqueAddresses.length;
 
-        // 过滤掉已经在表格里的结果
-        const existingOriginals = new Set(currentResults.map(r => r.original));
-        const newAddresses = uniqueAddresses.filter(a => !existingOriginals.has(a));
+        setProgress({ done: 0, total: uniqueAddresses.length });
 
-        if (newAddresses.length === 0) {
-            setIsProcessing(false);
-            return;
-        }
-
-        // 把进度条总数设置为实际要处理的新地址数量
-        setProgress({ done: 0, total: newAddresses.length });
-
-        const classified = await classifyBatch(newAddresses, (done, total) => {
+        const classifiedUnique = await classifyBatch(uniqueAddresses, (done, total) => {
             setProgress({ done, total });
         });
 
-        setResults(prev => [...prev, ...classified]);
+        // 建立地址→分类结果的映射
+        const resultMap = new Map<string, GeoResult>();
+        classifiedUnique.forEach(r => resultMap.set(r.original, r));
+
+        // 按原始粘贴顺序展开所有行（包括空行和重复行）
+        const allResults: GeoResult[] = addresses.map(addr => {
+            // 空单元格 → 占位行
+            if (!addr.trim()) {
+                return { original: '[空行]', country: '-', countryCode: '', continent: '-', confidence: 'unknown' as const };
+            }
+            const base = resultMap.get(addr);
+            if (base) {
+                // 每行需要独立的对象引用（避免共享引用导致的状态问题）
+                return { ...base };
+            }
+            return { original: addr, country: '未知', countryCode: '', continent: '未知', confidence: 'unknown' as const };
+        });
+
+        setResults(prev => [...prev, ...allResults]);
         setIsProcessing(false);
+        playCompletionSound();
+
+        // 提示用户
+        const parts: string[] = [`已处理 ${addresses.length} 条数据`];
+        if (dupCount > 0) parts.push(`${dupCount} 条重复`);
+        if (emptyCount > 0) parts.push(`${emptyCount} 个空行`);
+        parts.push('已保留全部行');
+        toast.info(parts.join('，'));
 
         // 自动触发 AI 补全 (仅对未知项)
-        const unknownCount = classified.filter(r => r.confidence === 'unknown').length;
-        if (unknownCount > 0 && getAiInstance) {
+        const unknownInBatch = allResults.filter(r => r.confidence === 'unknown').length;
+        if (unknownInBatch > 0 && getAiInstance) {
             requestAnimationFrame(() => {
                 // 读取完整的新 state 再传给 AI
                 setResults(latestResults => {
@@ -268,7 +313,7 @@ ${batch.map((r, idx) => `${idx}: ${r.original}`).join('\n')}`;
                 });
             });
         }
-    }, [aiClassifyUnknowns, getAiInstance]);
+    }, [aiClassifyUnknowns, getAiInstance, toast]);
 
     // 手动触发 AI 补全
     const handleAiClassify = useCallback(() => {

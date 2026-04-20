@@ -12,6 +12,8 @@ import {
     Columns, MoveVertical, ArrowLeft
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
+import { getGlobalTextModel } from '@/utils/getTextModel';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 interface ColumnAlignPanelProps {
     getAiInstance?: () => GoogleGenAI;
@@ -21,8 +23,9 @@ interface ColumnAlignPanelProps {
 type MatchMode = 'exact' | 'ai';
 
 export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignPanelProps) {
-    // 基准列（原始数据）
+    // 基准列（原始数据）- 现在保存所有列
     const [baseColumn, setBaseColumn] = useState<string>('');
+    const [baseKeyColumn, setBaseKeyColumn] = useState<string>('0');
 
     // 待匹配数据
     const [matchInput, setMatchInput] = useState<string>('');
@@ -33,6 +36,9 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
 
     // 追加模式（待匹配数据分批粘贴）
     const [appendMode, setAppendMode] = useState(false);
+
+    // 首行为标题
+    const [firstRowIsHeader, setFirstRowIsHeader] = useState(false);
 
     // 状态
     const [isProcessing, setIsProcessing] = useState(false);
@@ -141,8 +147,10 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
             if (htmlRows && htmlRows.length > 0) {
                 e.preventDefault();
                 if (target === 'base') {
-                    // 基准列：取每行的第一列，单元格内换行替换为空格
-                    setBaseColumn(htmlRows.map(row => (row[0] || '').replace(/\n/g, ' ')).join(ROW_SEP));
+                    // 基准列：保留所有列，单元格内换行替换为空格
+                    setBaseColumn(htmlRows.map(row => row.map(cell => cell.replace(/\n/g, ' ')).join('\t')).join(ROW_SEP));
+                    // 如果只有1列，重置选择
+                    if (htmlRows[0].length <= 1) setBaseKeyColumn('0');
                 } else {
                     // 待匹配列：单元格内换行替换为空格
                     setMatchInput(htmlRows.map(row => row.map(cell => cell.replace(/\n/g, ' ')).join('\t')).join(ROW_SEP));
@@ -156,9 +164,10 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
             e.preventDefault();
             const parsed = parseTsvWithQuotes(plainText);
             if (target === 'base') {
-                // 基准列只取第一列
-                const rows = parsed.split(ROW_SEP);
-                setBaseColumn(rows.map(r => r.split('\t')[0] || '').join(ROW_SEP));
+                // 基准列：保留所有列
+                setBaseColumn(parsed);
+                const firstRow = parsed.split(ROW_SEP)[0] || '';
+                if (firstRow.split('\t').length <= 1) setBaseKeyColumn('0');
             } else {
                 setMatchInput(parsed);
             }
@@ -222,24 +231,53 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
         return rows.map(row => row.join('\t')).join(ROW_SEP);
     };
 
-    // 获取基准列的行数据 - 使用 ROW_SEP 分隔
-    const baseRows = useMemo(() => {
-        if (!baseColumn.trim()) return [];
-        return baseColumn.split(ROW_SEP);  // 使用安全分隔符
-    }, [baseColumn]);
-
-    // 解析待匹配数据 - 使用 ROW_SEP 分隔行
-    const matchData = useMemo(() => {
-        if (!matchInput.trim()) return { columns: 0, rows: [] as string[][] };
-        const lines = matchInput.split(ROW_SEP);  // 使用安全分隔符
+    // 解析基准列数据 - 完整保留所有列（始终包含所有行，含标题行）
+    const baseDataFull = useMemo(() => {
+        if (!baseColumn.trim()) return { columns: 0, rows: [] as string[][] };
+        const lines = baseColumn.split(ROW_SEP);
         const parsed = lines.map(line => line.split('\t'));
         if (parsed.length === 0) return { columns: 0, rows: [] as string[][] };
         const maxCols = Math.max(...parsed.map(row => row.length), 1);
-        return {
-            columns: maxCols,
-            rows: parsed
-        };
+        return { columns: maxCols, rows: parsed };
+    }, [baseColumn]);
+
+    // 解析待匹配数据（始终包含所有行，含标题行）
+    const matchDataFull = useMemo(() => {
+        if (!matchInput.trim()) return { columns: 0, rows: [] as string[][] };
+        const lines = matchInput.split(ROW_SEP);
+        const parsed = lines.map(line => line.split('\t'));
+        if (parsed.length === 0) return { columns: 0, rows: [] as string[][] };
+        const maxCols = Math.max(...parsed.map(row => row.length), 1);
+        return { columns: maxCols, rows: parsed };
     }, [matchInput]);
+
+    // 标题行
+    const baseHeaders = useMemo(() => {
+        if (!firstRowIsHeader || baseDataFull.rows.length === 0) return null;
+        return baseDataFull.rows[0];
+    }, [firstRowIsHeader, baseDataFull]);
+
+    const matchHeaders = useMemo(() => {
+        if (!firstRowIsHeader || matchDataFull.rows.length === 0) return null;
+        return matchDataFull.rows[0];
+    }, [firstRowIsHeader, matchDataFull]);
+
+    // 跳过标题行后的实际数据
+    const baseData = useMemo(() => {
+        if (!firstRowIsHeader) return baseDataFull;
+        return { columns: baseDataFull.columns, rows: baseDataFull.rows.slice(1) };
+    }, [baseDataFull, firstRowIsHeader]);
+
+    const matchData = useMemo(() => {
+        if (!firstRowIsHeader) return matchDataFull;
+        return { columns: matchDataFull.columns, rows: matchDataFull.rows.slice(1) };
+    }, [matchDataFull, firstRowIsHeader]);
+
+    // 基准列的 key 值列表（用于匹配的列）
+    const baseRows = useMemo(() => {
+        const keyCol = parseInt(baseKeyColumn);
+        return baseData.rows.map(row => row[keyCol] || '');
+    }, [baseData, baseKeyColumn]);
 
     // 精确匹配
     const executeExactMatch = useCallback(() => {
@@ -340,15 +378,16 @@ export default function ColumnAlignPanel({ getAiInstance, onBack }: ColumnAlignP
                     continue;
                 }
 
+                const keyColIdx = parseInt(matchKeyColumn);
                 const prompt = `你是一个翻译匹配专家。我需要你将原文与其对应的翻译匹配起来。
 
 原文列表（需要按此顺序输出）：
 ${batch.map((row, idx) => `${i + idx + 1}. "${row}"`).join('\n')}
 
-待匹配的翻译数据（第一列是翻译，可能有多列）：
+待匹配的翻译数据（共 ${matchData.columns} 列，请重点参考第 ${keyColIdx + 1} 列进行匹配）：
 ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | ')}`).join('\n')}
 
-请分析内容的语义对应关系，为每个原文找到最匹配的翻译行。
+请分析内容的语义对应关系，为每个原文找到最匹配的翻译行。主要依据第 ${keyColIdx + 1} 列的内容进行语义匹配。
 
 返回 JSON 格式（不要 markdown 代码块）：
 {"matches": [{"baseIndex": 原文序号, "matchIndex": 匹配行的索引号, "confidence": 置信度0-1}, ...]}
@@ -357,7 +396,7 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
 
                 try {
                     const response = await ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
+                        model: getGlobalTextModel(),
                         contents: prompt
                     });
 
@@ -407,8 +446,9 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
             setError(e instanceof Error ? e.message : 'AI 匹配出错');
         } finally {
             setIsProcessing(false);
+            playCompletionSound();
         }
-    }, [baseRows, matchData, getAiInstance]);
+    }, [baseRows, matchData, matchKeyColumn, getAiInstance]);
 
     const executeMatch = () => {
         if (matchMode === 'exact') {
@@ -418,10 +458,44 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
         }
     };
 
+    // 生成标题行字符串 - 始终生成（有真实标题用真实标题，否则自动生成）
+    const buildHeaderLine = (includeBase: boolean): string => {
+        const parts: string[] = [];
+
+        if (includeBase) {
+            const baseCols = baseData.columns || 1;
+            for (let i = 0; i < baseCols; i++) {
+                if (baseHeaders && baseHeaders[i]) {
+                    parts.push(baseHeaders[i]);
+                } else if (baseCols === 1) {
+                    parts.push('基准列');
+                } else {
+                    const keyCol = parseInt(baseKeyColumn);
+                    parts.push(i === keyCol ? '基准列(匹配键)' : `基准数据列${i + 1}`);
+                }
+            }
+        }
+
+        const matchCols = matchData.columns || 1;
+        for (let i = 0; i < matchCols; i++) {
+            if (matchHeaders && matchHeaders[i]) {
+                parts.push(matchHeaders[i]);
+            } else if (matchCols === 1) {
+                parts.push('匹配列');
+            } else {
+                const keyCol = parseInt(matchKeyColumn);
+                parts.push(i === keyCol ? '匹配列(匹配键)' : `匹配数据列${i + 1}`);
+            }
+        }
+
+        return parts.join('\t');
+    };
+
     const copyResult = () => {
         if (result.length === 0) return;
-        const text = result.map(row => row.join('\t')).join('\n');
-        navigator.clipboard.writeText(text).then(() => {
+        const lines: string[] = [buildHeaderLine(false)];
+        result.forEach(row => lines.push(row.join('\t')));
+        navigator.clipboard.writeText(lines.join('\n')).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         });
@@ -429,11 +503,12 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
 
     const copyResultWithBase = () => {
         if (result.length === 0) return;
-        const text = result.map((row, idx) => {
-            const baseRow = baseRows[idx] || '';
-            return [baseRow, ...row].join('\t');
-        }).join('\n');
-        navigator.clipboard.writeText(text).then(() => {
+        const lines: string[] = [buildHeaderLine(true)];
+        result.forEach((row, idx) => {
+            const baseRow = baseData.rows[idx] || [];
+            lines.push([...baseRow, ...row].join('\t'));
+        });
+        navigator.clipboard.writeText(lines.join('\n')).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         });
@@ -441,17 +516,19 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
 
     const copyResultFull = () => {
         if (result.length === 0) return;
-        const lines: string[] = [];
+        const lines: string[] = [buildHeaderLine(true)];
         // 主体：基准列 + 对齐结果
         result.forEach((row, idx) => {
-            const baseRow = baseRows[idx] || '';
-            lines.push([baseRow, ...row].join('\t'));
+            const baseRow = baseData.rows[idx] || [];
+            lines.push([...baseRow, ...row].join('\t'));
         });
         // 追加：待匹配列中未被使用的行（前面加空的基准列占位）
         if (unmatchedMatch.length > 0) {
             lines.push(''); // 空行分隔
             unmatchedMatch.forEach(row => {
-                lines.push(['[未匹配]', row].join('\t'));
+                const placeholder = new Array(baseData.columns).fill('');
+                placeholder[0] = '[未匹配]';
+                lines.push([...placeholder, row].join('\t'));
             });
         }
         navigator.clipboard.writeText(lines.join('\n')).then(() => {
@@ -521,20 +598,15 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                             AI 语义匹配
                         </button>
                     </div>
-                    {matchMode === 'exact' && matchData.columns > 1 && (
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-500">匹配列：</span>
-                            <select
-                                value={matchKeyColumn}
-                                onChange={(e) => setMatchKeyColumn(e.target.value)}
-                                className="text-xs border border-slate-200 rounded px-2 py-1 bg-white"
-                            >
-                                {Array.from({ length: matchData.columns }, (_, i) => (
-                                    <option key={i} value={i}>第 {i + 1} 列</option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
+                    <label className="flex items-center gap-1.5 cursor-pointer ml-auto" title="勾选后，两个数据区的第一行将被视为标题行，复制结果时自动带上标题">
+                        <input
+                            type="checkbox"
+                            checked={firstRowIsHeader}
+                            onChange={() => setFirstRowIsHeader(!firstRowIsHeader)}
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="text-xs text-slate-500">首行为标题</span>
+                    </label>
                 </div>
             </div>
 
@@ -548,8 +620,37 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                             <div className="flex items-center gap-2">
                                 <Table2 size={14} className="text-green-600" />
                                 <span className="text-sm font-medium text-slate-700">基准列（原始数据）</span>
+                                {baseDataFull.columns > 1 && (
+                                    <span className="text-xs text-slate-400">
+                                        {baseDataFull.rows.length} 行 × {baseDataFull.columns} 列
+                                        {firstRowIsHeader && baseDataFull.rows.length > 0 ? `（数据 ${baseData.rows.length} 行）` : ''}
+                                    </span>
+                                )}
                             </div>
-                            <span className="text-xs text-slate-400">{baseRows.length} 行</span>
+                            <div className="flex items-center gap-2">
+                                {baseData.columns > 1 && (
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs text-green-600 font-medium">基准列：</span>
+                                        <select
+                                            value={baseKeyColumn}
+                                            onChange={(e) => setBaseKeyColumn(e.target.value)}
+                                            className="text-xs border border-green-200 rounded px-2 py-1 bg-white text-green-700 font-medium"
+                                        >
+                                            {Array.from({ length: baseData.columns }, (_, i) => (
+                                                <option key={i} value={i}>
+                                                    第 {i + 1} 列{baseHeaders && baseHeaders[i] ? ` (${baseHeaders[i]})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                                {baseDataFull.columns <= 1 && (
+                                    <span className="text-xs text-slate-400">
+                                        {baseDataFull.rows.length} 行
+                                        {firstRowIsHeader && baseDataFull.rows.length > 0 ? `（数据 ${baseRows.length} 行）` : ''}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <textarea
                             value={internalToDisplay(baseColumn)}
@@ -562,26 +663,47 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
 
                     {/* 待匹配数据 */}
                     <div className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden">
-                        <div className="px-3 py-2 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Columns size={14} className="text-blue-600" />
-                                <span className="text-sm font-medium text-slate-700">待匹配数据</span>
-                                <span className="text-xs text-slate-400">
-                                    {matchData.rows.length} 行 × {matchData.columns} 列
-                                </span>
-                            </div>
-                            <label className="flex items-center gap-1.5 cursor-pointer" title="开启后，每次粘贴会追加到已有数据后面，方便分批粘贴大量数据">
-                                <span className="text-xs text-slate-500">追加模式</span>
-                                <div className="relative inline-flex items-center">
-                                    <input
-                                        type="checkbox"
-                                        checked={appendMode}
-                                        onChange={() => setAppendMode(!appendMode)}
-                                        className="sr-only peer"
-                                    />
-                                    <div className="w-8 h-4 bg-slate-300 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                        <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Columns size={14} className="text-blue-600" />
+                                    <span className="text-sm font-medium text-slate-700">待匹配数据</span>
+                                    <span className="text-xs text-slate-400">
+                                        {matchDataFull.rows.length} 行 × {matchDataFull.columns} 列
+                                        {firstRowIsHeader && matchDataFull.rows.length > 0 ? `（数据 ${matchData.rows.length} 行）` : ''}
+                                    </span>
                                 </div>
-                            </label>
+                                <div className="flex items-center gap-3">
+                                    {matchData.columns > 1 && (
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-xs text-blue-600 font-medium">匹配列：</span>
+                                            <select
+                                                value={matchKeyColumn}
+                                                onChange={(e) => setMatchKeyColumn(e.target.value)}
+                                                className="text-xs border border-blue-200 rounded px-2 py-1 bg-white text-blue-700 font-medium"
+                                            >
+                                                {Array.from({ length: matchData.columns }, (_, i) => (
+                                                    <option key={i} value={i}>
+                                                        第 {i + 1} 列{matchHeaders && matchHeaders[i] ? ` (${matchHeaders[i]})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                    <label className="flex items-center gap-1.5 cursor-pointer" title="开启后，每次粘贴会追加到已有数据后面，方便分批粘贴大量数据">
+                                        <span className="text-xs text-slate-500">追加模式</span>
+                                        <div className="relative inline-flex items-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={appendMode}
+                                                onChange={() => setAppendMode(!appendMode)}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-8 h-4 bg-slate-300 peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                         <textarea
                             value={internalToDisplay(matchInput)}
@@ -659,7 +781,7 @@ ${availableMatches.slice(0, 50).map(({ row, idx }) => `[${idx}] ${row.join(' | '
                                     >
                                         <span className="text-slate-400 mr-2">{idx + 1}.</span>
                                         {row.every(cell => !cell)
-                                            ? <span className="italic">未匹配: {baseRows[idx]}</span>
+                                            ? <span className="italic">未匹配: {baseRows[idx]}{baseData.columns > 1 ? ` (第${parseInt(baseKeyColumn)+1}列)` : ''}</span>
                                             : row.join(' | ')
                                         }
                                     </div>

@@ -14,6 +14,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
+import { playCompletionSound } from '@/utils/soundNotification';
 import {
     Play,
     Loader2,
@@ -473,6 +474,7 @@ ${prayerText}
         }
 
         setIsProcessing(false);
+        playCompletionSound();
         setPendingPrayers([]); // 处理完毕清除 pending
     }, [inputText, pendingPrayers, isProcessing, getAiInstance, textModel, systemPrompt]);
 
@@ -571,6 +573,7 @@ ${result.originalText}
         }
 
         setIsProcessing(false);
+        playCompletionSound();
     }, [isProcessing, getAiInstance, textModel, systemPrompt]);
 
     // --- 批量重试失败项 ---
@@ -646,6 +649,7 @@ ${item.originalText}
         }
 
         setIsProcessing(false);
+        playCompletionSound();
     }, [results, isProcessing, getAiInstance, textModel, systemPrompt]);
 
     const handleResetSystemPrompt = () => {

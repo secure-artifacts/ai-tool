@@ -1,4 +1,5 @@
 import { getMainAiInstance, getStoredApiKey } from './aiAccess';
+import { getGlobalTextModel } from '@/utils/getTextModel';
 import type {
     AIExpandResult,
     AIGeneratedStructure,
@@ -1294,7 +1295,7 @@ ${modeInstructions}
                 const ai = aiFactory();
                 // 使用 Gemini 2.0 的 Google Search 工具
                 const response = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
+                    model: getGlobalTextModel(),
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     config: {
                         temperature,
@@ -2291,7 +2292,7 @@ ${modeInstructions}
                     const normalizedBody = this.normalizeBodyForGenAI(body);
                     const ai = aiFactory();
                     const response = await ai.models.generateContent({
-                        model: 'gemini-3-flash-preview',
+                        model: getGlobalTextModel(),
                         ...normalizedBody,
                     });
                     const text = response?.text

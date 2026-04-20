@@ -52,9 +52,10 @@ export const shouldUseAiStudioMode = (apiKey?: string): boolean => {
     if (isHostAiStudio()) return true;
 
     // 2. 有 key → 按 key 类型判断（优先于环境变量）
-    //    网站模式下：AIza 开头 = AI Studio key，其他 = Vertex AI key
+    //    网站模式下：AIza 开头 = AI Studio key，gsk_ 开头 = Groq key，其他 = Vertex AI key
     if (apiKey && apiKey.trim().length > 0) {
-        return apiKey.trim().startsWith('AIza');
+        const key = apiKey.trim();
+        return key.startsWith('AIza') || key.startsWith('gsk_');
     }
 
     // 3. 无 key + 环境变量 → AI Studio 构建模式（打包 AI Studio 版本时用）
@@ -68,3 +69,4 @@ export const shouldUseAiStudioMode = (apiKey?: string): boolean => {
 export const isRunningInAiStudio = (): boolean => {
     return isEnvAiStudio() || isHostAiStudio();
 };
+

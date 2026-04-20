@@ -13,6 +13,7 @@
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
+import { playCompletionSound } from '@/utils/soundNotification';
 import {
     Play,
     Loader2,
@@ -380,6 +381,7 @@ export function SocialMediaRewriteView({ getAiInstance, textModel }: SocialMedia
             ));
         } finally {
             setIsProcessing(false);
+            playCompletionSound();
         }
     }, [inputText, isProcessing, getAiInstance, textModel, systemPrompt, outputSections]);
 

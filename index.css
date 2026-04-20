@@ -247,6 +247,36 @@ body {
   padding: 0;
 }
 
+/* ===== 全局统一滚动条样式 ===== */
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* WebKit (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Force light mode for SheetMind select/input elements */
 .sheetmind-light-form select,
 .sheetmind-light-form input:not([type="range"]),
@@ -314,6 +344,19 @@ body {
 .tooltip-bottom:hover::before {
   opacity: 1;
   visibility: visible;
+}
+
+/* fixed tooltip 模式：统一由 FixedTooltipProvider 渲染，避免伪元素提示被父容器裁切 */
+.fixed-tooltip-enabled .tooltip-bottom::after,
+.fixed-tooltip-enabled .tooltip-bottom::before,
+.fixed-tooltip-enabled [data-tip]::after,
+.fixed-tooltip-enabled [data-tip]::before,
+.fixed-tooltip-enabled [data-tooltip]::after,
+.fixed-tooltip-enabled [data-tooltip]::before,
+.fixed-tooltip-enabled [title]::after,
+.fixed-tooltip-enabled [title]::before {
+  content: none !important;
+  display: none !important;
 }
 
 body {
@@ -1208,6 +1251,10 @@ nav button.active {
 
 .collapsed-nav-btn .nav-icon-workflowEditor {
   color: #2dd4bf;
+}
+
+.collapsed-nav-btn .nav-icon-dataPipeline {
+  color: #fbbf24;
 }
 
 .collapsed-nav-btn.active .material-icons {

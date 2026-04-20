@@ -11,6 +11,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { shouldUseAiStudioMode, isRunningInAiStudio } from '../../../utils/aiStudioDetect';
 import { RandomLibrary, LIBRARY_COLORS, generateLibraryId } from './randomLibraryService';
+import { getGlobalTextModel } from '@/utils/getTextModel';
 
 // ===== 类型定义 =====
 
@@ -49,7 +50,7 @@ const getAiInstance = (): GoogleGenAI => {
     // AI Studio 环境：平台内部处理认证
     if (isRunningInAiStudio()) {
         if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
-        return new GoogleGenAI({});
+        return new GoogleGenAI({ apiKey: cleanKey || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER' });
     }
 
     if (!cleanKey) {
@@ -58,7 +59,11 @@ const getAiInstance = (): GoogleGenAI => {
     if (shouldUseAiStudioMode(cleanKey)) {
         return new GoogleGenAI({ apiKey: cleanKey });
     }
-    return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+    const isVertex = !shouldUseAiStudioMode(cleanKey);
+    if (isVertex) {
+        return new GoogleGenAI({ apiKey: cleanKey, vertexai: true, httpOptions: { baseUrl: 'https://aiplatform.googleapis.com/' } });
+    }
+    return new GoogleGenAI({ apiKey: cleanKey });
 };
 
 // ===== 递归提取所有文本 =====
@@ -159,7 +164,7 @@ async function identifyLibraryStructure(
     const userPrompt = `识别工作流 "${workflowTitle}" 中的随机素材库结构：\n\n${textForAI}`;
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: getGlobalTextModel(),
         contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         config: {
             systemInstruction,
@@ -213,7 +218,7 @@ export async function reorganizeInstructions(rawInstructions: ParsedInstruction[
 }`;
 
     const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: getGlobalTextModel(),
         contents: [{ role: 'user', parts: [{ text: `请整理以下指令，可以合并重组，但不能少任何一条要求：\n\n${allText}` }] }],
         config: {
             systemInstruction,
@@ -267,7 +272,7 @@ ${ITEM_SEP}
 
     try {
         const resp = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: getGlobalTextModel(),
             contents: [{ role: 'user', parts: [{ text: libraryText }] }],
             config: { systemInstruction: sysInstr, temperature: 0, maxOutputTokens: 65536 },
         });

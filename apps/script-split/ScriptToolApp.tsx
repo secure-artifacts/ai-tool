@@ -16,7 +16,9 @@ import {
   Sparkles,
   LayoutGrid,
   Eraser,
-  Combine
+  Combine,
+  Trash2,
+  AlignLeft
 } from 'lucide-react';
 import {
   processGrid,
@@ -35,6 +37,7 @@ interface ScriptToolAppProps {
 }
 
 const LOCAL_MODEL_KEY = 'script_tool_local_model';
+const SCRIPT_TOOL_STATE_KEY = 'script_tool_state_v1';
 const INHERIT_VALUE = '__global__';
 
 const MODEL_OPTIONS = [
@@ -50,25 +53,137 @@ const MODEL_OPTIONS = [
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLS = 20;
 
+interface PersistedScriptToolState {
+  gridData: GridData;
+  selection: GridSelection | null;
+  clearSource: boolean;
+  gridStyles: [string, { bgColor?: string }][];
+  customPrefix: string;
+  mergeCycle: number;
+}
+
+const createEmptyGrid = (): GridData =>
+  Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+
+const normalizeGridData = (raw: unknown): GridData => {
+  if (!Array.isArray(raw)) return createEmptyGrid();
+  const rows = raw
+    .filter((row): row is unknown[] => Array.isArray(row))
+    .map(row => row.map(cell => (cell == null ? '' : String(cell))));
+  if (rows.length === 0) return createEmptyGrid();
+  return rows;
+};
+
+const normalizeSelection = (raw: unknown): GridSelection | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as {
+    start?: { row?: unknown; col?: unknown };
+    end?: { row?: unknown; col?: unknown };
+  };
+  const sr = value.start?.row;
+  const sc = value.start?.col;
+  const er = value.end?.row;
+  const ec = value.end?.col;
+  if ([sr, sc, er, ec].every(v => typeof v === 'number' && Number.isFinite(v))) {
+    return {
+      start: { row: sr as number, col: sc as number },
+      end: { row: er as number, col: ec as number }
+    };
+  }
+  return null;
+};
+
+const normalizeGridStyles = (raw: unknown): GridStyles => {
+  if (!Array.isArray(raw)) return new Map();
+  const map = new Map<string, { bgColor?: string }>();
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length !== 2) continue;
+    const [key, style] = entry;
+    if (typeof key !== 'string') continue;
+    if (!style || typeof style !== 'object') continue;
+    const bgColor = (style as { bgColor?: unknown }).bgColor;
+    map.set(key, typeof bgColor === 'string' ? { bgColor } : {});
+  }
+  return map;
+};
+
+let memoryPersistedState: PersistedScriptToolState | null = null;
+
+const loadPersistedState = (): PersistedScriptToolState | null => {
+  return memoryPersistedState;
+};
+
 function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: ScriptToolAppProps) {
+  const [persistedState] = useState<PersistedScriptToolState | null>(() => loadPersistedState());
   // 本地模型选择（默认继承全局）
   const [localModel, setLocalModel] = useState<string>(() => {
     try { return localStorage.getItem(LOCAL_MODEL_KEY) || INHERIT_VALUE; } catch { return INHERIT_VALUE; }
   });
   const effectiveModel = localModel === INHERIT_VALUE ? textModel : localModel;
-  const [gridData, setGridData] = useState<GridData>([]);
-  const [selection, setSelection] = useState<GridSelection | null>(null);
-  const [forceSelection, setForceSelection] = useState<GridSelection | null>(null); // 用于外部触发选区
+  const [gridData, setGridData] = useState<GridData>(persistedState?.gridData || createEmptyGrid());
+  const [selection, setSelection] = useState<GridSelection | null>(persistedState?.selection || null);
+  const [forceSelection, setForceSelection] = useState<GridSelection | null>(persistedState?.selection || null); // 用于外部触发选区
   const [copied, setCopied] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string>('');
-  const [clearSource, setClearSource] = useState(false); // 默认保留原文（开关关 = 保留，开关开 = 删除）
-  const [gridStyles, setGridStyles] = useState<GridStyles>(new Map()); // 单元格样式（橙色标记）
+  const [clearSource, setClearSource] = useState<boolean>(persistedState?.clearSource ?? false); // 默认保留原文（开关关 = 保留，开关开 = 删除）
+  const [gridStyles, setGridStyles] = useState<GridStyles>(new Map(persistedState?.gridStyles || [])); // 单元格样式（橙色标记）
   const [showPrefixModal, setShowPrefixModal] = useState(false); // 自定义前缀弹窗
-  const [customPrefix, setCustomPrefix] = useState('prompt'); // 自定义前缀内容
+  const [customPrefix, setCustomPrefix] = useState<string>(persistedState?.customPrefix || 'prompt'); // 自定义前缀内容
   const [copiedSelection, setCopiedSelection] = useState(false);
   const [aiSplitting, setAiSplitting] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
-  const [mergeCycle, setMergeCycle] = useState(1); // 循环列数
+  const [mergeCycle, setMergeCycle] = useState<number>(persistedState?.mergeCycle ?? 1); // 循环列数
+  const [showWrapModal, setShowWrapModal] = useState(false); // 自动断行弹窗
+  const [lineWidth, setLineWidth] = useState<number>(18); // 断行宽度（默认18）
+
+  // ===== 合并行内容：多列合并为一列（顿号分隔）=====
+  const handleMergeRowContent = () => {
+    if (!selection) {
+      setStatusMsg('请先用鼠标框选要合并的区域');
+      return;
+    }
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+    const totalCols = maxC - minC + 1;
+    if (totalCols < 2) {
+      setStatusMsg('至少需要选中 2 列才能合并');
+      return;
+    }
+
+    const newGrid = gridData.map(row => [...row]);
+    let mergedCount = 0;
+
+    for (let r = minR; r <= maxR; r++) {
+      const parts: string[] = [];
+      for (let c = minC; c <= maxC; c++) {
+        const val = (newGrid[r]?.[c] || '').trim();
+        if (val) parts.push(val);
+      }
+      if (parts.length === 0) continue;
+
+      // Write merged content to first column
+      newGrid[r][minC] = parts.join('、');
+      // Clear remaining columns
+      for (let c = minC + 1; c <= maxC; c++) {
+        newGrid[r][c] = '';
+      }
+      mergedCount++;
+    }
+
+    setGridData(newGrid);
+
+    // Update selection to first column only
+    const newSel = {
+      start: { row: minR, col: minC },
+      end: { row: maxR, col: minC }
+    };
+    setForceSelection(newSel);
+    setSelection(newSel);
+
+    setStatusMsg(`✅ 已将 ${totalCols} 列合并为 1 列（${colToLetter(minC)}），共处理 ${mergedCount} 行，用「、」分隔`);
+  };
 
   // ===== 合并列：将所有列按循环数合并 =====
   const handleMergeColumns = () => {
@@ -315,10 +430,25 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
     }
   };
 
-  // Initialize empty grid
+  // 持久化关键状态：切换页面返回时保留文案拆分内容
   useEffect(() => {
-    setGridData(Array(DEFAULT_ROWS).fill(null).map(() => Array(DEFAULT_COLS).fill('')));
-  }, []);
+    const timer = window.setTimeout(() => {
+      try {
+        const payload: PersistedScriptToolState = {
+          gridData,
+          selection,
+          clearSource,
+          gridStyles: Array.from(gridStyles.entries()),
+          customPrefix,
+          mergeCycle
+        };
+        memoryPersistedState = payload;
+      } catch {
+        // ignore errors
+      }
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [gridData, selection, clearSource, gridStyles, customPrefix, mergeCycle]);
 
   // 实际处理函数
   const doProcess = (tool: ToolType, prefix?: string) => {
@@ -328,7 +458,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
     }
 
     // clearSource: false = 保留原文（默认）, true = 删除原文
-    const options: ProcessOptions = { clearSource, customPrefix: prefix };
+    const options: ProcessOptions = { clearSource, customPrefix: prefix, lineWidth };
     const { newGrid, updatedCols } = processGrid(gridData, selection, tool, options);
     setGridData(newGrid);
 
@@ -425,6 +555,16 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
       toolMsg = cleanedCount > 0
         ? `已清理 ${cleanedCount} 个单元格的尾部标签/水印`
         : `选区内没有发现需要清理的尾部标签/水印`;
+    } else if (tool === ToolType.CleanEmojis) {
+      let cleanedCount = 0;
+      for (const col of updatedCols) {
+        if (col <= -6000 && col > -7000) {
+          cleanedCount = -(col + 6000);
+        }
+      }
+      toolMsg = cleanedCount > 0
+        ? `已清理 ${cleanedCount} 个单元格中的表情符号`
+        : `选区内没有发现表情符号`;
     } else {
       const colsStr = updatedCols.filter(c => c >= 0).map(c => colToLetter(c)).join(', ');
       const clearMsg = clearSource ? ' (已删除原文案)' : '';
@@ -433,14 +573,16 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
     setStatusMsg(toolMsg);
   };
 
-  // 入口函数：对于 AddPromptPrefix 显示弹窗，其他工具直接处理
+  // 入口函数：对于 AddPromptPrefix / AutoWrap 显示弹窗，其他工具直接处理
   const handleProcess = (tool: ToolType) => {
+    if (!selection) {
+      setStatusMsg('请先用鼠标框选要处理的单元格区域');
+      return;
+    }
     if (tool === ToolType.AddPromptPrefix) {
-      if (!selection) {
-        setStatusMsg('请先用鼠标框选要处理的单元格区域');
-        return;
-      }
       setShowPrefixModal(true);
+    } else if (tool === ToolType.AutoWrap) {
+      setShowWrapModal(true);
     } else {
       doProcess(tool);
     }
@@ -450,6 +592,12 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
   const handleConfirmPrefix = () => {
     setShowPrefixModal(false);
     doProcess(ToolType.AddPromptPrefix, customPrefix);
+  };
+
+  // 确认自动断行
+  const handleConfirmWrap = () => {
+    setShowWrapModal(false);
+    doProcess(ToolType.AutoWrap);
   };
 
   const getContentBounds = (
@@ -575,6 +723,20 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
     setStatusMsg(`已选中全部内容: A1:${colToLetter(maxCol)}${maxRow + 1}`);
   };
 
+  const handleClearGrid = () => {
+    const nextGrid =
+      gridData.length > 0
+        ? gridData.map(row => row.map(() => ''))
+        : createEmptyGrid();
+    setGridData(nextGrid);
+    setGridStyles(new Map());
+    setSelection(null);
+    setForceSelection(null);
+    setCopied(false);
+    setCopiedSelection(false);
+    setStatusMsg('已清空表格文字与背景标记（保留表格结构）');
+  };
+
   const getSelectionLabel = () => {
     if (!selection) return null;
     const minR = Math.min(selection.start.row, selection.end.row) + 1;
@@ -590,143 +752,170 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
     <div className="script-tool-app tool-container" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: '0' }}>
       {/* Toolbar */}
       <header className="bg-[#f9fbfd] border-b border-slate-200 px-4 py-2 flex-none" style={{ overflow: 'visible' }}>
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+        <div className="flex flex-col gap-3">
 
-          {/* Title & Logo */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="bg-[#107c41] p-1.5 rounded text-white shadow-sm">
-              <Grid3X3 className="w-5 h-5" />
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="bg-[#107c41] p-1.5 rounded text-white shadow-sm">
+                <Grid3X3 className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-sm font-medium text-slate-800 leading-tight">文案拆分表</h1>
+                <p className="text-[10px] text-slate-500">类 Google Sheets 编辑器</p>
+              </div>
+              <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] text-slate-600">
+                <MousePointer2 className="w-3.5 h-3.5" />
+                <span>选区：</span>
+                <span className="font-medium text-slate-700">{selection ? getSelectionLabel() : '未选择'}</span>
+              </div>
             </div>
-            <div>
-              <h1 className="text-sm font-medium text-slate-800 leading-tight">文案拆分表</h1>
-              <p className="text-[10px] text-slate-500">类 Google Sheets 编辑器</p>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 p-1 rounded-lg border border-slate-200 bg-white shadow-sm">
+                <Button variant="primary" onClick={handleSelectAll} className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white border-transparent text-xs whitespace-nowrap px-3 py-1.5 leading-none transition-all hover:shadow-md hover:shadow-blue-500/35">
+                  <CheckSquare className="w-3.5 h-3.5 mr-1" />
+                  选中全部
+                </Button>
+                <Button variant="primary" onClick={handleCopyAll} className="inline-flex items-center justify-center bg-[#107c41] hover:bg-[#0b6a37] text-white border-transparent text-xs whitespace-nowrap px-3 py-1.5 leading-none transition-all hover:shadow-md hover:shadow-emerald-500/35">
+                  {copied ? <Check className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                  {copied ? '已复制' : '复制全部'}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleCopySelection}
+                  disabled={!selection}
+                  className="inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white border-transparent text-xs whitespace-nowrap px-3 py-1.5 leading-none transition-all hover:shadow-md hover:shadow-cyan-500/25 disabled:opacity-100 disabled:bg-slate-800 disabled:text-slate-400 disabled:border-slate-700 disabled:shadow-none"
+                >
+                  {copiedSelection ? <Check className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                  {copiedSelection ? '已复制' : '复制选中'}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleClearGrid}
+                  className="inline-flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white border-transparent text-xs whitespace-nowrap px-3 py-1.5 leading-none transition-all hover:shadow-md hover:shadow-slate-500/25"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  清空表格
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white">
+                <span className="text-xs text-slate-500">删除原文</span>
+                <button
+                  onClick={() => setClearSource(!clearSource)}
+                  data-tip={clearSource ? '拆分后删除原始文案' : '拆分后保留原始文案（默认）'}
+                  className={`tooltip-bottom relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${clearSource ? 'bg-red-500' : 'bg-slate-300'}`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${clearSource ? 'switch-on' : 'switch-off'}`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Tool Actions */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* 选中全部 & 复制全部 - 放在最前面 */}
-            <Button variant="primary" onClick={handleSelectAll} className="bg-blue-600 hover:bg-blue-700 text-white border-transparent shadow-sm text-xs whitespace-nowrap">
-              <CheckSquare className="w-4 h-4 mr-1" />
-              选中全部
-            </Button>
-
-            <Button variant="primary" onClick={handleCopyAll} className="bg-[#107c41] hover:bg-[#0b6a37] text-white border-transparent shadow-sm text-xs whitespace-nowrap">
-              {copied ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
-              {copied ? '已复制' : '复制全部'}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleCopySelection}
+          <div className="flex items-center gap-1 flex-wrap">
+            <ToolButton
+              icon={<Columns className="w-4 h-4" />}
+              label="拆分三段 (标/内/尾)"
+              tooltip="把选区按 标题/正文/尾句 三列拆分到新列"
+              onClick={() => handleProcess(ToolType.SplitThree)}
               disabled={!selection}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white border-transparent shadow-sm text-xs whitespace-nowrap"
-            >
-              {copiedSelection ? <Check className="w-4 h-4 mr-1" /> : <Copy className="w-4 h-4 mr-1" />}
-              {copiedSelection ? '已复制' : '复制选中'}
-            </Button>
-
-            <div className="w-px h-6 bg-slate-300 mx-1"></div>
-
-            {/* 拆分工具 */}
-            <div className="flex flex-wrap gap-1">
-              <ToolButton
-                icon={<Columns className="w-4 h-4" />}
-                label="拆分三段 (标/内/尾)"
-                tooltip="把选区按 标题/正文/尾句 三列拆分到新列"
-                onClick={() => handleProcess(ToolType.SplitThree)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<div className="flex gap-0.5 scale-75"><div className="w-1 h-4 bg-current rounded-sm"></div><div className="w-1 h-4 bg-current rounded-sm"></div></div>}
-                label="拆分两段 (标/内)"
-                tooltip="把选区按 标题/正文 两列拆分到新列"
-                onClick={() => handleProcess(ToolType.SplitTwo)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Zap className="w-4 h-4" />}
-                label="半智能拆分"
-                tooltip="半智能拆分标题：优先换行 → 冒号 → 祈祷关键词(Dear God等) → 英文句号"
-                onClick={() => handleProcess(ToolType.SmartSplit)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Sparkles className="w-4 h-4" />}
-                label={aiSplitting ? 'AI 分析中...' : '🤖 AI 拆分'}
-                tooltip="AI 智能识别标题，100%保留原文不修改（需要 API Key）"
-                onClick={handleAiSplit}
-                disabled={!selection || aiSplitting || !getAiInstance}
-              />
-              <ToolButton
-                icon={<WrapText className="w-4 h-4" />}
-                label="清理换行"
-                tooltip="清除多余换行，按句号转换为一行一句"
-                onClick={() => handleProcess(ToolType.CleanBreaks)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Video className="w-4 h-4" />}
-                label="视频提示词"
-                tooltip="将选区内容统一格式化为视频提示词模板"
-                onClick={() => handleProcess(ToolType.VideoPrompts)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<LayoutGrid className="w-4 h-4" />}
-                label="多画面提示词"
-                tooltip="将每个单元格内容生成多画面分割图描述格式（画面1、画面2...）"
-                onClick={() => handleProcess(ToolType.MultiPanelPrompt)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Eraser className="w-4 h-4" />}
-                label="清理尾部"
-                tooltip="自动清理结尾的 @某人 标签或 Veo 等水印单词"
-                onClick={() => handleProcess(ToolType.CleanTails)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Languages className="w-4 h-4" />}
-                label="删除中文"
-                tooltip="删除选中区域内包含中文的单元格（保留纯外文）"
-                onClick={() => handleProcess(ToolType.ClearChinese)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Hash className="w-4 h-4" />}
-                label="Opal 序号"
-                tooltip="给每个单元格内容前面添加 prompt-序号（用于 Opal 自动化）"
-                onClick={() => handleProcess(ToolType.AddPromptPrefix)}
-                disabled={!selection}
-              />
-              <ToolButton
-                icon={<Combine className="w-4 h-4" />}
-                label="合并列"
-                tooltip="将多列数据按循环数合并（如3列一循环：D-F并入A-C下方）"
-                onClick={handleMergeColumns}
-                disabled={!selection}
-              />
-            </div>
-
-            <div className="w-px h-6 bg-slate-300 mx-1"></div>
-
-            {/* Clear Source Switch */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">删除原文</span>
-              <button
-                onClick={() => setClearSource(!clearSource)}
-                data-tip={clearSource ? '拆分后删除原始文案' : '拆分后保留原始文案（默认）'}
-                className={`tooltip-bottom relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${clearSource ? 'bg-red-500' : 'bg-slate-300'}`}
-              >
-                <span
-                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${clearSource ? 'switch-on' : 'switch-off'}`}
-                />
-              </button>
-            </div>
-
-            {/* AI 模型选择 */}
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-500">AI模型:</span>
+            />
+            <ToolButton
+              icon={<div className="flex gap-0.5 scale-75"><div className="w-1 h-4 bg-current rounded-sm"></div><div className="w-1 h-4 bg-current rounded-sm"></div></div>}
+              label="拆分两段 (标/内)"
+              tooltip="把选区按 标题/正文 两列拆分到新列"
+              onClick={() => handleProcess(ToolType.SplitTwo)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Zap className="w-4 h-4" />}
+              label="半智能拆分"
+              tooltip="半智能拆分标题：优先换行 → 冒号 → 祈祷关键词(Dear God等) → 英文句号"
+              onClick={() => handleProcess(ToolType.SmartSplit)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Sparkles className="w-4 h-4" />}
+              label={aiSplitting ? 'AI 分析中...' : '🤖 AI 拆分'}
+              tooltip="AI 智能识别标题，100%保留原文不修改（需要 API Key）"
+              onClick={handleAiSplit}
+              disabled={!selection || aiSplitting || !getAiInstance}
+            />
+            <ToolButton
+              icon={<WrapText className="w-4 h-4" />}
+              label="清理换行"
+              tooltip="清除多余换行，按句号转换为一行一句"
+              onClick={() => handleProcess(ToolType.CleanBreaks)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Video className="w-4 h-4" />}
+              label="视频提示词"
+              tooltip="将选区内容统一格式化为视频提示词模板"
+              onClick={() => handleProcess(ToolType.VideoPrompts)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<LayoutGrid className="w-4 h-4" />}
+              label="多画面提示词"
+              tooltip="将每个单元格内容生成多画面分割图描述格式（画面1、画面2...）"
+              onClick={() => handleProcess(ToolType.MultiPanelPrompt)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Eraser className="w-4 h-4" />}
+              label="清理尾部"
+              tooltip="自动清理结尾的 @某人 标签或 Veo 等水印单词"
+              onClick={() => handleProcess(ToolType.CleanTails)}
+              disabled={!selection}
+            />
+            <ToolButton
+              // Use a text emoji as an icon
+              icon={<span className="w-4 h-4 inline-flex items-center justify-center text-sm">🧹</span>}
+              label="清理表情"
+              tooltip="自动删除文本中的 emoji 表情图标和特殊符号"
+              onClick={() => handleProcess(ToolType.CleanEmojis)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<AlignLeft className="w-4 h-4" />}
+              label="自动断行"
+              tooltip="按最高 18 个字符智能断行排版，保留英语单词完整"
+              onClick={() => handleProcess(ToolType.AutoWrap)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Languages className="w-4 h-4" />}
+              label="删除中文"
+              tooltip="删除选中区域内包含中文的单元格（保留纯外文）"
+              onClick={() => handleProcess(ToolType.ClearChinese)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Hash className="w-4 h-4" />}
+              label="Opal 序号"
+              tooltip="给每个单元格内容前面添加 prompt-序号（用于 Opal 自动化）"
+              onClick={() => handleProcess(ToolType.AddPromptPrefix)}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<Combine className="w-4 h-4" />}
+              label="合并列"
+              tooltip="将多列数据按循环数合并（如3列一循环：D-F并入A-C下方）"
+              onClick={handleMergeColumns}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<span className="w-4 h-4 inline-flex items-center justify-center text-xs font-bold">→1</span>}
+              label="多列合一"
+              tooltip="将选区每行的多列内容合并到第一列，用顿号（、）分隔"
+              onClick={handleMergeRowContent}
+              disabled={!selection}
+            />
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-white">
+              <span className="text-xs font-medium text-slate-600">AI模型:</span>
               <select
                 value={localModel}
                 onChange={e => {
@@ -734,8 +923,8 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                   setLocalModel(v);
                   try { localStorage.setItem(LOCAL_MODEL_KEY, v); } catch {}
                 }}
-                className="text-xs border border-slate-300 rounded px-1 py-0.5 bg-white text-slate-700"
-                style={{ maxWidth: '180px' }}
+                className="text-xs border border-slate-300 rounded px-1.5 py-1 bg-white text-slate-700"
+                style={{ maxWidth: '220px' }}
               >
                 {MODEL_OPTIONS.map(o => (
                   <option key={o.value} value={o.value}>
@@ -811,6 +1000,49 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
         </div>
       )}
 
+      {/* 自动断行设置弹窗 */}
+      {showWrapModal && (
+        <div className="prefix-modal-overlay" onClick={() => setShowWrapModal(false)}>
+          <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="prefix-modal-title">自动断行设置</h3>
+            <p className="prefix-modal-desc">
+              设置每行最大字符数。英语单词不会被截断，遇到 <b>: . ? !</b> 标点时自动换行。
+              <br />• 默认 <b>18</b> 个字符（适合字幕排版）
+              <br />• 较短的值（如 12~15）适合竖屏短视频
+              <br />• 较长的值（如 25~30）适合横屏/正常阅读
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <span className="text-sm text-slate-600">每行字符数：</span>
+              <input
+                type="number"
+                min={5}
+                max={100}
+                value={lineWidth}
+                onChange={(e) => setLineWidth(Math.max(5, parseInt(e.target.value) || 18))}
+                className="prefix-modal-input"
+                style={{ width: '80px', textAlign: 'center' }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmWrap(); }}
+                autoFocus
+              />
+            </div>
+            <div className="prefix-modal-actions">
+              <button
+                onClick={() => setShowWrapModal(false)}
+                className="prefix-modal-btn-cancel"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmWrap}
+                className="prefix-modal-btn-confirm"
+              >
+                确定断行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 合并列弹窗 */}
       {showMergeModal && (
         <div className="prefix-modal-overlay" onClick={() => setShowMergeModal(false)}>
@@ -856,11 +1088,11 @@ const ToolButton: React.FC<{ icon: React.ReactNode; label: string; tooltip?: str
     disabled={disabled}
     data-tip={tooltip || label}
     className={`
-      tooltip-bottom flex items-center gap-1.5 px-2.5 py-1.5 transition-colors text-xs font-medium whitespace-nowrap
+      tooltip-bottom inline-flex items-center gap-1 px-2 py-1 transition-colors text-xs font-semibold whitespace-nowrap leading-none
       border rounded-md
       ${disabled
-        ? 'opacity-40 cursor-not-allowed bg-slate-50 text-slate-400 border-slate-200'
-        : 'hover:bg-green-50 text-slate-700 hover:text-green-700 border-slate-300 bg-white'
+        ? 'cursor-not-allowed text-slate-500 border-slate-700 bg-slate-800/90'
+        : 'text-slate-200 border-slate-700 bg-slate-900/80 hover:bg-emerald-900/25 hover:text-emerald-200 hover:border-emerald-500/60 hover:shadow-[0_0_0_1px_rgba(16,185,129,0.18)]'
       }
     `}
   >

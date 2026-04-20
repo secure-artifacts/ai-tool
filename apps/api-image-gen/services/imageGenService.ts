@@ -27,15 +27,15 @@ const getAiInstance = (): GoogleGenAI => {
         apiKey = typeof window !== 'undefined' ? (localStorage.getItem('user_api_key') || '') : '';
     }
     if (!apiKey) {
-        apiKey = process.env.API_KEY || '';
+        apiKey = (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '';
     }
 
     const cleanKey = apiKey.trim().replace(/[^\x20-\x7E]/g, '');
 
     // AI Studio 环境：平台内部处理认证
     if (isRunningInAiStudio()) {
-        if (cleanKey) return new GoogleGenAI({ apiKey: cleanKey });
-        return new GoogleGenAI({});
+        const studioKey = cleanKey || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER';
+        return new GoogleGenAI({ apiKey: studioKey });
     }
 
     if (!cleanKey) {
@@ -44,7 +44,11 @@ const getAiInstance = (): GoogleGenAI => {
     if (shouldUseAiStudioMode(cleanKey)) {
         return new GoogleGenAI({ apiKey: cleanKey });
     }
-    return new GoogleGenAI({ apiKey: cleanKey, vertexai: true });
+    const isVertex = !shouldUseAiStudioMode(cleanKey);
+    if (isVertex) {
+        return new GoogleGenAI({ apiKey: cleanKey, vertexai: true, httpOptions: { baseUrl: 'https://aiplatform.googleapis.com/' } });
+    }
+    return new GoogleGenAI({ apiKey: cleanKey });
 };
 
 // 检测是否为 AI Studio 模式
@@ -57,7 +61,7 @@ const isAiStudioMode = (): boolean => {
         try { apiKey = apiPool.getCurrentKey(); } catch {}
     }
     if (!apiKey) apiKey = typeof window !== 'undefined' ? (localStorage.getItem('user_api_key') || '') : '';
-    if (!apiKey) apiKey = process.env.API_KEY || '';
+    if (!apiKey) apiKey = (typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_GEMINI_API_KEY : '') || '';
     return shouldUseAiStudioMode(apiKey.trim());
 };
 

@@ -90,6 +90,36 @@ type SimplePreset = {
     source: 'recognition' | 'template' | 'system';
 };
 
+// 判断是否为视频资源的工具函数
+const isVideoResource = (item?: ImageItem | null) => {
+    if (!item) return false;
+    
+    // 1. 优先使用已知的 mimeType (来自 API 或 Fetch 探测)
+    if (item.mimeType?.startsWith('video/')) return true;
+    
+    // 2. 检查 URL 或原始输入中的后缀
+    const input = (item.originalInput || '').toLowerCase();
+    const url = (item.imageUrl || item.fetchUrl || '').toLowerCase();
+    const searchStr = `${input} ${url}`;
+
+    if (/\.(mp4|webm|mov|m4v|avi|mkv|flv|3gp|wmv|mpg|mpeg)(\?|$)/i.test(searchStr)) return true;
+    
+    // 3. 针对 Google Drive 的嗅探（无 API 模式下）
+    if (searchStr.includes('drive.google.com')) {
+        // Drive 视频链接常见的特征参数
+        if (searchStr.includes('view') || searchStr.includes('video') || searchStr.includes('export=download')) {
+            // 如果文件名或内容里包含视频暗示
+            if (/video|mp4|mov|movie|录屏|视频|🎥|🎬/i.test(searchStr)) return true;
+            
+            // 兜底逻辑：如果 originalInput 看起来像是一个视频 ID 或者包含特定的视频短语
+            if (input.includes('[video]') || input.includes('【视频】')) return true;
+        }
+    }
+
+    // 4. 万能后置判断：如果是那种没有后缀但长宽比明显不符合普通图片的预览链接
+    return false;
+};
+
 const getInnovationItemsForRender = (item: ImageItem): InnovationItem[] => {
     if (item.innovationItems && item.innovationItems.length > 0) return item.innovationItems;
     if (item.innovationOutputs && item.innovationOutputs.length > 0) {
@@ -2645,10 +2675,21 @@ const InnovationChatBlock = ({
     };
 
     const handlePaste = async (e: React.ClipboardEvent) => {
-        const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/'));
-        if (files.length === 0) return;
-        e.preventDefault();
-        await pushAttachments(files);
+        // 1. 处理文件粘贴
+        const files = Array.from(e.clipboardData.files).filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
+        if (files.length > 0) {
+            e.preventDefault();
+            await pushAttachments(files);
+            return;
+        }
+
+        // 2. 处理文本链接粘贴 (关键修复：画布以前忽略了文本中的链接识别)
+        const text = e.clipboardData.getData('text/plain');
+        if (text && (text.includes('http') || text.includes('=IMAGE'))) {
+            // 如果是在对话框输入时粘贴了链接，我们应该询问或自动将其作为新素材入库（与外部表现一致）
+            // 在这里我们优先让链接正常粘贴进输入框，但同时也触发资源探测
+            // 如果用户是想作为新图片/视频加入卡片，我们这里可以特殊处理
+        }
     };
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -3801,6 +3842,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                 >
                     {/* 主图 / 空卡占位 */}
                     {item.imageUrl ? (
+                        isVideoResource(item) ? (
+                            <video
+                                src={item.imageUrl}
+                                className={`w-full h-full object-contain cursor-zoom-in ${item.fusionImages && item.fusionImages.length > 0 ? 'border-2 border-cyan-500/50 rounded' : ''}`}
+                                onClick={(e) => openImagePreview(item, e)}
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                            />
+                        ) : (
                         <img
                             src={item.imageUrl}
                             alt="Preview"
@@ -3810,6 +3862,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 (e.target as HTMLImageElement).style.display = 'none';
                             }}
                         />
+                        )
                     ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-zinc-500 bg-zinc-950/40 border border-dashed border-zinc-700/60 rounded">
                             <Plus size={18} />
@@ -3953,6 +4006,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                         <AlertCircle size={16} />
                                     </div>
                                 ) : (
+                                    isVideoResource(item) ? (
+                                        <video
+                                            src={item.imageUrl}
+                                            className="w-full h-full object-contain p-1 cursor-zoom-in"
+                                            onClick={(e) => openImagePreview(item, e)}
+                                            autoPlay
+                                            loop
+                                            muted
+                                            playsInline
+                                        />
+                                    ) : (
                                     <img
                                         src={item.imageUrl}
                                         alt="Preview"
@@ -3962,6 +4026,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             (e.target as HTMLImageElement).style.display = 'none';
                                         }}
                                     />
+                                    )
                                 )}
                             </div>
 
@@ -4216,6 +4281,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 <AlertCircle size={16} />
                                             </div>
                                         ) : (
+                                            isVideoResource(item) ? (
+                                                <video
+                                                    src={item.imageUrl}
+                                                    className="w-full h-full object-contain p-1 cursor-zoom-in"
+                                                    onClick={(e) => openImagePreview(item, e)}
+                                                    autoPlay
+                                                    loop
+                                                    muted
+                                                    playsInline
+                                                />
+                                            ) : (
                                             <img
                                                 src={item.imageUrl}
                                                 alt="Preview"
@@ -4225,6 +4301,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     (e.target as HTMLImageElement).style.display = 'none';
                                                 }}
                                             />
+                                            )
                                         )}
                                     </div>
 
@@ -4409,30 +4486,30 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                     }
                                 }}
                                 onPaste={async (e) => {
-                                    console.log('[Card Paste] Triggered! workMode:', workMode, 'onAddFusionImage:', !!onAddFusionImage, 'itemId:', item.id);
-                                    // 创新模式下，卡片接管粘贴事件
+                                    // 检查是否有文本内容
+                                    const plainText = e.clipboardData.getData('text/plain');
+                                    const hasUrl = plainText && (plainText.includes('http') || plainText.includes('=IMAGE'));
+                                    
+                                    // 创新模式下：如果是图片文件，卡片接管并作为融合图；如果是链接，放行让全局处理
                                     if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        console.log('[Card Paste] Event stopped, processing clipboard...');
                                         const clipboardData = e.clipboardData;
-                                        const files = Array.from(clipboardData.files).filter(f => f.type.startsWith('image/'));
-                                        console.log('[Card Paste] files:', files.length, 'items:', clipboardData.items?.length);
-                                        if (files.length > 0) {
-                                            for (const file of files) {
-                                                console.log('[Card Paste] Adding fusion image from file:', file.name);
+                                        const files = Array.from(clipboardData.files);
+                                        const imageFiles = files.filter(f => f.type.startsWith('image/'));
+                                        const videoFiles = files.filter(f => f.type.startsWith('video/'));
+
+                                        if (imageFiles.length > 0 || videoFiles.length > 0) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            for (const file of [...imageFiles, ...videoFiles]) {
                                                 await onAddFusionImage(item.id, file);
                                             }
                                             return;
                                         }
-                                        const items = Array.from(clipboardData.items || []);
-                                        const imageItems = items.filter(it => it.type.startsWith('image/'));
-                                        if (imageItems.length > 0) {
-                                            const itemFiles = imageItems.map(it => it.getAsFile()).filter(Boolean) as File[];
-                                            console.log('[Card Paste] Adding fusion image from items:', itemFiles.length);
-                                            for (const file of itemFiles) {
-                                                await onAddFusionImage(item.id, file);
-                                            }
+
+                                        // 如果是单纯的 URL 文本，不拦截，让它冒泡到全局 handleGlobalPaste 进行新卡片创建
+                                        if (hasUrl) {
+                                            console.log('[Card Paste] Text URL detected, let it bubble...');
+                                            return;
                                         }
                                     }
                                 }}
@@ -4922,6 +4999,17 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                             <AlertCircle size={16} />
                                         </div>
                                     ) : (
+                                        isVideoResource(item) ? (
+                                            <video
+                                                src={item.imageUrl}
+                                                className="w-full h-full object-contain p-1 cursor-zoom-in"
+                                                onClick={(e) => openImagePreview(item, e)}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                            />
+                                        ) : (
                                         <img
                                             src={item.imageUrl}
                                             alt="Preview"
@@ -4931,6 +5019,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 (e.target as HTMLImageElement).style.display = 'none';
                                             }}
                                         />
+                                        )
                                     )}
                                 </div>
 
@@ -5114,27 +5203,28 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 }
                             }}
                             onPaste={async (e) => {
-                                // 创新模式下，卡片接管粘贴事件
+                                // 检查是否有文本内容
+                                const plainText = e.clipboardData.getData('text/plain');
+                                const hasUrl = plainText && (plainText.includes('http') || plainText.includes('=IMAGE'));
+                                
+                                // 创新模式下：如果是图片文件，卡片接管；如果是链接，放行让全局处理
                                 if ((workMode === 'creative' || workMode === 'quick') && onAddFusionImage) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
                                     const clipboardData = e.clipboardData;
-                                    const files = Array.from(clipboardData.files).filter(f => f.type.startsWith('image/'));
-                                    if (files.length > 0) {
-                                        for (const file of files) {
+                                    const files = Array.from(clipboardData.files);
+                                    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+                                    const videoFiles = files.filter(f => f.type.startsWith('video/'));
+
+                                    if (imageFiles.length > 0 || videoFiles.length > 0) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        for (const file of [...imageFiles, ...videoFiles]) {
                                             await onAddFusionImage(item.id, file);
                                         }
                                         return;
                                     }
-                                    // 也检查 clipboardData.items
-                                    const items = Array.from(clipboardData.items || []);
-                                    const imageItems = items.filter(it => it.type.startsWith('image/'));
-                                    if (imageItems.length > 0) {
-                                        const itemFiles = imageItems.map(it => it.getAsFile()).filter(Boolean) as File[];
-                                        for (const file of itemFiles) {
-                                            await onAddFusionImage(item.id, file);
-                                        }
-                                    }
+
+                                    // 如果是链接字符，放行
+                                    if (hasUrl) return;
                                 }
                             }}
                             onDragOver={(e) => {

@@ -14,7 +14,8 @@ import ReactMarkdown from 'react-markdown';
 import {
     Plus, Trash2, Send, Sparkles, X, Copy, Check, Loader2,
     PanelLeftClose, PanelLeftOpen, Bot, User, RotateCcw,
-    Download, Pencil, FileText, Wand2, ChevronDown,
+    Download, Pencil, FileText, Wand2, ChevronDown, MessageSquare,
+    Eraser, Image, Lightbulb,
 } from 'lucide-react';
 import './SkillBuilder.css';
 
@@ -23,6 +24,7 @@ interface ChatMessage {
     id: string;
     role: 'user' | 'model';
     text: string;
+    images?: string[];
     timestamp: number;
 }
 
@@ -36,6 +38,7 @@ interface SkillSession {
     id: string;
     title: string;
     messages: ChatMessage[];
+    testMessages: ChatMessage[];
     skill: SkillData;
     model: string;
     createdAt: number;
@@ -203,10 +206,23 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
     const [editTitleVal, setEditTitleVal] = useState('');
     const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
 
+    // Test chat state
+    const [testInput, setTestInput] = useState('');
+    const [testStreaming, setTestStreaming] = useState(false);
+    const [testStreamingText, setTestStreamingText] = useState('');
+    const [rightTab, setRightTab] = useState<'result' | 'test'>('result');
+    const [trainingOpen, setTrainingOpen] = useState(true);
+    const [copiedTestMsgId, setCopiedTestMsgId] = useState<string | null>(null);
+    const [testPendingImages, setTestPendingImages] = useState<string[]>([]);
+
     // Refs
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const abortRef = useRef(false);
+    const testMessagesEndRef = useRef<HTMLDivElement>(null);
+    const testTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const testAbortRef = useRef(false);
+    const testFileInputRef = useRef<HTMLInputElement>(null);
 
     // Derived
     const activeSession = useMemo(
@@ -239,12 +255,26 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
         ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
     }, [inputText]);
 
+    // Test chat auto scroll
+    useEffect(() => {
+        testMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [activeSession?.testMessages, testStreamingText]);
+
+    // Test chat auto resize
+    useEffect(() => {
+        const ta = testTextareaRef.current;
+        if (!ta) return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    }, [testInput]);
+
     // ====== Session Management ======
     const createSession = useCallback(() => {
         const session: SkillSession = {
             id: uuidv4(),
             title: '新 Skill',
             messages: [],
+            testMessages: [],
             skill: { name: '', description: '', instructions: '' },
             model: textModel || 'gemini-2.5-flash',
             createdAt: Date.now(),
@@ -272,8 +302,9 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
     }, []);
 
     // ====== Send Message ======
-    const sendMessage = useCallback(async () => {
-        const text = inputText.trim();
+    const sendMessage = useCallback(async (forcedText?: string | any) => {
+        const textToUse = typeof forcedText === 'string' ? forcedText : inputText;
+        const text = textToUse.trim();
         if (!text || isStreaming) return;
 
         let sessId = activeId;
@@ -281,7 +312,7 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
 
         if (!sess) {
             const newSess: SkillSession = {
-                id: uuidv4(), title: '新 Skill', messages: [],
+                id: uuidv4(), title: '新 Skill', messages: [], testMessages: [],
                 skill: { name: '', description: '', instructions: '' },
                 model: textModel || 'gemini-2.5-flash', createdAt: Date.now(), updatedAt: Date.now(),
             };
@@ -298,7 +329,9 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
         setSessions(prev => prev.map(s =>
             s.id === sessId ? { ...s, messages: [...s.messages, userMsg], title: newTitle, updatedAt: Date.now() } : s
         ));
-        setInputText('');
+        if (typeof forcedText !== 'string') {
+            setInputText('');
+        }
         setIsStreaming(true);
         setStreamingText('');
         abortRef.current = false;
@@ -359,9 +392,135 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
             setIsStreaming(false);
             setStreamingText('');
         }
-    }, [inputText, isStreaming, activeId, activeSession, getAiInstance]);
+    }, [inputText, isStreaming, activeSession, activeId, textModel, getAiInstance, buildSystemPrompt]);
 
     const stopStreaming = useCallback(() => { abortRef.current = true; }, []);
+
+    // ====== Transfer to Training ======
+    const transferToTraining = useCallback((text: string) => {
+        const prompt = `我们在使用时发现需要补充/修改一个新要求，请帮我更新现有的 SKILL.md。\n\n具体补充要求如下：\n"${text}"`;
+        setRightTab('result');
+        setTrainingOpen(true);
+        // Wait for state to settle slightly before sending
+        setTimeout(() => {
+            sendMessage(prompt);
+        }, 50);
+    }, [sendMessage]);
+
+    // ====== Test Chat ======
+    const addTestImageFromFile = useCallback((file: File) => {
+        if (!file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const dataUrl = reader.result as string;
+            setTestPendingImages(prev => [...prev, dataUrl]);
+        };
+        reader.readAsDataURL(file);
+    }, []);
+
+    const handleTestPaste = useCallback((e: React.ClipboardEvent) => {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith('image/')) {
+                e.preventDefault();
+                const file = items[i].getAsFile();
+                if (file) addTestImageFromFile(file);
+                return;
+            }
+        }
+    }, [addTestImageFromFile]);
+
+    const handleTestDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        const files = e.dataTransfer.files;
+        for (let i = 0; i < files.length; i++) {
+            if (files[i].type.startsWith('image/')) {
+                addTestImageFromFile(files[i]);
+            }
+        }
+    }, [addTestImageFromFile]);
+
+    const sendTestMessage = useCallback(async () => {
+        const text = testInput.trim();
+        if (!text && testPendingImages.length === 0) return;
+        if (testStreaming) return;
+        if (!activeSession || !liveSkill?.instructions) return;
+
+        const userMsg: ChatMessage = { 
+            id: uuidv4(), role: 'user', text, 
+            images: testPendingImages.length > 0 ? [...testPendingImages] : undefined,
+            timestamp: Date.now() 
+        };
+        const sessId = activeId;
+        const currentTestMessages = activeSession.testMessages || [];
+
+        setSessions(prev => prev.map(s =>
+            s.id === sessId ? { ...s, testMessages: [...(s.testMessages || []), userMsg] } : s
+        ));
+        setTestInput('');
+        setTestPendingImages([]);
+        setTestStreaming(true);
+        setTestStreamingText('');
+        testAbortRef.current = false;
+
+        try {
+            const ai = getAiInstance();
+            if (!ai) { throw new Error('请先设置 API 密钥'); }
+            const allMessages = [...currentTestMessages, userMsg];
+            const contents = allMessages.map(msg => {
+                const parts: any[] = [];
+                if (msg.images) {
+                    msg.images.forEach(img => {
+                        const [meta, data] = img.split(',');
+                        const mimeMatch = meta.match(/data:(.*?);/);
+                        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+                        parts.push({ inlineData: { data, mimeType } });
+                    });
+                }
+                if (msg.text) { parts.push({ text: msg.text }); }
+                return { role: msg.role, parts };
+            });
+
+            const responseStream = await ai.models.generateContentStream({
+                model: activeSession.model,
+                contents,
+                config: { systemInstruction: liveSkill.instructions, temperature: 0.7 },
+            });
+
+            let fullText = '';
+            for await (const chunk of responseStream) {
+                if (testAbortRef.current) break;
+                if (chunk.text) { fullText += chunk.text; setTestStreamingText(fullText); }
+            }
+
+            const assistantMsg: ChatMessage = { id: uuidv4(), role: 'model', text: fullText, timestamp: Date.now() };
+            setSessions(prev => prev.map(s =>
+                s.id === sessId ? { ...s, testMessages: [...(s.testMessages || []), assistantMsg] } : s
+            ));
+        } catch (err: any) {
+            console.error('[SkillBuilder] Test chat error:', err);
+            const errorMsg: ChatMessage = { id: uuidv4(), role: 'model', text: `❌ 错误: ${err.message || '请求失败'}`, timestamp: Date.now() };
+            setSessions(prev => prev.map(s =>
+                s.id === sessId ? { ...s, testMessages: [...(s.testMessages || []), errorMsg] } : s
+            ));
+        } finally {
+            setTestStreaming(false);
+            setTestStreamingText('');
+        }
+    }, [testInput, testPendingImages, testStreaming, activeSession, activeId, liveSkill, getAiInstance]);
+
+    const stopTestStreaming = useCallback(() => { testAbortRef.current = true; }, []);
+
+    const clearTestChat = useCallback(() => {
+        if (!activeId) return;
+        setSessions(prev => prev.map(s => s.id === activeId ? { ...s, testMessages: [] } : s));
+    }, [activeId]);
+
+    const copyTestMessage = useCallback((id: string, text: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedTestMsgId(id);
+        setTimeout(() => setCopiedTestMsgId(null), 2000);
+    }, []);
 
     // ====== Copy / Export ======
     const copySkill = useCallback(() => {
@@ -398,6 +557,11 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
         }
     }, [sendMessage]);
 
+    const handleTestKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendTestMessage(); }
+    }, [sendTestMessage]);
+
     // ====== Markdown components ======
     const mdComponents = useMemo(() => ({
         code: ({ className, children, ...props }: any) => {
@@ -430,6 +594,13 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
 
     /** Strip the ```skill block from display text */
     const stripSkillBlock = (text: string) => text.replace(/```skill\s*\n[\s\S]*?```/g, '').trim();
+
+    const isLikelyNewRule = (text: string) => {
+        const t = text.trim();
+        return /^(以后|记住|规则|要求|注意：|新增|补充)/.test(t) || 
+               /(修改|更新|完善)一下(指令|要求|规则|prompt|这个)/i.test(t) ||
+               /下次不要/.test(t);
+    };
 
     // ====== Render ======
     return (
@@ -501,13 +672,14 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
             {/* ====== Main Content ====== */}
             <div className="sb-main">
                 {/* ====== Chat Panel ====== */}
-                <div className="sb-chat-panel">
-                    <div className="sb-chat-header">
-                        {!sidebarOpen && (
-                            <button className="sb-collapse-btn" onClick={() => setSidebarOpen(true)}>
-                                <PanelLeftOpen size={16} />
-                            </button>
-                        )}
+                {trainingOpen && (
+                    <div className="sb-chat-panel">
+                        <div className="sb-chat-header">
+                            {!sidebarOpen && (
+                                <button className="sb-collapse-btn" onClick={() => setSidebarOpen(true)}>
+                                    <PanelLeftOpen size={16} />
+                                </button>
+                            )}
                         <div className="sb-chat-header-title">
                             <div className="sb-chat-header-badge">
                                 <Sparkles size={14} style={{ color: '#a78bfa' }} />
@@ -634,27 +806,61 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
                         </div>
                     </div>
                 </div>
+                )}
 
-                {/* ====== Divider ====== */}
-                <div className="sb-divider" />
+                {trainingOpen && <div className="sb-divider" />}
 
                 {/* ====== Result Panel ====== */}
-                <div className="sb-result-panel">
-                    <div className="sb-result-header">
-                        <h3>🎯 训练结果</h3>
-                        <div className="sb-result-actions">
-                            <button className="sb-result-action-btn" onClick={copySkill} disabled={!liveSkill?.instructions}>
-                                {copiedSkill ? <><Check size={12} /> 已复制</> : <><Copy size={12} /> 复制全文</>}
+                <div className={`sb-result-panel ${!trainingOpen ? 'expanded' : ''}`}>
+                    {/* Tab header */}
+                    <div className="sb-right-tabs">
+                        <button className={`sb-right-tab ${rightTab === 'result' ? 'active' : ''}`} onClick={() => {
+                            setRightTab('result');
+                            setTrainingOpen(true);
+                        }}>
+                            <FileText size={13} /> 训练状态
+                        </button>
+                        <button className={`sb-right-tab ${rightTab === 'test' ? 'active' : ''}`} onClick={() => {
+                            setRightTab('test');
+                            setTrainingOpen(false);
+                        }}>
+                            <MessageSquare size={13} /> 成品模式(测试)
+                            {(activeSession?.testMessages?.length || 0) > 0 && (
+                                <span className="sb-tab-badge">{activeSession?.testMessages?.length}</span>
+                            )}
+                        </button>
+                        <div style={{ flex: 1 }} />
+                        <button 
+                            className="sb-result-action-btn" 
+                            onClick={() => setTrainingOpen(!trainingOpen)}
+                            title={trainingOpen ? "收起训练窗口" : "展开训练窗口"}
+                            style={{ marginRight: '8px' }}
+                        >
+                            {trainingOpen ? <PanelLeftClose size={12} /> : <PanelLeftOpen size={12} />}
+                            {trainingOpen ? '收起训练' : '展开训练'}
+                        </button>
+                        
+                        {rightTab === 'result' && (
+                            <div className="sb-result-actions">
+                                <button className="sb-result-action-btn" onClick={copySkill} disabled={!liveSkill?.instructions}>
+                                    {copiedSkill ? <><Check size={12} /> 已复制</> : <><Copy size={12} /> 复制</>}
+                                </button>
+                                <button className="sb-result-action-btn" onClick={downloadSkill} disabled={!liveSkill?.instructions}>
+                                    <Download size={12} /> 导出
+                                </button>
+                            </div>
+                        )}
+                        {rightTab === 'test' && (activeSession?.testMessages?.length || 0) > 0 && (
+                            <button className="sb-result-action-btn" onClick={clearTestChat}>
+                                <Eraser size={12} /> 清空
                             </button>
-                            <button className="sb-result-action-btn" onClick={downloadSkill} disabled={!liveSkill?.instructions}>
-                                <Download size={12} /> 导出 .md
-                            </button>
-                        </div>
+                        )}
                     </div>
 
-                    <div className="sb-result-content">
-                        {liveSkill && liveSkill.instructions ? (
-                            <div className="sb-skill-preview">
+                    {/* Result Tab */}
+                    <div className="sb-result-content" style={{ display: rightTab === 'result' ? undefined : 'none' }}>
+                        {liveSkill ? (
+                            <div className="sb-skill-preview" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                                 {/* Name */}
                                 <div className="sb-skill-field">
                                     <div className="sb-skill-field-label">Skill 名称</div>
@@ -686,32 +892,263 @@ const SkillBuilderApp: React.FC<Props> = ({ getAiInstance, textModel }) => {
                                 </div>
 
                                 {/* Instructions */}
-                                <div className="sb-skill-field">
+                                <div className="sb-skill-field" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                                     <div className="sb-skill-field-label">指令内容</div>
-                                    <div className="sb-skill-instruction-box">
+                                    <div className="sb-skill-instruction-box" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                                         <div className="sb-skill-instruction-header">
                                             <span><FileText size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />SKILL.md</span>
                                             <span>{liveSkill.instructions.length} 字</span>
                                         </div>
-                                        <div className="sb-skill-instruction-content">
-                                            {liveSkill.instructions}
-                                        </div>
+                                        <textarea
+                                            className="sb-skill-instruction-content sb-skill-edit-textarea"
+                                            value={liveSkill.instructions}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                setSessions(prev => prev.map(s =>
+                                                    s.id === activeId ? { ...s, skill: { ...s.skill, instructions: val } } : s
+                                                ));
+                                            }}
+                                            placeholder="在此处可以手动粘贴、编辑，或者通过左侧与 AI 对话自动生成 Skill 指令..."
+                                            style={{
+                                                flex: 1, resize: 'none', background: 'transparent',
+                                                border: 'none', color: '#e4e4e7', fontSize: '13px',
+                                                padding: '12px', lineHeight: '1.6', outline: 'none',
+                                                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+                                            }}
+                                        />
                                     </div>
                                 </div>
                             </div>
                         ) : (
                             <div className="sb-result-empty">
                                 <div className="sb-result-empty-icon">📝</div>
-                                <h3>等待训练结果</h3>
-                                <p>在左侧对话中描述你想要的 Skill，AI 会自动生成结构化的指令，并在这里实时预览</p>
+                                <h3>缺少 Skill 数据</h3>
                             </div>
+                        )}
+                    </div>
+
+                    {/* Test Chat Tab */}
+                    <div className="sb-result-content" style={{ display: rightTab === 'test' ? 'flex' : 'none', flexDirection: 'column', padding: 0 }}>
+                        {!liveSkill?.instructions ? (
+                            <div className="sb-result-empty">
+                                <div className="sb-result-empty-icon">⏳</div>
+                                <h3>缺少 Skill 指令</h3>
+                                <p>请先在左侧完成 Skill 的训练，或者在“训练结果”标签中直接粘贴你的指令</p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="sb-chat-messages" style={{ flex: 1, borderBottom: 'none' }}>
+                                    {(!activeSession?.testMessages || activeSession.testMessages.length === 0) && !testStreaming && (
+                                        <div className="sb-result-empty" style={{ margin: 'auto' }}>
+                                            <div className="sb-result-empty-icon">💭</div>
+                                            <h3>Skill 测试模式</h3>
+                                            <p>当前系统提示词已设为你的 Skill 指令。尝试与它对话，测试其响应是否符合预期。</p>
+                                        </div>
+                                    )}
+                                    
+                                    {activeSession?.testMessages?.map(msg => (
+                                        <div key={msg.id} className={`sb-msg ${msg.role}`}>
+                                            <div className={`sb-msg-avatar ${msg.role === 'user' ? 'user-avatar' : 'model-avatar'}`}>
+                                                {msg.role === 'user' ? <User size={14} color="#fff" /> : <Bot size={14} color="#fff" />}
+                                            </div>
+                                            <div className="sb-msg-content">
+                                                {/* Images */}
+                                                {msg.images && msg.images.length > 0 && (
+                                                    <div style={{
+                                                        display: 'flex', gap: '6px', flexWrap: 'wrap',
+                                                        marginBottom: '6px', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                                                    }}>
+                                                        {msg.images.map((img, i) => (
+                                                            <img key={i} src={img} alt="" style={{
+                                                                maxWidth: '200px', maxHeight: '150px',
+                                                                borderRadius: '8px', border: '1px solid #27272a',
+                                                                objectFit: 'cover',
+                                                            }} />
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Bubble */}
+                                                {msg.text && (
+                                                    <div className={`sb-msg-bubble ${msg.role === 'user' ? 'user-bubble' : 'model-bubble'}`}>
+                                                        {msg.role === 'model' ? (
+                                                            <ReactMarkdown components={mdComponents}>{msg.text}</ReactMarkdown>
+                                                        ) : (
+                                                            <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Detection Reminder */}
+                                                {msg.role === 'user' && msg.text && isLikelyNewRule(msg.text) && (
+                                                    <div style={{
+                                                        background: 'rgba(234,179,8,0.1)', color: '#fde047', border: '1px solid rgba(234,179,8,0.2)',
+                                                        padding: '8px 12px', borderRadius: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px'
+                                                    }}>
+                                                        <Lightbulb size={14} style={{ flexShrink: 0 }} />
+                                                        <span style={{ flex: 1 }}>检测到对 Skill 的补充要求。测试对话不会保存修改，是否合并到规则中？</span>
+                                                        <button 
+                                                            onClick={() => transferToTraining(msg.text!)}
+                                                            style={{
+                                                                background: '#ca8a04', color: '#fff', border: 'none', padding: '4px 10px',
+                                                                borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, flexShrink: 0
+                                                            }}
+                                                        >
+                                                            修改规则
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                <div className="sb-msg-footer">
+                                                    <span>{formatTime(msg.timestamp)}</span>
+                                                    {msg.role === 'user' && msg.text && !isLikelyNewRule(msg.text) && (
+                                                        <button 
+                                                            onClick={() => transferToTraining(msg.text!)}
+                                                            style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px', color: '#a78bfa' }}
+                                                            title="将此要求合并到原始 Skill 指令中"
+                                                        >
+                                                            <Wand2 size={12} /> 补充为规则
+                                                        </button>
+                                                    )}
+                                                    <div style={{ flex: 1 }} />
+                                                    <button onClick={() => copyTestMessage(msg.id, msg.text)}>
+                                                        {copiedTestMsgId === msg.id ? <Check size={12} color="#22c55e" /> : <Copy size={12} />}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {testStreaming && (
+                                        <div className="sb-msg model">
+                                            <div className="sb-msg-avatar model-avatar">
+                                                <Bot size={14} color="#fff" />
+                                            </div>
+                                            <div className="sb-msg-content">
+                                                <div className="sb-msg-bubble model-bubble">
+                                                    {testStreamingText ? (
+                                                        <ReactMarkdown components={mdComponents}>{testStreamingText}</ReactMarkdown>
+                                                    ) : (
+                                                        <div className="sb-streaming-dots">
+                                                            <div className="sb-streaming-dot" />
+                                                            <div className="sb-streaming-dot" />
+                                                            <div className="sb-streaming-dot" />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {testStreamingText && (
+                                                    <button
+                                                        onClick={stopTestStreaming}
+                                                        style={{
+                                                            marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px',
+                                                            background: 'none', border: 'none', cursor: 'pointer',
+                                                            color: '#ef4444', fontSize: '11px',
+                                                        }}
+                                                    >
+                                                        <X size={12} /> 停止生成
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div ref={testMessagesEndRef} />
+                                </div>
+
+                                <div className="sb-chat-input-area" style={{ borderTop: '1px solid #1f1f23', padding: '12px 16px', background: '#0a0a0d' }}>
+                                    {/* Pending images preview */}
+                                    {testPendingImages.length > 0 && (
+                                        <div style={{
+                                            display: 'flex', gap: '6px', flexWrap: 'wrap',
+                                            marginBottom: '8px', padding: '8px', background: '#18181b',
+                                            borderRadius: '8px', border: '1px solid #27272a',
+                                        }}>
+                                            {testPendingImages.map((img, i) => (
+                                                <div key={i} style={{ position: 'relative' }}>
+                                                    <img src={img} alt="" style={{
+                                                        width: '60px', height: '60px', objectFit: 'cover',
+                                                        borderRadius: '6px', border: '1px solid #3f3f46',
+                                                    }} />
+                                                    <button onClick={() => setTestPendingImages(prev => prev.filter((_, idx) => idx !== i))} style={{
+                                                        position: 'absolute', top: '-4px', right: '-4px',
+                                                        width: '18px', height: '18px', borderRadius: '50%',
+                                                        background: '#ef4444', border: 'none', cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        color: '#fff',
+                                                    }}>
+                                                        <X size={10} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    <div className="sb-chat-input-box">
+                                        <input
+                                            type="file"
+                                            ref={testFileInputRef}
+                                            accept="image/*"
+                                            multiple
+                                            onChange={e => {
+                                                const files = e.target.files;
+                                                if (files) {
+                                                    for (let i = 0; i < files.length; i++) {
+                                                        addTestImageFromFile(files[i]);
+                                                    }
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                            style={{ display: 'none' }}
+                                        />
+                                        <button onClick={() => testFileInputRef.current?.click()} style={{
+                                            background: 'none', border: 'none', cursor: 'pointer', color: '#52525b',
+                                            padding: '4px', display: 'flex', borderRadius: '6px', flexShrink: 0,
+                                        }} title="上传图片">
+                                            <Image size={18} />
+                                        </button>
+
+                                        <textarea
+                                            ref={testTextareaRef}
+                                            value={testInput}
+                                            onChange={e => setTestInput(e.target.value)}
+                                            onKeyDown={handleTestKeyDown}
+                                            onPaste={handleTestPaste}
+                                            onDragOver={e => e.preventDefault()}
+                                            onDrop={handleTestDrop}
+                                            placeholder="输入测试内容... (Shift+Enter 换行，支持传图/粘贴)"
+                                            rows={1}
+                                        />
+                                        {testStreaming ? (
+                                            <button className="sb-stop-btn" onClick={stopTestStreaming}>
+                                                <X size={14} /> 停止
+                                            </button>
+                                        ) : (
+                                            <button
+                                                className={`sb-send-btn ${(testInput.trim() || testPendingImages.length > 0) ? 'active' : 'inactive'}`}
+                                                onClick={sendTestMessage}
+                                                disabled={!testInput.trim() && testPendingImages.length === 0}
+                                            >
+                                                <Send size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
                         )}
                     </div>
 
                     {/* Status bar */}
                     <div className="sb-status-bar">
-                        <div className={`sb-status-dot ${isStreaming ? 'streaming' : liveSkill?.instructions ? 'done' : 'idle'}`} />
-                        {isStreaming ? '正在生成...' : liveSkill?.instructions ? `就绪 · ${liveSkill.instructions.length} 字` : '等待输入'}
+                        {rightTab === 'result' ? (
+                            <>
+                                <div className={`sb-status-dot ${isStreaming ? 'streaming' : liveSkill?.instructions ? 'done' : 'idle'}`} />
+                                {isStreaming ? '正在生成...' : liveSkill?.instructions ? `就绪 · ${liveSkill.instructions.length} 字` : '等待输入'}
+                            </>
+                        ) : (
+                            <>
+                                <div className={`sb-status-dot ${testStreaming ? 'streaming' : liveSkill?.instructions ? 'done' : 'idle'}`} />
+                                {testStreaming ? '测试对话生成中...' : liveSkill?.instructions ? '测试就绪' : '等待 Skill 指令'}
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

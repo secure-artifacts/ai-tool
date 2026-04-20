@@ -72,8 +72,28 @@ export function subscribeToSharedApiPool(
 export class FirebaseApiKeyPool {
     private keys: FirebaseApiKeyEntry[] = [];
     private currentIndex: number = 0;
-    private failedKeys: Set<string> = new Set();
+    private keyStats: Map<string, { failedAt: number | null; failReason: string }> = new Map();
     private unsubscribe: (() => void) | null = null;
+    private cooldownMs: number = 60000;
+
+    private ensureStats(key: string): { failedAt: number | null; failReason: string } {
+        if (!this.keyStats.has(key)) {
+            this.keyStats.set(key, { failedAt: null, failReason: '' });
+        }
+        return this.keyStats.get(key)!;
+    }
+
+    private isKeyExhausted(key: string): boolean {
+        const stats = this.keyStats.get(key);
+        if (!stats || !stats.failedAt) return false;
+        const elapsed = Date.now() - stats.failedAt;
+        if (elapsed >= this.cooldownMs) {
+            stats.failedAt = null;
+            stats.failReason = '';
+            return false;
+        }
+        return true;
+    }
 
     /**
      * 从 Firestore 加载 API 池
@@ -81,7 +101,8 @@ export class FirebaseApiKeyPool {
     async load(): Promise<void> {
         this.keys = await loadSharedApiPool();
         this.currentIndex = 0;
-        this.failedKeys.clear();
+        this.keyStats.clear();
+        this.keys.forEach(entry => this.ensureStats(entry.apiKey));
         // console.log(`[Firebase API Pool] Loaded ${this.keys.length} API keys`);
     }
 
@@ -116,16 +137,23 @@ export class FirebaseApiKeyPool {
 
         // 跳过已失败的密钥
         let attempts = 0;
-        while (this.failedKeys.has(this.keys[this.currentIndex].apiKey) && attempts < this.keys.length) {
+        while (this.isKeyExhausted(this.keys[this.currentIndex].apiKey) && attempts < this.keys.length) {
             this.currentIndex = (this.currentIndex + 1) % this.keys.length;
             attempts++;
         }
 
-        // 如果所有密钥都失败，重置
         if (attempts >= this.keys.length) {
-            console.warn('[Firebase API Pool] All keys failed, resetting...');
-            this.failedKeys.clear();
-            this.currentIndex = 0;
+            let earliestIdx = 0;
+            let earliestTime = Infinity;
+            this.keys.forEach((entry, idx) => {
+                const stats = this.keyStats.get(entry.apiKey);
+                if (stats?.failedAt && stats.failedAt < earliestTime) {
+                    earliestTime = stats.failedAt;
+                    earliestIdx = idx;
+                }
+            });
+            this.currentIndex = earliestIdx;
+            console.warn('[Firebase API Pool] All keys cooling down, falling back to earliest key');
         }
 
         return this.keys[this.currentIndex].apiKey;
@@ -154,8 +182,7 @@ export class FirebaseApiKeyPool {
     markCurrentAsFailed(): void {
         const currentKey = this.keys[this.currentIndex]?.apiKey;
         if (currentKey) {
-            this.failedKeys.add(currentKey);
-            console.warn(`[Firebase API Pool] Marked key as failed: ${currentKey.substring(0, 10)}...`);
+            this.markKeyAsFailed(currentKey);
         }
         this.rotateToNext();
     }
@@ -163,8 +190,12 @@ export class FirebaseApiKeyPool {
     /**
      * 标记指定密钥为失败
      */
-    markKeyAsFailed(key: string): void {
-        this.failedKeys.add(key);
+    markKeyAsFailed(key: string, reason: string = '额度用完'): void {
+        if (!key) return;
+        const stats = this.ensureStats(key);
+        stats.failedAt = Date.now();
+        stats.failReason = reason;
+        console.warn(`[Firebase API Pool] Marked key as failed: ${key.substring(0, 10)}...`);
     }
 
     /**
@@ -183,10 +214,11 @@ export class FirebaseApiKeyPool {
         failed: number;
         currentNickname?: string;
     } {
+        const failed = this.keys.filter(entry => this.isKeyExhausted(entry.apiKey)).length;
         return {
             total: this.keys.length,
             current: this.currentIndex + 1,
-            failed: this.failedKeys.size,
+            failed,
             currentNickname: this.getCurrentNickname()
         };
     }
@@ -195,6 +227,43 @@ export class FirebaseApiKeyPool {
      * 清除失败标记
      */
     clearFailedMarks(): void {
-        this.failedKeys.clear();
+        this.keyStats.forEach(stats => {
+            stats.failedAt = null;
+            stats.failReason = '';
+        });
+    }
+
+    getDetailedStatus(): Array<{
+        index: number;
+        nickname: string;
+        keyPrefix: string;
+        callCount: number;
+        isExhausted: boolean;
+        failedAt: string | null;
+        failReason: string;
+        cooldownRemaining: number;
+        modelUsage: Record<string, number>;
+    }> {
+        const today = new Date().toISOString().slice(0, 10);
+        return this.keys.map((entry, idx) => {
+            const storageKey = `api_call_count_${today}_${entry.apiKey.substring(0, 12)}`;
+            const callCount = parseInt(localStorage.getItem(storageKey) || '0', 10);
+            const stats = this.ensureStats(entry.apiKey);
+            const isExhausted = this.isKeyExhausted(entry.apiKey);
+            const cooldownRemaining = stats.failedAt
+                ? Math.max(0, Math.ceil((this.cooldownMs - (Date.now() - stats.failedAt)) / 1000))
+                : 0;
+            return {
+                index: idx + 1,
+                nickname: entry.nickname || `Key ${idx + 1}`,
+                keyPrefix: entry.apiKey.substring(0, 8) + '...',
+                callCount,
+                isExhausted,
+                failedAt: stats.failedAt ? new Date(stats.failedAt).toISOString() : null,
+                failReason: stats.failReason,
+                cooldownRemaining,
+                modelUsage: {},
+            };
+        });
     }
 }

@@ -12,7 +12,7 @@ import {
     Search, Plus, Trash2, Copy, Download, Upload, Loader2,
     Palette, MessageSquare, X, ChevronDown, ChevronUp, Check,
     RotateCcw, Settings2, Eye, EyeOff, Columns, AlertCircle,
-    Sparkles, Bot, Brain,
+    Sparkles, Bot, Brain, Languages,
 } from 'lucide-react';
 import { localEmbeddingService, embeddingDB } from '../ai-copy-deduplicator/services/localEmbeddingService';
 
@@ -43,7 +43,80 @@ interface SearchQuery {
     threshold?: number;      // MinHash 单独相似度阈值
     embeddingThreshold?: number; // AI 语义单独阈值（优先于全局，undefined 则跟随全局）
     searchMode?: 'contains' | 'similar' | 'embedding';  // 单独搜索模式（不设则跟随全局）
+    translatedText?: string; // 翻译后的搜索文本（用于显示）
 }
+
+// ===== 翻译搜索语言列表 =====
+const TRANSLATE_LANGUAGES = [
+    { code: '', label: '跟从原文', en: 'Original', native: '' },
+    { code: 'zh', label: '中文', en: 'Chinese', native: '中文' },
+    { code: 'zh-TW', label: '繁体中文', en: 'Traditional Chinese', native: '繁體中文' },
+    { code: 'en', label: '英文', en: 'English', native: 'English' },
+    { code: 'es', label: '西班牙语', en: 'Spanish', native: 'Español' },
+    { code: 'fr', label: '法语', en: 'French', native: 'Français' },
+    { code: 'de', label: '德语', en: 'German', native: 'Deutsch' },
+    { code: 'ja', label: '日语', en: 'Japanese', native: '日本語' },
+    { code: 'ko', label: '韩语', en: 'Korean', native: '한국어' },
+    { code: 'pt', label: '葡萄牙语', en: 'Portuguese', native: 'Português' },
+    { code: 'pt-BR', label: '巴西葡语', en: 'Brazilian Portuguese', native: 'Português Brasileiro' },
+    { code: 'ru', label: '俄语', en: 'Russian', native: 'Русский' },
+    { code: 'ar', label: '阿拉伯语', en: 'Arabic', native: 'العربية' },
+    { code: 'hi', label: '印地语', en: 'Hindi', native: 'हिन्दी' },
+    { code: 'bn', label: '孟加拉语', en: 'Bengali', native: 'বাংলা' },
+    { code: 'id', label: '印尼语', en: 'Indonesian', native: 'Bahasa Indonesia' },
+    { code: 'ms', label: '马来语', en: 'Malay', native: 'Bahasa Melayu' },
+    { code: 'th', label: '泰语', en: 'Thai', native: 'ไทย' },
+    { code: 'vi', label: '越南语', en: 'Vietnamese', native: 'Tiếng Việt' },
+    { code: 'tl', label: '菲律宾语', en: 'Filipino', native: 'Tagalog' },
+    { code: 'tr', label: '土耳其语', en: 'Turkish', native: 'Türkçe' },
+    { code: 'it', label: '意大利语', en: 'Italian', native: 'Italiano' },
+    { code: 'nl', label: '荷兰语', en: 'Dutch', native: 'Nederlands' },
+    { code: 'pl', label: '波兰语', en: 'Polish', native: 'Polski' },
+    { code: 'uk', label: '乌克兰语', en: 'Ukrainian', native: 'Українська' },
+    { code: 'ro', label: '罗马尼亚语', en: 'Romanian', native: 'Română' },
+    { code: 'el', label: '希腊语', en: 'Greek', native: 'Ελληνικά' },
+    { code: 'cs', label: '捷克语', en: 'Czech', native: 'Čeština' },
+    { code: 'hu', label: '匈牙利语', en: 'Hungarian', native: 'Magyar' },
+    { code: 'sv', label: '瑞典语', en: 'Swedish', native: 'Svenska' },
+    { code: 'da', label: '丹麦语', en: 'Danish', native: 'Dansk' },
+    { code: 'fi', label: '芬兰语', en: 'Finnish', native: 'Suomi' },
+    { code: 'no', label: '挪威语', en: 'Norwegian', native: 'Norsk' },
+    { code: 'he', label: '希伯来语', en: 'Hebrew', native: 'עברית' },
+    { code: 'fa', label: '波斯语', en: 'Persian', native: 'فارسی' },
+    { code: 'ur', label: '乌尔都语', en: 'Urdu', native: 'اردو' },
+    { code: 'sw', label: '斯瓦希里语', en: 'Swahili', native: 'Kiswahili' },
+    { code: 'zu', label: '祖鲁语', en: 'Zulu', native: 'isiZulu' },
+    { code: 'af', label: '南非荷兰语', en: 'Afrikaans', native: 'Afrikaans' },
+    { code: 'am', label: '阿姆哈拉语', en: 'Amharic', native: 'አማርኛ' },
+    { code: 'my', label: '缅甸语', en: 'Burmese', native: 'မြန်မာ' },
+    { code: 'km', label: '高棉语', en: 'Khmer', native: 'ខ្មែរ' },
+    { code: 'ne', label: '尼泊尔语', en: 'Nepali', native: 'नेपाली' },
+    { code: 'si', label: '僧伽罗语', en: 'Sinhala', native: 'සිංහල' },
+    { code: 'ta', label: '泰米尔语', en: 'Tamil', native: 'தமிழ்' },
+    { code: 'te', label: '泰卢固语', en: 'Telugu', native: 'తెలుగు' },
+    { code: 'mr', label: '马拉地语', en: 'Marathi', native: 'मराठी' },
+    { code: 'gu', label: '古吉拉特语', en: 'Gujarati', native: 'ગુજરાતી' },
+    { code: 'kn', label: '卡纳达语', en: 'Kannada', native: 'ಕನ್ನಡ' },
+    { code: 'ml', label: '马拉雅拉姆语', en: 'Malayalam', native: 'മലയാളം' },
+    { code: 'pa', label: '旁遮普语', en: 'Punjabi', native: 'ਪੰਜਾਬੀ' },
+    { code: 'yo', label: '约鲁巴语', en: 'Yoruba', native: 'Yorùbá' },
+    { code: 'ig', label: '伊博语', en: 'Igbo', native: 'Igbo' },
+    { code: 'ha', label: '豪萨语', en: 'Hausa', native: 'Hausa' },
+    { code: 'bg', label: '保加利亚语', en: 'Bulgarian', native: 'Български' },
+    { code: 'hr', label: '克罗地亚语', en: 'Croatian', native: 'Hrvatski' },
+    { code: 'sr', label: '塞尔维亚语', en: 'Serbian', native: 'Српски' },
+    { code: 'sk', label: '斯洛伐克语', en: 'Slovak', native: 'Slovenčina' },
+    { code: 'sl', label: '斯洛文尼亚语', en: 'Slovenian', native: 'Slovenščina' },
+    { code: 'lt', label: '立陶宛语', en: 'Lithuanian', native: 'Lietuvių' },
+    { code: 'lv', label: '拉脱维亚语', en: 'Latvian', native: 'Latviešu' },
+    { code: 'et', label: '爱沙尼亚语', en: 'Estonian', native: 'Eesti' },
+    { code: 'ka', label: '格鲁吉亚语', en: 'Georgian', native: 'ქართული' },
+    { code: 'hy', label: '亚美尼亚语', en: 'Armenian', native: 'Հայերեն' },
+    { code: 'az', label: '阿塞拜疆语', en: 'Azerbaijani', native: 'Azərbaycan' },
+    { code: 'uz', label: '乌兹别克语', en: 'Uzbek', native: "O'zbek" },
+    { code: 'kk', label: '哈萨克语', en: 'Kazakh', native: 'Қазақ' },
+    { code: 'mn', label: '蒙古语', en: 'Mongolian', native: 'Монгол' },
+];
 
 interface TableState {
     headers: string[];
@@ -161,13 +234,20 @@ function exactJaccard(set1: Set<string>, set2: Set<string>): number {
     return union > 0 ? intersection / union : 0;
 }
 
-// ===== 预设颜色 =====
-const PRESET_COLORS = [
-    '#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c', '#38d9a9',
-    '#4dabf7', '#748ffc', '#da77f2', '#f783ac', '#e599f7',
-    '#ff8787', '#ffc078', '#ffe066', '#8ce99a', '#63e6be',
-    '#74c0fc', '#91a7ff', '#e599f7', '#faa2c1', '#c0eb75',
-];
+// ===== 动态颜色生成算法 (黄金分割确保最大色差) =====
+const getQueryColor = (index: number): string => {
+    // 预设前几个最经典的高对比度颜色，后续则动态生成
+    const baseColors = [
+        '#ef4444', '#3b82f6', '#22c55e', '#a855f7', '#f97316', '#06b6d4',
+        '#ec4899', '#eab308', '#14b8a6', '#6366f1', '#84cc16', '#d946ef'
+    ];
+    if (index < baseColors.length) return baseColors[index];
+
+    // 黄金角度约为 137.5 度
+    const hue = (index * 137.508) % 360;
+    // 饱和度 70%，亮度 55%，确保颜色鲜艳且文字清晰
+    return `hsl(${hue}, 70%, 55%)`;
+};
 
 // ===== 中文检测 =====
 /** 判断文本是否主要为中文（CJK 字符占比 > 20%） */
@@ -383,7 +463,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
 
     // 搜索项
     const [queries, setQueries] = useState<SearchQuery[]>([
-        { id: uuidv4(), text: '', noteText: '', color: PRESET_COLORS[0], enabled: true, isSearching: false, resultCount: 0 },
+        { id: uuidv4(), text: '', noteText: '', color: getQueryColor(0), enabled: true, isSearching: false, resultCount: 0 },
     ]);
 
     // 配置
@@ -395,6 +475,65 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     const [maxBatchChars, setMaxBatchChars] = useState(3000);
     const [searchQueriesCollapsed, setSearchQueriesCollapsed] = useState(false);
     const [globalProgress, setGlobalProgress] = useState('');
+
+    // ===== 翻译搜索状态 =====
+    const [translateEnabled, setTranslateEnabled] = useState<boolean>(() => {
+        try { return localStorage.getItem('copy-search-translate-enabled') === 'true'; } catch { return false; }
+    });
+    const [translateLang, setTranslateLang] = useState<string>(() => {
+        try { return localStorage.getItem('copy-search-translate-lang') || 'en'; } catch { return 'en'; }
+    });
+    const [translateLangSearch, setTranslateLangSearch] = useState('');
+    const [translateDropdownOpen, setTranslateDropdownOpen] = useState(false);
+    const translateDropdownRef = useRef<HTMLDivElement>(null);
+    const [isTranslating, setIsTranslating] = useState(false);
+
+    // 持久化翻译设置
+    useEffect(() => {
+        try {
+            localStorage.setItem('copy-search-translate-enabled', translateEnabled ? 'true' : 'false');
+            localStorage.setItem('copy-search-translate-lang', translateLang);
+        } catch {}
+    }, [translateEnabled, translateLang]);
+
+    // 点击外部关闭翻译语言下拉
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (translateDropdownRef.current && !translateDropdownRef.current.contains(e.target as Node)) {
+                setTranslateDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // 过滤翻译语言列表
+    const filteredTranslateLangs = useMemo(() => {
+        if (!translateLangSearch.trim()) return TRANSLATE_LANGUAGES;
+        const s = translateLangSearch.toLowerCase();
+        return TRANSLATE_LANGUAGES.filter(l =>
+            l.label.toLowerCase().includes(s) ||
+            l.en.toLowerCase().includes(s) ||
+            l.native.toLowerCase().includes(s) ||
+            l.code.toLowerCase().includes(s)
+        );
+    }, [translateLangSearch]);
+
+    // AI 翻译函数
+    const translateText = useCallback(async (text: string, targetLang: string): Promise<string> => {
+        if (!text.trim() || !targetLang) return text;
+        const ai = getAiInstance?.();
+        if (!ai) throw new Error('请先设置 API 密钥');
+        const langObj = TRANSLATE_LANGUAGES.find(l => l.code === targetLang);
+        const langName = langObj ? `${langObj.en} (${langObj.label})` : targetLang;
+        const result = await ai.models.generateContent({
+            model: effectiveModel,
+            contents: `Translate the following text to ${langName}. Return ONLY the translated text, no explanations or quotes:\n\n${text}`,
+            config: { temperature: 0.1 },
+        });
+        const translated = (result?.text || '').trim();
+        return translated || text;
+    }, [getAiInstance, effectiveModel]);
     const [clearConfirm, setClearConfirm] = useState<{ step: number; count: number; countdown: number } | null>(null);
 
     // Embedding 缓存: cellText -> embedding vector
@@ -805,8 +944,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
 
     // ===== 搜索项管理 =====
     const addQuery = () => {
-        const usedColors = new Set(queries.map(q => q.color));
-        const nextColor = PRESET_COLORS.find(c => !usedColors.has(c)) || PRESET_COLORS[queries.length % PRESET_COLORS.length];
+        const nextColor = getQueryColor(queries.length);
         setQueries(prev => [...prev, {
             id: uuidv4(), text: '', noteText: '', color: nextColor,
             enabled: true, isSearching: false, resultCount: 0, useAi: false,
@@ -829,6 +967,28 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     const updateQuery = (id: string, updates: Partial<SearchQuery>) => {
         setQueries(prev => prev.map(q => q.id === id ? { ...q, ...updates } : q));
     };
+
+    // 批量翻译多个搜索项
+    const translateQueries = useCallback(async (queriesToTranslate: SearchQuery[]): Promise<Map<string, string>> => {
+        const translationMap = new Map<string, string>();
+        if (!translateEnabled || !translateLang) return translationMap;
+        
+        setIsTranslating(true);
+        try {
+            for (let i = 0; i < queriesToTranslate.length; i++) {
+                const q = queriesToTranslate[i];
+                if (!q.text.trim()) continue;
+                setGlobalProgress(`🌐 翻译中 (${i + 1}/${queriesToTranslate.length}): ${q.text.substring(0, 30)}...`);
+                const translated = await translateText(q.text, translateLang);
+                translationMap.set(q.id, translated);
+                // 更新搜索项显示翻译结果
+                updateQuery(q.id, { translatedText: translated });
+            }
+            return translationMap;
+        } finally {
+            setIsTranslating(false);
+        }
+    }, [translateEnabled, translateLang, translateText]);
 
     const updateRowNote = useCallback((rowIndex: number, noteValue: string) => {
         setTable(prev => {
@@ -915,19 +1075,20 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
         similarityPercent?: number,
     ) => {
         const label = getQueryLabel(queryLike);
+        const prefix = `[组: ${label}]`;
         if (mode === 'contains') {
-            return `🔍 命中 ${label}`;
+            return `${prefix} 🔍 命中`;
         }
         if (mode === 'embedding') {
             if (typeof similarityPercent === 'number') {
-                return `🧠 语义 ${similarityPercent}% - ${label}`;
+                return `${prefix} 🧠 语义 ${similarityPercent}%`;
             }
-            return `🧠 语义 - ${label}`;
+            return `${prefix} 🧠 语义`;
         }
         if (typeof similarityPercent === 'number') {
-            return `🔍 相似 ${similarityPercent}% - ${label}`;
+            return `${prefix} 🔍 相似 ${similarityPercent}%`;
         }
-        return `🔍 相似 - ${label}`;
+        return `${prefix} 🔍 相似`;
     }, [getQueryLabel]);
 
     const getRowMatchSummary = useCallback((row: CellData[]) => {
@@ -954,8 +1115,9 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     const getRowNoteWithSummary = useCallback((row: CellData[]) => {
         const manualNote = getRowManualNote(row);
         const matchSummary = getRowMatchSummary(row);
-        if (manualNote && matchSummary) return `${manualNote} | ${matchSummary}`;
-        return manualNote || matchSummary;
+        const raw = (manualNote && matchSummary) ? `${manualNote} | ${matchSummary}` : (manualNote || matchSummary);
+        // 正则剥离所有后台专用的 [QID:xxxxx] 标签
+        return raw.replace(/\[QID:[^\]]+\]/g, '').trim();
     }, [getRowManualNote, getRowMatchSummary]);
 
     // ===== 执行搜索 =====
@@ -974,6 +1136,19 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
         // 异步执行以免阻塞 UI
         setTimeout(async () => {
             try {
+                // ===== 翻译搜索：先翻译查询词 =====
+                let effectiveQueryText = query.text;
+                if (translateEnabled && translateLang) {
+                    try {
+                        setGlobalProgress(`🌐 翻译搜索项: ${query.text.substring(0, 30)}...`);
+                        effectiveQueryText = await translateText(query.text, translateLang);
+                        updateQuery(query.id, { translatedText: effectiveQueryText });
+                        setGlobalProgress(`🌐 翻译完成: ${effectiveQueryText.substring(0, 40)}`);
+                    } catch (err: any) {
+                        setGlobalProgress(`⚠️ 翻译失败: ${err.message || '未知'}, 使用原文搜索`);
+                    }
+                }
+
                 // 先基于 ref 同步计算新行和匹配数，避免 setTable updater 时序问题
                 const prev = tableRef.current;
                 const matchedRows = new Set<number>();
@@ -1025,7 +1200,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
                         }
 
                         setGlobalProgress('🧠 正在分析查询文案...');
-                        const queryEmbArray = await localEmbeddingService.extractEmbeddings([query.text]);
+                        const queryEmbArray = await localEmbeddingService.extractEmbeddings([effectiveQueryText]);
                         const queryEmb = queryEmbArray[0];
 
                         // 批量获取单元格 embedding（有缓存就跳过）
@@ -1071,7 +1246,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
                         });
                     } else if (searchMode === 'contains') {
                         // ===== 包含搜索：大小写不敏感的子串匹配 =====
-                        const queryLower = query.text.toLowerCase();
+                        const queryLower = effectiveQueryText.toLowerCase();
 
                         cellsToSearch.forEach(c => {
                             if (!c.text.toLowerCase().includes(queryLower)) return;
@@ -1093,7 +1268,7 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
                         });
                     } else {
                         // ===== 相似匹配：MinHash + Jaccard =====
-                        const queryShingles = generateShingles(query.text);
+                        const queryShingles = generateShingles(effectiveQueryText);
 
                         // 为每个单元格计算 Shingles（缓存）
                         cellsToSearch.forEach(c => {
@@ -1276,10 +1451,12 @@ If no matches: []`;
                                         queryText: query.text,
                                     });
                                     const noteContent = `🤖 AI ${item.relevance}% - ${item.reason || '匹配'}`;
+                                    const noteIdTag = `[QID:${query.id}]`;
+                                    const fullNote = `${noteIdTag}${noteContent}`;
                                     if (!cell.note) {
-                                        cell.note = noteContent;
-                                    } else if (!cell.note.includes(noteContent)) {
-                                        cell.note += ` | ${noteContent}`;
+                                        cell.note = fullNote;
+                                    } else if (!cell.note.includes(noteIdTag)) {
+                                        cell.note += ` | ${fullNote}`;
                                     }
                                 });
                             }
@@ -1340,17 +1517,28 @@ If no matches: []`;
             try {
                 const resultCounts = new Map<string, number>();
 
-                // 基于 ref 同步计算，避免 setTable updater 时序问题
+                // ===== 翻译搜索：批量翻译所有搜索项 =====
+                const translationMap = new Map<string, string>();
+                if (translateEnabled && translateLang) {
+                    try {
+                        const tm = await translateQueries(activeQueries);
+                        tm.forEach((v, k) => translationMap.set(k, v));
+                    } catch (err: any) {
+                        setGlobalProgress(`⚠️ 翻译失败: ${err.message || '未知'}，使用原文搜索`);
+                    }
+                }
+                // 获取单条查询的有效搜索文本（翻译后或原文）
+                const getEffText = (q: SearchQuery) => translationMap.get(q.id) || q.text;
                 const prev = tableRef.current;
 
-                // 先清除所有将要重新搜索项的旧高亮及包含它们文本的旧备注
-                const activeLabelsToClear = activeQueries.map(q => getQueryLabel(q));
+                // 先清除所有将要重新搜索项的旧高亮及包含它们 ID 的旧备注
+                const activeIdTags = activeQueries.map(q => `[QID:${q.id}]`);
                 const updatedRows = prev.rows.map(row => row.map(cell => {
                     let newNote = cell.note;
                     if (newNote) {
                         newNote = newNote.split('|')
                             .map(s => s.trim())
-                            .filter(s => !activeLabelsToClear.some(lbl => s.includes(lbl)))
+                            .filter(s => !activeIdTags.some(tag => s.includes(tag)))
                             .join(' | ')
                             .trim();
                     }
@@ -1375,11 +1563,9 @@ If no matches: []`;
                     activeQueries.forEach(q => resultCounts.set(q.id, 0));
                 } else if (searchMode === 'llm') {
                     // LLM 精判模式：逐个查询调用 AI
-                    // executeAiQuerySearch 自行管理 table 和 query 状态，不需要后续覆盖
                     for (const query of activeQueries) {
                         await executeAiQuerySearch(query);
                     }
-                    // LLM 模式直接结束，不走后面的 setTable/setQueries（避免覆盖 AI 结果）
                     const elapsed = Math.round(performance.now() - startTime);
                     setGlobalProgress(`✅ AI 精判完成 ${activeQueries.length} 项搜索 (${elapsed}ms)`);
                     setTimeout(() => setGlobalProgress(''), 3000);
@@ -1419,7 +1605,8 @@ If no matches: []`;
                         for (const query of activeQueries) {
                             const matchedRows = new Set<number>();
                             setGlobalProgress(`🧠 ${query.text.substring(0, 20)}... 语义分析中...`);
-                            const queryEmbArray = await localEmbeddingService.extractEmbeddings([query.text]);
+                            const effText = getEffText(query);
+                            const queryEmbArray = await localEmbeddingService.extractEmbeddings([effText]);
                             const queryEmb = queryEmbArray[0];
                             cellsToSearch.forEach(c => {
                                 const cellEmb = cache.get(c.text);
@@ -1450,7 +1637,8 @@ If no matches: []`;
                         activeQueries.forEach(query => {
                             const matchedRows = new Set<number>();
                             if (searchMode === 'contains') {
-                                const queryLower = query.text.toLowerCase();
+                                const effText = getEffText(query);
+                                const queryLower = effText.toLowerCase();
                                 cellsToSearch.forEach(c => {
                                     if (!c.text.toLowerCase().includes(queryLower)) return;
                                     matchedRows.add(c.row);
@@ -1462,15 +1650,17 @@ If no matches: []`;
                                         queryText: query.text,
                                     });
                                     const noteContent = buildQueryNoteContent(query, 'contains');
-                                    const noteKey = getQueryLabel(query);
+                                    const noteIdTag = `[QID:${query.id}]`;
+                                    const fullNote = `${noteIdTag}${noteContent}`;
                                     if (!cell.note) {
-                                        cell.note = noteContent;
-                                    } else if (!cell.note.includes(noteKey)) {
-                                        cell.note += ` | ${noteContent}`;
+                                        cell.note = fullNote;
+                                    } else if (!cell.note.includes(noteIdTag)) {
+                                        cell.note += ` | ${fullNote}`;
                                     }
                                 });
                             } else {
-                                const queryShingles = generateShingles(query.text);
+                                const effText = getEffText(query);
+                                const queryShingles = generateShingles(effText);
                                 cellsToSearch.forEach(c => {
                                     if (!shingleCache.current.has(c.text)) {
                                         shingleCache.current.set(c.text, generateShingles(c.text));
@@ -1490,11 +1680,12 @@ If no matches: []`;
                                     });
                                     const similarityPercent = Math.floor(similarity * 1000) / 10;
                                     const noteContent = buildQueryNoteContent(query, 'similar', similarityPercent);
-                                    const noteKey = getQueryLabel(query);
+                                    const noteIdTag = `[QID:${query.id}]`;
+                                    const fullNote = `${noteIdTag}${noteContent}`;
                                     if (!cell.note) {
-                                        cell.note = noteContent;
-                                    } else if (!cell.note.includes(noteKey)) {
-                                        cell.note += ` | ${noteContent}`;
+                                        cell.note = fullNote;
+                                    } else if (!cell.note.includes(noteIdTag)) {
+                                        cell.note += ` | ${fullNote}`;
                                     }
                                 });
                             }
@@ -1567,18 +1758,20 @@ If no matches: []`;
 
     // ===== 复制 HTML 到剪贴板（兼容 Google Sheets） =====
     const copyHtmlToClipboard = (html: string, plainText: string, successMsg: string) => {
-        const richHtml = `<!doctype html><html><body>${html}</body></html>`;
-        // 方案1: ClipboardItem API（现代浏览器直接写入 HTML）
+        // 对于 Google Sheets 等现代表格，直接传输 Table 片段兼容性更好
+        const richHtml = html; 
         if (typeof ClipboardItem !== 'undefined') {
             const htmlBlob = new Blob([richHtml], { type: 'text/html' });
             const textBlob = new Blob([plainText], { type: 'text/plain' });
             navigator.clipboard.write([
-                new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob }),
+                new ClipboardItem({ 
+                    'text/html': htmlBlob,
+                    'text/plain': textBlob 
+                }),
             ]).then(() => {
                 setGlobalProgress(successMsg);
                 setTimeout(() => setGlobalProgress(''), 3000);
             }).catch(() => {
-                // fallback
                 execCommandCopy(richHtml, successMsg);
             });
         } else {
@@ -1611,63 +1804,62 @@ If no matches: []`;
 
     // ===== 复制单个搜索项的匹配结果（仅该搜索项命中的行，整行内容） =====
     const copyQueryResults = useCallback((queryId: string) => {
-        const { headers, rows, noteColumnVisible } = table;
+        const { headers, rows } = table;
+        const query = queries.find(q => q.id === queryId);
+        const queryLabel = query?.label || '未命名搜索';
+        const qColor = query?.color || '#fbbf24';
+
         // 筛选出该搜索项命中的行
         const matchedRows = rows.filter(row =>
             row.some(cell => cell.highlights.some(h => h.queryId === queryId))
         );
         if (matchedRows.length === 0) return;
 
-        const query = queries.find(q => q.id === queryId);
-        const qColor = query?.color || '#fbbf24';
-
         // HTML
-        let html = '<table>';
+        let html = '<table border="1" style="border-collapse:collapse; font-family: sans-serif;">';
         html += '<tr>';
+        html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;"><b>所属搜索组</b></th>`;
         headers.forEach(h => {
-            html += `<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">${escHtml(h)}</td>`;
+            html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">${escHtml(h)}</th>`;
         });
-        if (noteColumnVisible) {
-            html += '<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">备注</td>';
-        }
+        html += '<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">备注</th>';
         html += '</tr>';
 
         matchedRows.forEach(row => {
             html += '<tr>';
+            html += `<td bgcolor="#f0f7ff" style="background-color:#f0f7ff; padding:6px 12px; border:1px solid #cccccc; color:#1e40af;"><b>${escHtml(queryLabel)}</b></td>`;
+            
             row.forEach(cell => {
                 const hit = cell.highlights.find(h => h.queryId === queryId);
                 const bg = hit ? qColor : '';
                 const textColor = bg ? getContrastColor(bg) : '#000000';
                 const style = bg
-                    ? `background-color:${bg};color:${textColor};padding:4px 8px;border:1px solid #cccccc;`
-                    : `padding:4px 8px;border:1px solid #cccccc;color:#000000;`;
-                html += `<td style="${style}">${escHtml(cell.value)}</td>`;
+                    ? `background-color:${bg}; color:${textColor}; padding:6px 12px; border:1px solid #cccccc;`
+                    : `padding:6px 12px; border:1px solid #cccccc; color:#000000;`;
+                const bgColorAttr = bg ? `bgcolor="${bg}"` : '';
+                html += `<td ${bgColorAttr} style="${style}">${escHtml(cell.value)}</td>`;
             });
-            if (noteColumnVisible) {
-                const notes = getRowNoteWithSummary(row);
-                html += `<td style="padding:4px 8px;border:1px solid #cccccc;color:#333333;font-size:12px;">${escHtml(notes)}</td>`;
-            }
+            const notes = getRowNoteWithSummary(row);
+            html += `<td style="padding:6px 12px; border:1px solid #cccccc; color:#666666;">${escHtml(notes)}</td>`;
             html += '</tr>';
         });
         html += '</table>';
 
         // TSV
-        let tsv = headers.join('\t') + (noteColumnVisible ? '\t备注' : '') + '\n';
+        let tsvHeader = '所属搜索组\t' + headers.join('\t') + '\t备注\n';
+        let tsvBody = '';
         matchedRows.forEach(row => {
-            tsv += row.map(c => tsvCell(c.value)).join('\t');
-            if (noteColumnVisible) {
-                const notes = getRowNoteWithSummary(row);
-                tsv += '\t' + notes;
-            }
-            tsv += '\n';
+            tsvBody += queryLabel + '\t';
+            tsvBody += row.map(c => tsvCell(c.value)).join('\t');
+            tsvBody += '\t' + getRowNoteWithSummary(row) + '\n';
         });
 
-        copyHtmlToClipboard(html, tsv, `✅ 已复制 ${matchedRows.length} 行匹配结果`);
+        copyHtmlToClipboard(html, tsvHeader + tsvBody, `✅ 已按照搜索组“${queryLabel}”复制 ${matchedRows.length} 行结果`);
     }, [table, queries, getRowNoteWithSummary]);
 
     // ===== 复制表格（支持筛选模式） =====
     const copyFilteredTable = useCallback((mode: 'all' | 'highlighted' | 'unhighlighted') => {
-        const { headers, rows, noteColumnVisible } = table;
+        const { headers, rows } = table;
         if (rows.length === 0) return;
 
         // 根据模式筛选行
@@ -1681,50 +1873,78 @@ If no matches: []`;
             return;
         }
 
+        // 检测是否存在 DUP- 编号
+        const hasDups = filteredRows.some(row => row.some(c => c.note && c.note.includes('DUP-')));
+        // 检测是否有搜素匹配结果（用于生成组列）
+        const hasHighlights = filteredRows.some(row => row.some(c => c.highlights.length > 0));
+
         // 构建 HTML 表格（Excel/Sheets 可识别内联样式）
-        let html = '<table>';
+        let html = '<table border="1" style="border-collapse:collapse; font-family: sans-serif;">';
         // 表头
         html += '<tr>';
-        headers.forEach(h => {
-            html += `<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">${escHtml(h)}</td>`;
-        });
-        if (noteColumnVisible) {
-            html += `<td style="font-weight:bold;background-color:#333333;color:#ffffff;padding:4px 8px;border:1px solid #cccccc;">备注</td>`;
+        if (hasDups || hasHighlights) {
+            html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;"><b>标注分组/查重号</b></th>`;
         }
+        headers.forEach(h => {
+            html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">${escHtml(h)}</th>`;
+        });
+        html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">备注</th>`;
         html += '</tr>';
 
         // 数据行
         filteredRows.forEach(row => {
             html += '<tr>';
+            if (hasDups || hasHighlights) {
+                const marks: string[] = [];
+                const dupMatch = row.find(c => c.note && c.note.includes('DUP-'))?.note?.match(/DUP-\d+/);
+                if (dupMatch) marks.push(dupMatch[0]);
+                const matchedQueryIds = new Set<string>();
+                row.forEach(c => c.highlights.forEach(h => matchedQueryIds.add(h.queryId)));
+                matchedQueryIds.forEach(id => {
+                    const qLabel = queries.find(q => q.id === id)?.label;
+                    if (qLabel) marks.push(qLabel);
+                });
+                const groupVal = marks.join(' | ');
+                html += `<td bgcolor="#fffbeb" style="background-color:#fffbeb; padding:6px 12px; border:1px solid #cccccc; color:#b45309;"><b>${escHtml(groupVal)}</b></td>`;
+            }
             row.forEach(cell => {
                 const bg = cell.highlights.length > 0 ? cell.highlights[0].color : '';
                 const textColor = bg ? getContrastColor(bg) : '#000000';
                 const style = bg
-                    ? `background-color:${bg};color:${textColor};padding:4px 8px;border:1px solid #cccccc;`
-                    : `padding:4px 8px;border:1px solid #cccccc;color:#000000;`;
-                html += `<td style="${style}">${escHtml(cell.value)}</td>`;
+                    ? `background-color:${bg}; color:${textColor}; padding:6px 12px; border:1px solid #cccccc;`
+                    : `padding:6px 12px; border:1px solid #cccccc; color:#000000;`;
+                const bgColorAttr = bg ? `bgcolor="${bg}"` : '';
+                html += `<td ${bgColorAttr} style="${style}">${escHtml(cell.value)}</td>`;
             });
-            if (noteColumnVisible) {
-                const notes = getRowNoteWithSummary(row);
-                html += `<td style="padding:4px 8px;border:1px solid #cccccc;color:#333333;font-size:12px;">${escHtml(notes)}</td>`;
-            }
+            const notes = getRowNoteWithSummary(row);
+            html += `<td style="padding:6px 12px; border:1px solid #cccccc; color:#666666;">${escHtml(notes)}</td>`;
             html += '</tr>';
         });
         html += '</table>';
 
-        let tsv = headers.join('\t') + (noteColumnVisible ? '\t备注' : '') + '\n';
+        // TSV
+        let tsvHeader = (hasDups || hasHighlights ? '标注分组/查重号\t' : '') + headers.join('\t') + '\t备注\n';
+        let tsvBody = '';
         filteredRows.forEach(row => {
-            tsv += row.map(c => tsvCell(c.value)).join('\t');
-            if (noteColumnVisible) {
-                const notes = getRowNoteWithSummary(row);
-                tsv += '\t' + notes;
+            if (hasDups || hasHighlights) {
+                const marks: string[] = [];
+                const dupMatch = row.find(c => c.note && c.note.includes('DUP-'))?.note?.match(/DUP-\d+/);
+                if (dupMatch) marks.push(dupMatch[0]);
+                const matchedQueryIds = new Set<string>();
+                row.forEach(c => c.highlights.forEach(h => matchedQueryIds.add(h.queryId)));
+                matchedQueryIds.forEach(id => {
+                    const qLabel = queries.find(q => q.id === id)?.label;
+                    if (qLabel) marks.push(qLabel);
+                });
+                tsvBody += marks.join(' | ') + '\t';
             }
-            tsv += '\n';
+            tsvBody += row.map(c => tsvCell(c.value)).join('\t');
+            tsvBody += '\t' + getRowNoteWithSummary(row) + '\n';
         });
 
         const labels = { all: '全部', highlighted: '高亮', unhighlighted: '未高亮' };
-        copyHtmlToClipboard(html, tsv, `✅ 已复制 ${filteredRows.length} 行${labels[mode]}数据`);
-    }, [table, getRowNoteWithSummary]);
+        copyHtmlToClipboard(html, tsvHeader + tsvBody, `✅ 已复制 ${filteredRows.length} 行${labels[mode]}数据`);
+    }, [table, queries, getRowNoteWithSummary]);
 
     const copyTableWithColors = useCallback(() => copyFilteredTable('all'), [copyFilteredTable]);
     const copyHighlightedOnly = useCallback(() => copyFilteredTable('highlighted'), [copyFilteredTable]);
@@ -1870,7 +2090,7 @@ If no matches: []`;
         const modeLabel = useEmbedding ? '🧠 语义重复' : '🔁 重复';
         const newRows = rows.map(row => row.map(cell => ({ ...cell, highlights: [], note: '' })));
         dupGroups.forEach((group, gi) => {
-            const color = PRESET_COLORS[gi % PRESET_COLORS.length];
+            const color = getQueryColor(gi);
             group.forEach(rowIdx => {
                 const targetCol = allCols ? (rowHighlightColMap.get(rowIdx) ?? 0) : col;
                 const cell = newRows[rowIdx][targetCol];
@@ -2147,10 +2367,19 @@ If no matches: []`;
     // ===== 辅助 =====
     const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
 
-    const getContrastColor = (hex: string): string => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
+    const getContrastColor = (color: string): string => {
+        if (!color) return '#18181b';
+        if (color.startsWith('hsl')) {
+            // 解析 hsl(hue, sat%, light%)
+            const match = color.match(/hsl\(.*,\s*.*,\s*(\d+)%\)/);
+            const lightness = match ? parseInt(match[1]) : 50;
+            // 亮度大于 60% 用黑字，否则用白字
+            return lightness > 60 ? '#18181b' : '#ffffff';
+        }
+        // 处理 HEX
+        const r = parseInt(color.slice(1, 3), 16);
+        const g = parseInt(color.slice(3, 5), 16);
+        const b = parseInt(color.slice(5, 7), 16);
         return (r * 299 + g * 587 + b * 114) / 1000 > 128 ? '#18181b' : '#ffffff';
     };
 
@@ -2190,6 +2419,19 @@ If no matches: []`;
     return (
         <>
             <style>{`
+                .custom-scrollbar::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: #3f3f46;
+                    border-radius: 10px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: #52525b;
+                }
             [data-tip] { position: relative; }
             [data-tip]::after {
                 content: attr(data-tip);
@@ -2351,7 +2593,7 @@ If no matches: []`;
                                     <RotateCcw size={14} /> 清除高亮
                                 </button>
                                 <button onClick={() => {
-                                    setQueries([{ id: uuidv4(), text: '', noteText: '', color: PRESET_COLORS[0], enabled: true, isSearching: false, resultCount: 0 }]);
+                                    setQueries([{ id: uuidv4(), text: '', noteText: '', color: getQueryColor(0), enabled: true, isSearching: false, resultCount: 0 }]);
                                     setTable({ headers: [], rows: [], noteColumnVisible: false });
                                     setShowPasteArea(true);
                                     setPasteInput('');
@@ -2644,6 +2886,96 @@ If no matches: []`;
                             <button onClick={() => setShowSettings(!showSettings)} style={{ ...btnSmStyle, color: '#71717a' }} data-tip="搜索设置（相似度阈值、搜索列）">
                                 <Settings2 size={13} />
                             </button>
+
+                            {/* ===== 翻译搜索开关 + 语言选择 ===== */}
+                            {getAiInstance && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+                                    <button
+                                        onClick={() => setTranslateEnabled(!translateEnabled)}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '3px',
+                                            padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600,
+                                            border: 'none', cursor: 'pointer', transition: 'all 0.15s',
+                                            background: translateEnabled ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                            color: translateEnabled ? '#60a5fa' : '#52525b',
+                                        }}
+                                        data-tip={translateEnabled ? '翻译搜索已开启（点击关闭）' : '开启翻译搜索：搜索前先将查询词翻译为目标语言'}
+                                    >
+                                        <Languages size={12} />
+                                        {translateEnabled ? '翻译搜索' : '翻译'}
+                                    </button>
+                                    {translateEnabled && (
+                                        <div ref={translateDropdownRef} style={{ position: 'relative' }}>
+                                            <button
+                                                onClick={() => { setTranslateDropdownOpen(!translateDropdownOpen); setTranslateLangSearch(''); }}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: '3px',
+                                                    padding: '2px 8px', borderRadius: '4px', fontSize: '11px',
+                                                    border: '1px solid rgba(59,130,246,0.3)', cursor: 'pointer',
+                                                    background: 'rgba(59,130,246,0.1)', color: '#93c5fd',
+                                                    fontWeight: 500, whiteSpace: 'nowrap',
+                                                }}
+                                                data-tip="选择翻译目标语言"
+                                            >
+                                                {TRANSLATE_LANGUAGES.find(l => l.code === translateLang)?.label || '英文'}
+                                                <ChevronDown size={10} />
+                                            </button>
+                                            {translateDropdownOpen && (
+                                                <div style={{
+                                                    position: 'absolute', top: '100%', left: 0, marginTop: '4px',
+                                                    background: '#1e1e24', border: '1px solid #333', borderRadius: '8px',
+                                                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)', zIndex: 999,
+                                                    width: '220px', maxHeight: '320px', overflow: 'hidden',
+                                                    display: 'flex', flexDirection: 'column',
+                                                }}>
+                                                    {/* 搜索框 */}
+                                                    <div style={{ padding: '6px 8px', borderBottom: '1px solid #333' }}>
+                                                        <input
+                                                            type="text" autoFocus
+                                                            value={translateLangSearch}
+                                                            onChange={e => setTranslateLangSearch(e.target.value)}
+                                                            placeholder="搜索语言 (中/英/本语)..."
+                                                            style={{
+                                                                width: '100%', padding: '5px 8px', borderRadius: '4px',
+                                                                border: '1px solid #444', background: '#111', color: '#e5e5e5',
+                                                                fontSize: '12px', outline: 'none',
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    {/* 语言列表 */}
+                                                    <div style={{ overflowY: 'auto', maxHeight: '260px', padding: '4px 0' }}>
+                                                        {filteredTranslateLangs.map(lang => (
+                                                            <button
+                                                                key={lang.code}
+                                                                onClick={() => { setTranslateLang(lang.code); setTranslateDropdownOpen(false); }}
+                                                                style={{
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                                    width: '100%', padding: '6px 12px', border: 'none', cursor: 'pointer',
+                                                                    background: translateLang === lang.code ? 'rgba(59,130,246,0.15)' : 'transparent',
+                                                                    color: translateLang === lang.code ? '#60a5fa' : '#d4d4d8',
+                                                                    fontSize: '12px', textAlign: 'left', transition: 'background 0.1s',
+                                                                }}
+                                                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                                                                onMouseLeave={e => (e.currentTarget.style.background = translateLang === lang.code ? 'rgba(59,130,246,0.15)' : 'transparent')}
+                                                            >
+                                                                <span>{lang.label} <span style={{ color: '#71717a', fontSize: '10px' }}>{lang.native && `(${lang.native})`}</span></span>
+                                                                {translateLang === lang.code && <Check size={12} style={{ color: '#60a5fa' }} />}
+                                                            </button>
+                                                        ))}
+                                                        {filteredTranslateLangs.length === 0 && (
+                                                            <div style={{ padding: '12px', textAlign: 'center', color: '#52525b', fontSize: '11px' }}>
+                                                                未找到匹配语言
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {isTranslating && <Loader2 size={12} className="animate-spin" style={{ color: '#60a5fa' }} />}
+                                </div>
+                            )}
+
                             <div style={{ flex: 1 }} />
                             <button onClick={addQuery} style={btnSmStyle} data-tip="添加搜索项">
                                 <Plus size={14} /> 新增
@@ -2663,6 +2995,18 @@ If no matches: []`;
                                     data-tip="强行中断并且保存断点记录（只对 AI 模型有效）"
                                 >
                                     <Trash2 size={14} /> 停止搜索
+                                </button>
+                            )}
+                            {queries.some(q => q.text.trim() || q.resultCount > 0) && (
+                                <button
+                                    onClick={() => {
+                                        clearAllHighlights();
+                                        setQueries([{ id: uuidv4(), text: '', noteText: '', color: getQueryColor(0), enabled: true, isSearching: false, resultCount: 0 }]);
+                                    }}
+                                    style={{ ...btnSmStyle, color: '#ef4444' }}
+                                    data-tip="清空所有搜索项和高亮（保留表格数据）"
+                                >
+                                    <RotateCcw size={14} /> 清空搜索
                                 </button>
                             )}
                         </div>
@@ -2765,9 +3109,21 @@ If no matches: []`;
                                     </div>
                                 )}
                                 {/* 搜索项列表 */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div 
+                                    className="custom-scrollbar"
+                                    style={{ 
+                                        display: 'flex', 
+                                        flexDirection: 'column', 
+                                        gap: '8px',
+                                        maxHeight: '320px',
+                                        overflowY: 'auto',
+                                        paddingRight: '6px',
+                                        marginRight: '-4px', // 抵消纵向滚动条带来的空隙偏移
+                                    }}
+                                >
                                     {queries.map((q, idx) => (
-                                        <div key={q.id} style={{
+                                        <React.Fragment key={q.id}>
+                                        <div style={{
                                             display: 'flex', alignItems: 'center', gap: '6px',
                                             padding: '6px 8px', background: '#18181b',
                                             borderRadius: '8px', border: `1px solid ${q.color}33`,
@@ -2873,10 +3229,10 @@ If no matches: []`;
                                                     const usedColors = new Set(queries.map(qq => qq.color));
                                                     let colorIdx = queries.length;
                                                     const newQueries = bulkQueries.map(item => {
-                                                        let nextColor = PRESET_COLORS[colorIdx % PRESET_COLORS.length];
-                                                        while (usedColors.has(nextColor) && colorIdx < queries.length + PRESET_COLORS.length) {
+                                                        let nextColor = getQueryColor(colorIdx);
+                                                        while (usedColors.has(nextColor) && colorIdx < queries.length + 20) {
                                                             colorIdx++;
-                                                            nextColor = PRESET_COLORS[colorIdx % PRESET_COLORS.length];
+                                                            nextColor = getQueryColor(colorIdx);
                                                         }
                                                         usedColors.add(nextColor);
                                                         colorIdx++;
@@ -3104,6 +3460,29 @@ If no matches: []`;
                                                 </button>
                                             )}
                                         </div>
+                                        {/* 翻译结果显示 */}
+                                        {translateEnabled && q.translatedText && q.translatedText !== q.text && (
+                                            <div style={{
+                                                display: 'flex', alignItems: 'center', gap: '6px',
+                                                padding: '3px 8px 3px 62px', fontSize: '11px',
+                                                color: '#60a5fa', background: 'rgba(59,130,246,0.04)',
+                                                borderRadius: '0 0 8px 8px', marginTop: '-4px',
+                                                border: '1px solid rgba(59,130,246,0.1)',
+                                                borderTop: 'none',
+                                            }}>
+                                                <Languages size={10} style={{ flexShrink: 0, opacity: 0.6 }} />
+                                                <span style={{ opacity: 0.7 }}>→</span>
+                                                <span style={{ color: '#93c5fd', fontWeight: 500 }}>{q.translatedText}</span>
+                                                <button
+                                                    onClick={() => updateQuery(q.id, { translatedText: undefined })}
+                                                    style={{ ...btnSmStyle, color: '#52525b', padding: '1px', marginLeft: 'auto' }}
+                                                    data-tip="清除翻译缓存"
+                                                >
+                                                    <X size={10} />
+                                                </button>
+                                            </div>
+                                        )}
+                                        </React.Fragment>
                                     ))}
                                 </div>
                             </>

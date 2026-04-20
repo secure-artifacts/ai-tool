@@ -99,13 +99,22 @@ export const uploadToGyazo = async (file: File, token: string): Promise<string |
         }
 
         const json = await res.json();
-        // Gyazo 返回的是分享页面链接，需要转换为直接图片链接
-        const shareUrl = json.url || json.permalink_url;
+        console.log('[gyazoService] Upload response:', JSON.stringify(json));
+        // Gyazo API 返回:
+        //   url: 直接图片链接 (https://i.gyazo.com/HASH.ext) — 已包含正确扩展名
+        //   permalink_url: 分享页面链接 (https://gyazo.com/HASH)
+        // 优先使用 API 返回的直接链接，避免强制拼 .png 导致 JPEG 图片 404
+        if (json.url && json.url.includes('i.gyazo.com')) {
+            // API 直接返回了带正确扩展名的直链，直接使用
+            return json.url;
+        }
+        // fallback: 从分享链接提取 hash，尝试通过 type 字段确定扩展名
+        const shareUrl = json.permalink_url || json.url;
         if (shareUrl) {
-            // 将 https://gyazo.com/xxx 转换为 https://i.gyazo.com/xxx.png
             const match = shareUrl.match(/gyazo\.com\/([a-f0-9]+)/i);
             if (match) {
-                return `https://i.gyazo.com/${match[1]}.png`;
+                const ext = json.type || 'png'; // Gyazo API 通常返回 type 字段 (png/jpg/gif)
+                return `https://i.gyazo.com/${match[1]}.${ext}`;
             }
             return shareUrl;
         }

@@ -45,19 +45,44 @@ grep -n '当前版本' index.tsx | head -3
 
 用于生成可上传到 Google AI Studio 的源码压缩包。
 
-### 执行命令
+### 1. 检查异常大文件（防泄漏检查）
+
+执行打包前，先运行此命令快速检查项目中是否有大于 2MB 的隐藏大文件/临时文件未在排除范围内：
 
 // turbo
 ```bash
-rm ~/Desktop/ai-toolkit-源码-v3.8.3.zip 2>/dev/null; \
 cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
-zip -r ~/Desktop/ai-toolkit-源码-v3.8.3.zip . \
+find . -type f -size +2M \
+  ! -path "*/node_modules/*" \
+  ! -path "*/\.git/*" \
+  ! -path "*/dist*/*" \
+  ! -path "*/\.agent/*" \
+  ! -name "*.png" \
+  ! -name "*.jpg"
+```
+*(如果输出显示了不应该打包回去的比如 .backup, 日志缓存, 数据库文件，记得修改下方的排除列表！)*
+
+### 2. 执行打包命令
+
+// turbo
+```bash
+rm ~/Desktop/ai-toolkit-源码-v4.0.0.zip 2>/dev/null; \
+cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
+zip -r ~/Desktop/ai-toolkit-源码-v4.0.0.zip . \
     -x "node_modules/*" \
     -x ".git/*" \
     -x "dist/*" \
     -x "dist-electron/*" \
     -x "electron/node_modules/*" \
     -x "electron/dist/*" \
+    -x "functions/node_modules/*" \
+    -x "functions/dist/*" \
+    -x "functions/lib/*" \
+    -x "functions/.firebase/*" \
+    -x "*.backup*" \
+    -x "**/*.backup*" \
+    -x ".playwright-mcp/*" \
+    -x ".vscode/*" \
     -x "electron/dist-electron/*" \
     -x ".DS_Store" \
     -x "*.log" \
@@ -74,7 +99,7 @@ zip -r ~/Desktop/ai-toolkit-源码-v3.8.3.zip . \
 ```
 
 ### 输出位置
-- `~/Desktop/ai-toolkit-源码-v3.8.3.zip`
+- `~/Desktop/ai-toolkit-源码-v4.0.0.zip`
 
 ### 包含内容
 - ✅ 所有源代码（`apps/`, `services/`, `components/`）

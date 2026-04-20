@@ -8,16 +8,20 @@ import { useToast } from '@/components/ui/Toast';
 import type { GoogleGenAI } from '@google/genai';
 import {
     Upload, Sparkles, Tags, Grid3x3, List, CheckSquare, Copy, Trash2,
-    Loader2, StopCircle, Filter, ImagePlus, X, Check, Download, Plus, ChevronDown, Eye, EyeOff
+    Loader2, StopCircle, Filter, ImagePlus, X, Check, Download, Plus, ChevronDown, Eye, EyeOff, RotateCw, Edit3, RefreshCw
 } from 'lucide-react';
 import {
     extractUrlsFromHtml,
+    extractUrlsFromHtmlGrouped,
     parsePasteInput,
+    processImageUrl,
     fetchImageBlob,
-    convertBlobToBase64
+    convertBlobToBase64,
+    parseMatrixHtmlTable
 } from '@/apps/ai-image-recognition/utils';
 import { base64ToFile, uploadToGyazo, getGyazoToken } from '../image-review/services/gyazoService';
 import JSZip from 'jszip';
+import { DIMENSION_PRESETS, ADVANCED_PRESETS } from './presets';
 import './ImageSorter.css';
 
 // Native saveAs implementation (replaces file-saver dependency for AI Studio compatibility)
@@ -42,12 +46,23 @@ interface ClassificationDimension {
     description: string;   // Criteria/standard for judging this dimension
     categories: string[];  // Category options for this dimension
     inputValue: string;    // Current input value for chip input
+    categoryCriteria?: Record<string, string>; // Individual criteria mapped per category
+}
+
+/** 高级分类规则（表格化层级规则，与查重工具的 CustomClassifyRule 一致） */
+interface AdvancedClassifyRule {
+    id: string;
+    name: string;           // 类别名称
+    level: string;          // 维度/层级（如 "一级分类", "二级分类"）
+    parentCategory: string; // 归属限制（父类名称，留空=顶级）
+    criteria: string;       // 判断标准
 }
 
 interface SorterImage {
     id: string;
-    src: string; // base64 for display
+    src: string; // data URL / blob URL / remote URL for display
     originalUrl?: string; // preserve source URL for =IMAGE() formula
+    localFile?: File; // keep original file for fast upload/download without base64 conversion
     name: string;
     category?: string;                    // Primary category (first dim or auto) - backward compat
     categories?: Record<string, string>;  // Multi-dimension: dimName → category
@@ -60,6 +75,8 @@ interface SorterImage {
     aspectRatio?: string; // e.g. '9:16', '4:5', '1:1'
     width?: number;
     height?: number;
+    metadataRows?: string[]; // rows of text found beneath this image in the same column (Matrix Mode)
+    originalMatrixColumnIndex?: number; // the column index this image was found in
 }
 
 interface ImageSorterAppProps {
@@ -68,7 +85,7 @@ interface ImageSorterAppProps {
 }
 
 // ========== Constants ==========
-const DEFAULT_BATCH_SIZE = 300; // 默认批次大小
+const DEFAULT_BATCH_SIZE = 10; // 默认批次大小 (10张以内模型分类准确率最高)
 const BATCH_SIZE_OPTIONS = [5, 10, 20, 30, 50, 100, 150, 200, 300];
 const DEFAULT_MODEL = 'gemini-3-flash-preview';
 const BATCH_CONCURRENCY_DEFAULT = 1; // 标准模式默认并发
@@ -85,125 +102,14 @@ const ALL_MODELS = [
 ];
 const MAX_RETRIES = 3; // 429 retry attempts
 const MAX_IMAGE_DIM = 512; // resize for faster processing
+const SIDEBAR_WIDTH_STORAGE_KEY = 'image-sorter-sidebar-width';
+const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MAX_WIDTH = 620;
 
-interface CategoryPreset {
-    id: string;
-    label: string;
-    emoji: string;
-    categories: string[];
-    description?: string; // Optional: detailed classification instructions loaded into customInstructions
-}
 
-const CATEGORY_PRESETS: CategoryPreset[] = [
-    {
-        id: 'default',
-        label: '默认分类',
-        emoji: '✝️',
-        categories: [
-            '爱心类', '安东尼奥', '边框设计', '对话类', '风景祷告词类',
-            '黑色背景', '家庭', '简约背景祷告类', '教堂', '旧纸张',
-            '举布类', '举牌子类', '卡通插画耶稣', '卡通人物',
-            '口播成年男性', '口播成年女性', '口播老人', '口播年轻人', '口播神父', '口播修女',
-            '蜡烛', '卢西亚', '玛丽亚', '玛丽亚骑驴', '玫瑰花',
-            '牌子类', '其他类', '神帮助类', '圣家族', '圣丽塔',
-            '圣婴耶稣', '十字架类', '石头石板类', '手拿纸', '书本',
-            '四宫格/九宫格/拼图类', '特蕾莎', '天使类',
-            '小学生，学生', '耶稣帮助人', '耶稣骑驴', '衣服上写字类',
-            '婴儿，幼儿', '游行', '灾难类', '知更鸟', '主耶稣',
-        ],
-    },
-    {
-        id: 'video_type',
-        label: '视频类型分类',
-        emoji: '🎬',
-        categories: ['口播类', 'reels类', '人声视频类', '宗派类', 'ig视频类'],
-        description: `请根据以下规则判断每张图片属于哪个视频类型：
 
-1. 口播类：画面主体是人物（真人面部清晰可见），一看就是口播/说话场景（人物面对镜头、近景或中景）。只要主体是口播人物，无论背景是什么，都归为口播类。
 
-2. reels类：背景是风景照片、自然场景或简约纯色/渐变背景，画面上叠加了大量文字（多行、多段文案，文字占据画面较大面积）。关键特征：文字量大、文案长。
 
-3. 人声视频类：背景同样是风景、自然场景或其他素材图片，但画面上的文字非常少（只有一句话或极短的标题），甚至几乎没有文字。关键特征：背景为主，文字极少。
-
-4. 宗派类：画面中出现主耶稣（Jesus）或圣母玛丽亚（Mary/Virgin Mary）的形象（绘画、雕塑、图像均算），归为宗派类。
-
-5. ig视频类：画面有明显的白色底色/白色背景，上面配有很简短的文案文字。关键特征：白色背景 + 简短文案。
-
-判断优先级：宗派类 > 口播类 > ig视频类 > reels类/人声视频类
-（如果画面同时有耶稣/玛丽亚和口播人物，优先归为宗派类）`,
-    },
-    {
-        id: 'image_style',
-        label: '图片风格分类',
-        emoji: '🖼️',
-        categories: ['简约清新', '深色风景', '人物牌子', '卡通插画', '大字报', '主耶稣'],
-        description: `请根据以下规则判断每张图片属于哪个风格分类：
-
-1. 简约清新：背景色调清新淡雅（浅色系、柔和色调、自然光感），画面上有较长的文案文字。整体视觉感觉干净、简约、清新。
-
-2. 深色风景：背景是深色调的风景或暗色系画面，上面叠加了较长的文案文字。关键特征：深色/暗色背景 + 长文案。
-
-3. 人物牌子：画面包含以下任意一种情况——人物举着牌子、单独的牌子/标语、衣服上写字、手写字体写在纸张/卡片上。关键特征：手写风格字体、纸张/牌子/卡片载体。
-
-4. 卡通插画：画面主体是卡通风格或插画风格的图像（手绘风、动漫风、Q版人物等），不是真实照片。
-
-5. 大字报：画面上的文字很少但字体很大很醒目，文字是画面的绝对视觉焦点。关键特征：字少、字大、醒目。
-
-6. 主耶稣：画面中出现主耶稣（Jesus Christ）的形象（绘画、雕塑、图像均算）。
-
-判断优先级：主耶稣 > 人物牌子 > 卡通插画 > 大字报 > 简约清新/深色风景
-（如果画面有耶稣形象，优先归为主耶稣类）`,
-    },
-    {
-        id: 'empty',
-        label: '空白（自定义）',
-        emoji: '📋',
-        categories: [],
-    },
-];
-
-// ========== Multi-dimension Presets ==========
-interface DimensionPreset {
-    id: string;
-    label: string;
-    emoji: string;
-    dimensions: { name: string; categories: string[]; description: string }[];
-}
-
-const DIMENSION_PRESETS: DimensionPreset[] = [
-    {
-        id: 'person_reference',
-        label: '人物参考分类预设',
-        emoji: '👤',
-        dimensions: [
-            {
-                name: '参考筛选',
-                categories: ['可以参考', '不可参考'],
-                description: '可以参考：凡是画面中人物面部清晰，服装清晰，不妖艳，衣服不暴露，不奇装异服。不可参考：画面中没有人物或者画面中人物非常模糊，画面中人物服装暴露',
-            },
-            {
-                name: '人物特征',
-                categories: ['黑人', '牧师'],
-                description: '黑人：凡是黑人皮肤的人种。牧师：服装是牧师或者神父服装',
-            },
-            {
-                name: '性别',
-                categories: ['男性', '女性'],
-                description: '男性：男性。女性：女性',
-            },
-            {
-                name: '年龄',
-                categories: ['年轻人', '中年', '老年'],
-                description: '年轻人：年龄大概在40岁以下。中年：年龄在40-60岁。老年：年龄大于60',
-            },
-            {
-                name: '场景',
-                categories: ['教堂内', '教堂外', '室内', '室外'],
-                description: '教堂内：背景是在教堂内。教堂外：背景是在教堂外，背景有教堂。室内：背景是在室内。室外：背景是在室外',
-            },
-        ],
-    },
-];
 
 // ========== Common aspect ratios ==========
 const COMMON_RATIOS: [number, number, string][] = [
@@ -375,13 +281,15 @@ const resizeImageForAI = (base64: string, maxDim: number): Promise<string> => {
     });
 };
 
-// ========== Helper: load image from File ==========
-const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+const isBlobUrl = (value?: string): boolean => !!value && value.startsWith('blob:');
+
+const yieldToBrowser = (): Promise<void> => {
+    return new Promise((resolve) => {
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(() => resolve());
+            return;
+        }
+        setTimeout(() => resolve(), 0);
     });
 };
 
@@ -389,7 +297,19 @@ const fileToBase64 = (file: File): Promise<string> => {
 const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textModel }) => {
     // Turbo 模式
     const [turboMode, setTurboMode] = useState(true);
+    
+    // Matrix Mode (横版多维大表模式)
+    const [dataInputMode, _setDataInputMode] = useState<'standard' | 'matrix'>('standard');
+    const dataInputModeRef = useRef(dataInputMode);
+    const setDataInputMode = (val: 'standard' | 'matrix') => {
+        _setDataInputMode(val);
+        dataInputModeRef.current = val;
+    };
+    const [dataExportMode, setDataExportMode] = useState<'standard' | 'matrix'>('standard');
+    
     const [uploadingGyazo, setUploadingGyazo] = useState<{ done: number; total: number } | null>(null);
+    const gyazoAbortRef = useRef(false);
+    const [loadingImages, setLoadingImages] = useState<{ done: number; total: number } | null>(null);
     const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number; status: string } | null>(null);
     const [confirmDownloadState, setConfirmDownloadState] = useState<{ total: number, onlySelected: boolean } | null>(null);
     const [turboModel, setTurboModel] = useState<string>(() => {
@@ -420,23 +340,88 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
     // State
     const [images, setImages] = useState<SorterImage[]>([]);
+    const [editingImage, setEditingImage] = useState<SorterImage | null>(null);
+    const [enlargedInput, setEnlargedInput] = useState<{ title: string, value: string, onChange: (val: string) => void } | null>(null);
+    const imagesRef = useRef<SorterImage[]>([]);
     const [classifying, setClassifying] = useState(false);
     const [progress, setProgress] = useState({ done: 0, total: 0 });
-    const [activePresetId, setActivePresetId] = useState<string>(() => {
-        if (typeof window === 'undefined') return 'default';
-        return localStorage.getItem('image-sorter-category-preset') || 'default';
-    });
     const [dimensions, setDimensions] = useState<ClassificationDimension[]>(() => {
-        const preset = CATEGORY_PRESETS.find(p => p.id === (typeof window !== 'undefined' ? localStorage.getItem('image-sorter-category-preset') : null)) || CATEGORY_PRESETS[0];
-        return [{
-            id: 'dim-default',
-            name: '分类',
-            description: '',
-            categories: [...preset.categories],
+        if (typeof window !== 'undefined') {
+            const savedDims = localStorage.getItem('image-sorter-saved-dimensions');
+            if (savedDims) {
+                try {
+                    return JSON.parse(savedDims);
+                } catch (e) {
+                    console.warn('Failed to parse saved dimensions', e);
+                }
+            }
+        }
+        const savedId = typeof window !== 'undefined' ? localStorage.getItem('image-sorter-category-preset') : null;
+        const preset = DIMENSION_PRESETS.find(p => p.id === (savedId || 'default')) || DIMENSION_PRESETS[0];
+        if (!preset || preset.dimensions.length === 0) {
+            return [{ id: 'dim-default', name: '分类', description: '', categories: [], inputValue: '' }];
+        }
+        return preset.dimensions.map((d, i) => ({
+            id: `dim-preset-${Date.now()}-${i}`,
+            name: d.name,
+            description: d.description,
+            categories: [...d.categories],
+            categoryCriteria: d.categoryCriteria ? { ...d.categoryCriteria } : undefined,
             inputValue: '',
-        }];
+        }));
     });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem('image-sorter-saved-dimensions', JSON.stringify(dimensions));
+    }, [dimensions]);
+
+    // 高级分类模式
+    const [classifyMode, setClassifyMode] = useState<'basic' | 'advanced'>(() => {
+        if (typeof window === 'undefined') return 'basic';
+        return (localStorage.getItem('image-sorter-classify-mode') as 'basic' | 'advanced') || 'basic';
+    });
+    const [advancedRules, setAdvancedRules] = useState<AdvancedClassifyRule[]>(() => {
+        if (typeof window === 'undefined') return [];
+        try {
+            const saved = localStorage.getItem('image-sorter-advanced-rules');
+            return saved ? JSON.parse(saved) : [];
+        } catch { return []; }
+    });
+    const [showAdvancedRules, setShowAdvancedRules] = useState(false);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem('image-sorter-classify-mode', classifyMode);
+    }, [classifyMode]);
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem('image-sorter-advanced-rules', JSON.stringify(advancedRules));
+    }, [advancedRules]);
+    const [disambiguationHints, setDisambiguationHints] = useState<string>(() => {
+        if (typeof window === 'undefined') return '';
+        return localStorage.getItem('image-sorter-disambiguation-hints') || '';
+    });
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem('image-sorter-disambiguation-hints', disambiguationHints);
+    }, [disambiguationHints]);
+
+    // 高级分类辅助：从规则列表提取唯一的层级名称（按出现顺序）
+    const advancedLevels = React.useMemo(() => {
+        const seen = new Set<string>();
+        const levels: string[] = [];
+        for (const rule of advancedRules) {
+            const lvl = rule.level.trim();
+            if (lvl && !seen.has(lvl)) {
+                seen.add(lvl);
+                levels.push(lvl);
+            }
+        }
+        return levels;
+    }, [advancedRules]);
     const [activeFilters, setActiveFilters] = useState<Record<string, string | null>>({});
+    const [collapsedDims, setCollapsedDims] = useState<Record<string, boolean>>({});
     const [activeTags, setActiveTags] = useState<Set<string>>(new Set());
     const [activeRatio, setActiveRatio] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -452,11 +437,82 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         if (BATCH_SIZE_OPTIONS.includes(raw)) return raw;
         return DEFAULT_BATCH_SIZE;
     });
+    const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+        if (typeof window === 'undefined') return 320;
+        const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+        if (!Number.isFinite(raw)) return 320;
+        return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, raw));
+    });
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
         localStorage.setItem('image-sorter-image-batch-size', String(imageBatchSize));
     }, [imageBatchSize]);
+
+    useEffect(() => {
+        imagesRef.current = images;
+    }, [images]);
+
+    const revokeObjectUrlIfNeeded = useCallback((url?: string) => {
+        if (!isBlobUrl(url)) return;
+        try {
+            URL.revokeObjectURL(url!);
+        } catch {
+            // ignore revoke failures
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            imagesRef.current.forEach((img) => revokeObjectUrlIfNeeded(img.src));
+        };
+    }, [revokeObjectUrlIfNeeded]);
+
+    const clampSidebarWidth = useCallback((nextWidth: number) => {
+        if (typeof window === 'undefined') {
+            return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, nextWidth));
+        }
+        const viewportMax = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - 320));
+        return Math.min(viewportMax, Math.max(SIDEBAR_MIN_WIDTH, nextWidth));
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    }, [sidebarWidth]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const onResize = () => {
+            setSidebarWidth(prev => clampSidebarWidth(prev));
+        };
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [clampSidebarWidth]);
+
+    const startSidebarResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (typeof window === 'undefined' || window.innerWidth <= 768) return;
+        e.preventDefault();
+        const startX = e.clientX;
+        const startWidth = sidebarWidth;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+            const delta = moveEvent.clientX - startX;
+            setSidebarWidth(clampSidebarWidth(startWidth + delta));
+        };
+
+        const onMouseUp = () => {
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+    }, [sidebarWidth, clampSidebarWidth]);
 
 
 
@@ -480,7 +536,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        localStorage.setItem('image-sorter-custom-instructions', customInstructions);
+        const key = 'image-sorter-custom-instructions';
+        if (customInstructions.trim()) {
+            localStorage.setItem(key, customInstructions);
+        } else {
+            localStorage.removeItem(key);
+        }
     }, [customInstructions]);
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -490,13 +551,16 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     // Helper: get all dimension names (from config + from image data)
     const effectiveDimNames = React.useMemo(() => {
         const names = new Set<string>();
+        // 基础模式维度
         dimensions.forEach(d => { if (d.name.trim()) names.add(d.name.trim()); });
+        // 高级模式层级
+        advancedLevels.forEach(lvl => names.add(lvl));
         // Also include dimensions from classified images (in case config was cleared)
         images.forEach(img => {
             if (img.categories) Object.keys(img.categories).forEach(k => names.add(k));
         });
         return Array.from(names);
-    }, [dimensions, images]);
+    }, [dimensions, images, advancedLevels]);
 
     // ======== Derived data ========
     // Per-dimension category counts
@@ -581,33 +645,55 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             return;
         }
 
-        toast.info(`正在加载 ${imageFiles.length} 张图片...`);
-        const newImages: SorterImage[] = [];
+        setLoadingImages({ done: 0, total: imageFiles.length });
+        // Let React paint loading overlay before starting heavy work.
+        await yieldToBrowser();
 
         const baseIndex = nextIndexRef.current;
         nextIndexRef.current += imageFiles.length;
+        let loadedCount = 0;
+        let skippedCount = 0;
+        const stagedImages: SorterImage[] = [];
+        const FLUSH_EVERY = 25;
         for (let fi = 0; fi < imageFiles.length; fi++) {
             const file = imageFiles[fi];
             try {
-                const base64 = await fileToBase64(file);
-                const dims = await getImageDimensions(base64);
-                newImages.push({
-                    id: `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    src: base64,
+                const blobUrl = URL.createObjectURL(file);
+                const id = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                stagedImages.push({
+                    id,
+                    src: blobUrl,
                     name: file.name,
+                    localFile: file,
                     classified: false,
                     originalIndex: baseIndex + fi,
-                    width: dims.width,
-                    height: dims.height,
-                    aspectRatio: dims.width > 0 ? detectAspectRatio(dims.width, dims.height) : undefined,
                 });
+                loadedCount++;
             } catch {
                 console.warn(`Failed to load: ${file.name}`);
+                skippedCount++;
+            }
+            // Flush in small chunks so large imports stay responsive.
+            if (stagedImages.length >= FLUSH_EVERY || fi === imageFiles.length - 1) {
+                if (stagedImages.length > 0) {
+                    const batch = stagedImages.splice(0, stagedImages.length);
+                    setImages(prev => [...prev, ...batch]);
+                }
+            }
+            // Update progress and yield regularly to avoid UI starvation.
+            if ((fi + 1) % 5 === 0 || fi === imageFiles.length - 1) {
+                setLoadingImages({ done: fi + 1, total: imageFiles.length });
+                await yieldToBrowser();
             }
         }
 
-        setImages(prev => [...prev, ...newImages]);
-        toast.success(`已加载 ${newImages.length} 张图片`);
+        setLoadingImages(null);
+        if (loadedCount > 0) {
+            const suffix = skippedCount > 0 ? `（${skippedCount} 张失败）` : '';
+            toast.success(`已加载 ${loadedCount} 张图片${suffix}`);
+        } else {
+            toast.error('图片加载失败，请检查文件是否损坏');
+        }
     }, [toast]);
 
     // Drag & Drop
@@ -633,66 +719,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         addImages(files);
         if (fileInputRef.current) fileInputRef.current.value = '';
     }, [addImages]);
-
-    // Auto background Gyazo uploader for newly pasted base64 images
-    // Uses a ref to track already-queued IDs to prevent infinite re-render loops
-    const gyazoQueuedRef = useRef<Set<string>>(new Set());
-
-    useEffect(() => {
-        let mounted = true;
-        const uploadQueue = images.filter(img => 
-            !img.isBlankRow && 
-            !img.loadFailed && 
-            img.originalUrl && 
-            img.originalUrl.startsWith('data:image') &&
-            !img.isGyazoUploading &&
-            !gyazoQueuedRef.current.has(img.id)
-        );
-
-        if (uploadQueue.length === 0) return;
-
-        // Mark all as queued immediately to prevent re-entry
-        for (const img of uploadQueue) {
-            gyazoQueuedRef.current.add(img.id);
-        }
-
-        const token = getGyazoToken();
-        setImages(prev => prev.map(img => 
-            uploadQueue.find(q => q.id === img.id) ? { ...img, isGyazoUploading: true } : img
-        ));
-        
-        (async () => {
-             for (const target of uploadQueue) {
-                  if (!mounted) break;
-                  const file = base64ToFile(target.originalUrl!, `sorter_${Date.now()}.png`);
-                  if (file) {
-                      try {
-                          const gyazoUrl = await uploadToGyazo(file, token);
-                          if (gyazoUrl && mounted) {
-                              setImages(prev => prev.map(img => 
-                                  img.id === target.id ? { ...img, originalUrl: gyazoUrl, isGyazoUploading: false } : img
-                              ));
-                          }
-                      } catch (e) {
-                          console.warn('[Gyazo auto-upload] failed for', target.id, e);
-                          if (mounted) {
-                              setImages(prev => prev.map(img => img.id === target.id ? { ...img, isGyazoUploading: false } : img));
-                          }
-                      }
-                  } else {
-                      if (mounted) {
-                          setImages(prev => prev.map(img => img.id === target.id ? { ...img, isGyazoUploading: false } : img));
-                      }
-                  }
-             }
-        })();
-
-        return () => { mounted = false; };
-    }, [images]);
+    // Remove auto Gyazo uploading. Users should click "上传 Gyazo 图床" explicitly.
 
     // Paste - rewritten to match AI Image Recognition tool logic exactly
     // Helper: load URLs concurrently and add to gallery
-    const loadUrlsToGallery = useCallback(async (urlItems: { url: string; content?: string; isBlankRow?: boolean }[]) => {
+    const loadUrlsToGallery = useCallback(async (urlItems: { url: string; content?: string; isBlankRow?: boolean; metadataRows?: string[]; matrixColumnIndex?: number }[]) => {
         if (urlItems.length === 0) return;
 
         // Keep duplicates to preserve 1:1 row alignment with pasted sheet data.
@@ -712,7 +743,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         const worker = async () => {
             while (queueIdx < queue.length) {
                 const job = queue[queueIdx++];
-                const { url: fetchUrl, content: origContent, isBlankRow } = job.item;
+                const { url: fetchUrl, content: origContent, isBlankRow, metadataRows, matrixColumnIndex } = job.item;
 
                 if (isBlankRow) {
                     const placeholder: SorterImage = {
@@ -750,6 +781,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         width: dims.width,
                         height: dims.height,
                         aspectRatio: dims.width > 0 ? detectAspectRatio(dims.width, dims.height) : undefined,
+                        metadataRows,
+                        originalMatrixColumnIndex: matrixColumnIndex,
                     };
                     setImages(prev => [...prev, newImg]);
                     loaded++;
@@ -798,8 +831,9 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
                 return;
             }
-            // 2. 如果粘贴事件不在图片分拣组件内，不拦截
-            if (!target.closest('.image-sorter')) {
+            // 2. 检查组件所属的容器是否处于激活可见状态
+            const wrapper = document.querySelector('.image-sorter-wrapper');
+            if (wrapper && wrapper.getBoundingClientRect().width === 0) {
                 return;
             }
 
@@ -820,78 +854,138 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 return;
             }
 
-            // 2 & 3: Structural Extraction for HTML (Handles empty cell rows perfectly)
-            const extractRowsForSorter = (htmlString: string, textString: string) => {
-                const results: { url: string; content?: string; isBlankRow?: boolean }[] = [];
-                const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']/gi;
-                const formulaUrls: string[] = [];
-                if (textString) {
-                    for (const m of textString.matchAll(formulaRegex)) {
-                        formulaUrls.push(m[1]); // capturing pure decoded original urls
-                    }
-                }
-                
-                let formulaCursor = 0;
+            // 2. 优先处理 =IMAGE 纯文本（与 ai-image-recognition 对齐）
+            //    [Image Sorter 专用] 保留空行以维持与 Google Sheets 的行结构对齐
+            if (plainText && plainText.includes('=IMAGE')) {
+                e.preventDefault();
+                const rawLines = plainText.split(/\r?\n/);
+                // 去掉尾部连续空行（粘贴时末尾常带多余换行）
+                while (rawLines.length > 0 && rawLines[rawLines.length - 1].trim() === '') rawLines.pop();
 
-                // Priority A: HTML tables (Google Sheets cells copy)
-                if (htmlString && htmlString.includes('<table') && htmlString.includes('<tr')) {
-                    const doc = new DOMParser().parseFromString(htmlString, 'text/html');
-                    const trs = Array.from(doc.querySelectorAll('tr'));
-                    for (const tr of trs) {
-                        const trUrls = extractUrlsFromHtml(tr.outerHTML);
-                        if (trUrls.length > 0) {
-                            for (const { originalUrl, fetchUrl } of trUrls) {
-                                let actualFetchUrl = fetchUrl;
-                                if (formulaCursor < formulaUrls.length) {
-                                    actualFetchUrl = formulaUrls[formulaCursor];
-                                    formulaCursor++;
+                const formulaRegex = /=IMAGE\s*\(\s*(?:"([^"]+)"|'([^']+)'|([^,\)\s]+))/gi;
+                const urlRegex = /https?:\/\/[^\s\t]+/g;
+                const urlItems: { url: string; content?: string; isBlankRow?: boolean }[] = [];
+
+                for (const line of rawLines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) {
+                        // 空行 → 占位行
+                        urlItems.push({ url: '', isBlankRow: true });
+                        continue;
+                    }
+                    // 一行内可能有多个 tab 分隔的单元格
+                    const cells = trimmed.split('\t');
+                    let foundInLine = false;
+                    for (const cell of cells) {
+                        const c = cell.trim();
+                        if (!c) continue;
+                        formulaRegex.lastIndex = 0;
+                        const fm = [...c.matchAll(formulaRegex)];
+                        if (fm.length > 0) {
+                            for (const m of fm) {
+                                const rawUrl = m[1] || m[2] || m[3] || '';
+                                if (rawUrl) {
+                                    urlItems.push({ url: processImageUrl(rawUrl), content: m[0] });
+                                    foundInLine = true;
                                 }
-                                results.push({ url: actualFetchUrl, content: `=IMAGE("${originalUrl}")` });
                             }
                         } else {
-                            results.push({ url: '', isBlankRow: true });
+                            urlRegex.lastIndex = 0;
+                            const um = [...c.matchAll(urlRegex)];
+                            for (const u of um) {
+                                urlItems.push({ url: processImageUrl(u[0]), content: c });
+                                foundInLine = true;
+                            }
                         }
                     }
-                    return results;
+                    // 如果整行没有任何有效 URL/公式，也作为空行占位
+                    if (!foundInLine) {
+                        urlItems.push({ url: '', isBlankRow: true });
+                    }
                 }
 
-                // Priority B: Plaintext parsing with line tracking
-                if (textString && textString.includes('=IMAGE')) {
-                     const lines = textString.split(/\r?\n/);
-                     for (const line of lines) {
-                          const cells = line.split('\t');
-                          let hasUrl = false;
-                          for (const cell of cells) {
-                               formulaRegex.lastIndex = 0;
-                               const matches = [...cell.matchAll(formulaRegex)];
-                               for (const m of matches) {
-                                   hasUrl = true;
-                                   // Keep original un-processed URL for formula writing, but processed url for fetching internally
-                                   let fetchUrl = m[1];
-                                   if (!fetchUrl.startsWith('http') && !fetchUrl.startsWith('data:')) fetchUrl = `https://${fetchUrl}`;
-                                   results.push({ url: fetchUrl, content: m[0] });
-                               }
-                          }
-                          // Maintain exact row count structure
-                          if (!hasUrl && line.trim() === '') {
-                               results.push({ url: '', isBlankRow: true });
-                          }
-                     }
-                     return results;
+                if (urlItems.some(item => !item.isBlankRow)) {
+                    const blankCount = urlItems.filter(i => i.isBlankRow).length;
+                    console.log(`[ImageSorter Paste] Formula items: ${urlItems.length} (含 ${blankCount} 空行占位)`);
+                    await loadUrlsToGallery(urlItems);
+                    return;
                 }
-                return null;
-            };
+            }
 
-            const structuredRows = extractRowsForSorter(html, plainText);
-            if (structuredRows && structuredRows.some(r => !r.isBlankRow)) { // Ensure at least 1 image
-                e.preventDefault();
-                console.log('[ImageSorter Paste] Structural parsed rows:', structuredRows.length);
-                await loadUrlsToGallery(structuredRows);
-                return;
+            // 3. HTML（Google Sheets 单元格拷贝）回退
+            if (html) {
+                const hasTableRows = html.includes('<tr');
+                if (hasTableRows) {
+                    if (dataInputModeRef.current === 'matrix') {
+                        const matrixItems = parseMatrixHtmlTable(html);
+                        if (matrixItems.length > 0) {
+                            e.preventDefault();
+                            const urlItems = matrixItems.map(item => ({
+                                url: item.fetchUrl,
+                                content: `=IMAGE("${item.originalUrl}")`,
+                                metadataRows: item.metadataRows,
+                                matrixColumnIndex: item.matrixColumnIndex,
+                            }));
+                            console.log('[ImageSorter Paste] HTML matrix rows mapped:', urlItems.length);
+                            await loadUrlsToGallery(urlItems);
+                            return;
+                        }
+                    }
+
+                    const groups = extractUrlsFromHtmlGrouped(html);
+                    if (groups.length > 0) {
+                        e.preventDefault();
+                        const urlItems = groups.flatMap(group =>
+                            group.map(({ originalUrl, fetchUrl }) => ({
+                                url: fetchUrl,
+                                content: `=IMAGE("${originalUrl}")`,
+                            }))
+                        );
+                        console.log('[ImageSorter Paste] HTML grouped rows:', groups.length, 'items:', urlItems.length);
+                        await loadUrlsToGallery(urlItems);
+                        return;
+                    }
+                }
+
+                const extractedUrls = extractUrlsFromHtml(html);
+                if (extractedUrls.length > 0) {
+                    e.preventDefault();
+                    const textLines = plainText ? plainText.split(/\r?\n/).filter(line => line.trim() !== '') : [];
+                    const formulaRegex = /=IMAGE\s*\(\s*["']([^"']+)["']\s*\)/i;
+                    const formulaUrls: string[] = [];
+                    textLines.forEach(line => {
+                        const match = line.match(formulaRegex);
+                        if (match && match[1]) formulaUrls.push(match[1]);
+                    });
+
+                    const urlItems = extractedUrls.map(({ originalUrl, fetchUrl }, index) => {
+                        let originalContent = (index < textLines.length && textLines[index].trim())
+                            ? textLines[index]
+                            : `=IMAGE("${originalUrl}")`;
+
+                        let actualFetchUrl = fetchUrl;
+                        if (index < formulaUrls.length) {
+                            actualFetchUrl = formulaUrls[index];
+                        } else {
+                            const match = originalContent.match(formulaRegex);
+                            if (match && match[1]) actualFetchUrl = match[1];
+                        }
+
+                        if (!originalContent.includes('=IMAGE')) {
+                            originalContent = `=IMAGE("${originalUrl}")`;
+                        }
+
+                        return { url: actualFetchUrl, content: originalContent };
+                    });
+
+                    console.log('[ImageSorter Paste] HTML extracted items:', urlItems.length);
+                    await loadUrlsToGallery(urlItems);
+                    return;
+                }
             }
 
             // 4. 纯文本 URL（非公式）
-            if (plainText && (plainText.includes('http'))) {
+            if (plainText && (plainText.includes('http') || plainText.includes('=IMAGE'))) {
                 const parsed = parsePasteInput(plainText);
                 if (parsed.length > 0) {
                     e.preventDefault();
@@ -1021,10 +1115,244 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         toast.success(`已将自动分类结果保存为维度「${name}」，包含 ${uniqueCats.size} 个分类`);
     };
 
+    const handleReclassifyAll = () => {
+        if (!confirm('确定要重新分类所有图片吗？已有的分类结果和标签都将被清除！')) return;
+        setImages(prev => prev.map(img => ({
+            ...img,
+            classified: false,
+            category: undefined,
+            categories: undefined,
+            tags: undefined
+        })));
+        // 自动触发重新分类
+        setTimeout(() => handleClassify(), 300);
+    };
+
+    const handleSaveEdit = (editedCategory: string, editedCategories: Record<string, string>, editedTags: string[]) => {
+        if (!editingImage) return;
+        setImages(prev => prev.map(item => item.id === editingImage.id ? {
+            ...item,
+            category: editedCategory,
+            categories: Object.keys(editedCategories).length > 0 ? editedCategories : undefined,
+            tags: editedTags,
+            classified: true,
+        } : item));
+        setEditingImage(null);
+        toast.success('分类结果已修改');
+    };
+
+    const handleSingleReclassify = async (imgId: string, silent = false) => {
+        const imgIndex = images.findIndex(i => i.id === imgId);
+        if (imgIndex === -1) { if (!silent) toast.error('找不到该图片'); return; }
+        const img = images[imgIndex];
+        if (!img.src) { if (!silent) toast.error('图片数据为空，无法重新分类'); return; }
+        if (img.loadFailed) { if (!silent) toast.error('图片加载失败，无法重新分类'); return; }
+
+        let ai: any;
+        try {
+            ai = getAiInstance();
+        } catch {
+            if (!silent) toast.error('请先设置 API 密钥');
+            return;
+        }
+        if (!ai) {
+            if (!silent) toast.error('请先设置 API 密钥');
+            return;
+        }
+
+        const toastId = silent ? undefined : toast.loading('正在重新分类...');
+
+        try {
+            const activeDims = dimensions.filter(d => d.name.trim());
+            const userCats = dimensions.length > 0 ? dimensions[0].categories : [];
+
+            const buildPrompt = () => {
+                let prompt = '';
+                prompt += `你只能看到一张静态截图，无法听到任何声音。所有判断必须纯粹基于画面视觉特征（背景、文字密度、人物、色调等）。\n`;
+                prompt += `请按以下层级分类体系对图片进行分类：\n\n`;
+
+                for (const lvl of advancedLevels) {
+                    const rulesInLevel = advancedRules.filter(r => r.level.trim() === lvl);
+                    const byParent = new Map<string, AdvancedClassifyRule[]>();
+                    for (const r of rulesInLevel) {
+                        const p = r.parentCategory.trim() || '';
+                        if (!byParent.has(p)) byParent.set(p, []);
+                        byParent.get(p)!.push(r);
+                    }
+
+                    prompt += `【${lvl}】`;
+                    if (byParent.size === 1 && byParent.has('')) {
+                        const items = byParent.get('')!;
+                        prompt += `从以下选项中选一个：\n`;
+                        prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                    } else {
+                        prompt += `根据上一层的分类结果，从对应子类中选择：\n`;
+                        for (const [parent, items] of byParent) {
+                            if (parent) {
+                                prompt += `  若上级="${parent}" → `;
+                                prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                            } else {
+                                prompt += `  通用选项：`;
+                                prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                            }
+                        }
+                    }
+                    prompt += `不匹配时返回"其他"。\n\n`;
+                }
+
+                if (disambiguationHints.trim()) {
+                    prompt += `【判断提示】${disambiguationHints.trim()}\n\n`;
+                }
+
+                const dimFields = advancedLevels.map(l => `"${l}":"分类名"`).join(',');
+                return { prompt, dimFields };
+            };
+
+            const resized = await resizeImageForAI(img.src, MAX_IMAGE_DIM);
+            const match = resized.match(/^data:([^;]+);base64,(.+)$/);
+            if (!match) throw new Error('Failed to process image');
+
+            const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [
+                { text: '[图片 1]' },
+                { inlineData: { data: match[2], mimeType: match[1] } },
+            ];
+
+            let prompt = `你是一个图片分类标签专家。请分析这 1 张图片。\n\n`;
+            if (ignoreTextContent) {
+                prompt += `【重要】请根据画面的视觉内容进行分类：关注背景图像、整体构图、画面风格和版式设计。图片中可能包含文字，但不需要阅读或理解文字的具体含义——只需将文字视为画面的视觉设计元素（如排版风格、字体布局）来辅助判断画面类型。\n\n`;
+            }
+
+            if (classifyMode === 'advanced' && advancedRules.length > 0) {
+                const { prompt: advPrompt, dimFields } = buildPrompt();
+                prompt += advPrompt;
+                prompt += `【标签】输出 3-5 个中文标签。\n`;
+                if (customInstructions.trim()) prompt += `\n【额外要求】${customInstructions.trim()}\n\n`;
+                prompt += `只返回 JSON，不要 markdown：{"categories":{${dimFields}},"tags":["标签1","标签2"]}`;
+            } else if (activeDims.length > 0) {
+                prompt += `请按以下 ${activeDims.length} 个维度分别分析：\n\n`;
+                activeDims.forEach((dim, i) => {
+                    prompt += `【维度${i + 1}: ${dim.name}】`;
+                    if (dim.categories.length > 0) {
+                        if (dim.description?.trim()) prompt += `\n判断标准：${dim.description.trim()}\n`;
+                        prompt += `请从以下分类中选择一个，必须逐字匹配：\n`;
+                        if (dim.categoryCriteria && Object.keys(dim.categoryCriteria).length > 0) {
+                            prompt += dim.categories.map(c => dim.categoryCriteria![c] ? `"${c}" (判定条件: ${dim.categoryCriteria![c]})` : `"${c}"`).join('、') + '\n';
+                        } else {
+                            prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                        }
+                        prompt += `不匹配时返回"其他"。\n\n`;
+                    } else if (dim.description?.trim()) {
+                        prompt += `\n问题/要求：${dim.description.trim()}\n`;
+                        prompt += `请根据以上问题/要求回答。\n\n`;
+                    } else {
+                        prompt += `请自动判断最合适的分类。\n\n`;
+                    }
+                });
+            } else if (userCats.length > 0) {
+                prompt += `【主分类】请严格从以下分类中选择一个，必须逐字匹配：\n`;
+                prompt += userCats.map(c => `"${c}"`).join('、') + '\n';
+                prompt += `不匹配时返回"其他"。\n\n`;
+            } else {
+                prompt += `【主分类】请输出最合适的主分类。\n\n`;
+            }
+
+            if (classifyMode !== 'advanced' || advancedRules.length === 0) {
+                prompt += `【标签】输出 3-5 个中文标签。\n`;
+                if (customInstructions.trim()) prompt += `\n【额外要求】${customInstructions.trim()}\n\n`;
+                if (activeDims.length > 0) {
+                    const dimFields = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
+                    prompt += `只返回 JSON，不要 markdown：{"categories":{${dimFields}},"tags":["标签1","标签2"]}`;
+                } else {
+                    prompt += `只返回 JSON，不要 markdown：{"category":"分类名","tags":["标签1","标签2"]}`;
+                }
+            }
+            parts.push({ text: prompt });
+            setLastSentPrompt(prompt);
+
+            const response = await ai.models.generateContent({
+                model: classifyModel,
+                contents: [{ role: 'user', parts }],
+                config: { responseMimeType: 'application/json' },
+            });
+
+            let text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+            let parsed: any = {};
+            try { parsed = JSON.parse(text); } catch { parsed = {}; }
+            if (Array.isArray(parsed)) parsed = parsed[0] || {};
+
+            const categories: Record<string, string> = {};
+            if (parsed.categories && typeof parsed.categories === 'object') {
+                if (classifyMode === 'advanced' && advancedLevels.length > 0) {
+                    for (const lvl of advancedLevels) {
+                        const rawVal = String(parsed.categories[lvl] ?? '').trim();
+                        const validNames = advancedRules.filter(r => r.level.trim() === lvl).map(r => r.name);
+                        categories[lvl] = normalizeCategoryWithUserCats(rawVal, validNames);
+                    }
+                } else {
+                    for (const dim of activeDims) {
+                        categories[dim.name] = normalizeCategoryWithUserCats(parsed.categories[dim.name], dim.categories);
+                    }
+                }
+            }
+
+            const primaryCategory = (classifyMode === 'advanced' && advancedLevels.length > 0)
+                ? (categories[advancedLevels[0]] || '其他')
+                : activeDims.length > 0
+                    ? (categories[activeDims[0].name] || '其他')
+                    : normalizeCategoryWithUserCats(parsed.category, userCats);
+
+            setImages(prev => prev.map(item => item.id === imgId ? {
+                ...item,
+                category: primaryCategory,
+                categories: Object.keys(categories).length > 0 ? categories : undefined,
+                tags: normalizeTags(parsed.tags),
+                classified: true,
+            } : item));
+
+            if (toastId) toast.success('重新分类成功', { id: toastId });
+        } catch (e: any) {
+            console.error(e);
+            if (toastId) toast.error(`重新分类失败: ${e.message}`, { id: toastId });
+            throw e; // 让 batch 调用者知道失败了
+        }
+    };
+
+    // ======== Batch Reclassify Selected ========
+    const handleBatchReclassify = async (ids: Set<string>) => {
+        if (ids.size === 0) return;
+        const targets = images.filter(i => ids.has(i.id) && i.src && !i.loadFailed && !i.isBlankRow);
+        if (targets.length === 0) { toast.error('所选图片均不可分类（无数据或加载失败）'); return; }
+
+        // 先检查 AI 可用性
+        let ai: any;
+        try { ai = getAiInstance(); } catch { ai = null; }
+        if (!ai) { toast.error('请先设置 API 密钥'); return; }
+
+        const toastId = toast.loading(`正在重新分类 0/${targets.length}...`);
+        let done = 0;
+        let failed = 0;
+        for (const img of targets) {
+            try {
+                await handleSingleReclassify(img.id, true);
+                done++;
+            } catch (e: any) {
+                failed++;
+                console.error(`[批量重分类] ${img.id} 失败:`, e);
+            }
+            toast.loading(`正在重新分类 ${done + failed}/${targets.length}${failed > 0 ? ` (${failed} 失败)` : ''}...`, { id: toastId });
+        }
+        if (failed > 0) {
+            toast.error(`批量重新分类完成: ${done} 成功, ${failed} 失败`, { id: toastId });
+        } else {
+            toast.success(`批量重新分类完成 (${done}/${targets.length})`, { id: toastId });
+        }
+    };
+
     // ======== AI Classification ========
     const handleClassify = async () => {
-        const ai = getAiInstance();
-        if (!ai) {
+        const aiCheck = getAiInstance();
+        if (!aiCheck) {
             toast.error('请先设置 API 密钥');
             return;
         }
@@ -1036,6 +1364,10 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         const needsClassification = (img: SorterImage): boolean => {
             if (!img.classified) return true;
             if (img.loadFailed) return false;
+            if (classifyMode === 'advanced') {
+                // 高级模式：检查每个层级维度是否都有值
+                return advancedLevels.some(lvl => !img.categories?.[lvl]);
+            }
             // If there are configured dimensions, check if any dimension is missing a value
             if (activeDimsPrecheck.length > 0) {
                 return activeDimsPrecheck.some(d => !img.categories?.[d.name.trim()]);
@@ -1066,18 +1398,63 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         // Process batches concurrently with BATCH_CONCURRENCY workers
         let batchIdx = 0;
 
-        const classifySingle = async (item: SorterImage): Promise<{ category: string; tags: string[]; categories?: Record<string, string> }> => {
+        // 高级分类 prompt 生成器
+        const buildAdvancedPrompt = (): { prompt: string; dimFields: string } => {
+            let prompt = '';
+            prompt += `你只能看到一张静态截图，无法听到任何声音。所有判断必须纯粹基于画面视觉特征（背景、文字密度、人物、色调等）。\n`;
+            prompt += `请按以下层级分类体系对图片进行分类：\n\n`;
+
+            for (const lvl of advancedLevels) {
+                const rulesInLevel = advancedRules.filter(r => r.level.trim() === lvl);
+                // 按父类分组
+                const byParent = new Map<string, AdvancedClassifyRule[]>();
+                for (const r of rulesInLevel) {
+                    const p = r.parentCategory.trim() || '';
+                    if (!byParent.has(p)) byParent.set(p, []);
+                    byParent.get(p)!.push(r);
+                }
+
+                prompt += `【${lvl}】`;
+                if (byParent.size === 1 && byParent.has('')) {
+                    // 顶级：无父类限制
+                    const items = byParent.get('')!;
+                    prompt += `从以下选项中选一个：\n`;
+                    prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                } else {
+                    // 有父类约束的层级
+                    prompt += `根据上一层的分类结果，从对应子类中选择：\n`;
+                    for (const [parent, items] of byParent) {
+                        if (parent) {
+                            prompt += `  若上级="${parent}" → `;
+                            prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                        } else {
+                            prompt += `  通用选项：`;
+                            prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                        }
+                    }
+                }
+                prompt += `不匹配时返回"其他"。\n\n`;
+            }
+
+            // 混淆提示 / 决策树
+            if (disambiguationHints.trim()) {
+                prompt += `【判断提示】${disambiguationHints.trim()}\n\n`;
+            }
+
+            const dimFields = advancedLevels.map(l => `"${l}":"分类名"`).join(',');
+            return { prompt, dimFields };
+        };
+
+        const classifySingle = async (item: SorterImage): Promise<{ category: string; tags: string[]; categories?: Record<string, string> } | null> => {
             if (!item.src || item.loadFailed) {
-                const defaultCats: Record<string, string> = {};
-                activeDims.forEach(d => { defaultCats[d.name] = '其他'; });
-                return { category: userCats.length > 0 ? '其他' : '未识别', tags: [], categories: defaultCats };
+                return null; // 加载失败的图片不标记任何内容
             }
 
             try {
                 const resized = await resizeImageForAI(item.src, MAX_IMAGE_DIM);
                 const match = resized.match(/^data:([^;]+);base64,(.+)$/);
                 if (!match) {
-                    return { category: userCats.length > 0 ? '其他' : '未识别', tags: [] };
+                    return null; // 解析失败不标记
                 }
 
                 const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [
@@ -1090,7 +1467,16 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     prompt += `【重要】请根据画面的视觉内容进行分类：关注背景图像、整体构图、画面风格和版式设计。图片中可能包含文字，但不需要阅读或理解文字的具体含义——只需将文字视为画面的视觉设计元素（如排版风格、字体布局）来辅助判断画面类型。\n\n`;
                 }
 
-                if (activeDims.length > 0) {
+                if (classifyMode === 'advanced' && advancedRules.length > 0) {
+                    // ===== 高级分类模式 =====
+                    const { prompt: advPrompt, dimFields } = buildAdvancedPrompt();
+                    prompt += advPrompt;
+                    prompt += `【标签】输出 3-5 个中文标签。\n`;
+                    if (customInstructions.trim()) {
+                        prompt += `\n【额外要求】${customInstructions.trim()}\n\n`;
+                    }
+                    prompt += `只返回 JSON，不要 markdown：{"categories":{${dimFields}},"tags":["标签1","标签2"]}`;
+                } else if (activeDims.length > 0) {
                     // Multi-dimension prompt
                     prompt += `请按以下 ${activeDims.length} 个维度分别分析：\n\n`;
                     activeDims.forEach((dim, i) => {
@@ -1101,7 +1487,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 prompt += `\n判断标准：${dim.description.trim()}\n`;
                             }
                             prompt += `请从以下分类中选择一个，必须逐字匹配：\n`;
-                            prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                            if (dim.categoryCriteria && Object.keys(dim.categoryCriteria).length > 0) {
+                                prompt += dim.categories.map(c => dim.categoryCriteria![c] ? `"${c}" (判定条件: ${dim.categoryCriteria![c]})` : `"${c}"`).join('、') + '\n';
+                            } else {
+                                prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                            }
                             prompt += `不匹配时返回"其他"。\n\n`;
                         } else if (dim.description?.trim()) {
                             // Open-ended mode with question/requirement
@@ -1135,11 +1525,15 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 console.log('[分拣器] 单张分类 prompt:\n', prompt);
                 setLastSentPrompt(prompt);
 
-                const response = await callWithRetry(async () => ai.models.generateContent({
-                    model: classifyModel,
-                    contents: [{ role: 'user', parts }],
-                    config: { responseMimeType: 'application/json' },
-                }), `single-${item.id}`);
+                const response = await callWithRetry(async () => {
+                    const ai = getAiInstance(); // 每次请求重新获取实例，确保轮换 key
+                    if (!ai) throw new Error('No AI instance');
+                    return ai.models.generateContent({
+                        model: classifyModel,
+                        contents: [{ role: 'user', parts }],
+                        config: { responseMimeType: 'application/json' },
+                    });
+                }, `single-${item.id}`);
 
                 let text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
                 text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -1154,14 +1548,25 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 // Parse multi-dimension categories
                 const categories: Record<string, string> = {};
                 if (parsed.categories && typeof parsed.categories === 'object') {
-                    for (const dim of activeDims) {
-                        categories[dim.name] = normalizeCategoryWithUserCats(parsed.categories[dim.name], dim.categories);
+                    if (classifyMode === 'advanced' && advancedLevels.length > 0) {
+                        // 高级模式：按层级解析并校验
+                        for (const lvl of advancedLevels) {
+                            const rawVal = String(parsed.categories[lvl] ?? '').trim();
+                            const validNames = advancedRules.filter(r => r.level.trim() === lvl).map(r => r.name);
+                            categories[lvl] = normalizeCategoryWithUserCats(rawVal, validNames);
+                        }
+                    } else {
+                        for (const dim of activeDims) {
+                            categories[dim.name] = normalizeCategoryWithUserCats(parsed.categories[dim.name], dim.categories);
+                        }
                     }
                 }
 
-                const primaryCategory = activeDims.length > 0
-                    ? (categories[activeDims[0].name] || '其他')
-                    : normalizeCategoryWithUserCats(parsed.category, userCats);
+                const primaryCategory = (classifyMode === 'advanced' && advancedLevels.length > 0)
+                    ? (categories[advancedLevels[0]] || '其他')
+                    : activeDims.length > 0
+                        ? (categories[activeDims[0].name] || '其他')
+                        : normalizeCategoryWithUserCats(parsed.category, userCats);
 
                 return {
                     category: primaryCategory,
@@ -1169,7 +1574,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     categories: Object.keys(categories).length > 0 ? categories : undefined,
                 };
             } catch {
-                return { category: userCats.length > 0 ? '其他' : '未识别', tags: [] };
+                return null; // 分类失败不标记
             }
         };
 
@@ -1217,7 +1622,22 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         prompt += `【重要】请根据画面的视觉内容进行分类：关注背景图像、整体构图、画面风格和版式设计。图片中可能包含文字，但不需要阅读或理解文字的具体含义——只需将文字视为画面的视觉设计元素（如排版风格、字体布局）来辅助判断画面类型。\n\n`;
                     }
 
-                    if (activeDims.length > 0) {
+                    if (classifyMode === 'advanced' && advancedRules.length > 0) {
+                        // ===== 高级分类模式 =====
+                        const { prompt: advPrompt, dimFields } = buildAdvancedPrompt();
+                        prompt += advPrompt;
+                        prompt += `【标签】同时为每张图片生成 3-5 个描述性标签（必须使用中文），涵盖：内容主体、色调/配色、构图风格、情绪氛围等。\n\n`;
+                        if (customInstructions.trim()) {
+                            prompt += `【额外要求】${customInstructions.trim()}\n\n`;
+                        }
+                        prompt += `请严格按以下 JSON 格式返回（不要有其他文字，不要有 markdown 代码块）：\n`;
+                        prompt += `[{"index":1,"ref":"REF_1_xxxx","categories":{${dimFields}},"tags":["标签1","标签2"]},{"index":2,...}]\n`;
+                        prompt += `⚠️【极其重要 - REF 映射规则】\n`;
+                        prompt += `1. 每张图片都附带了唯一的 REF 标识（如 REF_1_abc, REF_2_def）\n`;
+                        prompt += `2. 你必须将每张图片的分类结果与其对应的 REF 值精确配对\n`;
+                        prompt += `3. ref 字段必须原样回填你在该图片上看到的 REF 值，不可改写、不可交换、不可猜测\n`;
+                        prompt += `4. 如果你不确定某张图片的 REF 值，宁可不返回该条结果，也不要填错 REF\n`;
+                    } else if (activeDims.length > 0) {
                         // Multi-dimension prompt
                         prompt += `请按以下 ${activeDims.length} 个维度分别分析：\n\n`;
                         activeDims.forEach((dim, i) => {
@@ -1227,7 +1647,13 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 if (dim.description?.trim()) {
                                     prompt += `\n判断标准：${dim.description.trim()}\n`;
                                 }
-                                prompt += `请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
+                                if (dim.categoryCriteria && Object.keys(dim.categoryCriteria).length > 0) {
+                                    prompt += `\n各分类判定细则（必须严格遵守以下标准）：\n`;
+                                    for (const [cName, cDesc] of Object.entries(dim.categoryCriteria)) {
+                                        prompt += `- 【${cName}】: ${cDesc}\n`;
+                                    }
+                                }
+                                prompt += `\n请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
                                 prompt += dim.categories.map(c => `"${c}"`).join('、') + '\n';
                                 prompt += `⚠️ 分类名必须与上面完全一致，逐字匹配。不属于以上任何分类，使用"其他"。\n\n`;
                             } else if (dim.description?.trim()) {
@@ -1259,18 +1685,22 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     } else {
                         prompt += `[{"index":1,"ref":"REF_1_xxxx","category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2","\u6807\u7b7e3"]},{"index":2,...}]\n`;
                     }
-                    prompt += `注意：ref 字段必须原样回填为你看到的 REF 值，不可改写。`;
+                    prompt += `注意：每张图片都必须返回一条结果，且 ref 字段必须原样回填为你看到的 REF 值，不可改写。`;
 
                     parts.push({ text: prompt });
 
                     console.log(`[分拣器] 批次分类 prompt (${sentCount} 张):\n`, prompt);
                     setLastSentPrompt(prompt);
 
-                    const response = await callWithRetry(async () => ai.models.generateContent({
-                        model: classifyModel,
-                        contents: [{ role: 'user', parts }],
-                        config: { responseMimeType: 'application/json' },
-                    }), `batch-${batchIdx}`);
+                    const response = await callWithRetry(async () => {
+                        const ai = getAiInstance(); // 每次请求重新获取实例，确保轮换 key
+                        if (!ai) throw new Error('No AI instance');
+                        return ai.models.generateContent({
+                            model: classifyModel,
+                            contents: [{ role: 'user', parts }],
+                            config: { responseMimeType: 'application/json' },
+                        });
+                    }, `batch-${batchIdx}`);
 
                     let text = response?.candidates?.[0]?.content?.parts?.[0]?.text || '';
                     text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -1288,17 +1718,29 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 const mapped = new Map<number, { category: string; tags: string[]; categories?: Record<string, string> }>();
                 const assignedBatchIndices = new Set<number>();
                 const unresolved: typeof results = [];
+                const sentCountExpected = indexMap.length;
+
+                // Strict safety gate: DISABLE index-based fallback entirely.
+                // AI's "index" field is unreliable — it frequently swaps indices,
+                // causing results to land on the wrong image with no pattern.
+                // Only REF-based matching is trustworthy.
 
                 for (const r of results) {
                     let mappedBatchIdx: number | undefined;
-                    const ref = String(r.ref ?? '').trim();
-                    if (ref && refToBatchIndex.has(ref)) {
-                        mappedBatchIdx = refToBatchIndex.get(ref);
+                    const rawRef = String(r.ref ?? '').trim();
+                    let normalizedRef = rawRef;
+                    if (!refToBatchIndex.has(normalizedRef)) {
+                        const refMatch = rawRef.match(/REF_\d+_[A-Za-z0-9]+/);
+                        normalizedRef = refMatch ? refMatch[0] : rawRef;
+                    }
+
+                    if (normalizedRef && refToBatchIndex.has(normalizedRef)) {
+                        mappedBatchIdx = refToBatchIndex.get(normalizedRef);
                     } else {
-                        const sentIdx = Number(r.index) - 1; // AI returns 1-based index
-                        if (Number.isFinite(sentIdx) && sentIdx >= 0 && sentIdx < indexMap.length) {
-                            mappedBatchIdx = indexMap[sentIdx];
-                        }
+                        // No valid REF → cannot reliably map, send to single retry
+                        console.warn(`[分拣器] 结果缺少有效 ref (got "${rawRef}")，跳过批量映射`);
+                        unresolved.push(r);
+                        continue;
                     }
 
                     if (mappedBatchIdx === undefined || assignedBatchIndices.has(mappedBatchIdx)) {
@@ -1309,70 +1751,69 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     // Parse multi-dimension categories from batch result
                     const categories: Record<string, string> = {};
                     if (r.categories && typeof r.categories === 'object') {
-                        for (const dim of activeDims) {
-                            categories[dim.name] = normalizeCategoryWithUserCats(r.categories[dim.name], dim.categories);
+                        if (classifyMode === 'advanced' && advancedLevels.length > 0) {
+                            for (const lvl of advancedLevels) {
+                                const rawVal = String(r.categories[lvl] ?? '').trim();
+                                const validNames = advancedRules.filter(ar => ar.level.trim() === lvl).map(ar => ar.name);
+                                categories[lvl] = normalizeCategoryWithUserCats(rawVal, validNames);
+                            }
+                        } else {
+                            for (const dim of activeDims) {
+                                categories[dim.name] = normalizeCategoryWithUserCats(r.categories[dim.name], dim.categories);
+                            }
                         }
                     }
 
                     mapped.set(mappedBatchIdx, {
-                        category: activeDims.length > 0
-                            ? (categories[activeDims[0].name] || normalizeCategoryWithUserCats(r.category, userCats))
-                            : normalizeCategoryWithUserCats(r.category, userCats),
+                        category: (classifyMode === 'advanced' && advancedLevels.length > 0)
+                            ? (categories[advancedLevels[0]] || '其他')
+                            : activeDims.length > 0
+                                ? (categories[activeDims[0].name] || normalizeCategoryWithUserCats(r.category, userCats))
+                                : normalizeCategoryWithUserCats(r.category, userCats),
                         tags: normalizeTags(r.tags),
                         categories: Object.keys(categories).length > 0 ? categories : undefined,
                     });
                     assignedBatchIndices.add(mappedBatchIdx);
                 }
 
-                // Fallback 1: unresolved results map by remaining order.
+                // 不再按顺序兜底映射，避免“错位串图”。
+                // 只接受能通过 ref/index 精确定位的结果，其余逐张重试。
                 if (unresolved.length > 0) {
-                    const remainingByOrder = indexMap.filter((idx) => !assignedBatchIndices.has(idx));
-                    for (let i = 0; i < unresolved.length && i < remainingByOrder.length; i++) {
-                        const bIdx = remainingByOrder[i];
-                        const r = unresolved[i];
-                        mapped.set(bIdx, {
-                            category: normalizeCategoryWithUserCats(r.category, userCats),
-                            tags: normalizeTags(r.tags),
-                        });
-                        assignedBatchIndices.add(bIdx);
-                    }
+                    console.warn(`[分拣器] 批量返回中有 ${unresolved.length} 条无法可靠映射，改为逐张回退`);
                 }
 
-                // Fallback 2: remaining items retry one-by-one (similar to AI 图片识别批次回退).
-                const remainingForSingle = processableIndices.filter((idx) => !assignedBatchIndices.has(idx));
-                for (const bIdx of remainingForSingle) {
-                    if (abortRef.current) break;
-                    const single = await classifySingle(batch[bIdx]);
-                    mapped.set(bIdx, single);
-                    assignedBatchIndices.add(bIdx);
+                // 批次信任度检查：如果 ref 匹配率太低，丢弃全部批量结果
+                const refMatchedCount = results.filter(r => {
+                    const rf = String(r.ref ?? '').trim();
+                    const rfMatch = rf.match(/REF_\d+_[A-Za-z0-9]+/);
+                    const rfNorm = rfMatch ? rfMatch[0] : rf;
+                    return rfNorm && refToBatchIndex.has(rfNorm);
+                }).length;
+                if (sentCount > 1 && refMatchedCount < sentCount * 0.5) {
+                    console.warn(`[分拣器] ref 匹配率仅 ${refMatchedCount}/${sentCount} (${Math.round(refMatchedCount / sentCount * 100)}%)，整批不可信，丢弃`);
+                    mapped.clear();
+                    assignedBatchIndices.clear();
                 }
 
-                // Last fallback: ensure every processable item gets deterministic values.
-                for (const bIdx of processableIndices) {
-                    if (!mapped.has(bIdx)) {
-                        mapped.set(bIdx, {
-                            category: userCats.length > 0 ? '其他' : '未识别',
-                            tags: [],
-                        });
-                    }
+                // 无法通过 REF 匹配的图片直接跳过，不浪费额度逐张重试
+                const unmappedCount = processableIndices.filter(idx => !assignedBatchIndices.has(idx)).length;
+                if (unmappedCount > 0) {
+                    console.warn(`[分拣器] 批次中 ${unmappedCount} 张图片无法映射，跳过（可稍后手动重新分类）`);
                 }
 
-                // Also mark non-processable items in this batch, so no item remains "unclassified" forever.
-                for (let i = 0; i < batch.length; i++) {
-                    if (mapped.has(i)) continue;
-                    const item = batch[i];
-                    mapped.set(i, {
-                        category: item.loadFailed ? (item.category || '加载失败') : (userCats.length > 0 ? '其他' : '未识别'),
-                        tags: item.tags || [],
-                    });
-                }
+                // 不再强制标记剩余项目
 
                 const batchIdToIdx = new Map(batch.map((item, idx) => [item.id, idx]));
                 setImages(prev => prev.map((img) => {
                     const bIdx = batchIdToIdx.get(img.id);
                     if (bIdx === undefined) return img;
+                    // 只处理本批次中参与分类的图片
+                    if (!processableIndices.includes(bIdx)) return img;
                     const result = mapped.get(bIdx);
-                    if (!result) return img;
+                    if (!result) {
+                        // REF 匹配失败，标记为未分类，可通过"继续分类"重试
+                        return { ...img, category: '匹配失败', classified: false };
+                    }
                     // Merge: preserve existing categories, add/update new ones
                     const mergedCategories = { ...img.categories };
                     if (result.categories) {
@@ -1413,7 +1854,15 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         const waitSec = Math.pow(2, attempt + 1) * 3; // 6s, 12s, 24s
                         console.warn(`[图片分拣] ${label} 429限速，第${attempt + 1}次重试，等${waitSec}s`);
                         toast.warning(`⏳ API 限速，${waitSec}s 后重试...`);
-                        await new Promise(resolve => setTimeout(resolve, waitSec * 1000));
+                        
+                        // Wait with abort check
+                        const intervalMs = 500;
+                        let waited = 0;
+                        while (waited < waitSec * 1000) {
+                            if (abortRef.current) throw new Error('Aborted by user');
+                            await new Promise(resolve => setTimeout(resolve, intervalMs));
+                            waited += intervalMs;
+                        }
                         continue;
                     }
                     throw error;
@@ -1433,7 +1882,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 const myBatch = batches[batchIdx++];
                 await processBatch(myBatch);
                 // 速率间隔
-                await new Promise(r => setTimeout(r, REQUEST_GAP_MS));
+                let waited = 0;
+                while (waited < REQUEST_GAP_MS) {
+                    if (abortRef.current) break;
+                    await new Promise(r => setTimeout(r, 500));
+                    waited += 500;
+                }
             }
         };
 
@@ -1528,6 +1982,19 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     const res = await fetch(img.src);
                     blob = await res.blob();
                     ext = getExtFromSrc(img.src);
+                } else if (img.localFile) {
+                    blob = img.localFile;
+                    ext = img.localFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+                    if (ext === 'jpeg') ext = 'jpg';
+                } else if (img.src) {
+                    // blob: URL or other render source
+                    const res = await fetch(img.src);
+                    blob = await res.blob();
+                    ext = 'jpg';
+                    const contentType = res.headers.get('content-type') || blob.type;
+                    if (contentType.includes('png')) ext = 'png';
+                    if (contentType.includes('webp')) ext = 'webp';
+                    if (contentType.includes('gif')) ext = 'gif';
                 } else if (img.originalUrl) {
                     // Try to fetch from external URL (may have CORS issues)
                     const res = await fetch(img.originalUrl);
@@ -1593,16 +2060,21 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     };
 
     // ======== Copy to Sheets ========
-    const copyToSheets = async (options: { withImage?: boolean; uploadGyazo?: boolean } = {}) => {
-        const { withImage = true, uploadGyazo = false } = options;
+    const copyToSheets = async (options: { withImage?: boolean; uploadGyazo?: boolean; classifiedOnly?: boolean } = {}) => {
+        const { withImage = true, uploadGyazo = false, classifiedOnly = false } = options;
         // If user selected specific images, copy those; otherwise copy ALL images
         const hasSelection = selectedIds.size > 0;
-        const pool = hasSelection
+        let pool = hasSelection
             ? images.filter(img => selectedIds.has(img.id))
             : images;
 
+        // Filter to classified-only if requested
+        if (classifiedOnly) {
+            pool = pool.filter(img => img.classified);
+        }
+
         if (pool.length === 0) {
-            toast.warning('\u6ca1\u6709\u53ef\u590d\u5236\u7684\u56fe\u7247');
+            toast.warning(classifiedOnly ? '没有已分类的图片' : '没有可复制的图片');
             return;
         }
 
@@ -1616,36 +2088,180 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             })
             .sort((a, b) => a.originalIndex - b.originalIndex);
 
-        if (uploadGyazo) {
-            const token = getGyazoToken();
-            const toUpload = ordered.filter(img => !img.loadFailed && img.originalUrl && img.originalUrl.startsWith('data:image'));
-            if (toUpload.length > 0) {
-                setUploadingGyazo({ done: 0, total: toUpload.length });
-                let doneCounter = 0;
-                for (const img of toUpload) {
-                    const file = base64ToFile(img.originalUrl!, `sorter_${Date.now()}.png`);
-                    if (file) {
-                        try {
-                            const gyazoUrl = await uploadToGyazo(file, token);
-                            if (gyazoUrl) {
-                                img.originalUrl = gyazoUrl;
-                                // Force render update
-                                setImages(prev => [...prev]);
-                            }
-                        } catch (e) {
-                            console.warn("Gyazo upload failed", e);
-                        }
-                    }
-                    doneCounter++;
-                    setUploadingGyazo({ done: doneCounter, total: toUpload.length });
-                }
-                setUploadingGyazo(null);
+        // --- 核心优化：自动检测本地图片逻辑 ---
+        const needsUpload = ordered.filter(img =>
+            !img.loadFailed && (
+                !!img.localFile || 
+                !!(img.originalUrl && img.originalUrl.startsWith('data:image')) || 
+                isBlobUrl(img.src)
+            )
+        );
+
+        // 如果用户要求带图复制，但没选上传，且确实有本地图，则强制进入提示上传流程
+        let activeUpload = uploadGyazo;
+        if (withImage && !uploadGyazo && needsUpload.length > 0) {
+            const confirmed = window.confirm(`检测到有 ${needsUpload.length} 张本地图，直接复制会导致 Excel 公式失效。\n\n是否为您自动上传图床并生成有效公式？`);
+            if (!confirmed) {
+                toast.info('已按原始路径复制（本地图在 Excel 中将无法显示）');
+            } else {
+                activeUpload = true;
             }
         }
 
+        if (activeUpload && needsUpload.length > 0) {
+            const token = getGyazoToken();
+            if (!token) {
+                toast.error('未配置 Gyazo Token，无法上传本地图。请前往右上角设置。');
+                return;
+            }
+
+            gyazoAbortRef.current = false;
+            setUploadingGyazo({ done: 0, total: needsUpload.length });
+            toast.info(`正在为您上传图床 (${needsUpload.length} 张)...`);
+            
+            let doneCounter = 0;
+            // 因为我们要更新 state 让后面拿到的 img.originalUrl 是最新的，所以这里需要同步遍历并更新
+            // 但 setImages 是异步的，为了确保后面导出时拿到最新值，我们需要一个临时 map 存储结果
+            const uploadedUrls = new Map<string, string>();
+
+            for (const img of needsUpload) {
+                if (gyazoAbortRef.current) break;
+                
+                let file: File | null = null;
+                if (img.localFile) {
+                    file = img.localFile;
+                } else if (img.originalUrl && img.originalUrl.startsWith('data:image')) {
+                    file = base64ToFile(img.originalUrl, `sorter_${Date.now()}.png`);
+                } else if (isBlobUrl(img.src)) {
+                    try {
+                        const blob = await fetch(img.src).then(r => r.blob());
+                        file = new File([blob], img.name || `sorter_${Date.now()}.png`, { type: blob.type || 'image/png' });
+                    } catch (e) {}
+                }
+
+                if (file) {
+                    try {
+                        const gyazoUrl = await uploadToGyazo(file, token);
+                        if (gyazoUrl) {
+                            uploadedUrls.set(img.id, gyazoUrl);
+                            // 同时更新全局状态以便下次不用重传
+                            setImages(prev => prev.map(item => item.id === img.id ? { ...item, originalUrl: gyazoUrl } : item));
+                        }
+                    } catch (e) {
+                        console.warn('上传失败', e);
+                    }
+                }
+                doneCounter++;
+                setUploadingGyazo({ done: doneCounter, total: needsUpload.length });
+            }
+            
+            // 重要：同步更新 ordered 数组里的 URL，确保本次导出使用的是刚传好的链接
+            ordered.forEach(img => {
+                if (uploadedUrls.has(img.id)) {
+                    img.originalUrl = uploadedUrls.get(img.id);
+                }
+            });
+
+            setUploadingGyazo(null);
+            if (!gyazoAbortRef.current) {
+                toast.success(`✨ 上传完成，正在生成 Excel 公式...`);
+            }
+        }
+
+        const dimNames = effectiveDimNames;
+        
+        // ================= MATRIX EXPORT MODE =================
+        if (dataExportMode === 'matrix') {
+            const lines: string[] = [];
+            let hasUrl = false;
+            
+            // Group images by the primary category
+            const groups: Record<string, typeof ordered> = {};
+            for (const img of ordered) {
+                if (img.isBlankRow) continue; // Skip layout padding spaces in Matrix mode
+                
+                const primaryCat = dimNames.length > 0
+                    ? (img.categories?.[dimNames[0]] || img.category || (img.classified ? '未识别' : '未分类'))
+                    : (img.category?.trim() || (img.classified ? '未识别' : '未分类'));
+                
+                if (!groups[primaryCat]) groups[primaryCat] = [];
+                groups[primaryCat].push(img);
+            }
+            
+            for (const [catName, catImages] of Object.entries(groups)) {
+                
+                const extraDims = dimNames.length > 1 ? dimNames.slice(1) : [];
+
+                // Find maximum vertical items (image + extra dims + original metadata rows)
+                let maxMeta = 0;
+                catImages.forEach(img => {
+                    const originalMetaCount = img.metadataRows ? img.metadataRows.length : 1; // 1 for fallback tags
+                    const count = extraDims.length + originalMetaCount;
+                    if (count > maxMeta) maxMeta = count;
+                });
+                
+                // Initialize block rows with category name in the first column
+                const imgRow: string[] = [escapeTsvCell(catName)];
+                const metaRows: string[][] = Array.from({ length: maxMeta }, () => [escapeTsvCell(catName)]);
+                
+                for (const img of catImages) {
+                    // 1. Image Row
+                    const imageFormula = img.originalUrl
+                        ? `=IMAGE("${img.originalUrl.replace(/"/g, '""')}")`
+                        : (img.loadFailed ? '[加载失败]' : `[\u672c\u5730\u56fe\u7247: ${img.name}]`);
+                    if (img.originalUrl) hasUrl = true;
+                    
+                    imgRow.push(withImage ? imageFormula : escapeTsvCell(img.originalUrl || ''));
+                    
+                    // 2. Metadata Rows
+                    for (let r = 0; r < maxMeta; r++) {
+                        let val = '';
+                        if (r < extraDims.length) {
+                            // Extra dimensions mapped as metadata rows
+                            const dimName = extraDims[r];
+                            const dimVal = img.categories?.[dimName] || (img.classified ? '未分类' : '');
+                            val = dimVal ? `${dimName}: ${dimVal}` : '';
+                        } else {
+                            // Original metadata rows
+                            const originalR = r - extraDims.length;
+                            if (img.metadataRows && img.metadataRows.length > 0) {
+                                val = img.metadataRows[originalR] || '';
+                            } else {
+                                // Fallback
+                                if (originalR === 0) {
+                                    val = (img.tags && img.tags.length > 0) ? img.tags.join('\u3001') : '-';
+                                }
+                            }
+                        }
+                        metaRows[r].push(escapeTsvCell(val));
+                    }
+                }
+                
+                lines.push(imgRow.join('\t'));
+                for (const mRow of metaRows) {
+                    lines.push(mRow.join('\t'));
+                }
+            }
+
+            const tsv = lines.join('\n');
+            try {
+                await navigator.clipboard.writeText(tsv);
+                const totalCats = Object.keys(groups).length;
+                let label = `\u5df2复制横向排版：共 ${totalCats} 个分类行`;
+                if (hasUrl) {
+                    toast.success(`${label}\uff0c\u7c98\u8d34\u5230 Google Sheets \u540e\u56fe\u7247\u516c\u5f0f\u4f1a\u81ea\u52a8\u663e\u793a`);
+                } else {
+                    toast.success(label);
+                }
+            } catch {
+                toast.error('\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u6d4f\u89c8\u5668\u6743\u9650');
+            }
+            return;
+        }
+        // ================= STANDARD EXPORT MODE =================
+
         const lines: string[] = [];
         // Build header with per-dimension category columns
-        const dimNames = effectiveDimNames;
         const header = ['序号'];
         if (withImage) header.push('图片');
         if (dimNames.length > 0) {
@@ -1735,6 +2351,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
     // ======== Clear all ========
     const clearAll = () => {
+        images.forEach((img) => revokeObjectUrlIfNeeded(img.src));
         setImages([]);
         setSelectedIds(new Set());
         setActiveFilters({});
@@ -1758,10 +2375,39 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         </div>
                     </div>
                 )}
+                {loadingImages && (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ background: '#222', padding: 24, borderRadius: 12, color: '#fff', textAlign: 'center', minWidth: 280 }}>
+                            <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 10px' }} />
+                            <div>正在加载本地图片 ({loadingImages.done}/{loadingImages.total})</div>
+                            <div style={{ width: '100%', height: 4, background: '#444', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
+                                <div style={{ width: `${(loadingImages.done / loadingImages.total) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                            </div>
+                            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>请等待加载完成后再进行操作...</div>
+                        </div>
+                    </div>
+                )}
                 <div className="is-toolbar">
                     <div className="is-toolbar-title">
                         <Grid3x3 size={18} />
                         图片智能分拣
+                    </div>
+                    <div className="is-toolbar-actions">
+                        <div className="is-batch-control" title="粘贴时如何解析数据结构">
+                            <span className="is-batch-control-label">粘贴源</span>
+                            <select
+                                className="is-batch-control-select"
+                                value={dataInputMode}
+                                onChange={(e) => {
+                                    const mode = e.target.value as 'standard' | 'matrix';
+                                    setDataInputMode(mode);
+                                    setDataExportMode(mode);
+                                }}
+                            >
+                                <option value="standard">默认结构</option>
+                                <option value="matrix">横版结构提取 (包含其他数据行)</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -1797,131 +2443,519 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     return (
         <div className="image-sorter">
             {/* ===== LEFT SIDEBAR ===== */}
-            <div className="is-sidebar">
+            <div className="is-sidebar" style={{ width: `${sidebarWidth}px` }}>
                 {/* Config: multi-dimension classification */}
                 <div className="is-config-panel">
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#aaa', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="is-config-header">
+                        <span className="is-config-title-row">
                             <Grid3x3 size={14} /> 分类配置
                         </span>
-                        {/* Category Preset Selector */}
-                        <div style={{ position: 'relative' }}>
-                            <select
-                                value={activePresetId}
-                                onChange={e => {
-                                    const presetId = e.target.value;
-                                    const preset = CATEGORY_PRESETS.find(p => p.id === presetId);
-                                    if (!preset) return;
-                                    setActivePresetId(presetId);
-                                    localStorage.setItem('image-sorter-category-preset', presetId);
-                                    // Replace the first dimension's categories with the preset
-                                    setDimensions(prev => {
-                                        if (prev.length === 0) {
-                                            return [{ id: 'dim-default', name: '分类', description: '', categories: [...preset.categories], inputValue: '' }];
+                        <div className="is-config-actions-row">
+                            {dimensions.length > 0 && (dimensions.length > 1 || dimensions[0].categories.length > 0 || dimensions[0].name !== '分类') && (
+                                <button
+                                    onClick={() => {
+                                        setDimensions([{ id: `dim-default-${Date.now()}`, name: '分类', description: '', categories: [], inputValue: '' }]);
+                                        setActiveFilters({});
+                                        setCollapsedDims({});
+                                        if (typeof window !== 'undefined') {
+                                            localStorage.removeItem('image-sorter-saved-dimensions');
+                                            localStorage.removeItem('image-sorter-category-preset');
                                         }
-                                        return prev.map((d, i) => i === 0 ? { ...d, categories: [...preset.categories] } : d);
-                                    });
-                                    // Auto-load preset description into custom instructions
-                                    if (preset.description) {
-                                        setCustomInstructions(preset.description);
-                                    }
-                                }}
-                                disabled={classifying}
-                                style={{
-                                    fontSize: 10,
-                                    padding: '2px 18px 2px 6px',
-                                    borderRadius: 5,
-                                    border: '1px solid rgba(255,255,255,0.12)',
-                                    background: 'rgba(255,255,255,0.06)',
-                                    color: '#ccc',
-                                    cursor: 'pointer',
-                                    appearance: 'none',
-                                    WebkitAppearance: 'none',
-                                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                                    backgroundRepeat: 'no-repeat',
-                                    backgroundPosition: 'right 4px center',
-                                }}
-                            >
-                                {CATEGORY_PRESETS.map(preset => (
-                                    <option key={preset.id} value={preset.id}>
-                                        {preset.emoji} {preset.label}
-                                    </option>
-                                ))}
-                            </select>
+                                        toast.info('已清空所有分类数据，维度已恢复默认');
+                                    }}
+                                    disabled={classifying}
+                                    title="清空所有维度和分类"
+                                    className="is-config-clear-btn"
+                                >
+                                    <Trash2 size={11} />
+                                </button>
+                            )}
+                            <div className="is-config-preset-wrap">
+                                <select
+                                    value=""
+                                    onChange={e => {
+                                        const presetId = e.target.value;
+                                        const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
+                                        if (!preset) return;
+                                        
+                                        const newDims: ClassificationDimension[] = preset.dimensions.map((d, i) => ({
+                                            id: `dim-preset-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                                            name: d.name,
+                                            description: d.description,
+                                            categories: [...d.categories],
+                                            categoryCriteria: d.categoryCriteria ? { ...d.categoryCriteria } : undefined,
+                                            inputValue: '',
+                                        }));
+                                        
+                                        setDimensions(prev => {
+                                            if (prev.length === 1 && prev[0].name === '分类' && prev[0].categories.length === 0) {
+                                                return newDims;
+                                            }
+                                            return [...prev, ...newDims];
+                                        });
+                                        e.target.value = '';
+                                    }}
+                                    disabled={classifying}
+                                    className="is-config-preset-select"
+                                >
+                                    <option value="" disabled hidden>＋预设</option>
+                                    {DIMENSION_PRESETS.map(preset => (
+                                        <option key={preset.id} value={preset.id}>
+                                            {preset.emoji} {preset.label} {preset.dimensions.length > 1 ? `(${preset.dimensions.length}维度)` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    {dimensions.map((dim, dimIdx) => (
-                        <div key={dim.id} style={{ marginBottom: dimensions.length > 1 ? 8 : 0 }}>
-                            <div className="is-config-row">
-                            <input
+
+                    {/* Mode toggle: 基础分类 / 高级分类 */}
+                    <div style={{ display: 'flex', gap: 0, margin: '6px 0 8px', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        <button
+                            style={{
+                                flex: 1, fontSize: 11, padding: '5px 0', border: 'none', cursor: 'pointer',
+                                background: classifyMode === 'basic' ? 'rgba(167, 139, 250, 0.2)' : 'transparent',
+                                color: classifyMode === 'basic' ? '#c4b5fd' : '#888',
+                                fontWeight: classifyMode === 'basic' ? 600 : 400,
+                                transition: 'all 0.2s',
+                            }}
+                            onClick={() => setClassifyMode('basic')}
+                            disabled={classifying}
+                        >
+                            基础分类
+                        </button>
+                        <button
+                            style={{
+                                flex: 1, fontSize: 11, padding: '5px 0', border: 'none', cursor: 'pointer',
+                                borderLeft: '1px solid rgba(255,255,255,0.1)',
+                                background: classifyMode === 'advanced' ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
+                                color: classifyMode === 'advanced' ? '#22c55e' : '#888',
+                                fontWeight: classifyMode === 'advanced' ? 600 : 400,
+                                transition: 'all 0.2s',
+                            }}
+                            onClick={() => { setClassifyMode('advanced'); setShowAdvancedRules(true); }}
+                            disabled={classifying}
+                        >
+                            ⚡ 高级分类 {advancedRules.length > 0 && <span style={{ fontSize: 9, opacity: 0.7 }}>({advancedRules.length})</span>}
+                        </button>
+                    </div>
+
+                    {/* ===== 高级分类模式 ===== */}
+                    {classifyMode === 'advanced' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ fontSize: 10, color: '#22c55e', lineHeight: 1.5 }}>
+                                表格化层级规则：支持一级→二级→三级等父子级分类关系。通过「归属限制」字段建立层级。
+                            </div>
+
+                            {/* 预设选择器 */}
+                            {ADVANCED_PRESETS.length > 0 && (
+                                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: 10, color: '#888', whiteSpace: 'nowrap' }}>预设：</span>
+                                    {ADVANCED_PRESETS.map(preset => (
+                                        <button
+                                            key={preset.id}
+                                            className="is-btn is-btn-sm"
+                                            style={{ fontSize: 10, padding: '2px 8px' }}
+                                            disabled={classifying}
+                                            onClick={() => {
+                                                const rules = preset.rules.map(r => ({
+                                                    id: `ar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                                    ...r,
+                                                }));
+                                                setAdvancedRules(rules);
+                                                if (preset.disambiguationHints) {
+                                                    setDisambiguationHints(preset.disambiguationHints);
+                                                }
+                                                toast.success(`已加载预设「${preset.label}」：${rules.length} 条规则`);
+                                            }}
+                                        >
+                                            {preset.emoji} {preset.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* 规则列表 */}
+                            <div style={{ maxHeight: 320, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+                                {advancedRules.map((rule, idx) => (
+                                    <div key={rule.id} style={{
+                                        display: 'flex', gap: 3, alignItems: 'center', padding: '3px 0',
+                                        borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                    }}>
+                                        <input
+                                            type="text" placeholder="维度"
+                                            value={rule.level}
+                                            onChange={e => {
+                                                const updated = [...advancedRules];
+                                                updated[idx] = { ...rule, level: e.target.value };
+                                                setAdvancedRules(updated);
+                                            }}
+                                            style={{ width: 64, fontSize: 10, padding: '3px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: '#3b82f6' }}
+                                        />
+                                        <input
+                                            type="text" placeholder="类别名称"
+                                            value={rule.name}
+                                            onChange={e => {
+                                                const updated = [...advancedRules];
+                                                updated[idx] = { ...rule, name: e.target.value };
+                                                setAdvancedRules(updated);
+                                            }}
+                                            style={{ width: 70, fontSize: 10, padding: '3px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: '#e4e4e7' }}
+                                        />
+                                        <input
+                                            type="text" placeholder="归属限制"
+                                            value={rule.parentCategory}
+                                            title="父级类别名称（留空=顶级）"
+                                            onChange={e => {
+                                                const updated = [...advancedRules];
+                                                updated[idx] = { ...rule, parentCategory: e.target.value };
+                                                setAdvancedRules(updated);
+                                            }}
+                                            style={{ width: 64, fontSize: 10, padding: '3px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: '#f59e0b' }}
+                                        />
+                                        <input
+                                            type="text" placeholder="判断标准"
+                                            value={rule.criteria}
+                                            onChange={e => {
+                                                const updated = [...advancedRules];
+                                                updated[idx] = { ...rule, criteria: e.target.value };
+                                                setAdvancedRules(updated);
+                                            }}
+                                            style={{ flex: 1, minWidth: 0, fontSize: 10, padding: '3px 4px', borderRadius: 3, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', color: '#e4e4e7' }}
+                                        />
+                                        <button
+                                            onClick={() => setAdvancedRules(prev => prev.filter((_, i) => i !== idx))}
+                                            style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', padding: '2px', fontSize: 12, lineHeight: 1, flexShrink: 0 }}
+                                            title="删除"
+                                        >×</button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 操作按钮 */}
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => {
+                                        setAdvancedRules(prev => [...prev, {
+                                            id: `ar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                            name: '', level: advancedLevels[0] || '一级分类', parentCategory: '', criteria: '',
+                                        }]);
+                                    }}
+                                    disabled={classifying}
+                                    style={{
+                                        flex: '1 1 120px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+                                        background: 'transparent', color: '#22c55e', border: '1px dashed #22c55e44', borderRadius: 4,
+                                        padding: '5px 6px', fontSize: 10, cursor: 'pointer',
+                                    }}
+                                >
+                                    <Plus size={10} /> 添加规则
+                                </button>
+                                <button
+                                    onClick={() => { setAdvancedRules([]); setDisambiguationHints(''); }}
+                                    disabled={classifying || advancedRules.length === 0}
+                                    style={{
+                                        flex: '1 1 120px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+                                        background: 'transparent', color: '#ef4444', border: '1px dashed #ef444444', borderRadius: 4,
+                                        padding: '5px 6px', fontSize: 10, cursor: 'pointer',
+                                        opacity: advancedRules.length === 0 ? 0.4 : 1,
+                                    }}
+                                >
+                                    <Trash2 size={10} /> 清空
+                                </button>
+                            </div>
+
+                            {/* 批量粘贴区域 */}
+                            <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>📋 批量粘贴（维度[TAB]类别名[TAB]归属限制[TAB]判断标准）</div>
+                            <textarea
                                 className="is-chips-input"
-                                style={{ width: 70, flexShrink: 0, fontWeight: 600, borderRight: '1px solid rgba(255,255,255,0.1)', marginRight: 6, fontSize: 11 }}
-                                placeholder="维度名"
-                                value={dim.name}
+                                style={{ width: '100%', minHeight: 28, maxHeight: 60, resize: 'vertical', fontSize: 10, lineHeight: 1.4, padding: '4px 6px' }}
+                                placeholder="粘贴表格数据到这里..."
                                 disabled={classifying}
-                                onChange={e => {
-                                    setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, name: e.target.value } : d));
+                                onPaste={e => {
+                                    const text = e.clipboardData.getData('text/plain');
+                                    if (!text.trim()) return;
+                                    e.preventDefault();
+                                    const lines = text.split(/\r?\n/).filter(l => l.trim());
+                                    const newRules: AdvancedClassifyRule[] = [];
+                                    for (const line of lines) {
+                                        const cols = line.split('\t');
+                                        const level = cols[0]?.trim() || '一级分类';
+                                        const name = cols[1]?.trim() || cols[0]?.trim() || '';
+                                        if (!name) continue;
+                                        // 检测是否为表头
+                                        if (name === '类别名称' || name === '类别' || name.toLowerCase() === 'name') continue;
+                                        const parentCategory = cols[2]?.trim() || '';
+                                        const criteria = cols[3]?.trim() || '';
+                                        newRules.push({
+                                            id: `ar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                            level: cols.length >= 2 ? level : '一级分类',
+                                            name: cols.length >= 2 ? name : cols[0]?.trim() || '',
+                                            parentCategory, criteria,
+                                        });
+                                    }
+                                    if (newRules.length > 0) {
+                                        setAdvancedRules(prev => [...prev, ...newRules]);
+                                        toast.success(`已导入 ${newRules.length} 条高级分类规则`);
+                                    }
+                                    (e.target as HTMLTextAreaElement).value = '';
                                 }}
                             />
-                            <div className="is-chips-wrapper">
-                                {dim.categories.map((cat, catIdx) => (
-                                    <span key={catIdx} className="is-chip">
-                                        {cat}
-                                        <button
-                                            className="is-chip-remove"
-                                            onClick={() => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: d.categories.filter((_, ci) => ci !== catIdx) } : d))}
-                                            disabled={classifying}
-                                        >×</button>
-                                    </span>
-                                ))}
-                                <input
+
+                            {/* 混淆提示 / 决策树 */}
+                            <div>
+                                <div style={{ fontSize: 9, color: '#666', marginBottom: 2 }}>🌳 判断提示（决策树顺序、易混淆区分等，会直接发给 AI）</div>
+                                <textarea
                                     className="is-chips-input"
-                                    placeholder={dim.categories.length === 0 ? '输入分类按回车（可选，留空=开放式问答）' : '添加...'}
-                                    value={dim.inputValue}
-                                    onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, inputValue: e.target.value } : d))}
+                                    style={{ width: '100%', minHeight: 32, maxHeight: 80, resize: 'vertical', fontSize: 10, lineHeight: 1.4, padding: '4px 6px' }}
+                                    placeholder="例如：先排除动画→灾难→口播→宗派→ig→reels→人声 | reels类=大量文字 vs 人声视频类=极少文字"
+                                    title="双击放大编辑"
+                                    value={disambiguationHints}
+                                    onChange={e => setDisambiguationHints(e.target.value)}
+                                    onDoubleClick={() => setEnlargedInput({ title: '🌳 判断提示', value: disambiguationHints, onChange: setDisambiguationHints })}
                                     disabled={classifying}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Enter' && dim.inputValue.trim()) {
-                                            e.preventDefault();
-                                            const newCats = dim.inputValue.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
-                                            setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
-                                        } else if (e.key === 'Backspace' && !dim.inputValue && dim.categories.length > 0) {
-                                            setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: d.categories.slice(0, -1) } : d));
-                                        }
-                                    }}
-                                    onPaste={e => {
-                                        const text = e.clipboardData.getData('text/plain');
-                                        if (text.includes('\t') || text.includes('\n') || text.includes(',') || text.includes('，') || text.includes('、')) {
-                                            e.preventDefault();
-                                            const newCats = text.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
-                                            setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
-                                        }
-                                    }}
                                 />
                             </div>
-                            <button
-                                className="is-chip-remove"
-                                style={{ marginLeft: 4, fontSize: 14, opacity: 0.5 }}
-                                onClick={() => setDimensions(prev => prev.filter((_, i) => i !== dimIdx))}
-                                disabled={classifying}
-                                title="删除此维度"
-                            >×</button>
-                            </div>
-                            <input
-                                className="is-chips-input"
-                                style={{ width: '100%', marginTop: 3, fontSize: 10, color: '#aaa', padding: '3px 6px' }}
-                                placeholder={dim.categories.length === 0 ? '问题/要求（如：这是什么服装？这是什么地方？）' : '判断标准（可选，如：画面有人物归为\u201C有人\u201D，没有人物归为\u201C没人\u201D）'}
-                                value={dim.description}
-                                disabled={classifying}
-                                onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, description: e.target.value } : d))}
-                            />
+
+                            {/* 层级结构预览 */}
+                            {advancedLevels.length > 0 && (
+                                <div style={{ fontSize: 10, color: '#888', padding: '4px 6px', background: 'rgba(0,0,0,0.2)', borderRadius: 4, lineHeight: 1.6 }}>
+                                    <div style={{ fontWeight: 600, marginBottom: 2, color: '#aaa' }}>层级结构预览：</div>
+                                    {advancedLevels.map((lvl, lvlIdx) => {
+                                        const rulesInLevel = advancedRules.filter(r => r.level.trim() === lvl);
+                                        return (
+                                            <div key={lvl} style={{ paddingLeft: lvlIdx * 12, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                <span style={{ color: '#3b82f6', fontWeight: 500 }}>{lvl}:</span>
+                                                {rulesInLevel.map(r => (
+                                                    <span key={r.id} style={{ color: r.parentCategory ? '#f59e0b' : '#e4e4e7' }}>
+                                                        {r.name}{r.parentCategory ? ` ←${r.parentCategory}` : ''}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
-                    ))}
-                    {dimensions.length === 0 && (
+                    )}
+
+                    {/* ===== 基础分类模式（原有维度配置）===== */}
+                    {classifyMode === 'basic' && dimensions.map((dim, dimIdx) => {
+                        const isCollapsed = collapsedDims[dim.id] || false;
+                        const toggleCollapse = () => setCollapsedDims(prev => ({ ...prev, [dim.id]: !isCollapsed }));
+
+                        return (
+                        <div key={dim.id} style={{ marginBottom: 12, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, background: 'rgba(0,0,0,0.2)', padding: '8px 10px' }}>
+                            {/* Header / Toggle */}
+                            <div 
+                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                                onClick={toggleCollapse}
+                            >
+                                <div className="is-dim-header-main">
+                                    <span style={{ fontSize: 10, opacity: 0.5, userSelect: 'none', width: 12 }}>{isCollapsed ? '▶' : '▼'}</span>
+                                    <input
+                                        className="is-chips-input"
+                                        style={{ width: 120, minWidth: 72, flexShrink: 1, fontWeight: 600, fontSize: 12, background: 'transparent', border: '1px solid transparent', padding: '2px 4px', borderRadius: 4, transition: 'all 0.2s', ...(!isCollapsed ? { borderBottom: '1px solid rgba(167, 139, 250, 0.4)' } : {}) }}
+                                        placeholder="维度/属性名"
+                                        value={dim.name}
+                                        disabled={classifying}
+                                        title="点击编辑维度名"
+                                        onClick={e => e.stopPropagation()}
+                                        onChange={e => {
+                                            setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, name: e.target.value } : d));
+                                        }}
+                                    />
+                                    {isCollapsed && (
+                                        <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 8 }}>共 {dim.categories.length} 个分类</span>
+                                    )}
+                                    {!isCollapsed && (
+                                        <select
+                                            className="is-dim-preset-select"
+                                            value=""
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => {
+                                                const val = e.target.value;
+                                                if (!val) return;
+                                                const [presetId, tempIdx] = val.split('|');
+                                                const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
+                                                if (!preset) return;
+                                                const template = preset.dimensions[parseInt(tempIdx, 10)];
+                                                if (!template) return;
+                                                
+                                                setDimensions(prev => prev.map((d, i) => {
+                                                    if (i !== dimIdx) return d;
+                                                    return {
+                                                        ...d,
+                                                        name: template.name,
+                                                        description: template.description || '',
+                                                        categories: [...template.categories],
+                                                        categoryCriteria: template.categoryCriteria ? { ...template.categoryCriteria } : undefined
+                                                    };
+                                                }));
+                                                e.target.value = '';
+                                            }}
+                                            disabled={classifying}
+                                            style={{
+                                                fontSize: 9,
+                                                padding: '2px 12px 2px 4px',
+                                                borderRadius: 4,
+                                                border: '1px solid rgba(255,255,255,0.1)',
+                                                background: 'rgba(255,255,255,0.05)',
+                                                color: '#aaa',
+                                                cursor: 'pointer',
+                                                appearance: 'none',
+                                                WebkitAppearance: 'none',
+                                                colorScheme: 'dark',
+                                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                                                backgroundRepeat: 'no-repeat',
+                                                backgroundPosition: 'right 4px center',
+                                                marginLeft: 4,
+                                            }}
+                                        >
+                                            <option value="" disabled hidden>预设</option>
+                                            {DIMENSION_PRESETS.map(preset => (
+                                                <optgroup key={preset.id} label={`${preset.emoji} ${preset.label}`}>
+                                                    {preset.dimensions.map((d, i) => (
+                                                        <option key={`${preset.id}|${i}`} value={`${preset.id}|${i}`}>
+                                                            {d.name} ({d.categories.length})
+                                                        </option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+                                <button
+                                    className="is-chip-remove"
+                                    style={{ fontSize: 14, opacity: 0.5, padding: '2px 6px' }}
+                                    onClick={(e) => { e.stopPropagation(); setDimensions(prev => prev.filter((_, i) => i !== dimIdx)); }}
+                                    disabled={classifying}
+                                    title="删除此维度"
+                                >×</button>
+                            </div>
+
+                            {/* Body */}
+                            {!isCollapsed && (
+                                <div style={{ marginTop: 10, paddingLeft: 18 }}>
+                                    <div className="is-chips-wrapper" style={{ flexDirection: 'column', alignItems: 'stretch', background: 'transparent', border: 'none', padding: 0 }}>
+                                        <div style={{ fontSize: 9, color: '#a78bfa', marginBottom: 2, display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{opacity:0.8}}>可选项及判定配置表：</span>
+                                        </div>
+                                        {dim.categories.map((cat, catIdx) => (
+                                            <div key={catIdx} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 0' }}>
+                                                <span style={{ fontSize: 10, minWidth: 60, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.9 }}>{cat}</span>
+                                                <input
+                                                    className="is-chips-input"
+                                                    style={{ flex: 1, padding: '3px 6px', fontSize: 10, background: 'rgba(251, 191, 36, 0.08)', border: '1px solid rgba(251, 191, 36, 0.2)', borderRadius: 4, color: '#fbbf24' }}
+                                                    placeholder="独立判定要求/依据（可选）..."
+                                                    value={dim.categoryCriteria?.[cat] || ''}
+                                                    disabled={classifying}
+                                                    onChange={e => setDimensions(prev => prev.map((d, i) => {
+                                                        if (i !== dimIdx) return d;
+                                                        const newCrit = { ...(d.categoryCriteria || {}) };
+                                                        newCrit[cat] = e.target.value;
+                                                        return { ...d, categoryCriteria: newCrit };
+                                                    }))}
+                                                />
+                                                <button
+                                                    className="is-chip-remove"
+                                                    onClick={() => setDimensions(prev => prev.map((d, i) => {
+                                                        if (i !== dimIdx) return d;
+                                                        const newCats = d.categories.filter((_, ci) => ci !== catIdx);
+                                                        const newCrit = { ...d.categoryCriteria };
+                                                        delete newCrit[cat];
+                                                        return { ...d, categories: newCats, categoryCriteria: newCrit };
+                                                    }))}
+                                                    disabled={classifying}
+                                                >×</button>
+                                            </div>
+                                        ))}
+                                        <input
+                                            className="is-chips-input"
+                                            style={{ flex: 1, marginTop: 4, background: 'rgba(255,255,255,0.03)', borderRadius: 4, padding: '4px 6px' }}
+                                            placeholder={dim.categories.length === 0 ? '添加分类或直接粘贴两列Excel(分类名+依据)...' : '继续添加分类...'}
+                                            value={dim.inputValue}
+                                            onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, inputValue: e.target.value } : d))}
+                                            disabled={classifying}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter' && dim.inputValue.trim()) {
+                                                    e.preventDefault();
+                                                    const newCats = dim.inputValue.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
+                                                    setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
+                                                } else if (e.key === 'Backspace' && !dim.inputValue && dim.categories.length > 0) {
+                                                    setDimensions(prev => prev.map((d, i) => {
+                                                        if (i !== dimIdx) return d;
+                                                        const droppedCat = d.categories[d.categories.length - 1];
+                                                        const newCrit = { ...d.categoryCriteria };
+                                                        delete newCrit[droppedCat];
+                                                        return { ...d, categories: d.categories.slice(0, -1), categoryCriteria: newCrit };
+                                                    }));
+                                                }
+                                            }}
+                                            onPaste={e => {
+                                                const text = e.clipboardData.getData('text/plain');
+                                                if (!text.trim()) return;
+                                                
+                                                if (text.includes('\t') || text.includes('\n')) {
+                                                    e.preventDefault();
+                                                    const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
+                                                    
+                                                    const cats: string[] = [];
+                                                    const newCriteria: Record<string, string> = {};
+                                                    for (const line of lines) {
+                                                        const cols = line.split('\t');
+                                                        const catName = cols[0]?.trim();
+                                                        if (!catName) continue;
+                                                        
+                                                        if (cols.length >= 3) {
+                                                            const subCats = cols[1]?.trim().split(/[,，、;；]/).map(c => c.trim()).filter(Boolean) || [];
+                                                            cats.push(...subCats);
+                                                            const desc = cols[2]?.trim();
+                                                            if (desc) {
+                                                                subCats.forEach(sc => newCriteria[sc] = desc);
+                                                            }
+                                                        } else {
+                                                            cats.push(catName);
+                                                            const desc = cols[1]?.trim();
+                                                            if (desc) newCriteria[catName] = desc;
+                                                        }
+                                                    }
+                                                    
+                                                    if (cats.length > 0) {
+                                                        setDimensions(prev => prev.map((d, i) => {
+                                                            if (i !== dimIdx) return d;
+                                                            const mergedCats = [...d.categories, ...cats.filter(c => !d.categories.includes(c))];
+                                                            const mergedCrit = { ...(d.categoryCriteria || {}), ...newCriteria };
+                                                            return { ...d, categories: mergedCats, categoryCriteria: mergedCrit, inputValue: '' };
+                                                        }));
+                                                    }
+                                                } else if (text.includes(',') || text.includes('，') || text.includes('、')) {
+                                                    e.preventDefault();
+                                                    const newCats = text.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+                                                    setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
+                                                }
+                                            }}
+                                        />
+                                    </div>
+
+                                    <input
+                                        className="is-chips-input"
+                                        style={{ width: '100%', marginTop: 8, fontSize: 10, color: '#aaa', padding: '4px 6px', background: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.03)' }}
+                                        placeholder={dim.categories.length === 0 ? '问题/要求（如：这是哪类服装？）' : '当前维度统筹判断标准（如：所有人脸清晰的算有效）'}
+                                        value={dim.description}
+                                        disabled={classifying}
+                                        onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, description: e.target.value } : d))}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        );
+                    })}
+                    {classifyMode === 'basic' && dimensions.length === 0 && (
                         <div className="is-config-row">
                             <span className="is-config-hint" style={{ opacity: 0.6, fontSize: 11 }}>🤖 未配置维度，AI 将自动判断</span>
                         </div>
                     )}
+                    {classifyMode === 'basic' && (<>
                     <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                         <button
                             className="is-btn is-btn-sm"
@@ -1931,54 +2965,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         >
                             <Plus size={12} /> 添加分类维度
                         </button>
-
-                        {/* Multi-dimension preset dropdown */}
-                        {DIMENSION_PRESETS.length > 0 && (
-                            <select
-                                value=""
-                                onChange={e => {
-                                    const presetId = e.target.value;
-                                    const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
-                                    if (!preset) return;
-                                    const newDims: ClassificationDimension[] = preset.dimensions.map((d, i) => ({
-                                        id: `dim-preset-${Date.now()}-${i}`,
-                                        name: d.name,
-                                        description: d.description,
-                                        categories: [...d.categories],
-                                        inputValue: '',
-                                    }));
-                                    setDimensions(newDims);
-                                }}
-                                disabled={classifying}
-                                style={{
-                                    fontSize: 10,
-                                    padding: '3px 20px 3px 6px',
-                                    borderRadius: 5,
-                                    border: '1px solid rgba(255,255,255,0.12)',
-                                    background: 'rgba(255,255,255,0.06)',
-                                    color: '#ccc',
-                                    cursor: 'pointer',
-                                    appearance: 'none',
-                                    WebkitAppearance: 'none',
-                                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                                    backgroundRepeat: 'no-repeat',
-                                    backgroundPosition: 'right 4px center',
-                                }}
-                            >
-                                <option value="" disabled>📦 加载多维度预设...</option>
-                                {DIMENSION_PRESETS.map(preset => (
-                                    <option key={preset.id} value={preset.id}>
-                                        {preset.emoji} {preset.label} ({preset.dimensions.length}个维度)
-                                    </option>
-                                ))}
-                            </select>
-                        )}
                     </div>
                     {/* Batch paste: 1col=categories, 2col=category+desc, 3col=dim+categories+desc */}
                     <div style={{ marginTop: 2 }}>
                         <div style={{ fontSize: 10, color: '#666', marginBottom: 3 }}>📋 批量粘贴（1列=分类名 · 2列=分类+说明 · 3列=维度名+分类+说明）</div>
                         <textarea
-                            className="is-chips-input"
+                            className="is-chips-input is-batch-paste-input"
                             style={{ width: '100%', minHeight: 28, maxHeight: 80, resize: 'vertical', fontSize: 10, lineHeight: 1.4, padding: '4px 6px' }}
                             placeholder="粘贴分类名 / 分类[TAB]说明 / 维度名[TAB]分类1,分类2[TAB]说明"
                             disabled={classifying}
@@ -2013,14 +3005,14 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                     // ===== 1 or 2 columns: all rows → categories of ONE dimension =====
                                     // col1=category name, col2=description (optional)
                                     const cats: string[] = [];
-                                    const descParts: string[] = [];
+                                    const newCriteria: Record<string, string> = {};
                                     for (const line of lines) {
                                         const cols = line.split('\t');
                                         const catName = cols[0]?.trim();
                                         if (!catName) continue;
                                         cats.push(catName);
                                         const desc = cols[1]?.trim();
-                                        if (desc) descParts.push(`${catName}：${desc}`);
+                                        if (desc) newCriteria[catName] = desc;
                                     }
                                     if (cats.length > 0) {
                                         // Add to the last dimension, or create a new one
@@ -2030,16 +3022,17 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                                 return [...prev, {
                                                     id: `dim-${Date.now()}`,
                                                     name: '',
-                                                    description: descParts.join('。'),
+                                                    description: '',
                                                     categories: cats,
                                                     inputValue: '',
+                                                    categoryCriteria: newCriteria,
                                                 }];
                                             }
                                             // Add to the last empty dimension
                                             const last = prev[prev.length - 1];
                                             const merged = [...last.categories, ...cats.filter(c => !last.categories.includes(c))];
-                                            const mergedDesc = [last.description, descParts.join('。')].filter(Boolean).join('。');
-                                            return prev.map((d, i) => i === prev.length - 1 ? { ...d, categories: merged, description: mergedDesc } : d);
+                                            const mergedCrit = { ...(last.categoryCriteria || {}), ...newCriteria };
+                                            return prev.map((d, i) => i === prev.length - 1 ? { ...d, categories: merged, categoryCriteria: mergedCrit } : d);
                                         });
                                     }
                                 }
@@ -2047,6 +3040,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             }}
                         />
                     </div>
+                    </>)}
                 </div>
 
                 {/* Ignore text content toggle */}
@@ -2079,7 +3073,28 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                 {/* Custom instructions + Prompt preview */}
                 <div className="is-config-panel" style={{ paddingTop: 8 }}>
-                    <div style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>📝 自定义指令 <span style={{ opacity: 0.6 }}>(可选，会附加到分类 prompt)</span></div>
+                    <div
+                        style={{
+                            fontSize: 11,
+                            color: '#888',
+                            marginBottom: 6,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                        }}
+                    >
+                        <span>📝 自定义指令 <span style={{ opacity: 0.6 }}>(可选，会附加到分类 prompt)</span></span>
+                        <button
+                            className="is-btn is-btn-sm"
+                            style={{ fontSize: 10, padding: '2px 6px' }}
+                            onClick={() => setCustomInstructions('')}
+                            disabled={classifying || !customInstructions}
+                            title="清空自定义指令"
+                        >
+                            清空
+                        </button>
+                    </div>
                     <textarea
                         className="is-chips-input"
                         style={{
@@ -2096,8 +3111,10 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             color: 'var(--text-primary, #e0e0e0)',
                         }}
                         placeholder="例如：这些是电商产品图，请按产品类型分类..."
+                        title="双击放大编辑"
                         value={customInstructions}
                         onChange={e => setCustomInstructions(e.target.value)}
+                        onDoubleClick={() => setEnlargedInput({ title: '📝 自定义指令', value: customInstructions, onChange: setCustomInstructions })}
                         disabled={classifying}
                     />
                     <div
@@ -2111,7 +3128,47 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         const activeDims = dimensions.filter(d => d.name.trim());
                         const userCats = activeDims.length === 0 && dimensions.length > 0 ? dimensions[0]?.categories || [] : [];
                         let preview = `你是一个图片分类标签专家。请分析以下 N 张图片。\n\n`;
-                        if (activeDims.length > 0) {
+
+                        if (classifyMode === 'advanced' && advancedRules.length > 0) {
+                            // ===== 高级分类预览 =====
+                            preview += `请按以下层级分类体系对图片进行分类：\n\n`;
+                            for (const lvl of advancedLevels) {
+                                const rulesInLevel = advancedRules.filter(r => r.level.trim() === lvl);
+                                const byParent = new Map<string, AdvancedClassifyRule[]>();
+                                for (const r of rulesInLevel) {
+                                    const p = r.parentCategory.trim() || '';
+                                    if (!byParent.has(p)) byParent.set(p, []);
+                                    byParent.get(p)!.push(r);
+                                }
+                                preview += `【${lvl}】`;
+                                if (byParent.size === 1 && byParent.has('')) {
+                                    const items = byParent.get('')!;
+                                    preview += `从以下选项中选一个：\n`;
+                                    preview += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                                } else {
+                                    preview += `根据上一层的分类结果，从对应子类中选择：\n`;
+                                    for (const [parent, items] of byParent) {
+                                        if (parent) {
+                                            preview += `  若上级="${parent}" → `;
+                                            preview += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                                        } else {
+                                            preview += `  通用选项：`;
+                                            preview += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
+                                        }
+                                    }
+                                }
+                                preview += `不匹配时返回"其他"。\n\n`;
+                            }
+                            if (disambiguationHints.trim()) {
+                                preview += `【判断提示】${disambiguationHints.trim()}\n\n`;
+                            }
+                            preview += `【标签】同时为每张图片生成 3-5 个描述性标签。\n\n`;
+                            if (customInstructions.trim()) {
+                                preview += `【额外要求】${customInstructions.trim()}\n\n`;
+                            }
+                            const dimFieldsExample = advancedLevels.map(l => `"${l}":"分类名"`).join(',');
+                            preview += `请严格按以下 JSON 格式返回：\n[{"index":1,"ref":"REF_1_xxxx","categories":{${dimFieldsExample}},"tags":["标签1","标签2"]},...]`;
+                        } else if (activeDims.length > 0) {
                             preview += `请按以下 ${activeDims.length} 个维度分别分类：\n\n`;
                             activeDims.forEach((dim, i) => {
                                 preview += `【维度${i + 1}: ${dim.name}】`;
@@ -2120,7 +3177,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 }
                                 if (dim.categories.length > 0) {
                                     preview += `请将每张图片归入以下分类之一（必须严格使用下面给出的原始名称，禁止使用同义词、近义词或改写）：\n`;
-                                    preview += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                                    if (dim.categoryCriteria && Object.keys(dim.categoryCriteria).length > 0) {
+                                        preview += dim.categories.map(c => dim.categoryCriteria![c] ? `"${c}" (判定条件: ${dim.categoryCriteria![c]})` : `"${c}"`).join('、') + '\n';
+                                    } else {
+                                        preview += dim.categories.map(c => `"${c}"`).join('、') + '\n';
+                                    }
                                     preview += `⚠️ 分类名必须与上面完全一致，逐字匹配。不属于以上任何分类，使用"其他"。\n\n`;
                                 } else {
                                     preview += `请根据图片内容自动判断一个最合适的分类。\n\n`;
@@ -2325,6 +3386,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 )}
             </div>
 
+            <div
+                className="is-sidebar-resizer"
+                onMouseDown={startSidebarResize}
+                title="拖拽调整左侧宽度"
+            />
+
             {/* ===== RIGHT MAIN AREA ===== */}
             <div className="is-main-area">
                 {/* Toolbar */}
@@ -2435,6 +3502,38 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 ))}
                             </select>
                         </div>
+                        <div className="is-batch-control" title="粘贴时如何解析数据结构">
+                            <span className="is-batch-control-label">粘贴源</span>
+                            <select
+                                className="is-batch-control-select"
+                                value={dataInputMode}
+                                onChange={(e) => {
+                                    const mode = e.target.value as 'standard' | 'matrix';
+                                    setDataInputMode(mode);
+                                    setDataExportMode(mode);
+                                }}
+                            >
+                                <option value="standard">默认结构</option>
+                                <option value="matrix">横版结构提取 (包含其他数据行)</option>
+                            </select>
+                        </div>
+
+                        <div className="is-batch-control" title="复制时输出的数据结构">
+                            <span className="is-batch-control-label">导出</span>
+                            <select
+                                className="is-batch-control-select"
+                                value={dataExportMode}
+                                onChange={(e) => {
+                                    const mode = e.target.value as 'standard' | 'matrix';
+                                    setDataExportMode(mode);
+                                    setDataInputMode(mode);
+                                }}
+                            >
+                                <option value="standard">垂直 (标准)</option>
+                                <option value="matrix">水平 (Matrix)</option>
+                            </select>
+                        </div>
+
                         <button
                             className="is-btn"
                             onClick={() => fileInputRef.current?.click()}
@@ -2444,25 +3543,28 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                         {!classifying ? (
                             <>
+                                {images.length - classifiedCount > 0 && (
                                 <button
                                     className="is-btn is-btn-primary"
                                     onClick={handleClassify}
                                     disabled={images.length === 0}
                                 >
                                     <Sparkles size={14} />
-                                    {(() => {
-                                        const activeDimsCheck = dimensions.filter(d => d.name.trim());
-                                        const supplementCount = classifiedCount > 0 && activeDimsCheck.length > 0
-                                            ? images.filter(img => img.classified && !img.loadFailed && activeDimsCheck.some(d => !img.categories?.[d.name.trim()])).length
-                                            : 0;
-                                        if (supplementCount > 0) {
-                                            return `补充分类 (${supplementCount} 张缺少维度)`;
-                                        }
-                                        return classifiedCount > 0
-                                            ? `继续分类 (${images.length - classifiedCount} 张)`
-                                            : `开始 AI 分类 (${images.length} 张)`;
-                                    })()}
+                                    {classifiedCount > 0
+                                        ? `重试失败 (${images.length - classifiedCount} 张)`
+                                        : `开始 AI 分类 (${images.length} 张)`
+                                    }
                                 </button>
+                                )}
+                                {classifiedCount > 0 && (
+                                    <button
+                                        className="is-btn"
+                                        onClick={handleReclassifyAll}
+                                        style={{ background: 'rgba(255,255,255,0.08)', color: '#eee' }}
+                                    >
+                                        <RotateCw size={14} /> 全部重新分类
+                                    </button>
+                                )}
                             </>
                         ) : (
                             <button
@@ -2522,7 +3624,14 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 <>
                                     <img src={img.src} alt={img.name} loading="lazy" />
 
-                                    <span className="is-gallery-index">#{img.originalIndex + 1}</span>
+                                    <span className="is-gallery-index">
+                                        #{img.originalIndex + 1}
+                                        {img.metadataRows && img.metadataRows.length > 0 && (
+                                            <span style={{ marginLeft: 4, background: 'rgba(236,72,153,0.3)', color: '#fbcfe8', padding: '1px 4px', borderRadius: 4, fontSize: '9px' }} title={`${img.metadataRows.length} 行附属文本数据`}>
+                                                M
+                                            </span>
+                                        )}
+                                    </span>
 
                                     {img.aspectRatio && (
                                         <span className="is-gallery-ratio">
@@ -2535,6 +3644,23 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                                     <div className="is-gallery-check">
                                         {selectedIds.has(img.id) && <Check size={12} />}
+                                    </div>
+
+                                    <div className="is-gallery-actions">
+                                        <button 
+                                            className="is-gallery-action-btn" 
+                                            title="重新分类" 
+                                            onClick={(e) => { e.stopPropagation(); handleSingleReclassify(img.id); }}
+                                        >
+                                            <RefreshCw size={12} />
+                                        </button>
+                                        <button 
+                                            className="is-gallery-action-btn" 
+                                            title="修改分类" 
+                                            onClick={(e) => { e.stopPropagation(); setEditingImage(img); }}
+                                        >
+                                            <Edit3 size={12} />
+                                        </button>
                                     </div>
 
                                     {/* Gyazo uploading overlay */}
@@ -2575,13 +3701,13 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                 {/* Bottom action bar */}
                 <div className="is-action-bar">
-                    <span className="is-action-bar-info">
-                        显示 {filteredImages.length} 张
-                        {selectedIds.size > 0 && ` · 已选 ${selectedIds.size} 张`}
+                    <span className="is-action-bar-info" style={{ whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                        <span>显示 {filteredImages.length} 张</span>
+                        {selectedIds.size > 0 && <span>&nbsp;· 已选 {selectedIds.size} 张</span>}
                         {images.some(img => img.isGyazoUploading) && (
-                            <span style={{ color: '#a78bfa', marginLeft: 8 }}>
-                                <Loader2 className="animate-spin" size={11} style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: 3 }} />
-                                云端上传中 {images.filter(img => img.isGyazoUploading).length} 张
+                            <span style={{ color: '#a78bfa', marginLeft: 8, display: 'flex', alignItems: 'center' }}>
+                                <Loader2 className="animate-spin" size={11} style={{ marginRight: 3 }} />
+                                当前上传中 {images.filter(img => img.isGyazoUploading).length} 张
                             </span>
                         )}
                     </span>
@@ -2592,6 +3718,16 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     <button className="is-btn is-btn-sm" onClick={selectNone}>
                         <X size={12} /> 取消
                     </button>
+                    {selectedIds.size > 0 && (
+                        <button
+                            className="is-btn is-btn-sm"
+                            style={{ background: 'rgba(251, 146, 60, 0.2)', color: '#fb923c' }}
+                            onClick={() => handleBatchReclassify(selectedIds)}
+                            disabled={classifying}
+                        >
+                            <RefreshCw size={12} /> 重新分类选中 ({selectedIds.size})
+                        </button>
+                    )}
 
                     <button
                         className="is-btn is-btn-primary"
@@ -2612,16 +3748,48 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         onClick={() => copyToSheets({ withImage: true, uploadGyazo: true })}
                         disabled={images.length === 0}
                     >
-                        <Copy size={14} /> {selectedIds.size > 0 ? `复制图片公式+结果 (${selectedIds.size})` : `复制图片公式+结果 (${images.length})`}
+                        <Copy size={14} /> {selectedIds.size > 0 ? `上传全部并复制 (${selectedIds.size})` : `上传全部并复制 (${images.length})`}
+                    </button>
+                    <button
+                        className="is-btn is-btn-primary"
+                        style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
+                        onClick={() => copyToSheets({ withImage: true, uploadGyazo: true, classifiedOnly: true })}
+                        disabled={images.filter(i => i.classified).length === 0}
+                    >
+                        <Copy size={14} /> 仅上传已分类 ({images.filter(i => i.classified).length})
                     </button>
                 </div>
             </div>
             {uploadingGyazo && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ background: '#222', padding: 20, borderRadius: 8, color: '#fff', textAlign: 'center' }}>
+                    <div style={{ background: '#222', padding: 24, borderRadius: 12, color: '#fff', textAlign: 'center', minWidth: 280 }}>
                         <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 10px' }} />
                         <div>正在上传到 Gyazo ({uploadingGyazo.done}/{uploadingGyazo.total})</div>
-                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 5 }}>速度取决于图片大小和网络，请稍候...</div>
+                        <div style={{ width: '100%', height: 4, background: '#444', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
+                            <div style={{ width: `${(uploadingGyazo.done / uploadingGyazo.total) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                        </div>
+                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>速度取决于图片大小和网络</div>
+                        <button
+                            className="is-btn"
+                            style={{ marginTop: 12, background: '#dc2626', border: 'none', color: '#fff', padding: '6px 20px' }}
+                            onClick={() => { gyazoAbortRef.current = true; }}
+                        >
+                            <X size={14} /> 停止上传
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Loading local images overlay */}
+            {loadingImages && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ background: '#222', padding: 24, borderRadius: 12, color: '#fff', textAlign: 'center', minWidth: 280 }}>
+                        <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 10px' }} />
+                        <div>正在加载本地图片 ({loadingImages.done}/{loadingImages.total})</div>
+                        <div style={{ width: '100%', height: 4, background: '#444', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
+                            <div style={{ width: `${(loadingImages.done / loadingImages.total) * 100}%`, height: '100%', background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', borderRadius: 2, transition: 'width 0.3s ease' }} />
+                        </div>
+                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>请等待加载完成后再进行操作...</div>
                     </div>
                 </div>
             )}
@@ -2671,6 +3839,146 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             }} />
                         </div>
                         <div style={{ fontSize: '13px', opacity: 0.7 }}>打包过程可能需要一段时间请勿关闭窗口</div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Image Category Modal */}
+            {editingImage && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                    <div style={{ background: '#1e1e1e', padding: 24, borderRadius: 12, width: '100%', maxWidth: 500, color: '#eee', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+                        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>修改分类结果</h3>
+                        
+                        <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
+                            <img src={editingImage.src} alt="preview" style={{ width: 120, height: 120, objectFit: 'contain', background: '#000', borderRadius: 8 }} />
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                
+                                {classifyMode === 'advanced' && advancedLevels.length > 0 ? (
+                                    advancedLevels.map(lvl => (
+                                        <div key={lvl}>
+                                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{lvl}</div>
+                                            <input 
+                                                className="is-input"
+                                                style={{ width: '100%', padding: '6px 10px' }}
+                                                defaultValue={editingImage.categories?.[lvl] || ''}
+                                                id={`edit-cat-${lvl}`}
+                                            />
+                                        </div>
+                                    ))
+                                ) : activeDims.filter(d => d.name.trim()).length > 0 ? (
+                                    activeDims.filter(d => d.name.trim()).map(dim => (
+                                        <div key={dim.name}>
+                                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{dim.name}</div>
+                                            <input 
+                                                className="is-input"
+                                                style={{ width: '100%', padding: '6px 10px' }}
+                                                defaultValue={editingImage.categories?.[dim.name] || ''}
+                                                id={`edit-cat-${dim.name}`}
+                                            />
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div>
+                                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>主分类</div>
+                                        <input 
+                                            className="is-input"
+                                            style={{ width: '100%', padding: '6px 10px' }}
+                                            defaultValue={editingImage.category || ''}
+                                            id="edit-cat-primary"
+                                        />
+                                    </div>
+                                )}
+
+                                <div>
+                                    <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>标签 (用逗号分隔)</div>
+                                    <input 
+                                        className="is-input"
+                                        style={{ width: '100%', padding: '6px 10px' }}
+                                        defaultValue={(editingImage.tags || []).join(', ')}
+                                        id="edit-tags"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                            <button className="is-btn" onClick={() => setEditingImage(null)}>取消</button>
+                            <button className="is-btn is-btn-primary" onClick={() => {
+                                const newCategories: Record<string, string> = {};
+                                let primaryCat = editingImage.category || '';
+                                const adims = activeDims.filter(d => d.name.trim());
+                                
+                                if (classifyMode === 'advanced' && advancedLevels.length > 0) {
+                                    advancedLevels.forEach(lvl => {
+                                        const val = (document.getElementById(`edit-cat-${lvl}`) as HTMLInputElement)?.value.trim();
+                                        if (val) newCategories[lvl] = val;
+                                    });
+                                    primaryCat = newCategories[advancedLevels[0]] || '其他';
+                                } else if (adims.length > 0) {
+                                    adims.forEach(dim => {
+                                        const val = (document.getElementById(`edit-cat-${dim.name}`) as HTMLInputElement)?.value.trim();
+                                        if (val) newCategories[dim.name] = val;
+                                    });
+                                    primaryCat = newCategories[adims[0].name] || '其他';
+                                } else {
+                                    primaryCat = (document.getElementById('edit-cat-primary') as HTMLInputElement)?.value.trim() || '其他';
+                                }
+
+                                const tagsStr = (document.getElementById('edit-tags') as HTMLInputElement)?.value || '';
+                                const newTags = tagsStr.split(/[,，、]/).map(t => t.trim()).filter(Boolean);
+
+                                handleSaveEdit(primaryCat, newCategories, newTags);
+                            }}>保存修改</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Enlarged Textarea Modal */}
+            {enlargedInput && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={() => setEnlargedInput(null)}>
+                    <div style={{ background: '#1e1e1e', padding: 24, borderRadius: 12, width: '100%', maxWidth: 700, height: '80vh', display: 'flex', flexDirection: 'column', color: '#eee', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                            <h3 style={{ margin: 0, fontSize: 16 }}>{enlargedInput.title}</h3>
+                            <button className="is-btn" style={{ padding: '4px 8px' }} onClick={() => setEnlargedInput(null)}><X size={16} /></button>
+                        </div>
+                        
+                        <textarea
+                            style={{ 
+                                flex: 1, 
+                                width: '100%', 
+                                background: '#111', 
+                                border: '1px solid #333', 
+                                borderRadius: 8, 
+                                color: '#fff', 
+                                padding: 16, 
+                                fontSize: 13, 
+                                lineHeight: 1.6, 
+                                resize: 'none',
+                                fontFamily: 'monospace'
+                            }}
+                            autoFocus
+                            value={enlargedInput.value}
+                            onChange={e => setEnlargedInput({ ...enlargedInput, value: e.target.value })}
+                            onKeyDown={e => {
+                                // Cmd+Enter / Ctrl+Enter to save and close
+                                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                                    enlargedInput.onChange(enlargedInput.value);
+                                    setEnlargedInput(null);
+                                }
+                            }}
+                        />
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+                            <span style={{ fontSize: 12, color: '#666' }}>提示：支持使用快捷键 (⌘+Enter / Ctrl+Enter) 保存</span>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <button className="is-btn" onClick={() => setEnlargedInput(null)}>取消</button>
+                                <button className="is-btn is-btn-primary" onClick={() => {
+                                    enlargedInput.onChange(enlargedInput.value);
+                                    setEnlargedInput(null);
+                                }}>保存</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

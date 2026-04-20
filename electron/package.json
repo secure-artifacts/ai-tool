@@ -1,7 +1,7 @@
 {
-    "name": "ai-creative-toolkit",
-    "version": "3.8.3",
-    "description": "AI 创作工具包 - 桌面版",
+    "name": "ai-creation-toolkit-desktop",
+    "version": "4.0.0",
+    "description": "AI Creation Toolkit Desktop Version",
     "main": "main.js",
     "author": "ITEN Creative Toolkit",
     "repository": {

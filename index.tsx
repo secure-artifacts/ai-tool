@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect, useMemo, createContext, useContext,
 import { createRoot } from 'react-dom/client';
 import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { shouldUseAiStudioMode, isRunningInAiStudio } from './utils/aiStudioDetect';
+import { wrapWithGroqProxy, GROQ_GLOBAL_MODELS } from './utils/groqProxy';
 import { FixedTooltipProvider } from '@/components/FixedTooltip';
 import { ToastProvider } from '@/components/ui/Toast';
 import ScriptToolApp from '@/apps/script-split/ScriptToolApp';
@@ -78,13 +79,14 @@ const initialMagicCanvasState: MagicCanvasState = {
   chatHistory: [],
   chatInput: '',
 };
-import ImageRecognitionApp from '@/apps/ai-image-recognition/ImageRecognitionApp';
+import ImageRecognitionApp, { DescState, DescEntry } from '@/apps/ai-image-recognition/ImageRecognitionApp';
 import ImageReviewApp from '@/apps/image-review/ImageReviewApp';
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
 import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import SubEmailGenerator from '@/apps/sub-email/SubEmailGenerator';
-import { Clock, Loader2, Check, X, Image as ImageIcon, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot, Package, BookOpen, Edit, PlusCircle, Search } from 'lucide-react';
+import { Clock, Loader2, Check, X, Image as ImageIcon, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot, Package, BookOpen, Edit, PlusCircle, Search, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { isSoundEnabled, setSoundEnabled, playCompletionSound } from '@/utils/soundNotification';
 import HelpCenter from '@/components/HelpCenter';
 import FeedbackModal from '@/components/FeedbackModal';
 import { UpdateNotice, hasNewUpdate, markUpdateAsSeen } from '@/components/UpdateNotice';
@@ -183,7 +185,7 @@ const translations = {
     navImageRecognition: "AI Image Recognition",
     navImageReview: "Image Review",
     navSheetMind: "SheetMind",
-    navDataPipeline: "Data Pipeline",
+    navDataPipeline: "AI Agent",
     navCopyDedup: "AI Copy Deduplicator",
     navProDedup: "Pro Dedup Search",
     navCopywritingLibrary: "Copywriting Library",
@@ -447,7 +449,7 @@ const translations = {
     navImageRecognition: "AI 图片识别",
     navImageReview: "图片审核",
     navSheetMind: "表格数据分析",
-    navDataPipeline: "数据整理",
+    navDataPipeline: "智能代理",
     navCopyDedup: "AI 文案去重",
     navProDedup: "专业文案查重",
     navCopywritingLibrary: "超级文案库",
@@ -734,6 +736,7 @@ const ApiContext = createContext<{
   refreshApiPool: () => Promise<void>;
   rotateApiKey: () => void;
   apiPoolStatus: { total: number; current: number; failed: number; currentNickname?: string } | null;
+  getDetailedPoolStatus: () => Array<{ index: number; nickname: string; keyPrefix: string; callCount: number; isExhausted: boolean; failedAt: string | null; failReason: string; cooldownRemaining: number; modelUsage: Record<string, number> }> | null;
   poolError: string | null;
 }>({
   apiKey: '',
@@ -749,6 +752,7 @@ const ApiContext = createContext<{
   refreshApiPool: async () => { },
   rotateApiKey: () => { },
   apiPoolStatus: null,
+  getDetailedPoolStatus: () => null,
   poolError: null,
 });
 
@@ -769,7 +773,7 @@ const INTERNAL_ADMIN_SHEET_ID = '1InDrlrypvb_5xwtNCmqYIUuWL5cm7YNbBaCvJuEY9D0';
 const API_POOL_FORCE_DISABLED = false;
 
 // 🔄 强制刷新版本号 —— 更新此值会让所有旧页面自动刷新
-const FORCE_RELOAD_VERSION = '2026-03-12-v1';
+const FORCE_RELOAD_VERSION = '2026-04-10-v1';
 (() => {
   const lastVersion = localStorage.getItem('app_force_reload_version');
   if (lastVersion !== FORCE_RELOAD_VERSION) {
@@ -786,9 +790,15 @@ const FORCE_RELOAD_VERSION = '2026-03-12-v1';
 
 const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [manualApiKey, _setManualApiKey] = useState(() => localStorage.getItem('user_api_key') || '');
-  // 🚫 API 池强制禁用
-  const [usePool, setUsePool] = useState(false);
-  const [useSharedPool, setUseSharedPool] = useState(false);
+  // 恢复 API 池的持久化存储，记住用户的选择
+  const [usePool, setUsePool] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('use_api_pool') === 'true';
+  });
+  const [useSharedPool, setUseSharedPool] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('use_shared_api_pool') === 'true';
+  });
   const [poolConfig, _setPoolConfig] = useState<{ sheetId: string; sheetName?: string; userName: string } | null>(() => {
     const stored = localStorage.getItem('api_pool_config');
     return stored ? JSON.parse(stored) : null;
@@ -917,18 +927,41 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const rotateApiKey = () => {
     if (apiPool && apiPool.hasKeys()) {
       const currentKey = apiPool.getCurrentKey();
-      // console.log(`[rotateApiKey] 当前密钥: ${currentKey.substring(0, 15)}...`);
 
       apiPool.rotateToNext();
 
       const newKey = apiPool.getCurrentKey();
-      // console.log(`[rotateApiKey] 轮换后密钥: ${newKey.substring(0, 15)}...`);
 
       // 触发组件重新渲染（不创建新对象，保留 currentIndex）
       setApiPoolUpdateCounter(c => c + 1);
     } else {
       console.warn('[rotateApiKey] API池不可用或没有密钥');
     }
+  };
+
+  const getDetailedPoolStatus = () => {
+    if (apiPool && apiPool.hasKeys()) {
+      return apiPool.getDetailedStatus();
+    }
+    return null;
+  };
+
+  const getAppEnvApiKey = (): string => {
+    try {
+      const viteKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) as string | undefined;
+      if (viteKey) return viteKey;
+    } catch { /* ignore */ }
+    try {
+      if (typeof process !== 'undefined' && (process as any).env?.API_KEY) return (process as any).env.API_KEY;
+    } catch { /* ignore */ }
+    try {
+      if (typeof process !== 'undefined' && (process as any).env?.GEMINI_API_KEY) return (process as any).env.GEMINI_API_KEY;
+    } catch { /* ignore */ }
+    try {
+      const viteGoogle = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GOOGLE_API_KEY) as string | undefined;
+      if (viteGoogle) return viteGoogle;
+    } catch { /* ignore */ }
+    return '';
   };
 
   const getCurrentApiKey = (): string => {
@@ -940,7 +973,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         console.error('[ApiProvider] 从API池获取密钥失败:', error);
       }
     }
-    return manualApiKey || process.env.API_KEY || '';
+    return manualApiKey || getAppEnvApiKey() || '';
   };
 
   // 检测是否为 AI Studio 模式
@@ -956,29 +989,32 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     // AI Studio 模式：平台内部处理认证，不强制要求 API key
     if (isRunningInAiStudio()) {
-      if (keyToUse) {
-        return new GoogleGenAI({ apiKey: keyToUse });
-      }
-      // 无 key 时让 SDK 自动使用 AI Studio 内部认证
-      return new GoogleGenAI({});
+      const studioKey = keyToUse || 'AISTUDIO_NATIVE_MODE_PLACEHOLDER';
+      return wrapWithGroqProxy(new GoogleGenAI({ apiKey: studioKey }), studioKey);
     }
 
-    // 非 AI Studio 模式：必须有 key
+    // 非 AI Studio 模式：必须有 key（除非选了 Groq 模型）
     if (!keyToUse) {
+      // 全局选了 Groq 模型 → 不需要 Google Key，创建占位实例让 Groq 代理接管
+      const globalModel = localStorage.getItem('app_text_model') || '';
+      if (globalModel.startsWith('groq:')) {
+        console.log('%c[getAiInstance]', 'color:#16c79a;font-weight:bold',
+          `🟢 无 Google Key，但全局模型是 Groq (${globalModel})，创建代理实例`);
+        // 用占位 key 创建实例，Groq 代理会拦截 groq: 请求，不会真正调 Google
+        return wrapWithGroqProxy(new GoogleGenAI({ apiKey: 'GROQ_ONLY_PLACEHOLDER' }), 'GROQ_ONLY_PLACEHOLDER');
+      }
       throw new Error('API key is not set.');
     }
-    // AIza key → 标准模式（AI Studio 免费 key）
-    if (shouldUseAiStudioMode(keyToUse)) {
-      return new GoogleGenAI({ apiKey: keyToUse });
+    // 所有 API key 统一走标准 Gemini 端点（generativelanguage.googleapis.com）
+    const options: any = { apiKey: keyToUse };
+    const isVertex = !shouldUseAiStudioMode(keyToUse);
+    if (isVertex) {
+        options.vertexai = true;
+        options.httpOptions = { baseUrl: 'https://aiplatform.googleapis.com/' };
     }
-    // AQ key 等 → Vertex AI 模式
-    return new GoogleGenAI({
-      apiKey: keyToUse,
-      vertexai: true,
-      httpOptions: {
-        baseUrl: 'https://aiplatform.googleapis.com/',
-      }
-    });
+
+    // Groq 代理在最内层：当模型是 groq:xxx 时，拦截并路由到 Groq API
+    return wrapWithGroqProxy(new GoogleGenAI(options), keyToUse);
   };
 
   // 自动轮换包装函数 - 当API调用失败时自动切换密钥
@@ -987,6 +1023,101 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     // If using API pool, wrap generate methods to support auto-rotation
     if (usePool && apiPool && apiPool.hasKeys()) {
+      // 并行分发：先获取当前 key 再立即轮换
+      const usedKey = getCurrentApiKey();
+      apiPool.rotateToNext();
+
+      // ---- 按模型限额工具函数 ----
+      const MODEL_QUOTA_KEY = 'api_model_quotas';
+      const getModelQuotas = (): Record<string, number> => {
+        try {
+          const stored = localStorage.getItem(MODEL_QUOTA_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && typeof parsed === 'object') return parsed;
+          }
+        } catch { }
+        // 不再内置默认配额；仅在用户明确配置时启用本地额度限制
+        return {};
+      };
+
+      const getModelCallCount = (key: string, model: string): number => {
+        const today = new Date().toISOString().slice(0, 10);
+        const k = `api_model_count_${today}_${key.substring(0, 12)}_${model}`;
+        return parseInt(localStorage.getItem(k) || '0', 10);
+      };
+
+      const recordModelCall = (key: string, model: string): void => {
+        const today = new Date().toISOString().slice(0, 10);
+        const k = `api_model_count_${today}_${key.substring(0, 12)}_${model}`;
+        const current = parseInt(localStorage.getItem(k) || '0', 10);
+        localStorage.setItem(k, String(current + 1));
+        // 同时记录 key 总调用次数（兼容旧统计）
+        const totalK = `api_call_count_${today}_${key.substring(0, 12)}`;
+        const totalCurrent = parseInt(localStorage.getItem(totalK) || '0', 10);
+        localStorage.setItem(totalK, String(totalCurrent + 1));
+        // 记录本次运行（Session）统计
+        const sessionCount = parseInt(sessionStorage.getItem('api_session_call_count') || '0', 10);
+        sessionStorage.setItem('api_session_call_count', String(sessionCount + 1));
+      };
+
+      const getQuotaValue = (value: unknown): number | null => {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+        return value;
+      };
+
+      const getQuotaForModel = (model: string): number | null => {
+        const quotas = getModelQuotas();
+        const exact = getQuotaValue(quotas[model]);
+        if (exact) return exact;
+
+        if (model.includes('lite')) {
+          const liteQuota = getQuotaValue(quotas.lite)
+            || getQuotaValue(quotas['gemini-3.1-lite-preview-06-24'])
+            || getQuotaValue(quotas['gemini-2.0-flash-lite']);
+          if (liteQuota) return liteQuota;
+        }
+
+        return getQuotaValue(quotas.default);
+      };
+
+      const isKeyOverQuota = (key: string, model: string): boolean => {
+        const quota = getQuotaForModel(model);
+        if (!quota) return false;
+        const count = getModelCallCount(key, model);
+        return count >= quota;
+      };
+
+      const getErrorMessage = (error: any): string => {
+        return String(error?.message || '').toLowerCase();
+      };
+
+      const shouldRotateForError = (error: any): boolean => {
+        const errorMsg = getErrorMessage(error);
+        return errorMsg.includes('quota') ||
+          errorMsg.includes('resource_exhausted') ||
+          errorMsg.includes('429') ||
+          errorMsg.includes('rate limit') ||
+          errorMsg.includes('too many requests') ||
+          errorMsg.includes('exceeded') ||
+          errorMsg.includes('limit');
+      };
+
+      const markFailedKey = (key: string, error: any): void => {
+        try {
+          apiPool.markKeyAsFailed(key, error?.message || '额度用完');
+        } catch (e) {
+          console.error('[Auto-Rotate] Failed to mark key as failed:', e);
+        }
+      };
+
+      // 提取模型名称
+      const extractModel = (args: any[]): string => {
+        const firstArg = args[0];
+        if (typeof firstArg === 'object' && firstArg?.model) return firstArg.model;
+        if (typeof firstArg === 'string') return firstArg;
+        return 'unknown';
+      };
       const originalGenerateText = (instance as any).generateText?.bind(instance);
       const originalGenerateContent = (instance as any).generateContent?.bind(instance); // For newer Gemini models
 
@@ -997,28 +1128,14 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           try {
             return await originalMethod(...args);
           } catch (error: any) {
-            // Detect quota or rate limit errors
             const errorMsg = error?.message || '';
-            const shouldRotate = errorMsg.includes('quota') ||
-              errorMsg.includes('RESOURCE_EXHAUSTED') ||
-              errorMsg.includes('429') ||
-              errorMsg.includes('rate limit');
+            const shouldRotate = shouldRotateForError(error);
 
             if (shouldRotate) {
               console.warn(`[Auto-Rotate] API call (${methodName}) failed, attempting to rotate key:`, errorMsg);
-
-              // Mark current key as failed
-              try {
-                apiPool.markKeyAsFailed(getCurrentApiKey());
-              } catch (e) {
-                console.error("[Auto-Rotate] Failed to mark key as failed:", e);
-              }
-
-              // Rotate to the next key
-              rotateApiKey();
+              markFailedKey(usedKey, error);
 
               if (apiPool.hasKeys()) { // Check if a new key is available after rotation
-                // console.log('[Auto-Rotate] Automatically switched to the next API key, retrying request...');
                 // Retry with the new key
                 const newInstance = getAiInstance();
                 const newMethod = (newInstance as any)[methodName]?.bind(newInstance);
@@ -1049,96 +1166,115 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       if ((instance as any).models?.generateContent) {
         const originalModelsGenerateContent = (instance as any).models.generateContent.bind((instance as any).models);
         (instance as any).models.generateContent = async (...args: any[]) => {
+          const model = extractModel(args);
           const maxRetries = apiPool?.getStatus()?.total || 1;
           let lastError: any = null;
 
-          for (let attempt = 0; attempt < maxRetries; attempt++) {
+          // 📊 额度前置检查：当前 key 是否已超额
+          if (isKeyOverQuota(usedKey, model)) {
+            const quota = getQuotaForModel(model);
+            const count = getModelCallCount(usedKey, model);
+            console.warn(`[Quota] Key ${usedKey.substring(0, 10)}... 已达 ${model} 配额 (${count}/${quota ?? 'n/a'})，尝试其他 key...`);
+          } else {
+            // 当前 key 有额度，请求成功后再记账，避免失败请求被误计入额度
             try {
-              // attempt 0: 使用保存的原始方法，避免调用包装后的自身导致无限递归
-              if (attempt === 0) {
-                return await originalModelsGenerateContent(...args);
-              }
-              const newInstance = getAiInstance();
-              return await (newInstance as any).models.generateContent(...args);
+              const result = await originalModelsGenerateContent(...args);
+              recordModelCall(usedKey, model);
+              return result;
             } catch (error: any) {
               lastError = error;
-              const errorMsg = (error?.message || '').toLowerCase();
-              const shouldRotate = errorMsg.includes('quota') ||
-                errorMsg.includes('resource_exhausted') ||
-                errorMsg.includes('429') ||
-                errorMsg.includes('rate limit') ||
-                errorMsg.includes('too many requests') ||
-                errorMsg.includes('exceeded') ||
-                errorMsg.includes('limit');
+              const errorMsg = getErrorMessage(error);
+              const shouldRotate = shouldRotateForError(error);
+              if (!shouldRotate) throw error;
+              console.warn(`[Auto-Rotate] 尝试 1/${maxRetries} 失败:`, errorMsg.substring(0, 100));
+              markFailedKey(usedKey, error);
+            }
+          }
 
-              if (shouldRotate && attempt < maxRetries - 1) {
-                console.warn(`[Auto-Rotate] 尝试 ${attempt + 1}/${maxRetries} 失败:`, errorMsg.substring(0, 100));
-
-                try {
-                  apiPool.markKeyAsFailed(getCurrentApiKey());
-                } catch (e) {
-                  console.error("[Auto-Rotate] Failed to mark key:", e);
-                }
-
-                rotateApiKey();
-                // console.log(`[Auto-Rotate] 切换到下一个 Key，准备第 ${attempt + 2} 次尝试...`);
+          // 尝试其他 key（读 key + 轮换原子操作，防止并行 worker 撞 key）
+          for (let attempt = 1; attempt < maxRetries; attempt++) {
+            const nextKey = getCurrentApiKey();
+            rotateApiKey(); // 立即轮换，在 await 之前完成，其他 worker 不会读到同一个 key
+            if (isKeyOverQuota(nextKey, model)) {
+              continue; // 跳过已超额的 key
+            }
+            try {
+              const cleanKey = nextKey.trim().replace(/[^\x20-\x7E]/g, '');
+              // 内层包 Groq 代理，确保 Groq 模型不会泄漏到 Google
+              const newInstance = wrapWithGroqProxy(new GoogleGenAI({ apiKey: cleanKey }), cleanKey);
+              const result = await (newInstance as any).models.generateContent(...args);
+              recordModelCall(nextKey, model);
+              return result;
+            } catch (error: any) {
+              lastError = error;
+              const shouldRotate = shouldRotateForError(error);
+              if (shouldRotate) {
+                console.warn(`[Auto-Rotate] 尝试 ${attempt + 1}/${maxRetries} 失败:`, getErrorMessage(error).substring(0, 100));
+                markFailedKey(nextKey, error);
                 continue;
               }
-
-              // 不是配额错误或已经试完所有 key
               break;
             }
           }
 
-          throw lastError;
+          if (lastError) throw lastError;
+          throw new Error(`[Quota] 所有 API Key 的 ${model} 今日额度已用完`);
         };
       }
 
-      // Also wrap instance.models.generateContentStream (used by streaming API calls like InstantTranslateTool)
+      // Also wrap instance.models.generateContentStream (used by streaming API calls)
       if ((instance as any).models?.generateContentStream) {
         const originalModelsGenerateContentStream = (instance as any).models.generateContentStream.bind((instance as any).models);
         (instance as any).models.generateContentStream = async (...args: any[]) => {
+          const model = extractModel(args);
           const maxRetries = apiPool?.getStatus()?.total || 1;
           let lastError: any = null;
 
-          for (let attempt = 0; attempt < maxRetries; attempt++) {
+          // 📊 额度前置检查
+          if (isKeyOverQuota(usedKey, model)) {
+            console.warn(`[Quota Stream] Key ${usedKey.substring(0, 10)}... 已达 ${model} 配额，尝试其他 key...`);
+          } else {
             try {
-              // attempt 0: 使用保存的原始方法，避免调用包装后的自身导致无限递归
-              if (attempt === 0) {
-                return await originalModelsGenerateContentStream(...args);
-              }
-              const newInstance = getAiInstance();
-              return await (newInstance as any).models.generateContentStream(...args);
+              const result = await originalModelsGenerateContentStream(...args);
+              recordModelCall(usedKey, model);
+              return result;
             } catch (error: any) {
               lastError = error;
-              const errorMsg = (error?.message || '').toLowerCase();
-              const shouldRotate = errorMsg.includes('quota') ||
-                errorMsg.includes('resource_exhausted') ||
-                errorMsg.includes('429') ||
-                errorMsg.includes('rate limit') ||
-                errorMsg.includes('too many requests') ||
-                errorMsg.includes('exceeded') ||
-                errorMsg.includes('limit');
+              const errorMsg = getErrorMessage(error);
+              const shouldRotate = shouldRotateForError(error);
+              if (!shouldRotate) throw error;
+              console.warn(`[Auto-Rotate Stream] 尝试 1/${maxRetries} 失败:`, errorMsg.substring(0, 100));
+              markFailedKey(usedKey, error);
+            }
+          }
 
-              if (shouldRotate && attempt < maxRetries - 1) {
-                console.warn(`[Auto-Rotate Stream] 尝试 ${attempt + 1}/${maxRetries} 失败:`, errorMsg.substring(0, 100));
-
-                try {
-                  apiPool.markKeyAsFailed(getCurrentApiKey());
-                } catch (e) {
-                  console.error("[Auto-Rotate] Failed to mark key:", e);
-                }
-
-                rotateApiKey();
-                // console.log(`[Auto-Rotate Stream] 切换到下一个 Key，准备第 ${attempt + 2} 次尝试...`);
+          // 读 key + 轮换原子操作，防止并行 worker 撞 key
+          for (let attempt = 1; attempt < maxRetries; attempt++) {
+            const nextKey = getCurrentApiKey();
+            rotateApiKey(); // 立即轮换，在 await 之前完成
+            if (isKeyOverQuota(nextKey, model)) {
+              continue;
+            }
+            try {
+              const cleanKey = nextKey.trim().replace(/[^\x20-\x7E]/g, '');
+              const newInstance = wrapWithGroqProxy(new GoogleGenAI({ apiKey: cleanKey }), cleanKey);
+              const result = await (newInstance as any).models.generateContentStream(...args);
+              recordModelCall(nextKey, model);
+              return result;
+            } catch (error: any) {
+              lastError = error;
+              const shouldRotate = shouldRotateForError(error);
+              if (shouldRotate) {
+                console.warn(`[Auto-Rotate Stream] 尝试 ${attempt + 1}/${maxRetries} 失败:`, getErrorMessage(error).substring(0, 100));
+                markFailedKey(nextKey, error);
                 continue;
               }
-
               break;
             }
           }
 
-          throw lastError;
+          if (lastError) throw lastError;
+          throw new Error(`[Quota] 所有 API Key 的 ${model} 今日额度已用完`);
         };
       }
     }
@@ -1149,6 +1285,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 将带自动轮换的实例暴露给其他模块共用（避免各子模块自己取 key 导致不一致）
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      // Groq 代理已在 getAiInstance() 最内层注入，autoRotate 自动继承
       (window as any).__app_get_ai_instance = getAiInstanceWithAutoRotate;
       // 暴露API池供子模块使用
       (window as any).__apiPool = apiPool;
@@ -1166,22 +1303,34 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, [getAiInstanceWithAutoRotate, apiPool, usePool, rotateApiKey]);
 
   // AI Studio 模式不需要手动设置 key，平台内部处理认证
-  const isKeySet = isRunningInAiStudio() || !!getCurrentApiKey();
+  // Groq 模型 + Groq Key 也算 "有key"
+  const hasGroqKeys = (() => {
+    try {
+      return ['smart_translate_groq_keys', 'groqKeys'].some((storageKey) => {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return false;
+        const keys = JSON.parse(raw);
+        return Array.isArray(keys) && keys.some((k: string) => k && k.trim());
+      });
+    } catch { return false; }
+  })();
+  const globalModelIsGroq = (localStorage.getItem('app_text_model') || '').startsWith('groq:');
+  const isKeySet = isRunningInAiStudio() || !!getCurrentApiKey() || (globalModelIsGroq && hasGroqKeys);
 
-  // 🚫 API 池已全局禁用 —— 以下 useEffect 已停用
-  // useEffect(() => {
-  //   localStorage.setItem('use_api_pool', usePool ? 'true' : 'false');
-  // }, [usePool]);
+  // 恢复 API 池的同步与持久化
+  useEffect(() => {
+    localStorage.setItem('use_api_pool', usePool ? 'true' : 'false');
+  }, [usePool]);
 
-  // useEffect(() => {
-  //   localStorage.setItem('use_shared_api_pool', useSharedPool ? 'true' : 'false');
-  // }, [useSharedPool]);
+  useEffect(() => {
+    localStorage.setItem('use_shared_api_pool', useSharedPool ? 'true' : 'false');
+  }, [useSharedPool]);
 
-  // useEffect(() => {
-  //   if (usePool && !apiPool) {
-  //     refreshApiPool();
-  //   }
-  // }, [usePool]);
+  useEffect(() => {
+    if (usePool && !apiPool) {
+      refreshApiPool();
+    }
+  }, [usePool]);
 
   const apiPoolStatus = apiPool ? apiPool.getStatus() : null;
 
@@ -1189,6 +1338,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     <ApiContext.Provider value={{
       apiKey: getCurrentApiKey(),
       setApiKey: setManualApiKey,
+      // Groq 代理已在 getAiInstance() 内层注入
       getAiInstance: getAiInstanceWithAutoRotate,
       isKeySet,
       usePool,
@@ -1200,6 +1350,7 @@ const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       refreshApiPool,
       rotateApiKey,
       apiPoolStatus,
+      getDetailedPoolStatus,
       poolError
     }}>
       {children}
@@ -1264,27 +1415,8 @@ type Message = {
 type ImageStatus = 'pending' | 'processing' | 'success' | 'error';
 type SessionStatus = 'staging' | 'processing' | 'complete';
 type DescEntryStatus = 'idle' | 'processing' | 'success' | 'error';
-type DescEntry = {
-  id: string;
-  source: string;
-  outputs: string[];
-  status: DescEntryStatus;
-  error?: string | null;
-  originImageId?: string | null;
-};
-type DescState = {
-  entries: DescEntry[];
-  descPrompt: string;
-  count: number;
-  splitChar: string;
-  bulkInput: string;
-  isProcessing: boolean;
-  isPaused: boolean;
-  error: string | null;
-  controlNotice: string | null;
-  pendingAutoGenerate: boolean;
-  shouldPlayCompletionSound: boolean;
-};
+// DescEntry is imported from ImageRecognitionApp
+// DescState is imported from ImageRecognitionApp
 
 type DescControlHandlers = {
   togglePause: () => void;
@@ -1985,24 +2117,7 @@ const downloadDataUrl = (url: string, filename: string, prefix: string = 'proces
 };
 
 const playCompletionTone = () => {
-  if (typeof window === 'undefined') return;
-  const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
-  if (!AudioContextClass) return;
-  try {
-    const context = new AudioContextClass();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 880;
-    gain.gain.value = 0.12;
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.25);
-    oscillator.onended = () => context.close();
-  } catch (error) {
-    console.warn("Completion tone blocked", error);
-  }
+  playCompletionSound();
 };
 
 type PasswordOptions = {
@@ -5847,10 +5962,12 @@ const ImageStudioTool: React.FC<{
 
 const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { t } = useTranslation();
-  const { apiKey, setApiKey, usePool, setUsePool, useSharedPool, setUseSharedPool, poolConfig, setPoolConfig, refreshApiPool, rotateApiKey, apiPoolStatus, poolError } = useApi();
+  const { apiKey, setApiKey, usePool, setUsePool, useSharedPool, setUseSharedPool, poolConfig, setPoolConfig, refreshApiPool, rotateApiKey, apiPoolStatus, getDetailedPoolStatus, poolError } = useApi();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'manual' | 'pool'>(usePool ? 'pool' : 'manual');
+  const [activeTab, setActiveTab] = useState<'manual' | 'pool' | 'groq'>(usePool ? 'pool' : 'manual');
   const [localKey, setLocalKey] = useState(apiKey);
+  const [showUsageStats, setShowUsageStats] = useState(false);
+  const [, setRenderBump] = useState(0);
 
   // 默认使用软件目录的Sheet ID和用户邮箱
   const DEFAULT_SHEET_ID = '1InDrlrypvb_5xwtNCmqYIUuWL5cm7YNbBaCvJuEY9D0';
@@ -5885,6 +6002,52 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());  // 批量删除选中的密钥
   const [batchDeleteMode, setBatchDeleteMode] = useState(false);  // 批量删除模式
   const [sheetSyncStatus, setSheetSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');  // 表格同步状态
+
+  // ─── Groq Key 管理 ───────────────────────────────────────────
+  const GROQ_KEYS_KEY = 'smart_translate_groq_keys';
+  const LEGACY_GROQ_KEYS_KEY = 'groqKeys';
+  const [groqKeysLocal, setGroqKeysLocal] = useState<string[]>(() => {
+    try {
+      const merged = new Set<string>();
+      [GROQ_KEYS_KEY, LEGACY_GROQ_KEYS_KEY].forEach((storageKey) => {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        parsed.forEach((key: string) => {
+          const trimmed = String(key || '').trim();
+          if (trimmed) merged.add(trimmed);
+        });
+      });
+      return Array.from(merged);
+    } catch { return []; }
+  });
+  const [groqNewKeyInput, setGroqNewKeyInput] = useState('');
+
+  const persistGroqKeys = (keys: string[]) => {
+    try {
+      const serialized = JSON.stringify(keys);
+      localStorage.setItem(GROQ_KEYS_KEY, serialized);
+      localStorage.setItem(LEGACY_GROQ_KEYS_KEY, serialized);
+    } catch { /* ignore */ }
+  };
+
+  const addGroqKeyGlobal = (key: string) => {
+    const trimmed = key.trim();
+    if (!trimmed || groqKeysLocal.includes(trimmed)) return;
+    const next = [...groqKeysLocal, trimmed];
+    setGroqKeysLocal(next);
+    persistGroqKeys(next);
+    // 触发事件通知其他组件
+    window.dispatchEvent(new CustomEvent('groqKeysChanged', { detail: next }));
+  };
+
+  const removeGroqKeyGlobal = (key: string) => {
+    const next = groqKeysLocal.filter(k => k !== key);
+    setGroqKeysLocal(next);
+    persistGroqKeys(next);
+    window.dispatchEvent(new CustomEvent('groqKeysChanged', { detail: next }));
+  };
 
 
 
@@ -6100,6 +6263,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         await addApiKey(storedUserEmail, newKeyInput.trim(), newNicknameInput.trim(), 'active');
         await new Promise(resolve => setTimeout(resolve, 500));
         await loadApiKeys();
+        if (usePool) await refreshApiPool();
         setShowAddKeyModal(false);
         setNewKeyInput('');
         setNewNicknameInput('');
@@ -6138,6 +6302,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const { updateApiKey } = await import('./services/apiKeyManagementService');
       await updateApiKey(storedUserEmail, editingKey.apiKey, { nickname: newNicknameInput.trim() });
       await loadApiKeys();
+      if (usePool) await refreshApiPool();
       setShowAddKeyModal(false);
       setEditingKey(null);
       setSaveMessage({ type: 'success', text: '更新成功！' });
@@ -6165,6 +6330,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const { deleteApiKey } = await import('./services/apiKeyManagementService');
       await deleteApiKey(storedUserEmail, confirmDelete.apiKey);
       await loadApiKeys();
+      if (usePool) await refreshApiPool();
       setConfirmDelete(null);
       setSaveMessage({ type: 'success', text: '删除成功！' });
       setTimeout(() => setSaveMessage(null), 3000);
@@ -6209,6 +6375,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       }
 
       await loadApiKeys();
+      if (usePool) await refreshApiPool();
       setSelectedKeys(new Set());
       setBatchDeleteMode(false);
       setSaveMessage({ type: 'success', text: `成功删除 ${deleteCount} 个密钥！` });
@@ -6255,6 +6422,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const { updateApiKey } = await import('./services/apiKeyManagementService');
       await updateApiKey(storedUserEmail, key, { status: newStatus });
       await loadApiKeys();
+      if (usePool) await refreshApiPool();
     } catch (error: any) {
       alert(`❌ 更新状态失败: ${error.message}`);
     } finally {
@@ -6294,17 +6462,25 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             className={activeTab === 'manual' ? 'tab-active' : ''}
             onClick={() => setActiveTab('manual')}
           >
-            <Key size={14} className="inline mr-1" /> 手动输入
+            <Key size={14} className="inline mr-1" /> 独立 Google Key
           </button>
           <button
             className={activeTab === 'pool' ? 'tab-active' : ''}
             onClick={() => setActiveTab('pool')}
           >
-            <RefreshCw size={14} className="inline mr-1" /> API池管理
+            <RefreshCw size={14} className="inline mr-1" /> Google Keys 池
+          </button>
+          <button
+            className={activeTab === 'groq' ? 'tab-active' : ''}
+            onClick={() => setActiveTab('groq')}
+            style={{ color: activeTab === 'groq' ? '#f97316' : undefined }}
+          >
+            🟠 Groq Keys
+            {groqKeysLocal.length > 0 && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>({groqKeysLocal.length})</span>}
           </button>
         </div>
 
-        {/* 手动输入标签页 */}
+        {/* 独立 Google Key 标签页 */}
         {activeTab === 'manual' && (
           <div className="tab-content">
             <p className="modal-description">{t('apiKeyPrompt')}</p>
@@ -6347,6 +6523,27 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 点击跳转到 Google AI Studio，登录后即可一键创建
               </p>
             </div>
+            
+            <div style={{
+              marginTop: '0.5rem',
+              marginBottom: '1rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(52, 168, 83, 0.08)',
+              border: '1px solid rgba(52, 168, 83, 0.25)',
+              borderRadius: '6px',
+              fontSize: '0.8rem',
+              color: 'var(--text-color)',
+              lineHeight: 1.6,
+              textAlign: 'left'
+            }}>
+              💡 <strong>免费通行证使用指南：</strong>
+              <div style={{ marginTop: '0.35rem' }}>
+                • 日常使用免费 API 时，如非必要，可优先选用默认的 <strong>3.1 Lite 模型</strong>（单个 Key 每天约有 500 次使用额度），或者是新增的 <strong>Gemma 4 模型</strong>（每天约有 1500 次请求量）。
+              </div>
+              <div style={{ marginTop: '0.25rem' }}>
+                • 其中，<strong>Gemma 4</strong> 架构的开源模型在极限理解力上与主流 Gemini 系列会有一些差距，但在应对常规任务（例如：AI 语义分类、多语种翻译等）时完全可以满足需求。建议您可以结合自身场景，实测衡量后再决定是否大批量使用，以此最大程度节省主力套餐额度。
+              </div>
+            </div>
             {/* AIza key 实时收费警告 — 仅当输入了 AIza 开头的 key 时显示 */}
             {localKey.trim().startsWith('AIza') && (
               <div style={{
@@ -6364,6 +6561,7 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <span style={{ color: '#4ecdc4' }}>✅ 请确保使用的是从 AI Studio 免费申请的 Key，且未绑定付费 Google Cloud 项目。或使用 Vertex AI 注册的 API Key（AQ 开头）。</span>
               </div>
             )}
+
             <div className="modal-footer">
               <button className="secondary-btn" onClick={onClose}>{t('cancel')}</button>
               <button className="primary" onClick={handleSaveManual}>{t('save')}</button>
@@ -6582,9 +6780,68 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <div style={{ marginTop: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <label style={{ color: 'var(--on-surface-color)', fontWeight: 500, fontSize: '0.95rem' }}>
-                      我的API密钥 {apiKeys.length > 0 && `(${apiKeys.length})`}
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      <label style={{ color: 'var(--on-surface-color)', fontWeight: 500, fontSize: '0.95rem' }}>
+                        我的API密钥 {apiKeys.length > 0 && `(${apiKeys.length})`}
+                      </label>
+                      {apiKeys.length > 0 && (() => {
+                        let totalCallsLocal = 0;
+                        let activeCount = apiKeys.filter(k => k.status === 'active').length;
+                        const detailedStatsLocal = getDetailedPoolStatus() || [];
+                        
+                        if (detailedStatsLocal.length > 0) {
+                            totalCallsLocal = detailedStatsLocal.reduce((sum, s) => sum + s.callCount, 0);
+                            activeCount = detailedStatsLocal.filter(s => !s.isExhausted).length;
+                        } else {
+                            const today = new Date().toISOString().slice(0, 10);
+                            apiKeys.forEach(k => {
+                                const keyPrefix = k.apiKey.substring(0, 12);
+                                const oldTotal = parseInt(localStorage.getItem(`api_call_count_${today}_${keyPrefix}`) || '0', 10);
+                                let computed = 0;
+                                for (let i = 0; i < localStorage.length; i++) {
+                                    const keyName = localStorage.key(i);
+                                    if (keyName && keyName.startsWith(`api_model_count_${today}_${keyPrefix}_`)) {
+                                        computed += parseInt(localStorage.getItem(keyName) || '0', 10);
+                                    }
+                                }
+                                totalCallsLocal += Math.max(oldTotal, computed);
+                            });
+                        }
+
+                        const sessionTotal = sessionStorage.getItem('api_session_call_count') || '0';
+                        return (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', gap: '0.8rem',
+                            fontSize: '0.75rem', color: 'var(--text-muted-color)',
+                            background: 'rgba(0,0,0,0.1)', padding: '0.15rem 0.6rem', borderRadius: '12px'
+                          }}>
+                            <span>今日总计: <strong style={{ color: '#818cf8', fontWeight: 600 }}>{totalCallsLocal}</strong></span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              上次/本次运行: <strong style={{ color: '#c084fc', fontWeight: 600 }}>{sessionTotal}</strong>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  sessionStorage.removeItem('api_session_call_count');
+                                  setRenderBump(n => n + 1);
+                                }}
+                                style={{ 
+                                  cursor: 'pointer', background: 'transparent', border: 'none', 
+                                  color: '#94a3b8', display: 'inline-flex', alignItems: 'center',
+                                  padding: '2px', borderRadius: '4px'
+                                }}
+                                title="重置本次运行计数"
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#f43f5e'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
+                              >
+                                <RotateCcw size={11} strokeWidth={2.5} />
+                              </span>
+                            </span>
+                            <span>活跃: <strong style={{ color: '#22c55e', fontWeight: 600 }}>{activeCount}</strong></span>
+                            <span style={{ fontSize: '0.65rem', opacity: 0.5, marginLeft: '0.25rem' }}>按天重置</span>
+                          </div>
+                        );
+                      })()}
+                    </div>
                     {/* Google Sheets 同步状态指示器 */}
                     {sheetSyncStatus === 'syncing' && (
                       <span style={{ fontSize: '0.75rem', color: '#2196f3', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -6779,6 +7036,20 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                           >
                             {key.status === 'active' ? '✓ 激活' : '✗ 禁用'}
                           </span>
+                          {/* 今日调用次数 */}
+                          {(() => {
+                            const today = new Date().toISOString().slice(0, 10);
+                            const count = parseInt(localStorage.getItem(`api_call_count_${today}_${key.apiKey.substring(0, 12)}`) || '0', 10);
+                            return count > 0 ? (
+                              <span style={{
+                                fontSize: '0.7rem', padding: '0.15rem 0.4rem',
+                                background: '#6366f120', color: '#818cf8',
+                                borderRadius: '4px', fontVariantNumeric: 'tabular-nums',
+                              }}>
+                                📊 {count}次
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                         {key.nickname && (
                           <small style={{ color: 'var(--text-muted-color)', fontSize: '0.8rem' }}>
@@ -6896,6 +7167,194 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </div>
             )}
 
+            {/* 📊 用量统计面板 */}
+            {usePool && apiPoolStatus && apiPoolStatus.total > 0 && (() => {
+              const detailedStats = showUsageStats ? getDetailedPoolStatus() : null;
+              const totalCalls = detailedStats ? detailedStats.reduce((sum, s) => sum + s.callCount, 0) : 0;
+              const maxCalls = detailedStats ? Math.max(...detailedStats.map(s => s.callCount), 1) : 1;
+              return (
+                <div style={{
+                  marginTop: '0.75rem',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  background: 'var(--control-bg-color)',
+                }}>
+                  {/* 标题栏 - 可点击展开 */}
+                  <div
+                    onClick={() => setShowUsageStats(!showUsageStats)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.5rem',
+                      padding: '0.6rem 0.75rem', cursor: 'pointer', userSelect: 'none',
+                      background: showUsageStats ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.85rem' }}>📊</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-color)' }}>
+                      今日用量统计
+                    </span>
+                    {!showUsageStats && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted-color)' }}>
+                        (点击展开)
+                      </span>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    <span style={{
+                      fontSize: '0.75rem', fontWeight: 600,
+                      color: totalCalls > 0 || showUsageStats ? '#818cf8' : 'var(--text-muted-color)',
+                    }}>
+                      {showUsageStats ? `共 ${totalCalls} 次` : '▸'}
+                    </span>
+                  </div>
+
+                  {/* 展开的详情 */}
+                  {showUsageStats && detailedStats && (
+                    <div style={{ borderTop: '1px solid var(--border-color)' }}>
+                      {detailedStats.length === 0 ? (
+                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted-color)', fontSize: '0.85rem' }}>
+                          暂无密钥数据
+                        </div>
+                      ) : (
+                        <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                          {detailedStats.map((stat, idx) => (
+                              <div
+                                key={stat.index}
+                                style={{
+                                  display: 'flex', flexDirection: 'column', gap: '0.4rem',
+                                  padding: '0.5rem 0.75rem',
+                                  borderBottom: idx < detailedStats.length - 1 ? '1px solid var(--border-color)' : 'none',
+                                  background: stat.isExhausted ? 'rgba(239, 68, 68, 0.06)' : 'transparent',
+                                  opacity: stat.isExhausted ? 0.7 : 1,
+                                  transition: 'background 0.15s',
+                                }}
+                              >
+                                <div style={{
+                                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                }}>
+                                  {/* 序号 + 状态指示 */}
+                                  <span style={{
+                                    width: '18px', height: '18px', borderRadius: '50%',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '0.7rem', fontWeight: 700, flexShrink: 0,
+                                    background: stat.isExhausted
+                                      ? 'rgba(239, 68, 68, 0.2)' 
+                                      : apiPoolStatus.current === stat.index
+                                        ? 'rgba(34, 197, 94, 0.2)'
+                                        : 'rgba(148, 163, 184, 0.15)',
+                                    color: stat.isExhausted
+                                      ? '#ef4444'
+                                      : apiPoolStatus.current === stat.index
+                                        ? '#22c55e'
+                                        : 'var(--text-muted-color)',
+                                  }}>
+                                    {stat.index}
+                                  </span>
+
+                                  {/* 昵称 + Key 前缀 */}
+                                  <div style={{ flex: '0 0 90px', minWidth: 0 }}>
+                                    <div style={{
+                                      fontSize: '0.8rem', fontWeight: 500,
+                                      color: 'var(--text-color)',
+                                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    }}>
+                                      {stat.nickname}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted-color)', fontFamily: 'monospace' }}>
+                                      {stat.keyPrefix}
+                                    </div>
+                                  </div>
+
+                                  {/* 调用次数条形图 */}
+                                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <div style={{
+                                      flex: 1, height: '6px', borderRadius: '3px',
+                                      background: 'rgba(148, 163, 184, 0.12)',
+                                      overflow: 'hidden',
+                                    }}>
+                                      <div style={{
+                                        height: '100%', borderRadius: '3px',
+                                        width: `${Math.max((stat.callCount / maxCalls) * 100, stat.callCount > 0 ? 4 : 0)}%`,
+                                        background: stat.isExhausted
+                                          ? 'linear-gradient(90deg, #ef4444, #f87171)'
+                                          : apiPoolStatus.current === stat.index
+                                            ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+                                            : 'linear-gradient(90deg, #6366f1, #818cf8)',
+                                        transition: 'width 0.3s ease',
+                                      }} />
+                                    </div>
+                                    <span style={{
+                                      fontSize: '0.75rem', fontWeight: 600, minWidth: '32px',
+                                      textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                                      color: stat.callCount > 0 ? '#818cf8' : 'var(--text-muted-color)',
+                                    }}>
+                                      {stat.callCount}
+                                    </span>
+                                  </div>
+
+                                  {/* 状态标签 */}
+                                  <div style={{ flexShrink: 0 }}>
+                                    {stat.isExhausted ? (
+                                      <span style={{
+                                        fontSize: '0.7rem', padding: '1px 6px', borderRadius: '4px',
+                                        background: 'rgba(239, 68, 68, 0.15)', color: '#f87171',
+                                        whiteSpace: 'nowrap',
+                                      }}>
+                                        ⏳ {stat.cooldownRemaining}s
+                                      </span>
+                                    ) : apiPoolStatus.current === stat.index ? (
+                                      <span style={{
+                                        fontSize: '0.7rem', padding: '1px 6px', borderRadius: '4px',
+                                        background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80',
+                                      }}>
+                                        ✓ 当前
+                                      </span>
+                                    ) : (
+                                      <span style={{
+                                        fontSize: '0.7rem', padding: '1px 6px', borderRadius: '4px',
+                                        background: 'rgba(148, 163, 184, 0.1)', color: 'var(--text-muted-color)',
+                                      }}>
+                                        待命
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                
+                                {/* 模型分布展示 */}
+                                {stat.modelUsage && Object.keys(stat.modelUsage).length > 0 && (
+                                  <div style={{ 
+                                    display: 'flex', flexWrap: 'wrap', gap: '0.3rem', 
+                                    paddingLeft: '118px', // 对齐到条形图下方
+                                  }}>
+                                    {Object.entries(stat.modelUsage).map(([model, count]) => (
+                                      <span key={model} style={{
+                                        fontSize: '0.65rem',
+                                        padding: '1px 5px',
+                                        borderRadius: '3px',
+                                        background: 'rgba(129, 140, 248, 0.1)',
+                                        color: '#818cf8',
+                                        border: '1px solid rgba(129, 140, 248, 0.2)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.2rem'
+                                      }}>
+                                        {model.replace('gemini-', '')}: <strong>{count as React.ReactNode}</strong>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+
+                      {/* 底部汇总已移至上方 */}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {poolError && (
               <div className="error-message" style={{ marginTop: '10px', padding: '10px', background: '#ff000020', borderRadius: '4px', color: '#ff6b6b' }}>
                 <AlertTriangle size={14} className="inline mr-1" /> {poolError}
@@ -6919,6 +7378,175 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               >
                 {isRefreshing ? '启用中...' : '✓ 启用自动轮换'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Groq Keys 标签页 */}
+        {activeTab === 'groq' && (
+          <div className="tab-content" style={{ minHeight: 200 }}>
+            <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-color)', lineHeight: 1.6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '1.2rem' }}>⚡</span>
+                <strong style={{ fontSize: '0.95rem' }}>Groq：极速开源模型计算引擎</strong>
+              </div>
+              <p style={{ margin: '0 0 0.5rem 0', color: 'var(--text-muted-color)' }}>
+                Groq 是一家专攻超高速推理的 AI 平台，提供完全独立于 Google 的 API 服务。当您配置并选中 Groq 模型时，系统将直接向 Groq 发起请求，且不会消耗您的 Google Gemini 额度。
+              </p>
+              <div style={{ 
+                padding: '0.5rem 0.75rem', 
+                background: 'rgba(249, 115, 22, 0.08)', 
+                border: '1px solid rgba(249, 115, 22, 0.2)', 
+                borderRadius: '6px', 
+                color: 'var(--text-muted-color)' 
+              }}>
+                <strong>使用建议：</strong>虽然 Llama / Gemma 等开源模型在常识分类和基础翻译上表现优秀，但在复杂理解和高质量要求下仍可能与主流 Gemini 系列产生差异。建议您先进行小规模实测验证效果，确认满足要求后再将其用于大批量生产任务。
+              </div>
+            </div>
+
+            {/* Groq Key 列表 */}
+            {groqKeysLocal.length > 0 ? (
+              <div style={{ marginBottom: '1rem' }}>
+                <div className="api-pool-status" style={{ marginBottom: '1rem', border: '1px solid rgba(249, 115, 22, 0.2)', backgroundColor: 'transparent' }}>
+                  <div className="status-item">
+                    <span className="status-label">可用池:</span>
+                    <span className="status-value">{groqKeysLocal.length}把</span>
+                  </div>
+                  <div className="status-item">
+                    <span className="status-label">轮换策略:</span>
+                    <span className="status-value" style={{ color: '#f97316' }}>与 Google 一致的自动轮换与剔除</span>
+                  </div>
+                </div>
+                {groqKeysLocal.map((key, idx) => (
+                  <div key={idx} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 12px',
+                    marginBottom: 4,
+                    borderRadius: 8,
+                    background: 'var(--control-bg-color, #1a1a2e)',
+                    border: '1px solid var(--border-color, #333)',
+                  }}>
+                    <span style={{ color: '#f97316', fontSize: 14 }}>🔑</span>
+                    <code style={{ fontSize: 12, opacity: 0.8, flex: 1, fontFamily: 'monospace' }}>
+                      {key.substring(0, 12)}...{key.substring(key.length - 6)}
+                    </code>
+                    <span style={{ fontSize: 10, color: '#10b981', opacity: 0.8 }}>✅ 就绪</span>
+                    <button
+                      onClick={() => removeGroqKeyGlobal(key)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ef4444',
+                        cursor: 'pointer',
+                        fontSize: 16,
+                        padding: '0 4px',
+                        lineHeight: 1,
+                      }}
+                      title="删除此 Key"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{
+                padding: '2rem',
+                textAlign: 'center',
+                color: 'var(--text-muted-color, #666)',
+                borderRadius: 8,
+                border: '1px dashed var(--border-color, #444)',
+                marginBottom: '1rem',
+              }}>
+                暂无 Groq Key，添加后可叠加 Google 额度使用
+              </div>
+            )}
+
+            {/* 批量添加新 Key */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', alignItems: 'flex-start' }}>
+              <textarea
+                placeholder="支持批量粘贴多个 Groq API Key（以换行或逗号分隔，gsk_...）"
+                value={groqNewKeyInput}
+                onChange={e => setGroqNewKeyInput(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '0.6rem 0.75rem',
+                  borderRadius: 8,
+                  border: '1px solid var(--border-color, #444)',
+                  background: 'var(--control-bg-color, #0d1117)',
+                  color: 'var(--text-color, #e6e6e6)',
+                  fontSize: 13,
+                  minHeight: '80px',
+                  resize: 'vertical'
+                }}
+              />
+              <button
+                className="primary"
+                onClick={() => {
+                  if (groqNewKeyInput.trim()) {
+                    // 支持以任何空格、换行、制表符、逗号、分号分隔
+                    const keys = groqNewKeyInput.split(/[\s,;]+/).map(k => k.trim()).filter(Boolean);
+                    
+                    // 为了避免 React 状态闭包引起的多次覆盖只保留最后一个的问题，
+                    // 这里我们计算出一个整体的新数组，一次性更新进去！
+                    const newKeys = [...groqKeysLocal];
+                    let addedCount = 0;
+                    
+                    for (const k of keys) {
+                      if (!newKeys.includes(k)) {
+                        newKeys.push(k);
+                        addedCount++;
+                      }
+                    }
+                    
+                    if (addedCount > 0) {
+                      setGroqKeysLocal(newKeys);
+                      // 这里得手动调用旧有逻辑的保存持久化和事件派发
+                      try {
+                        const serialized = JSON.stringify(newKeys);
+                        localStorage.setItem('smart_translate_groq_keys', serialized);
+                        localStorage.setItem('groqKeys', serialized);
+                      } catch { /* ignore */ }
+                      window.dispatchEvent(new CustomEvent('groqKeysChanged', { detail: newKeys }));
+                      
+                      setGroqNewKeyInput('');
+                    } else {
+                       alert('导入的 Key 全部是重复或者格式无效的。');
+                       setGroqNewKeyInput('');
+                    }
+                  }
+                }}
+                style={{
+                  background: '#f97316',
+                  borderColor: '#f97316',
+                  padding: '0.6rem 1.2rem',
+                  height: '40px',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                + 批量导入
+              </button>
+            </div>
+
+            {/* 说明 */}
+            <div style={{
+              padding: '0.75rem 1rem',
+              borderRadius: 8,
+              background: 'rgba(249, 115, 22, 0.08)',
+              border: '1px solid rgba(249, 115, 22, 0.2)',
+              fontSize: 12,
+              lineHeight: 1.6,
+              color: 'var(--text-muted-color, #aaa)',
+            }}>
+              <div style={{ fontWeight: 600, color: '#f97316', marginBottom: 4 }}>💡 如何获取免费 Groq Key</div>
+              <div>1. 访问 <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>console.groq.com</a> 注册账号</div>
+              <div>2. 进入 API Keys 页面，创建新 Key</div>
+              <div>3. 复制以 <code style={{ color: '#f97316' }}>gsk_</code> 开头的密钥粘贴到上方</div>
+              <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: 6, color: '#10b981' }}>
+                ⚡ Groq 额度完全独立于 Google，加入后翻译吞吐量可翻倍
+              </div>
             </div>
           </div>
         )}
@@ -7218,9 +7846,14 @@ const TEXT_MODEL_OPTIONS = [
   { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
   { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
   // === Preview 预览版（配额较低） ===
-  { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview·默认)' },
+  { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview)' },
   { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Preview·Lite⚡)' },
+  { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Preview·Lite⚡·默认)' },
+  // === Gemma 4 开源模型（独立配额 30RPM） ===
+  { value: 'gemma-4-31b-it', label: '🔷 Gemma 4 31B (Dense·256K·30RPM)' },
+  { value: 'gemma-4-26b-a4b-it', label: '🔷 Gemma 4 26B MoE (256K·30RPM)' },
+  // === Groq 高速引擎（独立 gsk_ Key·不支持图片） ===
+  ...GROQ_GLOBAL_MODELS,
 ];
 
 const IMAGE_MODEL_OPTIONS = [
@@ -7269,7 +7902,9 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '3.8.3', date: '2026-04-01', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.5', date: '2026-04-06', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '3.8.4', date: '2026-04-03', url: 'https://ai-toolkit-b2b78--v3-8-4.web.app', isCurrent: false },
+  { version: '3.8.3', date: '2026-04-02', url: 'https://ai-toolkit-b2b78--v3-8-3-myedt8f0.web.app', isCurrent: false },
   { version: '3.8.2', date: '2026-03-31', url: 'https://ai-toolkit-b2b78--v3-8-2.web.app', isCurrent: false },
   { version: '3.8.1', date: '2026-03-28', url: 'https://ai-toolkit-b2b78--v3-8-1.web.app', isCurrent: false },
   { version: '3.8.0', date: '2026-03-27', url: 'https://ai-toolkit-b2b78--v3-8-0-zrdvh6h4.web.app', isCurrent: false },
@@ -7415,7 +8050,13 @@ const App = () => {
   const [isTutorialSurveyDone, setIsTutorialSurveyDone] = useState(() => isTutorialSurveyCompleted(TUTORIAL_SURVEY_KEY));
   const [showUpdateNotice, setShowUpdateNotice] = useState(false);
   const [showHelpCenter, setShowHelpCenter] = useState(false);
-  const [showApiKeyBillingWarning, setShowApiKeyBillingWarning] = useState(false);
+  const [showApiKeyBillingWarning, setShowApiKeyBillingWarning] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const lastDismissed = localStorage.getItem('api_billing_warning_last_date');
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return lastDismissed !== today; // 每天显示一次
+  });
+  const [apiBillingWarningStep, setApiBillingWarningStep] = useState(1);
   const [proDedupSubTab, setProDedupSubTab] = useState<'dedup' | 'copySearch'>('dedup');
   const [hideToolbar, setHideToolbar] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -7576,23 +8217,8 @@ const App = () => {
     return migration[model] || model;
   };
 
-  const [textModel, setTextModel] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'gemini-3-flash-preview';
-    try {
-      const saved = localStorage.getItem('app_text_model');
-      if (!saved) return 'gemini-3-flash-preview';
-      // 检查是否在可选列表中
-      const validModels = TEXT_MODEL_OPTIONS.map(o => o.value);
-      const migrated = migrateModel(saved, false);
-      if (validModels.includes(migrated)) {
-        if (migrated !== saved) localStorage.setItem('app_text_model', migrated);
-        return migrated;
-      }
-      return 'gemini-3-flash-preview';
-    } catch {
-      return 'gemini-3-flash-preview';
-    }
-  });
+  // 每次打开强制使用默认模型（3.1 Lite），用户可在会话中手动切换
+  const [textModel, setTextModel] = useState<string>('gemini-3.1-flash-lite-preview');
 
   const [imageModel, setImageModel] = useState<string>(() => {
     if (typeof window === 'undefined') return 'gemini-2.5-flash-image';
@@ -8533,6 +9159,7 @@ const App = () => {
               }}
               templateState={templateBuilderState}
               unifiedPresets={DEFAULT_RECOGNITION_PRESETS}
+              textModel={textModel}
             />
           </div>
         );
@@ -8788,96 +9415,174 @@ const App = () => {
         />
       )}
 
-      {/* API Key 计费警告 */}
+      {/* API Key 计费警告 — 每次会话首次打开自动弹出 */}
       {showApiKeyBillingWarning && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 99999,
           display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
           overflowY: 'auto', padding: '24px 0',
         }}>
           <div style={{
-            width: '520px', maxWidth: '92vw',
+            width: '560px', maxWidth: '92vw',
             maxHeight: 'calc(100vh - 48px)',
             overflowY: 'auto',
-            background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-            border: '1px solid rgba(255,180,0,0.4)',
+            background: 'linear-gradient(135deg, #2a0a0a 0%, #1a0505 100%)',
+            border: '2px solid rgba(255,60,60,0.6)',
             borderRadius: '16px',
             padding: '32px',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(255,180,0,0.1)',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 0 60px rgba(255,60,60,0.15)',
             color: '#fff',
             margin: 'auto 0',
           }}>
             {/* 警告图标 */}
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-              <span style={{ fontSize: '48px' }}>⚠️</span>
+              <span style={{ fontSize: '52px' }}>🚨</span>
             </div>
             {/* 标题 */}
             <h2 style={{
               textAlign: 'center', margin: '0 0 20px 0',
-              fontSize: '20px', fontWeight: 700,
-              color: '#ffb400',
+              fontSize: '21px', fontWeight: 700,
+              color: '#ff4444',
               letterSpacing: '0.5px',
             }}>
-              重要提醒：API Key 使用须知
+              ⚠️ 付费 API Key 用量警告
             </h2>
             {/* 正文 */}
             <div style={{
-              background: 'rgba(255,180,0,0.08)',
-              border: '1px solid rgba(255,180,0,0.2)',
+              background: 'rgba(255,60,60,0.06)',
+              border: '1px solid rgba(255,60,60,0.25)',
               borderRadius: '10px',
-              padding: '18px',
-              lineHeight: 1.8,
+              padding: '20px',
+              lineHeight: 1.9,
               fontSize: '14px',
               color: '#e0e0e0',
             }}>
-              <p style={{ margin: '0 0 12px 0' }}>
-                本工具支持 <strong style={{ color: '#4ecdc4' }}>AI Studio 免费 API Key</strong> 和 <strong style={{ color: '#4ecdc4' }}>Vertex AI Key</strong> 两种类型。
-              </p>
-              <p style={{ margin: '0 0 14px 0', padding: '10px 14px', background: 'rgba(255,80,80,0.12)', border: '1px solid rgba(255,80,80,0.3)', borderRadius: '8px', color: '#ff8a8a', fontWeight: 600 }}>
-                🚨 请务必使用<strong>免费申请</strong>的 API Key！如果您的 Key 关联了付费账号（如 Google Cloud 付费项目或 $300 试用额度账号），通过本工具调用 API <strong style={{ color: '#ff6b6b' }}>会产生真实扣费</strong>，费用直接从您的银行卡中扣除！
-              </p>
-              <p style={{ margin: '0 0 12px 0' }}>
-                ✅ <strong style={{ color: '#4ecdc4' }}>推荐方式：</strong>前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#4ecdc4', textDecoration: 'underline' }}>AI Studio</a> 免费创建 Key，确保不绑定付费 Google Cloud 项目。
-              </p>
-              <p style={{ margin: '0 0 12px 0' }}>
-                ✅ <strong style={{ color: '#4ecdc4' }}>API 轮换：</strong>支持添加多个免费 Key 进行自动轮换，避免单个 Key 配额用尽。建议添加 5 个以上。
-              </p>
-              <p style={{ margin: '0 0 12px 0', color: '#aaa' }}>
-                📞 如需协助，请联系<strong style={{ color: '#fff' }}>本国技术员</strong>进行注册或修改。
-              </p>
-              <div style={{ margin: '0', color: '#888', fontSize: '13px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '10px', lineHeight: 1.7 }}>
-                <p style={{ margin: '0 0 6px 0' }}>
-                  💡 备注：如果您使用的是 <strong style={{ color: '#aaa' }}>AI Studio 版本</strong>（非网站和软件版本），则无需提供 Key，可正常使用。每天有免费限额，限额用完后更换邮箱打开即可继续使用。
+              {/* 核心警告 */}
+              <div style={{ padding: '14px 16px', background: 'rgba(255,50,50,0.12)', border: '1px solid rgba(255,60,60,0.35)', borderRadius: '8px', marginBottom: '16px' }}>
+                <p style={{ margin: '0 0 8px 0', color: '#ff6b6b', fontWeight: 700, fontSize: '15px' }}>
+                  🔴 使用付费 API Key 的团队请注意！
                 </p>
-                <p style={{ margin: '0' }}>
-                  🔗 AI Studio 版本地址：<a href="https://aistudio.google.com/apps/drive/1-sEKjY-VGi-kyKe_UXbUXEhbNRknxRBf?fullscreenApplet=true&showPreview=true&showAssistant=true" target="_blank" rel="noopener noreferrer" style={{ color: '#4ecdc4', textDecoration: 'underline' }}>点击打开 AI Studio 版本</a>
+                <p style={{ margin: 0, color: '#ffaaaa', lineHeight: 1.8 }}>
+                  本工具主要是批量处理各种需求，最近又升级允许更大批量快速处理和自动化工作流等功能，数据处理更多更快更方便了，但 API 消耗也随之<strong style={{ color: '#ff6b6b' }}>成倍甚至十几倍增长</strong>。<br/><br/>
+                  不同于早期用量少、几个月都用不完的情况，现在使用人数多、批量需求大，<strong style={{ color: '#ff6b6b' }}>额度消耗速度远超预期</strong>。<br/><br/>
+                  <strong style={{ color: '#fff' }}>请务必提醒管理 API Key 的人员每天检查账单，避免超额扣费！</strong><br/>
+                  <span style={{ color: '#ffcc00', fontWeight: 600 }}>⚠️ 当账户剩余额度低于 $50 时，建议提前停用付费 Key，避免超额。</span><br/>
+                  <span style={{ color: '#4ecdc4' }}>💡 大批量处理时，建议使用 AI Studio 版本或免费 API Key 轮换进行处理。</span>
+                </p>
+              </div>
+
+              {/* 功能限制 */}
+              <div style={{ padding: '14px 16px', background: 'rgba(255,180,0,0.08)', border: '1px solid rgba(255,180,0,0.3)', borderRadius: '8px', marginBottom: '16px' }}>
+                <p style={{ margin: '0 0 8px 0', color: '#ffb400', fontWeight: 700, fontSize: '15px' }}>
+                  🚫 付费 Key 功能限制
+                </p>
+                <p style={{ margin: '0 0 6px 0', color: '#e0d0a0', lineHeight: 1.8 }}>
+                  为控制成本，使用付费 API Key 时：
+                </p>
+                <ul style={{ margin: '0', paddingLeft: '20px', lineHeight: 2.1 }}>
+                  <li style={{ color: '#ff8a8a' }}>❌ <strong>禁止使用 AI 生图</strong>（API 图片生成）</li>
+                  <li style={{ color: '#ff8a8a' }}>❌ <strong>禁止使用 AI 修图</strong>（人像 P 图 / 换装 / 换背景等图片输出功能）</li>
+                  <li style={{ color: '#88ddaa' }}>✅ <strong>允许图片识别</strong>（OCR、图片分析等图片输入功能）</li>
+                  <li style={{ color: '#88ddaa' }}>✅ <strong>允许所有纯文字功能</strong>（翻译、文案改写、分类、数据分析等）</li>
+                </ul>
+                <p style={{ margin: '8px 0 0 0', color: '#aaa', fontSize: '13px' }}>
+                  生图 / 修图需求请使用免费 Key 或 AI Studio 版本。
+                </p>
+              </div>
+
+              {/* 人员管理 */}
+              <div style={{ padding: '14px 16px', background: 'rgba(100,150,255,0.06)', border: '1px solid rgba(100,150,255,0.2)', borderRadius: '8px', marginBottom: '16px' }}>
+                <p style={{ margin: '0 0 8px 0', color: '#7eb8ff', fontWeight: 700, fontSize: '15px' }}>
+                  👥 使用人员管理
+                </p>
+                <ul style={{ margin: '0', paddingLeft: '20px', color: '#c0d0e0', lineHeight: 2 }}>
+                  <li>严格控制付费 Key 的使用人员范围，<strong style={{ color: '#ff8a8a' }}>不得随意分享</strong></li>
+                  <li>每位使用者必须登记在册，明确责任人</li>
+                  <li>如发现未授权使用或异常高消耗，将<strong style={{ color: '#ff8a8a' }}>立即停用</strong>对应 Key</li>
+                </ul>
+              </div>
+
+              {/* 省钱建议 */}
+              <p style={{ margin: '0 0 10px 0', color: '#4ecdc4', fontWeight: 600, fontSize: '15px' }}>
+                💡 省钱建议
+              </p>
+              <ul style={{ margin: '0 0 14px 0', paddingLeft: '20px', color: '#d0d0d0', lineHeight: 2 }}>
+                <li>每人自行申请免费的 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#4ecdc4', textDecoration: 'underline' }}>AI Studio API Key</a>，填入软件中使用<strong style={{ color: '#4ecdc4' }}>「轮换模式」</strong></li>
+                <li>推荐使用 <strong style={{ color: '#4ecdc4' }}>Gemini 3.1 Flash Lite</strong> 模型 —— 每个 Key 每天有 <strong style={{ color: '#fff' }}>500 次免费额度</strong></li>
+                <li>或直接使用 <strong style={{ color: '#4ecdc4' }}>AI Studio 版本</strong>，免费额度用完后换个邮箱即可继续使用，第二天额度自动恢复</li>
+                <li>多申请几个 Key（建议 <strong style={{ color: '#fff' }}>20 个以上</strong>），轮换使用，日常完全够用</li>
+              </ul>
+
+              {/* 补充说明 */}
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '12px', color: '#888', fontSize: '13px', lineHeight: 1.7 }}>
+                <p style={{ margin: '0 0 6px 0' }}>
+                  📌 AI Studio 版本（无需 Key）：<a href="https://aistudio.google.com/apps/drive/1-sEKjY-VGi-kyKe_UXbUXEhbNRknxRBf?fullscreenApplet=true&showPreview=true&showAssistant=true" target="_blank" rel="noopener noreferrer" style={{ color: '#4ecdc4', textDecoration: 'underline' }}>点击打开</a>
+                </p>
+                <p style={{ margin: 0 }}>
+                  📞 如需协助注册免费 Key，请联系本国技术员。
                 </p>
               </div>
             </div>
             {/* 按钮 */}
-            <div style={{ textAlign: 'center', marginTop: '24px' }}>
+            <div style={{ textAlign: 'center', marginTop: '16px' }}>
+              <div style={{ height: '26px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <p style={{
+                  color: '#ff4444',
+                  fontWeight: 600,
+                  fontSize: '15px',
+                  margin: 0,
+                  opacity: apiBillingWarningStep >= 2 ? 1 : 0,
+                  transform: apiBillingWarningStep >= 2 ? 'translateY(0)' : 'translateY(10px)',
+                  transition: 'all 0.3s ease'
+                }}>
+                  {apiBillingWarningStep < 3 ? '这个事情真的很重要，你确定你认真看了吗？' : '请做最后的确认，一旦超额扣费你需要自行承担后果！'}
+                </p>
+              </div>
               <button
                 onClick={() => {
-                  setShowApiKeyBillingWarning(false);
-                  localStorage.setItem('api_key_billing_warning_dismissed_v2', 'true');
+                  if (apiBillingWarningStep === 1) {
+                    setApiBillingWarningStep(2);
+                  } else if (apiBillingWarningStep === 2) {
+                    setApiBillingWarningStep(3);
+                  } else {
+                    setShowApiKeyBillingWarning(false);
+                    localStorage.setItem('api_billing_warning_last_date', new Date().toISOString().slice(0, 10));
+                  }
                 }}
                 style={{
-                  padding: '10px 40px',
+                  padding: '12px 24px',
+                  minWidth: '280px',
                   fontSize: '15px',
                   fontWeight: 600,
-                  color: '#1a1a2e',
-                  background: 'linear-gradient(135deg, #ffb400, #ff8c00)',
-                  border: 'none',
-                  borderRadius: '8px',
+                  background: apiBillingWarningStep === 1 ? 'rgba(255,60,60,0.1)' : (apiBillingWarningStep === 2 ? 'rgba(255,60,60,0.15)' : '#ff4444'),
+                  border: apiBillingWarningStep < 3 ? '1px solid rgba(255,60,60,0.5)' : 'none',
+                  color: apiBillingWarningStep < 3 ? '#ff6b6b' : '#fff',
                   cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 4px 15px rgba(255,180,0,0.3)',
+                  borderRadius: '30px',
+                  transition: 'all 0.2s ease',
+                  boxShadow: apiBillingWarningStep === 3 ? '0 4px 12px rgba(255,60,60,0.4)' : 'none'
                 }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(255,180,0,0.5)'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(255,180,0,0.3)'; }}
+                onMouseOver={(e) => {
+                  if (apiBillingWarningStep < 3) {
+                    e.currentTarget.style.background = 'rgba(255,60,60,0.25)';
+                  } else {
+                    e.currentTarget.style.background = '#ff5555';
+                    e.currentTarget.style.transform = 'scale(1.02)';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (apiBillingWarningStep === 1) {
+                    e.currentTarget.style.background = 'rgba(255,60,60,0.1)';
+                  } else if (apiBillingWarningStep === 2) {
+                    e.currentTarget.style.background = 'rgba(255,60,60,0.15)';
+                  } else {
+                    e.currentTarget.style.background = '#ff4444';
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }
+                }}
               >
-                我已知晓，使用的是免费 Key
+                {apiBillingWarningStep === 1 ? '我已知晓' : (apiBillingWarningStep === 2 ? '我确定认真看了，并且知晓' : '确认')}
               </button>
             </div>
           </div>
@@ -8969,9 +9674,16 @@ const App = () => {
                   onClick={() => {
                     if (!showSettingsPanel && settingsBtnRef.current) {
                       const rect = settingsBtnRef.current.getBoundingClientRect();
+                      let calcLeft = rect.left + rect.width / 2;
+                      if (typeof window !== 'undefined') {
+                        const panelWidth = 280; // Match minWidth
+                        if (calcLeft + panelWidth / 2 > window.innerWidth - 10) {
+                          calcLeft = window.innerWidth - panelWidth / 2 - 10;
+                        }
+                      }
                       setSettingsPanelPos({
                         top: rect.bottom + 8,
-                        left: rect.left + rect.width / 2
+                        left: calcLeft
                       });
                     }
                     setShowSettingsPanel(!showSettingsPanel);
@@ -9001,7 +9713,9 @@ const App = () => {
                       padding: '1rem',
                       boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
                       zIndex: 1000,
-                      minWidth: '280px'
+                      minWidth: '280px',
+                      maxHeight: `calc(100vh - ${settingsPanelPos.top + 20}px)`,
+                      overflowY: 'auto'
                     }}>
                       <div style={{ marginBottom: '0.75rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-muted-color)' }}>
@@ -9101,6 +9815,67 @@ const App = () => {
                         </div>
                       </div>
 
+                      {/* 提示音开关 */}
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'var(--text-muted-color)', cursor: 'pointer' }}>
+                            {isSoundEnabled() ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                            {language === 'zh' ? '任务完成提示音' : 'Task Completion Sound'}
+                          </label>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <button
+                              onClick={() => playCompletionSound()}
+                              style={{
+                                padding: '2px 8px',
+                                fontSize: '0.7rem',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border-color)',
+                                backgroundColor: 'transparent',
+                                color: 'var(--text-muted-color)',
+                                cursor: 'pointer'
+                              }}
+                              title={language === 'zh' ? '试听' : 'Preview'}
+                            >
+                              {language === 'zh' ? '试听' : '▶'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                const next = !isSoundEnabled();
+                                setSoundEnabled(next);
+                                // Force re-render by triggering state update
+                                setShowSettingsPanel(prev => { setTimeout(() => setShowSettingsPanel(true), 0); return false; });
+                              }}
+                              style={{
+                                position: 'relative',
+                                width: '36px',
+                                height: '20px',
+                                borderRadius: '10px',
+                                border: 'none',
+                                backgroundColor: isSoundEnabled() ? '#22c55e' : '#64748b',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s',
+                                padding: 0
+                              }}
+                            >
+                              <span style={{
+                                position: 'absolute',
+                                top: '2px',
+                                left: isSoundEnabled() ? '18px' : '2px',
+                                width: '16px',
+                                height: '16px',
+                                borderRadius: '50%',
+                                backgroundColor: '#fff',
+                                transition: 'left 0.2s',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                              }} />
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted-color)', marginTop: '0.25rem', opacity: 0.7 }}>
+                          {language === 'zh' ? 'AI 批量处理等任务完成后播放提示音' : 'Play a chime when AI batch tasks complete'}
+                        </div>
+                      </div>
+
                       {/* 版本切换区域 */}
                       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', marginTop: '0.75rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted-color)' }}>
@@ -9113,7 +9888,7 @@ const App = () => {
                           fontSize: '0.8rem'
                         }}>
                           <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500 }}>
-                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v3.8.3
+                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v4.0.0
                           </div>
                           <div style={{ color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                             <div style={{ marginBottom: '0.25rem' }}>
@@ -9804,6 +10579,7 @@ const App = () => {
             <DataPipelinePanel
               getAiInstance={getAiInstance}
               modelId={textModel}
+              isActive={activeTool === 'dataPipeline'}
             />
           </div>
           {/* Copy Dedup stays mounted to preserve library state */}
@@ -9871,7 +10647,7 @@ const App = () => {
           </div>
           {/* 图片前景文字提取器 */}
           <div className={`ite-page-wrapper ${activeTool === 'imageTextExtractor' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'imageTextExtractor' ? '100%' : '0' }}>
-            <ImageTextExtractorApp getAiInstance={getAiInstance} />
+            <ImageTextExtractorApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
           {/* 教程检索台 */}
           <div className={`tutorial-hub-wrapper ${activeTool === 'tutorialHub' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'tutorialHub' ? '100%' : '0', display: activeTool === 'tutorialHub' ? 'flex' : 'none' }}>
@@ -9886,11 +10662,11 @@ const App = () => {
             <RegionClassifierApp getAiInstance={getAiInstance} />
           </div>
           {/* Gemini Chat - 完整多轮对话 */}
-          <div className={`gemini-chat-wrapper ${activeTool === 'geminiChat' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'geminiChat' ? '100%' : '0', display: activeTool === 'geminiChat' ? 'flex' : 'none' }}>
+          <div className={`gemini-chat-wrapper ${activeTool === 'geminiChat' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'geminiChat' ? '100%' : '0', display: activeTool === 'geminiChat' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
             <GeminiChatApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
           {/* AI 画面思路扩展器 */}
-          <div className={`scene-brainstorm-wrapper ${activeTool === 'sceneBrainstorm' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'sceneBrainstorm' ? '100%' : '0', display: activeTool === 'sceneBrainstorm' ? 'flex' : 'none', marginTop: activeTool === 'sceneBrainstorm' ? '-12px' : '0' }}>
+          <div className={`scene-brainstorm-wrapper ${activeTool === 'sceneBrainstorm' ? 'visible' : 'hidden'}`} style={{ position: 'relative', padding: 0, overflow: 'hidden', height: activeTool === 'sceneBrainstorm' ? '100%' : '0', display: activeTool === 'sceneBrainstorm' ? 'flex' : 'none', width: '100%', minWidth: 0 }}>
             <SceneBrainstormApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
           {/* 黄金三秒 · 短视频脚本生成器 */}

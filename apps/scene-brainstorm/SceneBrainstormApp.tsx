@@ -10,6 +10,7 @@
  */
 import React, { useState, useRef, useCallback } from 'react';
 import './SceneBrainstormApp.css';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 // ========== Types ==========
 
@@ -520,6 +521,7 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
       ));
 
       showNotification(`✅ 已生成 ${newItems.length} 条画面思路`);
+      playCompletionSound();
 
       // Auto-classify if enabled
       if (autoClassify && classifyCategories.length > 0 && newItems.length > 0) {
@@ -680,6 +682,7 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
       ));
 
       showNotification(`✅ 从 ${imageFiles.length} 张图片生成了 ${allNewItems.length} 条画面`);
+      playCompletionSound();
 
       // Auto-classify if enabled
       if (autoClassify && classifyCategories.length > 0 && allNewItems.length > 0) {
@@ -799,6 +802,7 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
       }
 
       showNotification(`✅ 全部 ${columns.length - 1} 层扩展完成！`);
+      playCompletionSound();
     } catch (err: any) {
       showNotification(`❌ 一键扩展中断: ${err.message || '未知错误'}`);
     } finally {

@@ -57,7 +57,9 @@ import {
     Tag,
     X,
     AlertCircle,
-    Sparkles
+    Sparkles,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 
 // Types
@@ -676,16 +678,28 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
 
     useEffect(() => {
         if (!isUsingSharedConfig || !sharedConfig) return;
-        setConfig(prev => ({
-            ...prev,
-            groupColumn: sharedConfig.groupColumn,
-            dataColumns: sharedConfig.displayColumns,
-            filterDateColumn: sharedConfig.dateColumn,
-            filterStartDate: sharedConfig.dateStart,
-            filterEndDate: sharedConfig.dateEnd,
-            customFilters: sharedConfig.customFilters,
-            sortRules: sharedConfig.sortRules,
-        }));
+        setConfig(prev => {
+            // Preserve custom column order: keep existing ordered columns that still exist,
+            // then append any new columns from sharedConfig that weren't in the order
+            const newDisplayCols = sharedConfig.displayColumns || [];
+            const prevOrder = prev.dataColumns || [];
+            // Keep columns that still exist in the new display columns, preserving order
+            const kept = prevOrder.filter(col => newDisplayCols.includes(col));
+            // Find new columns not yet in the order
+            const added = newDisplayCols.filter(col => !prevOrder.includes(col));
+            const mergedDataColumns = [...kept, ...added];
+
+            return {
+                ...prev,
+                groupColumn: sharedConfig.groupColumn,
+                dataColumns: mergedDataColumns,
+                filterDateColumn: sharedConfig.dateColumn,
+                filterStartDate: sharedConfig.dateStart,
+                filterEndDate: sharedConfig.dateEnd,
+                customFilters: sharedConfig.customFilters,
+                sortRules: sharedConfig.sortRules,
+            };
+        });
         setHighlightRules(sharedConfig.highlightRules ?? []);
     }, [isUsingSharedConfig, sharedConfig]);
 
@@ -2122,6 +2136,15 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
         };
     }, [activeData, config, fuzzyRuleText, effectiveGroupColumn, effectiveGroupColumns, effectiveGroupLevels, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveDataColumns, effectiveCustomFilters, effectiveSortRules, effectiveNumFilters, effectiveTextGrouping, effectiveTextGroupBins, effectiveFuzzyRuleText]);
 
+    // Escape a cell value for TSV: if it contains tabs, newlines, or double quotes,
+    // wrap it in double quotes and escape internal double quotes.
+    const escapeTsvCell = useCallback((val: string): string => {
+        if (val.includes('\t') || val.includes('\n') || val.includes('\r') || val.includes('"')) {
+            return '"' + val.replace(/"/g, '""') + '"';
+        }
+        return val;
+    }, []);
+
     // Get selected cells data as 2D array (for copy functionality)
     const getSelectedCellsData = useCallback((): string[][] => {
         if (!selectionStart || !selectionEnd) return [];
@@ -2183,7 +2206,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
         const data = getSelectedCellsData();
         if (data.length === 0) return;
 
-        const tsv = data.map(row => row.join('\t')).join('\n');
+        const tsv = data.map(row => row.map(cell => escapeTsvCell(cell)).join('\t')).join('\n');
         try {
             await navigator.clipboard.writeText(tsv);
             setCopiedData(true);
@@ -2191,7 +2214,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
         } catch (err) {
             console.error('Failed to copy:', err);
         }
-    }, [getSelectedCellsData]);
+    }, [getSelectedCellsData, escapeTsvCell]);
 
     // Keyboard event for Ctrl+C / Cmd+C copy
     React.useEffect(() => {
@@ -2268,12 +2291,12 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
         const maxLen = Math.max(...outputPlan.map(p => p.data.length));
 
         // Build header row
-        const headers = outputPlan.map(p => p.label);
+        const headers = outputPlan.map(p => escapeTsvCell(p.label));
 
         // Build data rows (transposed)
         const rows: string[][] = [];
         for (let i = 0; i < maxLen; i++) {
-            const row = outputPlan.map(p => String(p.data[i] ?? ''));
+            const row = outputPlan.map(p => escapeTsvCell(String(p.data[i] ?? '')));
             rows.push(row);
         }
 
@@ -2299,10 +2322,10 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                 const strVal = String(val);
                 // For image formulas, just copy the formula or URL
                 const imageUrl = extractImageFromFormula(strVal);
-                if (imageUrl) return `=IMAGE("${imageUrl}")`;
-                return strVal;
+                if (imageUrl) return escapeTsvCell(`=IMAGE("${imageUrl}")`);
+                return escapeTsvCell(strVal);
             });
-            return [plan.label, ...values].join('\t');
+            return [escapeTsvCell(plan.label), ...values].join('\t');
         });
 
         navigator.clipboard.writeText(lines.join('\n'))
@@ -2646,10 +2669,11 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                 <div className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
                                     <ListOrdered size={12} /> 输出顺序
                                     <span className="text-[9px] text-slate-400">(拖拽或按钮调整)</span>
+                                    <span className="text-[9px] text-slate-400 ml-auto">{effectiveDataColumns.length}列</span>
                                 </div>
                                 {effectiveDataColumns.length === 0 ? (
                                     <div className="text-[10px] text-slate-400">
-                                        暂无可排序列，请先在总配置选择显示列
+                                        暂无可排序列，请从下方添加
                                     </div>
                                 ) : (
                                     <div className="space-y-0.5">
@@ -2705,10 +2729,47 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                                                 >
                                                     <ChevronDown size={12} className="text-indigo-500" />
                                                 </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const newCols = effectiveDataColumns.filter(c => c !== col);
+                                                        updateConfig({ dataColumns: newCols });
+                                                    }}
+                                                    className="p-0.5 hover:bg-red-100 rounded tooltip-bottom"
+                                                    data-tip="移除此列"
+                                                >
+                                                    <EyeOff size={11} className="text-red-400" />
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
                                 )}
+                                {/* Add column dropdown */}
+                                {(() => {
+                                    const availableCols = data.columns.filter(col => !effectiveDataColumns.includes(col));
+                                    if (availableCols.length === 0) return null;
+                                    return (
+                                        <div className="mt-1.5 pt-1.5 border-t border-slate-200">
+                                            <div className="flex items-center gap-1">
+                                                <Eye size={10} className="text-emerald-500 shrink-0" />
+                                                <select
+                                                    value=""
+                                                    onChange={(e) => {
+                                                        const col = e.target.value;
+                                                        if (!col) return;
+                                                        updateConfig({ dataColumns: [...effectiveDataColumns, col] });
+                                                    }}
+                                                    className="flex-1 px-1.5 py-1 text-[10px] text-slate-700 bg-white border border-emerald-200 rounded hover:border-emerald-300 cursor-pointer"
+                                                >
+                                                    <option value="">+ 添加显示列...</option>
+                                                    {availableCols.map(col => (
+                                                        <option key={col} value={col}>{col}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                             <div className="bg-slate-50 rounded-lg p-2 border border-slate-200">
                                 <div className="flex items-center justify-between mb-2">

@@ -257,9 +257,9 @@ select.dp-input {
   font-weight: 600;
   color: #fff;
   border-right: 1px solid rgba(255,255,255,0.15);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-word;
+  vertical-align: bottom;
 }
 
 .dp-resize-handle {
@@ -281,6 +281,33 @@ select.dp-input {
 .dp-table tbody tr {
   border-bottom: 1px solid var(--border-color);
   transition: background-color 0.1s;
+}
+.dp-table tbody tr .dp-row-actions {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--control-bg-color);
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.dp-table tbody tr:hover .dp-row-actions {
+  display: flex;
+}
+.dp-row-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted-color);
+  padding: 4px;
+  border-radius: 4px;
+}
+.dp-row-action-btn:hover {
+  background: rgba(128,128,128,0.2);
+  color: var(--text-color);
 }
 
 

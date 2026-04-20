@@ -1,6 +1,5 @@
-
 /**
- * DataPipelinePanel — 数据整理入库
+ * DataPipelinePanel — 智能代理
  * 四阶段彩色数据流水线。全局主题自适应（暗色/亮色/护眼）。
  */
 
@@ -10,7 +9,9 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  memo,
 } from 'react';
+import { tsvEscapeCell } from '../utils/tsvEscape';
 import { createPortal } from 'react-dom';
 import {
   Trash2,
@@ -32,11 +33,15 @@ import {
   Zap,
   Save,
   FolderOpen,
+  Eraser,
+  AlertTriangle,
 } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import * as XLSX from 'xlsx';
 import { readWorkbookFromHtml, extractImageFromFormula, fetchImageAsBase64 } from '../utils/parser';
 import type { SheetData } from '../types';
+import { AgentRegistry, getAgentById } from '../agents';
+import { ClassifyConfigPanel } from '../../ai-copy-deduplicator/services/ClassifyConfigPanel';
 import './DataPipelinePanel.css';
 
 // ─────────────────────────────────────────────
@@ -52,21 +57,26 @@ export interface PipelineRow {
   errorMsg?: string;
   isDedupRemoved: boolean;
   dedupKey?: string;
+  aiLogs?: { time: string, phase: string, request: string, response: string, runtimeMs: number }[];
 }
 
 export interface AiInstruction {
   id: string;
   name: string;
-  prompt: string;
-  outputColumn: string;
-  /** Column whose data is fed to AI as input */
-  sourceColumn: string;
+  prompt: string;         // Used for basic prompt mode
+  outputColumn: string;   // Used for basic prompt mode
+  sourceColumn: string;   // Column whose data is fed to AI as input
+  // -- Agent Mode Support --
+  agentId?: string;       // If set, this instruction invokes a specialized Agent (not a simple prompt)
+  agentConfig?: any;      // Arbitrary config for the agent
 }
 
 export interface PipelineConfig {
   rawColumns: string[];
   dedupColumns: string[];
   dedupKeep: 'first' | 'last';
+  dedupPhaseMode: 'exact' | 'semantic';
+  semanticDedupConfig: Record<string, any>;
   aiInstructions: AiInstruction[];
   batchSize: number;
   concurrency: number;
@@ -80,6 +90,8 @@ interface PipelinePreset {
   name: string;
   dedupColumns: string[];
   dedupKeep: 'first' | 'last';
+  dedupPhaseMode: 'exact' | 'semantic';
+  semanticDedupConfig: Record<string, any>;
   aiInstructions: AiInstruction[];
   batchSize: number;
   concurrency: number;
@@ -91,6 +103,8 @@ const DEFAULT_CONFIG: PipelineConfig = {
   rawColumns: ['原文'],
   dedupColumns: ['原文'],
   dedupKeep: 'first',
+  dedupPhaseMode: 'exact',
+  semanticDedupConfig: {},
   aiInstructions: [],
   batchSize: 10,
   concurrency: 3,
@@ -147,15 +161,28 @@ function buildBatchPrompt(
     return { __id: i, ...cells };
   });
 
-  const outputSpec = instructions
-    .map((inst) => `"${inst.outputColumn}": "<${inst.name}的处理结果>"`)
-    .join(', ');
-
+  const outputSpec: string[] = [];
   const instructionList = instructions
-    .map((inst, i) => `指令${i + 1}【${inst.name}】处理列「${inst.sourceColumn}」→ 输出列名"${inst.outputColumn}"：\n${inst.prompt}`)
+    .map((inst, i) => {
+      let promptText = inst.prompt;
+      let outCols = inst.outputColumn ? [inst.outputColumn] : [];
+      if (inst.agentId) {
+         const agent = getAgentById(inst.agentId);
+         if (agent) {
+             outCols = agent.predictOutputColumns(inst.agentConfig || {}, inst.sourceColumn, inst.outputColumn);
+             if (agent.compileMergedInstruction) {
+                 promptText = agent.compileMergedInstruction(inst.agentConfig || {}, inst.sourceColumn, outCols);
+             }
+         }
+      }
+      outCols.forEach(col => {
+         outputSpec.push(`"${col}": "<生成的处理结果>"`);
+      });
+      return `指令${i + 1}【${inst.name}】处理列「${inst.sourceColumn}」：\n${promptText}`;
+    })
     .join('\n\n');
 
-  return `你是一个专业的数据处理助手。请对以下 ${rows.length} 行数据依次执行所有指令，严格按照 JSON 数组格式返回结果，不要输出任何多余内容。
+  return `你是一个专业的数据处理助手。请对以下 ${rows.length} 行数据依次执行所有指令，严格按照 JSON 数组格式返回结果，不要输出任何多余内容。要求：如果后续指令依赖前面指令生成的列名，你必须在心中推算前一步的生成结果，然后继续执行。
 
 ## 数据（JSON 数组，每项含 __id 字段作为行号）
 ${JSON.stringify(rowsJson, null, 2)}
@@ -165,7 +192,7 @@ ${instructionList}
 
 ## 返回格式（严格 JSON 数组，与输入行数相同，每项含 __id + 各输出列）
 [
-  { "__id": 0, ${outputSpec} },
+  { "__id": 0, ${outputSpec.join(', ')} },
   ...
 ]`;
 }
@@ -241,6 +268,47 @@ async function buildVisionContent(
 // Sub-components
 // ─────────────────────────────────────────────
 
+function ConfirmButton({
+  onClick, icon: Icon, label, confirmLabel = '确认操作？', className, style, title
+}: {
+  onClick: () => void; icon: any; label?: string; confirmLabel?: string; className?: string; style?: React.CSSProperties; title?: string;
+}) {
+  const [confirming, setConfirming] = React.useState(false);
+  const timeoutRef = React.useRef<any>(null);
+  return (
+    <button
+      className={`${className || ''} ${confirming ? 'confirming' : ''}`}
+      style={{ ...style, cursor: confirming ? 'default' : 'pointer', padding: confirming ? '4px 6px' : undefined }}
+      onClick={() => {
+        if (!confirming) {
+          setConfirming(true);
+          timeoutRef.current = setTimeout(() => setConfirming(false), 3000);
+        }
+      }}
+      title={title}
+    >
+      {confirming ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted-color)' }}>{confirmLabel}</span>
+          <div
+            onClick={(e) => { e.stopPropagation(); onClick(); setConfirming(false); clearTimeout(timeoutRef.current); }}
+            style={{ background: '#e05252', color: '#fff', padding: '2px 6px', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}
+          >确认</div>
+          <div
+            onClick={(e) => { e.stopPropagation(); setConfirming(false); clearTimeout(timeoutRef.current); }}
+            style={{ background: 'var(--control-bg-color)', color: 'var(--text-color)', padding: '2px 6px', borderRadius: 4, fontSize: 11, border: '1px solid var(--border-color)', cursor: 'pointer' }}
+          >取消</div>
+        </div>
+      ) : (
+        <>
+          <Icon size={13} style={{ marginRight: label ? 4 : 0 }} />
+          {label}
+        </>
+      )}
+    </button>
+  );
+}
+
 /** Render cell value: detect =IMAGE() formulas and image URLs, show thumbnails */
 function CellContent({ value }: { value: string | undefined }) {
   if (!value) return null;
@@ -288,6 +356,8 @@ function InstructionEditor({
   promptPresets,
   onChange,
   onDelete,
+  onMoveUp,
+  onMoveDown,
   onSavePromptPreset,
   onLoadPromptPreset,
   onDeletePromptPreset,
@@ -298,6 +368,8 @@ function InstructionEditor({
   promptPresets: PromptPreset[];
   onChange: (updated: AiInstruction) => void;
   onDelete: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   onSavePromptPreset: (name: string, prompt: string) => void;
   onLoadPromptPreset: (preset: PromptPreset) => void;
   onDeletePromptPreset: (id: string) => void;
@@ -305,12 +377,18 @@ function InstructionEditor({
   const [customCol, setCustomCol] = useState('');
   const [showCustomCol, setShowCustomCol] = useState(false);
   const [showPromptPresets, setShowPromptPresets] = useState(false);
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
   const [showExpandedEdit, setShowExpandedEdit] = useState(false);
+  const [presetSaveInputVisible, setPresetSaveInputVisible] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
   const presetBtnRef = useRef<HTMLButtonElement>(null);
+  const switchAgentBtnRef = useRef<HTMLButtonElement>(null);
   const allSourceCols = [...rawColumns, ...aiOutputCols];
+  const config = inst.agentConfig || {};
+  const agent = inst.agentId ? getAgentById(inst.agentId) : undefined;
+  
   const existingOutputCols = [...new Set([...rawColumns, ...aiOutputCols, inst.outputColumn].filter(Boolean))];
 
-  // Load global presets from all app modules
   const globalPresetGroups = useMemo(() => {
     const groups: Array<{ label: string; icon: string; items: Array<{ name: string; prompt: string }> }> = [];
     try {
@@ -364,8 +442,7 @@ function InstructionEditor({
     <div className="dp-inst-card" style={{ padding: '6px 8px' }}>
       {/* Single row: Source → Output | Prompt | Delete */}
       <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-        {/* Source column */}
-        <select className="dp-input" style={{ width: 100, flexShrink: 0, cursor: 'pointer', fontSize: 11 }}
+        <select className="dp-input" style={{ width: 110, flexShrink: 0, cursor: 'pointer', fontSize: 12, fontWeight: aiOutputCols.includes(inst.sourceColumn) ? 600 : 'normal', color: aiOutputCols.includes(inst.sourceColumn) ? 'var(--brand-color)' : 'var(--text-color)' }}
           value={inst.sourceColumn}
           onChange={(e) => {
             const newSrc = e.target.value;
@@ -374,15 +451,33 @@ function InstructionEditor({
             const isDefaultPattern = /^(AI处理_\d+|.*_ai处理)$/.test(inst.outputColumn);
             onChange({ ...inst, sourceColumn: newSrc, ...(isDefaultPattern ? { outputColumn: autoOut } : {}) });
           }}
-          title="处理数据列">
+          title="在此选择上一阶段的数据列作为输入">
           {!allSourceCols.includes(inst.sourceColumn) && inst.sourceColumn && <option value={inst.sourceColumn}>{inst.sourceColumn}</option>}
-          {allSourceCols.map((col) => <option key={col} value={col}>{col}</option>)}
+          <optgroup label="基础表格列">
+            {rawColumns.map((col) => <option key={col} value={col}>{col}</option>)}
+          </optgroup>
+          {aiOutputCols.length > 0 && (
+            <optgroup label="前置 AI 结果 (动态列)">
+              {aiOutputCols.map((col) => <option key={col} value={col}>✨ {col}</option>)}
+            </optgroup>
+          )}
         </select>
 
         <span style={{ color: 'var(--text-muted-color)', fontSize: 11, flexShrink: 0 }}>→</span>
 
-        {/* Output column */}
-        {showCustomCol ? (
+        {agent ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
+               <input className="dp-input" style={{ width: 100, fontSize: 11 }}
+                 value={inst.outputColumn} 
+                 onChange={e => onChange({...inst, outputColumn: e.target.value})} 
+                 placeholder="默认前缀" 
+                 title="设置列名前缀，下方将动态生成列名" 
+               />
+               <div style={{ fontSize: 9, color: 'var(--brand-color)', fontWeight: 500, opacity: 0.8, maxWidth: 100, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={agent.predictOutputColumns(inst.agentConfig || {}, inst.sourceColumn, inst.outputColumn).join(', ')}>
+                  {agent.predictOutputColumns(inst.agentConfig || {}, inst.sourceColumn, inst.outputColumn).join(', ')}
+               </div>
+            </div>
+        ) : showCustomCol ? (
           <div style={{ display: 'flex', gap: 2, width: 90, flexShrink: 0 }}>
             <input className="dp-input" style={{ flex: 1, minWidth: 0, fontSize: 11 }}
               value={customCol} onChange={(e) => setCustomCol(e.target.value)} placeholder="新列名"
@@ -405,80 +500,176 @@ function InstructionEditor({
           </select>
         )}
 
-        {/* Prompt preview (single line, double-click to expand) */}
+        {/* Prompt preview OR Agent Button */}
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
-          <input className="dp-input" style={{ width: '100%', fontSize: 11, paddingRight: 28 }}
-            value={inst.prompt}
-            onChange={(e) => onChange({ ...inst, prompt: e.target.value })}
-            onDoubleClick={() => setShowExpandedEdit(true)}
-            placeholder="双击展开编辑 AI 指令..."
-            title={inst.prompt || '双击展开编辑'}
-          />
-          {/* Template button */}
-          <button ref={presetBtnRef} style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
-            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)', padding: 2 }}
-            onClick={() => setShowPromptPresets((v) => !v)}
-            title="指令模板">
-            <FolderOpen size={12} />
-          </button>
-          {/* Preset dropdown — rendered via portal to avoid clipping */}
-          {showPromptPresets && createPortal(
+          {agent ? (
             <>
-              <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowPromptPresets(false)} />
-              <div style={{
-                position: 'fixed',
-                top: (presetBtnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-                left: Math.min((presetBtnRef.current?.getBoundingClientRect().right ?? 280) - 300, window.innerWidth - 310),
-                zIndex: 9999,
-                background: 'var(--surface-color)', border: '1px solid var(--border-color)',
-                borderRadius: 8, padding: 8, width: 300, maxHeight: 360, overflowY: 'auto',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-              }} onClick={(e) => e.stopPropagation()}>
-                {/* Local presets */}
-                {promptPresets.length > 0 && (
-                  <div style={{ marginBottom: 6 }}>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>📌 本地模板</div>
-                    {promptPresets.map((pp) => (
-                      <div key={pp.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
-                        onClick={() => { onChange({ ...inst, prompt: pp.prompt }); setShowPromptPresets(false); }} title={pp.prompt}>
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{pp.name}</span>
-                        <button onClick={(e) => { e.stopPropagation(); onDeletePromptPreset(pp.id); }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, color: 'var(--text-muted-color)' }}><X size={10} /></button>
-                      </div>
-                    ))}
+              <button className="dp-btn dp-btn-primary" style={{ width: '100%', fontSize: 11, justifyContent: 'center', paddingRight: 24, flexDirection: 'column', gap: 2, alignItems: 'center' }}
+                onClick={() => setShowExpandedEdit(true)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {agent.icon} {agent.name} (点击设置)
+                </div>
+                {agent.getSummary && inst.agentConfig && Object.keys(inst.agentConfig).length > 0 && (
+                  <div style={{ fontSize: 9, opacity: 0.8, fontWeight: 'normal', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {agent.getSummary(inst.agentConfig)}
                   </div>
                 )}
-                {/* Global presets from all app modules */}
-                {globalPresetGroups.map((group, gi) => (
-                  <div key={gi} style={{ marginBottom: 6 }}>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>{group.icon} {group.label}</div>
-                    {group.items.map((gs, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
-                        onClick={() => { onChange({ ...inst, prompt: gs.prompt }); setShowPromptPresets(false); }} title={gs.prompt.substring(0, 200)}>
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{gs.name}</span>
+              </button>
+              <button ref={switchAgentBtnRef} style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', padding: 2 }}
+                onClick={(e) => { e.stopPropagation(); setShowAgentPicker(v => !v); }}
+                title="更换专业工具">
+                <ChevronDown size={12} />
+              </button>
+              {showAgentPicker && createPortal(
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowAgentPicker(false)} />
+                  <div style={{
+                    position: 'fixed',
+                    top: (switchAgentBtnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                    left: Math.min((switchAgentBtnRef.current?.getBoundingClientRect().right ?? 280) - 200, window.innerWidth - 210),
+                    zIndex: 9999,
+                    background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                    borderRadius: 8, padding: 8, width: 200, maxHeight: 360, overflowY: 'auto',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  }} onClick={(e) => e.stopPropagation()}>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>更换专业工具 (Agent)</div>
+                    {AgentRegistry.map(agt => (
+                      <div key={agt.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, marginBottom: 2, background: agt.id === agent.id ? 'var(--primary-color)' : 'var(--control-bg-color)', color: agt.id === agent.id ? 'var(--inverse-text-color)' : 'var(--text-color)' }}
+                        onClick={() => { onChange({ ...inst, agentId: agt.id, agentConfig: {} }); setShowAgentPicker(false); }} title={agt.description}>
+                        <span>{agt.icon}</span>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 600 }}>{agt.name}</span>
+                        </div>
                       </div>
                     ))}
+                    <div style={{ height: 1, background: 'var(--border-color)', margin: '4px 0' }}></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 12, color: 'var(--error-color)' }}
+                      onClick={() => { onChange({ ...inst, agentId: undefined, prompt: '', agentConfig: undefined }); setShowAgentPicker(false); }}>
+                      <span style={{ marginLeft: 22 }}>返回基础提示词模式</span>
+                    </div>
                   </div>
-                ))}
-                {promptPresets.length === 0 && globalPresetGroups.length === 0 && (
-                  <div style={{ fontSize: 11, color: 'var(--text-muted-color)', padding: '8px 0', textAlign: 'center' }}>暂无指令模板</div>
-                )}
-                <button className="dp-btn dp-btn-orange" style={{ width: '100%', fontSize: 10, marginTop: 4, justifyContent: 'center' }}
-                  onClick={() => {
-                    if (!inst.prompt.trim()) return;
-                    const name = window.prompt('指令模板名称：', inst.name || `模板 ${promptPresets.length + 1}`);
-                    if (name?.trim()) { onSavePromptPreset(name.trim(), inst.prompt); setShowPromptPresets(false); }
-                  }}><Save size={10} /> 保存当前指令为模板</button>
-              </div>
-            </>,
-            document.body
+                </>,
+                document.body
+              )}
+            </>
+          ) : (
+            <>
+              <input className="dp-input" style={{ width: '100%', fontSize: 11, paddingRight: 28 }}
+                value={inst.prompt}
+                onChange={(e) => onChange({ ...inst, prompt: e.target.value })}
+                onDoubleClick={() => setShowExpandedEdit(true)}
+                placeholder="双击展开编辑 AI 指令..."
+                title={inst.prompt || '双击展开编辑'}
+              />
+              {/* Template button */}
+              <button ref={presetBtnRef} style={{ position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)', padding: 2 }}
+                onClick={() => setShowPromptPresets((v) => !v)}
+                title="指令模板">
+                <FolderOpen size={12} />
+              </button>
+              {/* Preset dropdown — rendered via portal to avoid clipping */}
+              {showPromptPresets && createPortal(
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowPromptPresets(false)} />
+                  <div style={{
+                    position: 'fixed',
+                    top: (presetBtnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                    left: Math.min((presetBtnRef.current?.getBoundingClientRect().right ?? 280) - 300, window.innerWidth - 310),
+                    zIndex: 9999,
+                    background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                    borderRadius: 8, padding: 8, width: 300, maxHeight: 360, overflowY: 'auto',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  }} onClick={(e) => e.stopPropagation()}>
+                    {/* Local presets */}
+                    {promptPresets.length > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>📌 本地模板</div>
+                        {promptPresets.map((pp) => (
+                          <div key={pp.id} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
+                            onClick={() => { onChange({ ...inst, prompt: pp.prompt }); setShowPromptPresets(false); }} title={pp.prompt}>
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{pp.name}</span>
+                            <button onClick={(e) => { e.stopPropagation(); onDeletePromptPreset(pp.id); }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 1, color: 'var(--text-muted-color)' }}><X size={10} /></button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Global presets from all app modules */}
+                    {globalPresetGroups.map((group, gi) => (
+                      <div key={gi} style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>{group.icon} {group.label}</div>
+                        {group.items.map((gs, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRadius: 4, cursor: 'pointer', fontSize: 11, marginBottom: 2, background: 'var(--control-bg-color)' }}
+                            onClick={() => { onChange({ ...inst, prompt: gs.prompt }); setShowPromptPresets(false); }} title={gs.prompt.substring(0, 200)}>
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-color)' }}>{gs.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    {promptPresets.length === 0 && globalPresetGroups.length === 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted-color)', padding: '8px 0', textAlign: 'center' }}>暂无指令模板</div>
+                    )}
+                    {presetSaveInputVisible ? (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <input
+                          className="dp-input"
+                          style={{ flex: 1, padding: 4, fontSize: 11 }}
+                          value={newPresetName}
+                          onChange={(e) => setNewPresetName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newPresetName.trim()) {
+                              onSavePromptPreset(newPresetName.trim(), inst.prompt);
+                              setPresetSaveInputVisible(false);
+                              setShowPromptPresets(false);
+                            } else if (e.key === 'Escape') {
+                              setPresetSaveInputVisible(false);
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <button className="dp-btn dp-btn-orange" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => {
+                            if (newPresetName.trim()) {
+                              onSavePromptPreset(newPresetName.trim(), inst.prompt);
+                              setPresetSaveInputVisible(false);
+                              setShowPromptPresets(false);
+                            }
+                        }}>确定</button>
+                        <button className="dp-btn" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => setPresetSaveInputVisible(false)}>取消</button>
+                      </div>
+                    ) : (
+                      <button className="dp-btn dp-btn-orange" style={{ width: '100%', fontSize: 10, marginTop: 4, justifyContent: 'center' }}
+                        onClick={() => {
+                          if (!inst.prompt.trim()) return;
+                          setNewPresetName(inst.name || `模板 ${promptPresets.length + 1}`);
+                          setPresetSaveInputVisible(true);
+                        }}><Save size={10} /> 保存当前指令为模板</button>
+                    )}
+                  </div>
+                </>,
+                document.body
+              )}
+            </>
           )}
         </div>
 
-        {/* Delete button */}
-        <button onClick={onDelete}
-          style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)', flexShrink: 0 }}
-          title="删除指令"><X size={14} /></button>
+        {/* Controls: Up, Down, Delete */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          {onMoveUp && (
+            <button onClick={onMoveUp} style={{ padding: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)' }} title="上移">
+              <span style={{ fontSize: 10 }}>▲</span>
+            </button>
+          )}
+          {onMoveDown && (
+            <button onClick={onMoveDown} style={{ padding: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)' }} title="下移">
+              <span style={{ fontSize: 10 }}>▼</span>
+            </button>
+          )}
+          <button onClick={onDelete}
+            style={{ padding: 3, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)' }}
+            title="删除指令"><X size={14} /></button>
+        </div>
       </div>
 
       {/* Expanded edit modal (double-click) */}
@@ -486,19 +677,64 @@ function InstructionEditor({
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShowExpandedEdit(false)}>
           <div style={{ background: 'var(--surface-color)', borderRadius: 12, padding: 20, width: '80%', maxWidth: 700, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }}
-            onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Sparkles size={16} style={{ color: '#e57c26' }} />
-              <span style={{ fontWeight: 700, color: 'var(--text-color)' }}>编辑 AI 指令</span>
-              <span style={{ fontSize: 11, color: 'var(--text-muted-color)' }}>{inst.sourceColumn} → {inst.outputColumn}</span>
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            onKeyUp={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-color)', padding: 4, borderRadius: 8 }}>
+                <div 
+                   onClick={() => onChange({ ...inst, agentId: undefined, prompt: '', agentConfig: undefined })}
+                   style={{ 
+                     display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                     background: !agent ? 'var(--surface-color)' : 'transparent',
+                     boxShadow: !agent ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                     color: !agent ? 'var(--text-color)' : 'var(--text-muted-color)'
+                   }}>
+                  <Sparkles size={14} style={{ color: !agent ? '#e57c26' : 'currentColor' }} /> 基础指令
+                </div>
+                {AgentRegistry.map(agt => (
+                  <div 
+                     key={agt.id}
+                     title={agt.description}
+                     onClick={() => onChange({ ...inst, agentId: agt.id, agentConfig: {} })}
+                     style={{ 
+                       display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                       background: agent?.id === agt.id ? 'var(--surface-color)' : 'transparent',
+                       boxShadow: agent?.id === agt.id ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                       color: agent?.id === agt.id ? 'var(--text-color)' : 'var(--text-muted-color)'
+                     }}>
+                    {agt.icon} {agt.name}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted-color)', marginLeft: 8 }}>{inst.sourceColumn} → </span>
+                <input 
+                  className="dp-input" 
+                  style={{ width: 140, padding: 4, height: 26, fontSize: 11, background: 'var(--surface-color)', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-color)' }}
+                  value={inst.outputColumn || ''}
+                  onChange={(e) => onChange({ ...inst, outputColumn: e.target.value })}
+                  placeholder={agent ? "自定义列名前缀(可选)" : "目标列名"}
+                  title={agent ? "留空则使用默认生成的列名。输入内容会作为新列名的开头部分。" : ""}
+                />
+              </div>
               <div style={{ flex: 1 }} />
-              <button className="dp-btn" onClick={() => setShowExpandedEdit(false)}><X size={14} /> 关闭</button>
+              <button className="dp-btn" onClick={() => setShowExpandedEdit(false)}><X size={14} /> 确认并关闭</button>
             </div>
-            <textarea className="dp-textarea" style={{ flex: 1, minHeight: 300, fontSize: 13, lineHeight: 1.6 }}
-              value={inst.prompt}
-              onChange={(e) => onChange({ ...inst, prompt: e.target.value })}
-              placeholder="输入 AI 处理指令..."
-              autoFocus />
+            {agent ? (
+              <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', background: 'var(--bg-color)', padding: 20, borderRadius: 10 }}>
+                <agent.ConfigComponent 
+                  value={inst.agentConfig || {}} 
+                  onChange={(agentConfig) => onChange({ ...inst, agentConfig })} 
+                />
+              </div>
+            ) : (
+              <textarea className="dp-textarea" style={{ flex: 1, minHeight: 300, fontSize: 13, lineHeight: 1.6 }}
+                value={inst.prompt}
+                onChange={(e) => onChange({ ...inst, prompt: e.target.value })}
+                placeholder="输入 AI 处理指令..."
+                autoFocus />
+            )}
           </div>
         </div>,
         document.body
@@ -516,9 +752,10 @@ interface DataPipelinePanelProps {
   modelId?: string;
   /** Main SheetMind data — when provided, allows '从主表导入' */
   data?: SheetData | null;
+  isActive?: boolean;
 }
 
-const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, modelId = 'gemini-2.0-flash', data: sheetData }) => {
+const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, modelId = 'gemini-2.0-flash', data: sheetData, isActive = true }) => {
   // ── Config ──────────────────────────────────
   const [config, setConfig] = useState<PipelineConfig>(() => {
     try {
@@ -529,6 +766,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   });
 
   const [showConfig, setShowConfig] = useState(false);
+  const [viewLogsFor, setViewLogsFor] = useState<string | null>(null);
   const [showBatchInstModal, setShowBatchInstModal] = useState(false);
   const [batchInstText, setBatchInstText] = useState('');
   const [newColName, setNewColName] = useState('');
@@ -537,6 +775,12 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   const dedupBtnRef = useRef<HTMLButtonElement>(null);
   const [showAIPicker, setShowAIPicker] = useState(false);
   const aiBtnRef = useRef<HTMLButtonElement>(null);
+
+  const [showAddAgentPicker, setShowAddAgentPicker] = useState(false);
+  const addAgentBtnRef = useRef<HTMLButtonElement>(null);
+
+  const [showAddAgentPickerModal, setShowAddAgentPickerModal] = useState(false);
+  const addAgentBtnRefModal = useRef<HTMLButtonElement>(null);
 
   // ── Presets ──
   const [presets, setPresets] = useState<PipelinePreset[]>(() => {
@@ -583,7 +827,11 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   const [rows, setRows] = useState<PipelineRow[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY + '_rows');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: PipelineRow[] = JSON.parse(saved);
+        // 自动干预：将重启/奔溃残留的 zombie processing 状态重置为 idle
+        return parsed.map(r => r.status === 'processing' ? { ...r, status: 'idle' } : r);
+      }
     } catch { /* ignore */ }
     return [];
   });
@@ -600,8 +848,10 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
 
   // ── Running state ────────────────────────────
   const [isRunningAI, setIsRunningAI] = useState(false);
+  const [aiProgress, setAiProgress] = useState<{ current: number, total: number } | null>(null);
   const [runLog, setRunLog] = useState<string[]>([]);
   const abortRef = useRef(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const log = useCallback((msg: string) => {
     setRunLog((prev) => [...prev.slice(-99), `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -614,6 +864,8 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
       name,
       dedupColumns: config.dedupColumns,
       dedupKeep: config.dedupKeep,
+      dedupPhaseMode: config.dedupPhaseMode || 'exact',
+      semanticDedupConfig: config.semanticDedupConfig || {},
       aiInstructions: config.aiInstructions,
       batchSize: config.batchSize,
       concurrency: config.concurrency,
@@ -629,6 +881,8 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
       ...c,
       dedupColumns: preset.dedupColumns,
       dedupKeep: preset.dedupKeep,
+      dedupPhaseMode: preset.dedupPhaseMode || 'exact',
+      semanticDedupConfig: preset.semanticDedupConfig || {},
       aiInstructions: preset.aiInstructions,
       batchSize: preset.batchSize,
       concurrency: preset.concurrency,
@@ -662,7 +916,20 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   const activeRows = useMemo(() => rows.filter((r) => !r.isDedupRemoved), [rows]);
   const dedupedRows = useMemo(() => rows.filter((r) => r.isDedupRemoved), [rows]);
   const aiOutputColumns = useMemo(
-    () => [...new Set(config.aiInstructions.map((i) => i.outputColumn).filter(Boolean))],
+    () => {
+      const cols = new Set<string>();
+      config.aiInstructions.forEach((inst) => {
+        if (inst.agentId) {
+          const agent = getAgentById(inst.agentId);
+          if (agent) {
+            agent.predictOutputColumns(inst.agentConfig || {}, inst.sourceColumn, inst.outputColumn).forEach(c => cols.add(c));
+          }
+        } else if (inst.outputColumn) {
+          cols.add(inst.outputColumn);
+        }
+      });
+      return [...cols];
+    },
     [config.aiInstructions]
   );
   const allDisplayColumns = useMemo(
@@ -869,18 +1136,35 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
         const key = `${row.id}:${col}`;
         if (!selectedCells.has(key)) return '';
         const val = row.raw[col] ?? row.ai[col] ?? '';
-        return val.replace(/\t/g, ' ').replace(/\n/g, ' ');
+        return tsvEscapeCell(val);
       }).join('\t')
     );
     const tsv = lines.join('\n');
     navigator.clipboard.writeText(tsv).then(() => {
       log(`📋 已复制 ${selectedCells.size} 个单元格`);
+      setCopyFeedback('selected');
+      setTimeout(() => setCopyFeedback(null), 2000);
     });
   }, [selectedCells, activeRows, allDisplayColumns, log]);
 
   // ── Keyboard navigation ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Prevent handling if the user is typing in an input/textarea anywhere
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+      
+      // Prevent handling if the DataPipelinePanel wrapper is hidden (height: 0)
+      const container = tableRef.current?.closest('.datapipeline-page-wrapper');
+      if (container && (container as HTMLElement).style.height === '0px') {
+        return;
+      }
+
       // Copy
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedCells.size > 0) {
         e.preventDefault();
@@ -980,11 +1264,44 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   // ── Column widths (resizable) ─────────────────
   const DEFAULT_COL_WIDTH = 180;
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [headerHeight, setHeaderHeight] = useState<number | undefined>(undefined);
   const colWidthsRef = useRef<Record<string, number>>({});
+  const headerHeightRef = useRef<number | undefined>(undefined);
   colWidthsRef.current = columnWidths;
+  headerHeightRef.current = headerHeight;
   const tableRef = useRef<HTMLTableElement>(null);
 
   const getColWidth = useCallback((col: string) => columnWidths[col] || DEFAULT_COL_WIDTH, [columnWidths]);
+
+  const onHeaderResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const currentHeight = tableRef.current?.querySelector('thead th')?.getBoundingClientRect()?.height || 36;
+    const startH = headerHeightRef.current || currentHeight;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const newH = Math.max(36, startH + (ev.clientY - startY));
+      const ths = tableRef.current?.querySelectorAll('thead th');
+      if (ths) {
+        ths.forEach(th => {
+          (th as HTMLElement).style.height = newH + 'px';
+        });
+      }
+    };
+    const onMouseUp = (ev: MouseEvent) => {
+      const finalH = Math.max(36, startH + (ev.clientY - startY));
+      setHeaderHeight(finalH);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
 
   const onResizeStart = useCallback((e: React.MouseEvent, col: string) => {
     e.preventDefault();
@@ -1022,86 +1339,245 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   const [rawPasteText, setRawPasteText] = useState('');
   /** Workbook built from clipboard data */
   const pasteWbRef = useRef<XLSX.WorkBook | null>(null);
-  /** Which columns user selected to import (default: all) */
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+  const [pasteHasHeaders, setPasteHasHeaders] = useState<boolean>(true);
+  const [autoDisabledHeaders, setAutoDisabledHeaders] = useState<boolean>(false);
+  const [presetSaveInputVisible, setPresetSaveInputVisible] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
 
   /** Core paste handler — accepts a Workbook or falls back to TSV text */
-  const handlePasteFromWorkbook = useCallback((wb: XLSX.WorkBook) => {
+  const handlePasteFromWorkbook = useCallback((wb: XLSX.WorkBook, overrideHasHeader?: boolean) => {
     pasteWbRef.current = wb;
-    const { headers, dataRows } = workbookToGrid(wb);
-    if (headers.length === 0 || dataRows.length === 0) return;
-    setPasteHeaders(headers);
-    setPastePreview(dataRows.slice(0, 6));
+    const headersRaw = workbookToGrid(wb).headers;
+    const gridRaw = workbookToGrid(wb).dataRows;
+    const grid = headersRaw.length > 0 ? [headersRaw, ...gridRaw] : gridRaw;
+    if (grid.length === 0) return;
+    
+    let computedHeaders: string[] = [];
+    let preview: string[][] = [];
+    let effectiveHasHeaders = overrideHasHeader ?? pasteHasHeaders;
+    
+    // Reset auto-disable flag unless we explicitly just triggered it
+    if (overrideHasHeader !== undefined) {
+      setAutoDisabledHeaders(false);
+    }
+
+    if (overrideHasHeader === undefined && effectiveHasHeaders && grid.length > 0) {
+      const firstRow = grid[0].map(h => String(h || '').trim());
+      const hasLongHeaders = firstRow.some(h => {
+        const hasChinese = /[\u4e00-\u9fa5]/.test(h);
+        return (hasChinese && h.length > 5) || (!hasChinese && h.length > 20);
+      });
+      if (hasLongHeaders) {
+        effectiveHasHeaders = false;
+        setPasteHasHeaders(false);
+        setAutoDisabledHeaders(true);
+      } else {
+        setAutoDisabledHeaders(false);
+      }
+    }
+
+    if (effectiveHasHeaders) {
+      computedHeaders = grid[0].map(h => String(h || '').trim());
+      preview = grid.slice(1, 7);
+    } else {
+      const maxCols = grid.reduce((mx, r) => Math.max(mx, r.length), 0);
+      computedHeaders = Array.from({ length: maxCols }, (_, i) => `列${i + 1}`);
+      preview = grid.slice(0, 6);
+    }
+    
+    setPasteHeaders(computedHeaders);
+    setPastePreview(preview);
     const mapping: Record<string, string> = {};
-    headers.forEach((h) => { mapping[h] = h; });
+    computedHeaders.forEach((h) => { mapping[h] = h; });
     setHeaderMapping(mapping);
     // Default: all columns selected
-    setSelectedColumns(new Set(headers));
+    setSelectedColumns(new Set(computedHeaders));
     setShowPastePanel(true);
-  }, []);
+  }, [pasteHasHeaders]);
 
-  /** Legacy TSV fallback */
-  const handlePaste = useCallback((text: string) => {
+  /** Parse pasted text — prioritise manual TSV for reliability, XLSX.read as fallback */
+  const handlePaste = useCallback((text: string, overrideHasHeader?: boolean) => {
     setRawPasteText(text);
+
+    // Helper: apply parsed grid to state
+    const applyGrid = (grid: string[][]) => {
+      if (grid.length === 0) return;
+      const maxCols = grid.reduce((mx, r) => Math.max(mx, r.length), 0);
+      let computedHeaders: string[] = [];
+      let preview: string[][] = [];
+      let effectiveHasHeaders = overrideHasHeader ?? pasteHasHeaders;
+      
+      if (overrideHasHeader !== undefined) {
+        setAutoDisabledHeaders(false);
+      }
+
+      if (overrideHasHeader === undefined && effectiveHasHeaders && grid.length > 0) {
+        const firstRow = grid[0].map(h => String(h || '').trim());
+        const hasLongHeaders = firstRow.some(h => {
+          const hasChinese = /[\u4e00-\u9fa5]/.test(h);
+          return (hasChinese && h.length > 5) || (!hasChinese && h.length > 20);
+        });
+        if (hasLongHeaders) {
+          effectiveHasHeaders = false;
+          setPasteHasHeaders(false);
+          setAutoDisabledHeaders(true);
+        } else {
+          setAutoDisabledHeaders(false);
+        }
+      }
+
+      if (effectiveHasHeaders) {
+        if (grid.length < 2) return;
+        computedHeaders = grid[0].length >= maxCols
+          ? grid[0].map((h) => h.trim())
+          : Array.from({ length: maxCols }, (_, i) => grid[0][i]?.trim() || `列${i + 1}`);
+        preview = grid.slice(1, 7);
+      } else {
+        computedHeaders = Array.from({ length: maxCols }, (_, i) => `列${i + 1}`);
+        preview = grid.slice(0, 6);
+      }
+      setPasteHeaders(computedHeaders);
+      setPastePreview(preview);
+      const mapping: Record<string, string> = {};
+      computedHeaders.forEach((h) => { mapping[h] = h; });
+      setHeaderMapping(mapping);
+      setSelectedColumns(new Set(computedHeaders));
+      setShowPastePanel(true);
+    };
+
+    // 1. If text looks like TSV (contains tabs), parse manually for reliability
+    //    XLSX.read(text, {type:'string'}) often mis-parses simple TSV into a
+    //    single-row workbook, losing all data rows.
+    const tsvGrid = parseTsv(text);
+    if (tsvGrid.length > 0 && tsvGrid.some(r => r.length > 1)) {
+      // Genuine multi-column TSV
+      applyGrid(tsvGrid);
+      return;
+    }
+
+    // 2. Try XLSX.read for non-TSV formats (e.g. CSV with commas)
     try {
       const wb = XLSX.read(text, { type: 'string' });
-      handlePasteFromWorkbook(wb);
+      handlePasteFromWorkbook(wb, overrideHasHeader);
     } catch {
-      // fallback to manual TSV
-      const grid = parseTsv(text);
-      if (grid.length < 2) return;
-      const maxCols = grid.reduce((mx, r) => Math.max(mx, r.length), 0);
-      const headers = grid[0].length >= maxCols
-        ? grid[0].map((h) => h.trim())
-        : Array.from({ length: maxCols }, (_, i) => grid[0][i]?.trim() || `列${i + 1}`);
-      setPasteHeaders(headers);
-      setPastePreview(grid.slice(1, 6));
-      const mapping: Record<string, string> = {};
-      headers.forEach((h) => { mapping[h] = h; });
-      setHeaderMapping(mapping);
-      setSelectedColumns(new Set(headers));
-      setShowPastePanel(true);
+      // 3. Final fallback: treat as single-column or simple text
+      if (tsvGrid.length > 0) {
+        applyGrid(tsvGrid);
+      }
     }
-  }, [handlePasteFromWorkbook]);
+  }, [handlePasteFromWorkbook, pasteHasHeaders]);
 
   const confirmImport = useCallback(() => {
-    let allHeaders: string[] = [];
     let dataRows: string[][] = [];
     if (pasteWbRef.current) {
-      const g = workbookToGrid(pasteWbRef.current);
-      allHeaders = g.headers;
-      dataRows = g.dataRows;
+      const { headers: headersRaw, dataRows: dataRowsRaw } = workbookToGrid(pasteWbRef.current);
+      const grid = headersRaw.length > 0 ? [headersRaw, ...dataRowsRaw] : dataRowsRaw;
+      if (pasteHasHeaders) {
+        dataRows = grid.slice(1);
+      } else {
+        dataRows = grid;
+      }
     } else {
       // TSV fallback
       const grid = parseTsv(rawPasteText);
-      if (grid.length < 2) return;
       const maxCols = grid.reduce((mx, r) => Math.max(mx, r.length), 0);
-      allHeaders = grid[0].length >= maxCols
-        ? grid[0].map((h) => h.trim())
-        : Array.from({ length: maxCols }, (_, i) => grid[0][i]?.trim() || `列${i + 1}`);
-      dataRows = grid.slice(1);
+      if (pasteHasHeaders) {
+        if (grid.length < 2) return;
+        dataRows = grid.slice(1);
+      } else {
+        dataRows = grid;
+      }
     }
-    // Only import selected columns
-    const importHeaders = allHeaders.filter((h) => selectedColumns.has(h));
+    // Only import selected columns (which are maintained in selectedColumns based on the active pasteHeaders)
+    const importHeaders = pasteHeaders.filter((h) => selectedColumns.has(h));
     if (importHeaders.length === 0) return;
     const newRows: PipelineRow[] = dataRows.map((cells) => {
       const raw: Record<string, string> = {};
       importHeaders.forEach((col) => {
-        const idx = allHeaders.indexOf(col);
+        const idx = pasteHeaders.indexOf(col);
         raw[col] = (cells[idx] != null ? String(cells[idx]) : '').trim();
       });
       return { id: uuid(), raw, ai: {}, status: 'idle', isDedupRemoved: false };
     });
     // Update rawColumns to only the selected columns
+    // Update rawColumns to only the selected columns
     setConfig((c) => ({ ...c, rawColumns: importHeaders }));
     setRows((prev) => [...prev, ...newRows]);
     setShowPastePanel(false);
     pasteWbRef.current = null;
-    log(`✅ 导入 ${newRows.length} 行数据（${importHeaders.length}/${allHeaders.length} 列）`);
-  }, [selectedColumns, rawPasteText, log]);
+    log(`✅ 导入 ${newRows.length} 行数据（${importHeaders.length}/${pasteHeaders.length} 列）`);
+  }, [selectedColumns, rawPasteText, log, pasteHeaders, pasteHasHeaders]);
+
+  // ── Global Cmd+V / Ctrl+V paste listener ───
+  // Allows pasting data anywhere in the panel (no need to click the grid first)
+  useEffect(() => {
+    const onGlobalPaste = async (e: ClipboardEvent) => {
+      // Return if the current tool is not active
+      if (!isActive) return;
+      
+      // Skip if user is typing in an input/textarea
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      // Skip if paste panel is already open
+      if (showPastePanel) return;
+
+      e.preventDefault();
+      const html = e.clipboardData?.getData('text/html') || '';
+      const text = e.clipboardData?.getData('text/plain') || '';
+
+      if (html && html.includes('google-sheets-html-origin')) {
+        try {
+          const wb = await readWorkbookFromHtml(html);
+          handlePasteFromWorkbook(wb);
+          return;
+        } catch { /* fall through */ }
+      }
+      if (text?.trim()) handlePaste(text);
+    };
+    document.addEventListener('paste', onGlobalPaste);
+    return () => document.removeEventListener('paste', onGlobalPaste);
+  }, [showPastePanel, handlePaste, handlePasteFromWorkbook, isActive]);
 
   // ── Stage 2: Dedup ───────────────────────────
-  const handleDedup = useCallback(() => {
+  const handleDedup = useCallback(async () => {
+    if (config.dedupPhaseMode === 'semantic') {
+         const agent = getAgentById('agent_semantic_dedup');
+         if (!agent) {
+             log('❌ 高级语义查重工具未找到');
+             return;
+         }
+         log('🚀 开始高级查重分析...');
+         if (config.dedupColumns.length === 0) {
+             log('⚠️ 请先配置"去重依据列"中的需要查重的列名');
+             return;
+         }
+         
+         const dataArr = rows.map(r => config.dedupColumns.map(c => r.raw[c] ?? '').join(' '));
+         try {
+             // getAiInstance is available in closure
+             const results = await agent.executeBatch(dataArr, config.semanticDedupConfig || {}, getAiInstance, 'Combined', undefined, 'Result');
+             
+             let removed = 0;
+             setRows((prev) => {
+                 const updated = [...prev];
+                 results.forEach((res, i) => {
+                     // Check if it got flagged
+                     if (res.__remove__) {
+                         updated[i] = { ...updated[i], isDedupRemoved: true, dedupKey: '算法查重判定' };
+                         removed++;
+                     }
+                 });
+                 return updated;
+             });
+             log(`🧹 高级查重完成，标记移除 ${removed} 行重复数据`);
+         } catch(e: any) {
+             log(`❌ 高级查重失败: ${e.message}`);
+         }
+         return;
+    }
+
+    // --- Exact deduplication ---
     const seen = new Map<string, string>();
     let removed = 0;
     setRows((prev) => {
@@ -1125,16 +1601,26 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
       );
     });
     setTimeout(() => log(`🧹 去重完成，移除 ${removed} 行重复数据`), 0);
-  }, [config.dedupColumns, config.dedupKeep, log]);
+  }, [config.dedupColumns, config.dedupKeep, config.dedupPhaseMode, config.semanticDedupConfig, rows, getAiInstance, log]);
 
   const handleUndoDedup = useCallback(() => {
     setRows((prev) => prev.map((r) => ({ ...r, isDedupRemoved: false, dedupKey: undefined })));
     log('↩️ 已恢复所有被去重的行');
   }, [log]);
 
+  const handleRedoAll = useCallback(() => {
+    setRows((prev) => prev.map((r) => ({ ...r, status: 'idle', ai: {}, aiLogs: [] })));
+    log('🔄 已执行“全部重做”：已重置状态并清空AI输出');
+  }, [log]);
+
+  const handleClearResults = useCallback(() => {
+    setRows((prev) => prev.map((r) => ({ ...r, status: 'idle', ai: {}, aiLogs: [], isDedupRemoved: false, dedupKey: undefined })));
+    log('🧹 已清空所有生成结果和状态（保留原始数据）');
+  }, [log]);
+
   // ── One-click: Dedup → AI ──
   const pendingOneClick = useRef(false);
-  const handleOneClickRun = useCallback(() => {
+  const handleOneClickRun = useCallback(async () => {
     if (rows.length === 0) { log('⚠️ 没有数据'); return; }
     // If dedup columns not configured, open config panel
     if (config.dedupColumns.length === 0) {
@@ -1142,20 +1628,31 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
       setShowConfig(true);
       return;
     }
-    // If no instructions configured, open config panel so user can set up first
-    if (config.aiInstructions.length === 0 || config.aiInstructions.every(i => !i.prompt.trim())) {
+    // If no valid instructions configured, open config panel so user can set up first
+    const noValid = config.aiInstructions.length === 0 || config.aiInstructions.every(i => {
+      if (i.agentId) return false; // Agent mode is valid by itself
+      return !i.prompt || !i.prompt.trim(); // Basic mode needs a prompt
+    });
+
+    if (noValid) {
       log('⚠️ 请先设置 AI 指令');
       setShowConfig(true);
       return;
     }
-    handleDedup();
+    
+    // For exact match dedup it's synchronous, but for semantic it takes time.
+    // It is safe to await it here
+    await handleDedup();
     pendingOneClick.current = true;
   }, [rows.length, config.dedupColumns.length, config.aiInstructions, handleDedup, log]);
 
   // ── Stage 3: AI ──────────────────────────────
-  const handleRunAI = useCallback(async () => {
+  const handleRunAI = useCallback(async (targetRowIds?: string[]) => {
     if (isRunningAI) return;
-    const targets = rows.filter((r) => !r.isDedupRemoved && r.status !== 'done');
+    const targets = targetRowIds 
+      ? rows.filter((r) => targetRowIds.includes(r.id) && !r.isDedupRemoved)
+      : rows.filter((r) => !r.isDedupRemoved && r.status !== 'done');
+      
     if (targets.length === 0) { log('⚠️ 没有待处理的行'); return; }
     if (config.aiInstructions.length === 0) { log('⚠️ 请先添加 AI 处理指令'); return; }
 
@@ -1173,6 +1670,8 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
     setRows((prev) =>
       prev.map((r) => targets.some((t) => t.id === r.id) ? { ...r, status: 'processing' } : r)
     );
+    
+    setAiProgress({ current: 0, total: targets.length });
 
     const batches: PipelineRow[][] = [];
     for (let i = 0; i < targets.length; i += config.batchSize) {
@@ -1181,10 +1680,13 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
     log(`📦 共分 ${batches.length} 个批次`);
 
     let batchIdx = 0;
+    let processedCount = 0;
     const runBatch = async (batch: PipelineRow[]): Promise<void> => {
       const bIdx = batchIdx++;
 
-      if (config.mergeInstructions) {
+      const hasUnmergeableAgent = config.aiInstructions.some(inst => inst.agentId && !getAgentById(inst.agentId)?.compileMergedInstruction);
+
+      if (config.mergeInstructions && !hasUnmergeableAgent) {
         // ── 合并模式：所有指令一次请求 ──
         const prompt = buildBatchPrompt(config.aiInstructions, batch, config.rawColumns);
         let attempt = 0;
@@ -1192,7 +1694,9 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
           if (abortRef.current) return;
           try {
             log(`📤 批次 ${bIdx + 1}/${batches.length} (${batch.length}行, 第${attempt + 1}次)`);
+            const startTime = Date.now();
             const result = await ai.models.generateContent({ model: modelId, contents: prompt });
+            const runtimeMs = Date.now() - startTime;
             const text = result.text ?? '';
             const jsonMatch = text.match(/\[[\s\S]*\]/);
             if (!jsonMatch) throw new Error('返回内容不含 JSON 数组，将重试');
@@ -1207,11 +1711,21 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                 if (idx < 0) return;
                 const mergedAi = { ...updated[idx].ai };
                 config.aiInstructions.forEach((inst) => {
-                  if (inst.outputColumn && item[inst.outputColumn] !== undefined) {
-                    mergedAi[inst.outputColumn] = String(item[inst.outputColumn]);
+                  let outCols = inst.outputColumn ? [inst.outputColumn] : [];
+                  if (inst.agentId) {
+                      const agent = getAgentById(inst.agentId);
+                      if (agent) outCols = agent.predictOutputColumns(inst.agentConfig || {}, inst.sourceColumn, inst.outputColumn);
                   }
+                  outCols.forEach(col => {
+                    if (item[col] !== undefined) {
+                        mergedAi[col] = String(item[col]);
+                    }
+                  });
                 });
-                updated[idx] = { ...updated[idx], ai: mergedAi, status: 'done', errorMsg: undefined };
+                const newLog = { time: new Date().toLocaleTimeString(), phase: '多指令合并', request: prompt, response: text, runtimeMs };
+                updated[idx] = { ...updated[idx], ai: mergedAi, status: 'done', errorMsg: undefined, aiLogs: [...(updated[idx].aiLogs || []), newLog] };
+                // Mutate local batch for sequential pipeline access
+                targetRow.ai = mergedAi;
               });
               return updated;
             });
@@ -1235,10 +1749,64 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
           }
         }
       } else {
-        // ── 分开模式：每条指令单独请求 ──
+        // ── 分开模式：每条/类单独请求 ──
         for (const inst of config.aiInstructions) {
           if (abortRef.current) return;
-          if (!inst.prompt.trim()) continue;
+          if (!inst.agentId && !inst.prompt.trim()) continue;
+
+          // ── Agent (独立专业工具) 模式 ──
+          if (inst.agentId) {
+             const agent = getAgentById(inst.agentId);
+             if (!agent) {
+                 log(`⚠️ 工具 [${inst.agentId}] 未找到`);
+                 continue;
+             }
+             log(`🤖 批次 ${bIdx + 1} 启动智能工具【${agent.name}】(${batch.length}行)`);
+             const dataArr = batch.map(r => String(r.ai[inst.sourceColumn] ?? r.raw[inst.sourceColumn] ?? ''));
+             
+             let attempt = 0;
+             while(attempt <= config.maxRetries) {
+                 if (abortRef.current) return;
+                 try {
+                     const startTime = Date.now();
+                     const results = await agent.executeBatch(dataArr, inst.agentConfig || {}, getAiInstance, inst.sourceColumn, undefined, inst.outputColumn);
+                     const runtimeMs = Date.now() - startTime;
+                     
+                     setRows(prev => {
+                         const updated = [...prev];
+                         results.forEach((res, i) => {
+                             const targetRow = batch[i];
+                             const idx = updated.findIndex(r => r.id === targetRow.id);
+                             if (idx >= 0) {
+                                 let isDedupRemoved = updated[idx].isDedupRemoved;
+                                 if (res.__remove__) {
+                                     isDedupRemoved = true;
+                                     delete res.__remove__;
+                                 }
+                                 const mergedAi = { ...updated[idx].ai, ...res };
+                                 const newLog = { time: new Date().toLocaleTimeString(), phase: `工具: ${agent.name}`, request: `Input: ${dataArr[i]}\nConfig: ${JSON.stringify(inst.agentConfig)}`, response: JSON.stringify(res, null, 2), runtimeMs };
+                                 updated[idx] = { ...updated[idx], isDedupRemoved, ai: mergedAi, aiLogs: [...(updated[idx].aiLogs || []), newLog] };
+                                 // Mutate local batch for sequential pipeline access
+                                 targetRow.ai = mergedAi;
+                             }
+                         });
+                         return updated;
+                     });
+                     log(`✅ 批次 ${bIdx + 1} 工具【${agent.name}】处理完成`);
+                     break;
+                 } catch (err: unknown) {
+                     attempt++;
+                     const msg = err instanceof Error ? err.message : String(err);
+                     if (attempt > config.maxRetries) {
+                         log(`❌ 批次 ${bIdx + 1} 工具【${agent.name}】失败: ${msg}`);
+                     } else {
+                         log(`⚠️ 工具【${agent.name}】重试...`);
+                         await new Promise(res => setTimeout(res, 3000));
+                     }
+                 }
+             }
+             continue;
+          }
 
           // ── 检测是否为图片列 ──
           const imageMode = inst.sourceColumn && isImageColumn(batch, inst.sourceColumn);
@@ -1256,14 +1824,24 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                   log(`⚠️ 第 ${ri + 1} 行无有效图片，跳过`);
                   continue;
                 }
+                const startTime = Date.now();
                 const result = await ai.models.generateContent({
                   model: modelId,
                   contents: [{ role: 'user', parts: visionData.parts }],
                 });
+                const runtimeMs = Date.now() - startTime;
                 const text = (result.text ?? '').trim();
-                setRows((prev) => prev.map((r) =>
-                  r.id === row.id ? { ...r, ai: { ...r.ai, [inst.outputColumn]: text } } : r
-                ));
+                const newLog = { time: new Date().toLocaleTimeString(), phase: `视觉分析: ${inst.name}`, request: '[Image base64 uploaded]', response: text, runtimeMs };
+                
+                setRows((prev) => prev.map((r) => {
+                  if (r.id === row.id) {
+                    const mergedAi = { ...r.ai, [inst.outputColumn]: text };
+                    // Mutate local batch for sequential pipeline access
+                    row.ai = mergedAi;
+                    return { ...r, ai: mergedAi, aiLogs: [...(r.aiLogs || []), newLog] };
+                  }
+                  return r;
+                }));
               } catch (err: unknown) {
                 const msg = err instanceof Error ? err.message : String(err);
                 log(`❌ 第 ${ri + 1} 行图片处理失败: ${msg}`);
@@ -1283,7 +1861,9 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
               if (abortRef.current) return;
               try {
                 log(`📤 批次 ${bIdx + 1}/${batches.length} 指令【${inst.name}】(${batch.length}行, 第${attempt + 1}次)`);
+                const startTime = Date.now();
                 const result = await ai.models.generateContent({ model: modelId, contents: prompt });
+                const runtimeMs = Date.now() - startTime;
                 const text = result.text ?? '';
                 const jsonMatch = text.match(/\[[\s\S]*\]/);
                 if (!jsonMatch) throw new Error('返回内容不含 JSON 数组，将重试');
@@ -1300,7 +1880,10 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                     if (inst.outputColumn && item[inst.outputColumn] !== undefined) {
                       mergedAi[inst.outputColumn] = String(item[inst.outputColumn]);
                     }
-                    updated[idx] = { ...updated[idx], ai: mergedAi };
+                    const newLog = { time: new Date().toLocaleTimeString(), phase: `单行处理: ${inst.name}`, request: prompt, response: text, runtimeMs };
+                    updated[idx] = { ...updated[idx], ai: mergedAi, aiLogs: [...(updated[idx].aiLogs || []), newLog] };
+                    // Mutate local batch for sequential pipeline access
+                    targetRow.ai = mergedAi;
                   });
                   return updated;
                 });
@@ -1328,6 +1911,8 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
           )
         );
       }
+      processedCount += batch.length;
+      setAiProgress({ current: processedCount, total: targets.length });
     };
 
     const queue = [...batches];
@@ -1339,7 +1924,14 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
     });
     await Promise.all(workers);
     setIsRunningAI(false);
-    log('🎉 全部批次处理完毕');
+    setAiProgress(null);
+    if (abortRef.current) {
+      log('🛑 任务已中止');
+    } else {
+      log('🎉 全部批次处理完毕');
+    }
+    // Revert any stuck rows (from aborts) to idle
+    setRows((prev) => prev.map((r) => r.status === 'processing' ? { ...r, status: 'idle' } : r));
   }, [isRunningAI, rows, config, getAiInstance, modelId, log]);
 
   const handleRetryErrors = useCallback(() => {
@@ -1356,15 +1948,34 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
   }, [rows, isRunningAI, handleRunAI]);
 
   // ── Stage 4: Export ──────────────────────────
-  const buildTsvOutput = useCallback(() => {
+  const buildTsvOutput = useCallback((includeRemoved: boolean = false) => {
     const cols = allDisplayColumns;
-    const header = cols.join('\t');
-    const body = activeRows.map((r) => cols.map((c) => (r.ai[c] ?? r.raw[c] ?? '')).join('\t')).join('\n');
+    const header = cols.map(tsvEscapeCell).join('\t');
+    const targetRows = includeRemoved ? rows : activeRows;
+    const body = targetRows.map((r) => {
+      // 如果包含被剔除的行，并且该行确已被剔除，则输出空行内容
+      if (includeRemoved && r.isDedupRemoved) {
+        return cols.map(() => '').join('\t');
+      }
+      return cols.map((c) => tsvEscapeCell(r.ai[c] ?? r.raw[c] ?? '')).join('\t');
+    }).join('\n');
     return header + '\n' + body;
-  }, [activeRows, allDisplayColumns]);
+  }, [rows, activeRows, allDisplayColumns]);
 
   const handleCopyResult = useCallback(() => {
-    navigator.clipboard.writeText(buildTsvOutput()).then(() => log('📋 已复制（可直接粘贴到 Google Sheets）'));
+    navigator.clipboard.writeText(buildTsvOutput(false)).then(() => {
+       log('📋 已复制可见数据（可直接粘贴到 Google Sheets）');
+       setCopyFeedback('all');
+       setTimeout(() => setCopyFeedback(null), 2000);
+    });
+  }, [buildTsvOutput, log]);
+
+  const handleCopyResultWithRemoved = useCallback(() => {
+    navigator.clipboard.writeText(buildTsvOutput(true)).then(() => {
+       log('📋 已复制全部数据 (包含被剔除的空行)');
+       setCopyFeedback('all_with_removed');
+       setTimeout(() => setCopyFeedback(null), 2000);
+    });
   }, [buildTsvOutput, log]);
 
   const handleExportCsv = useCallback(() => {
@@ -1373,7 +1984,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `数据整理_${new Date().toLocaleDateString('zh')}.csv`;
+    a.download = `智能代理_${new Date().toLocaleDateString('zh')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     log('💾 CSV 已导出');
@@ -1391,21 +2002,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
 
       {/* ─── Toolbar ── */}
       <div className="dp-toolbar" style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
-        <strong style={{ fontSize: 14, color: 'var(--on-surface-color)', marginRight: 4 }}>数据整理</strong>
-
-        {/* Stage pills */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
-          {[
-            { color: STAGE_COLORS.s1, label: `粘贴原文 (${rows.length})` },
-            { color: STAGE_COLORS.s2, label: `去重 (-${dedupedRows.length})` },
-            { color: STAGE_COLORS.s3, label: `AI (${doneRows.length}/${activeRows.length})` },
-            { color: STAGE_COLORS.s4, label: `导出` },
-          ].map((s, i) => (
-            <span key={i} style={{ padding: '2px 8px', borderRadius: 20, background: s.color, color: '#fff', fontSize: 11, fontWeight: 600 }}>
-              {s.label}
-            </span>
-          ))}
-        </div>
+        <strong style={{ fontSize: 14, color: 'var(--on-surface-color)', marginRight: 4 }}>智能代理</strong>
 
         {/* Preset button */}
         <button ref={presetBtnRef} className={`dp-btn ${showPresetMenu ? 'dp-btn-blue active' : ''}`}
@@ -1429,7 +2026,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
         </button>
         {isRunningAI ? (
           <button className="dp-btn dp-btn-orange active" onClick={() => { abortRef.current = true; }}>
-            <Loader2 size={13} className="animate-spin" /> 停止
+            <Loader2 size={13} className="animate-spin" /> 停止 {aiProgress ? `(${aiProgress.current}/${aiProgress.total})` : ''}
           </button>
         ) : (
           <button ref={aiBtnRef} className={`dp-btn dp-btn-orange ${showAIPicker ? 'active' : ''}`}
@@ -1448,18 +2045,62 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
         {selectedCells.size > 0 && (
           <button className="dp-btn" style={{ background: 'rgba(59,130,246,0.15)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)' }}
             onClick={copySelectedCells} title="Ctrl/⌘+C 复制选中单元格 (TSV 格式，可粘贴到 Google Sheets)">
-            <Copy size={13} /> 复制选中 ({selectedCells.size})
+            <Copy size={13} /> {copyFeedback === 'selected' ? '已复制' : `复制选中 (${selectedCells.size})`}
           </button>
         )}
-        <button className="dp-btn dp-btn-blue" onClick={handleCopyResult} disabled={activeRows.length === 0}>
-          <Copy size={13} /> 复制全部
+        <button className="dp-btn dp-btn-blue" onClick={handleCopyResult} disabled={activeRows.length === 0} title="仅复制可见的数据">
+          <Copy size={13} /> {copyFeedback === 'all' ? '已复制' : '复制全部'}
         </button>
+        {rows.length > activeRows.length && (
+          <button className="dp-btn" style={{ border: '1px solid #7dd3fc', color: '#0284c7' }} onClick={handleCopyResultWithRemoved} title="将刚才查重被删除/过滤掉的行作为空行一并带上复制，方便您粘贴回原始表格并保持行号对齐">
+            <Copy size={13} /> {copyFeedback === 'all_with_removed' ? '已复制' : '复制 (包含原空行)'}
+          </button>
+        )}
         <button className="dp-btn dp-btn-blue" onClick={handleExportCsv} disabled={activeRows.length === 0}>
           <FileDown size={13} /> 导出 CSV
         </button>
-        <button className="dp-btn" onClick={() => { if (window.confirm('确认清空全部数据？')) { setRows([]); log('🗑️ 已清空全部数据'); } }}>
-          <Trash2 size={13} />
-        </button>
+        {(rows.some(r => Object.keys(r.ai).length > 0 || r.status !== 'idle' || r.isDedupRemoved)) && (
+          <>
+            <ConfirmButton
+              className="dp-btn"
+              onClick={handleRedoAll}
+              title="清空 AI 处理结果，并将所有行状态重置为待处理"
+              style={{ color: '#f59e0b', border: '1px solid currentColor' }}
+              icon={RotateCcw}
+              label="全部重做"
+              confirmLabel="确认重置？"
+            />
+            <ConfirmButton
+              className="dp-btn"
+              onClick={handleClearResults}
+              title="清空全部生成结果和状态（保留原始数据）"
+              style={{ color: '#ef4444', border: '1px solid currentColor' }}
+              icon={Eraser}
+              label="清空结果"
+              confirmLabel="确认清空结果？"
+            />
+          </>
+        )}
+        <ConfirmButton
+          className="dp-btn"
+          onClick={() => {
+            setRows([]);
+            setConfig(c => ({
+              ...c,
+              rawColumns: ['原文'],
+              dedupColumns: ['原文'],
+              aiInstructions: c.aiInstructions.map((inst, i) => ({
+                ...inst,
+                sourceColumn: '原文',
+                outputColumn: `AI处理_${i + 1}`,
+              })),
+            }));
+            log('🗑️ 已清空全部数据，列名已恢复默认');
+          }}
+          title="清空整张表的所有数据（包括原始数据）"
+          icon={Trash2}
+          confirmLabel="确认清空整表？"
+        />
       </div>
 
       {/* ─── Config Panel ── */}
@@ -1474,8 +2115,46 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
                 {config.rawColumns.map((col, i) => (
-                  <div key={i} className="dp-tag" style={{ borderColor: 'rgba(224,82,82,0.3)', color: '#e05252' }}>
-                    {col}
+                  <div key={col + '_' + i} className="dp-tag" style={{ borderColor: 'rgba(224,82,82,0.3)', color: '#e05252', cursor: 'default' }}
+                    title="双击重命名此列"
+                  >
+                    <span
+                      contentEditable
+                      suppressContentEditableWarning
+                      onBlur={(e) => {
+                        const newName = (e.target as HTMLSpanElement).textContent?.trim() || '';
+                        if (newName && newName !== col) {
+                          setConfig((c) => ({
+                            ...c,
+                            rawColumns: c.rawColumns.map((rc, j) => j === i ? newName : rc),
+                            dedupColumns: c.dedupColumns.map(dc => dc === col ? newName : dc),
+                            aiInstructions: c.aiInstructions.map(inst => ({
+                              ...inst,
+                              sourceColumn: inst.sourceColumn === col ? newName : inst.sourceColumn,
+                              outputColumn: inst.outputColumn === col ? newName : inst.outputColumn,
+                            })),
+                          }));
+                          setRows(prev => prev.map(r => {
+                            if (col in r.raw) {
+                              const newRaw = { ...r.raw };
+                              newRaw[newName] = newRaw[col];
+                              delete newRaw[col];
+                              return { ...r, raw: newRaw };
+                            }
+                            return r;
+                          }));
+                        } else {
+                          (e.target as HTMLSpanElement).textContent = col;
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLSpanElement).blur(); }
+                        if (e.key === 'Escape') { (e.target as HTMLSpanElement).textContent = col; (e.target as HTMLSpanElement).blur(); }
+                      }}
+                      style={{ outline: 'none', minWidth: 20, cursor: 'text', borderBottom: '1px dashed rgba(224,82,82,0.3)' }}
+                    >
+                      {col}
+                    </span>
                     <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#e05252', opacity: 0.6 }}
                       onClick={() => setConfig((c) => ({ ...c, rawColumns: c.rawColumns.filter((_, j) => j !== i) }))}>
                       <X size={10} />
@@ -1518,7 +2197,23 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
 
               <div className="dp-config-section-title" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 12 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3aaa6b', display: 'inline-block' }} />
-                第二阶段：去重依据列
+                第二阶段：去重清理
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, marginBottom: 8 }}>
+                <div 
+                   onClick={() => setConfig(c => ({ ...c, dedupPhaseMode: 'exact' }))}
+                   style={{ background: config.dedupPhaseMode==='exact'?'#3aaa6b20':'transparent', color: config.dedupPhaseMode==='exact'?'#3aaa6b':'var(--text-muted-color)', border: `1px solid ${config.dedupPhaseMode==='exact'?'#3aaa6b50':'var(--border-color)'}`, padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, transition: 'all 0.2s' }}>
+                  🎯 精准列匹配
+                </div>
+                <div 
+                   onClick={() => setConfig(c => ({ ...c, dedupPhaseMode: 'semantic' }))}
+                   style={{ background: config.dedupPhaseMode==='semantic'?'#f59e0b20':'transparent', color: config.dedupPhaseMode==='semantic'?'#f59e0b':'var(--text-muted-color)', border: `1px solid ${config.dedupPhaseMode==='semantic'?'#f59e0b50':'var(--border-color)'}`, padding: '4px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, transition: 'all 0.2s' }}>
+                  🔎 高级查重 (算法/语义)
+                </div>
+              </div>
+              
+              <div style={{ fontSize: 11, marginBottom: 4, color: 'var(--text-muted-color)' }}>
+                {config.dedupPhaseMode === 'semantic' ? '选择参与查重特征提取的列（可多选）：' : '选择去重依据列（完全相同即去重）：'}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
                 {config.rawColumns.map((col) => (
@@ -1532,14 +2227,41 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                   </label>
                 ))}
               </div>
-              <div style={{ display: 'flex', gap: 12 }}>
-                {([['first', '保留第一条'], ['last', '保留最后一条']] as const).map(([val, label]) => (
-                  <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', color: 'var(--text-color)' }}>
-                    <input type="radio" name="dp-keep" checked={config.dedupKeep === val} onChange={() => setConfig((c) => ({ ...c, dedupKeep: val }))} />
-                    {label}
-                  </label>
-                ))}
-              </div>
+              
+              {config.dedupPhaseMode === 'exact' ? (
+                <div style={{ display: 'flex', gap: 12 }}>
+                  {([['first', '保留第一条'], ['last', '保留最后一条']] as const).map(([val, label]) => (
+                    <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer', color: 'var(--text-color)' }}>
+                      <input type="radio" name="dp-keep" checked={config.dedupKeep === val} onChange={() => setConfig((c) => ({ ...c, dedupKeep: val }))} />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <ClassifyConfigPanel
+                      value={{
+                          ...config.semanticDedupConfig,
+                          depth: 'major',
+                          batchSize: config.semanticDedupConfig?.batchSize ?? 999,
+                          customRules: [],
+                          enableDedup: true,
+                          dedupMode: config.semanticDedupConfig?.dedupMode || 'fingerprint',
+                          dedupSource: config.semanticDedupConfig?.dedupSource || 'self',
+                          taskMode: 'dedup_only',
+                          systemPromptOverride: '',
+                      }}
+                      onChange={(val) => {
+                          setConfig(c => ({ 
+                              ...c, 
+                              semanticDedupConfig: { ...c.semanticDedupConfig, ...val, enableDedup: true, taskMode: 'dedup_only' } 
+                          }));
+                      }}
+                      compact={true}
+                      panelMode="dedup"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Right: AI instructions */}
@@ -1547,10 +2269,40 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
               <div className="dp-config-section-title" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#e57c26', display: 'inline-block' }} />
                 第三阶段：AI 指令
-                <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 400 }}>（多指令合并一次请求）</span>
+                {config.aiInstructions.length > 0 && (
+                  <button
+                    onClick={() => setConfig(c => ({ ...c, aiInstructions: [] }))}
+                    title="清空所有 AI 指令"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)', padding: 2, marginLeft: 2, opacity: 0.6 }}
+                  ><Eraser size={12} /></button>
+                )}
+                {(() => {
+                  const hasUnmergeableAgent = config.aiInstructions.some(inst => inst.agentId && !getAgentById(inst.agentId)?.compileMergedInstruction);
+                  const effectiveMerge = config.mergeInstructions && !hasUnmergeableAgent;
+                  return (
+                    <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, cursor: hasUnmergeableAgent ? 'not-allowed' : 'pointer', fontSize: 11, fontWeight: 400, opacity: hasUnmergeableAgent ? 0.6 : 1 }} title={hasUnmergeableAgent ? "包含不支持合并的工具，强制分开执行" : "合为一步执行省流提速"}>
+                      <span
+                        onClick={() => { if (!hasUnmergeableAgent) setConfig((c) => ({ ...c, mergeInstructions: !c.mergeInstructions })) }}
+                        style={{
+                          width: 26, height: 14, borderRadius: 7, position: 'relative', display: 'inline-block', cursor: hasUnmergeableAgent ? 'not-allowed' : 'pointer',
+                          background: effectiveMerge ? '#e57c26' : 'var(--border-color)',
+                          transition: 'background 0.2s',
+                        }}>
+                        <span style={{
+                          position: 'absolute', top: 2, left: effectiveMerge ? 14 : 2,
+                          width: 10, height: 10, borderRadius: '50%', background: '#fff',
+                          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                        }} />
+                      </span>
+                      <span style={{ color: effectiveMerge ? '#e57c26' : 'var(--text-muted-color)' }}>
+                        {effectiveMerge ? '合并请求' : '分开请求'}
+                      </span>
+                    </label>
+                  );
+                })()}
               </div>
               <div style={{ maxHeight: 200, overflowY: 'auto', paddingRight: 4 }}>
-                {config.aiInstructions.map((inst) => (
+                {config.aiInstructions.map((inst, idx) => (
                   <InstructionEditor
                     key={inst.id}
                     inst={inst}
@@ -1559,20 +2311,106 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                     promptPresets={promptPresets}
                     onChange={(updated) => setConfig((c) => ({ ...c, aiInstructions: c.aiInstructions.map((i) => (i.id === inst.id ? updated : i)) }))}
                     onDelete={() => setConfig((c) => ({ ...c, aiInstructions: c.aiInstructions.filter((i) => i.id !== inst.id) }))}
+                    onMoveUp={
+                      idx > 0
+                        ? () =>
+                            setConfig((c) => {
+                              const arr = [...c.aiInstructions];
+                              [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+                              return { ...c, aiInstructions: arr };
+                            })
+                        : undefined
+                    }
+                    onMoveDown={
+                      idx < config.aiInstructions.length - 1
+                        ? () =>
+                            setConfig((c) => {
+                              const arr = [...c.aiInstructions];
+                              [arr[idx + 1], arr[idx]] = [arr[idx], arr[idx + 1]];
+                              return { ...c, aiInstructions: arr };
+                            })
+                        : undefined
+                    }
                     onSavePromptPreset={savePromptPreset}
                     onLoadPromptPreset={() => {}}
                     onDeletePromptPreset={deletePromptPreset}
                   />
                 ))}
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                <button className="dp-btn dp-btn-orange" style={{ flex: 1 }}
-                  onClick={() => setConfig((c) => { const src = c.rawColumns[0] || ''; return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: src ? `${src}_ai处理` : `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: src }] }; })}>
-                  <Plus size={12} /> 添加指令
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, position: 'relative' }}>
+                <button ref={addAgentBtnRef} className="dp-btn dp-btn-orange" style={{ flex: 1 }}
+                  onClick={() => setShowAddAgentPicker(v => !v)}>
+                  <Plus size={12} /> 增加处理节点 <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
                 </button>
                 <button className="dp-btn dp-btn-orange" onClick={() => { setBatchInstText(''); setShowBatchInstModal(true); }}>
                   <ClipboardPaste size={12} /> 批量粘贴
                 </button>
+                {showAddAgentPicker && createPortal(
+                  <>
+                     <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowAddAgentPicker(false)} />
+                     <div style={{
+                        position: 'fixed',
+                        top: (addAgentBtnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                        left: addAgentBtnRef.current?.getBoundingClientRect().left ?? 0,
+                        zIndex: 9999,
+                        background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                        borderRadius: 8, padding: 8, width: 220,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                     }} onClick={e => e.stopPropagation()}>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>普通指令</div>
+                        <button className="dp-btn" style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 8, background: 'none', border: 'none' }}
+                          onClick={() => {
+                             setConfig((c) => { 
+                               let src = c.rawColumns[0] || ''; 
+                               if (c.aiInstructions.length > 0) {
+                                  const lastInst = c.aiInstructions[c.aiInstructions.length - 1];
+                                  if (lastInst.agentId) {
+                                      const agent = getAgentById(lastInst.agentId);
+                                      if (agent) {
+                                          const predicted = agent.predictOutputColumns(lastInst.agentConfig || {}, lastInst.sourceColumn, lastInst.outputColumn);
+                                          if (predicted.length > 0) src = predicted[0];
+                                      }
+                                  } else if (lastInst.outputColumn) {
+                                      src = lastInst.outputColumn;
+                                  }
+                               }
+                               return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: src ? `${src}_ai处理` : `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: src }] }; 
+                             });
+                             setShowAddAgentPicker(false);
+                          }}>
+                          <Sparkles size={14} style={{ color: '#e57c26' }} /> ✨ 自定义 Prompt 节点
+                        </button>
+
+                        <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>独立专业工具 (Agent)</div>
+                        {AgentRegistry.map(agent => (
+                           <button key={agent.id} className="dp-btn" style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 2, background: 'none', border: 'none' }}
+                             title={agent.description}
+                             onClick={() => {
+                               setConfig((c) => { 
+                                 let src = c.rawColumns[0] || ''; 
+                                 if (c.aiInstructions.length > 0) {
+                                    const lastInst = c.aiInstructions[c.aiInstructions.length - 1];
+                                    if (lastInst.agentId) {
+                                        const prevAgent = getAgentById(lastInst.agentId);
+                                        if (prevAgent) {
+                                            const predicted = prevAgent.predictOutputColumns(lastInst.agentConfig || {}, lastInst.sourceColumn, lastInst.outputColumn);
+                                            if (predicted.length > 0) src = predicted[0];
+                                        }
+                                    } else if (lastInst.outputColumn) {
+                                        src = lastInst.outputColumn;
+                                    }
+                                 }
+                                 return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: agent.name, prompt: '', outputColumn: '', sourceColumn: src, agentId: agent.id, agentConfig: {} }] }; 
+                               });
+                               setShowAIPicker(false);
+                             }}>
+                             <span style={{ color: 'var(--brand-color)' }}>{agent.icon}</span> {agent.name}
+                           </button>
+                        ))}
+                     </div>
+                  </>,
+                  document.body
+                )}
               </div>
 
               {/* Batch params */}
@@ -1613,7 +2451,29 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                 boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted-color)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <FolderOpen size={12} /> 预设管理
+                  <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <FolderOpen size={12} /> 预设管理
+                  </span>
+                  <button onClick={() => {
+                      navigator.clipboard.writeText(JSON.stringify(presets, null, 2));
+                      log('✅ 配置已导出到剪贴板，共 ' + presets.length + ' 条');
+                  }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e57c26' }} title="导出配置到剪贴板">
+                     <Copy size={12} />
+                  </button>
+                  <button onClick={async () => {
+                      try {
+                          const text = await navigator.clipboard.readText();
+                          const parsed = JSON.parse(text);
+                          if (Array.isArray(parsed) && parsed[0]?.id) {
+                              setPresets(parsed);
+                              log('✅ 成功导入 ' + parsed.length + ' 条预设');
+                          } else throw new Error();
+                      } catch {
+                          log('❌ 导入失败，请先复制合法的配置清单 JSON');
+                      }
+                  }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e57c26' }} title="从剪贴板导入配置">
+                     <ClipboardPaste size={12} />
+                  </button>
                 </div>
                 {presets.length === 0 ? (
                   <div style={{ fontSize: 12, color: 'var(--text-muted-color)', padding: '12px 0', textAlign: 'center' }}>
@@ -1646,16 +2506,42 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                     ))}
                   </div>
                 )}
-                <button className="dp-btn dp-btn-blue" style={{ width: '100%', justifyContent: 'center' }}
-                  onClick={() => {
-                    const name = window.prompt('预设名称：', `预设 ${presets.length + 1}`);
-                    if (name?.trim()) {
-                      savePreset(name.trim());
-                      setShowPresetMenu(false);
-                    }
-                  }}>
-                  <Save size={12} /> 保存当前配置为预设
-                </button>
+                {presetSaveInputVisible ? (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                    <input
+                      className="dp-input"
+                      style={{ flex: 1, padding: 4, fontSize: 11 }}
+                      value={newPresetName}
+                      onChange={(e) => setNewPresetName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newPresetName.trim()) {
+                          savePreset(newPresetName.trim());
+                          setPresetSaveInputVisible(false);
+                          setShowPresetMenu(false);
+                        } else if (e.key === 'Escape') {
+                          setPresetSaveInputVisible(false);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button className="dp-btn dp-btn-blue" onClick={() => {
+                        if (newPresetName.trim()) {
+                          savePreset(newPresetName.trim());
+                          setPresetSaveInputVisible(false);
+                          setShowPresetMenu(false);
+                        }
+                    }}>确定</button>
+                    <button className="dp-btn" onClick={() => setPresetSaveInputVisible(false)}>取消</button>
+                  </div>
+                ) : (
+                  <button className="dp-btn dp-btn-blue" style={{ width: '100%', justifyContent: 'center' }}
+                    onClick={() => {
+                      setNewPresetName(`预设 ${presets.length + 1}`);
+                      setPresetSaveInputVisible(true);
+                    }}>
+                    <Save size={12} /> 保存当前配置为预设
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -1733,27 +2619,9 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted-color)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#e57c26', display: 'inline-block' }} />
                   AI 指令设置
-                  <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 11, fontWeight: 400 }}>
-                    <span
-                      onClick={() => setConfig((c) => ({ ...c, mergeInstructions: !c.mergeInstructions }))}
-                      style={{
-                        width: 30, height: 16, borderRadius: 8, position: 'relative', display: 'inline-block', cursor: 'pointer',
-                        background: config.mergeInstructions ? '#e57c26' : 'var(--border-color)',
-                        transition: 'background 0.2s',
-                      }}>
-                      <span style={{
-                        position: 'absolute', top: 2, left: config.mergeInstructions ? 16 : 2,
-                        width: 12, height: 12, borderRadius: '50%', background: '#fff',
-                        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                      }} />
-                    </span>
-                    <span style={{ color: config.mergeInstructions ? '#e57c26' : 'var(--text-muted-color)' }}>
-                      {config.mergeInstructions ? '合并请求' : '分开请求'}
-                    </span>
-                  </label>
                 </div>
                 <div style={{ maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
-                  {config.aiInstructions.map((inst) => (
+                  {config.aiInstructions.map((inst, idx) => (
                     <InstructionEditor
                       key={inst.id}
                       inst={inst}
@@ -1762,20 +2630,82 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                       promptPresets={promptPresets}
                       onChange={(updated) => setConfig((c) => ({ ...c, aiInstructions: c.aiInstructions.map((i) => (i.id === inst.id ? updated : i)) }))}
                       onDelete={() => setConfig((c) => ({ ...c, aiInstructions: c.aiInstructions.filter((i) => i.id !== inst.id) }))}
+                      onMoveUp={
+                        idx > 0
+                          ? () =>
+                              setConfig((c) => {
+                                const arr = [...c.aiInstructions];
+                                [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+                                return { ...c, aiInstructions: arr };
+                              })
+                          : undefined
+                      }
+                      onMoveDown={
+                        idx < config.aiInstructions.length - 1
+                          ? () =>
+                              setConfig((c) => {
+                                const arr = [...c.aiInstructions];
+                                [arr[idx + 1], arr[idx]] = [arr[idx], arr[idx + 1]];
+                                return { ...c, aiInstructions: arr };
+                              })
+                          : undefined
+                      }
                       onSavePromptPreset={savePromptPreset}
                       onLoadPromptPreset={() => {}}
                       onDeletePromptPreset={deletePromptPreset}
                     />
                   ))}
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                  <button className="dp-btn dp-btn-orange" style={{ flex: 1 }}
-                    onClick={() => setConfig((c) => { const src = c.rawColumns[0] || ''; return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: src ? `${src}_ai处理` : `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: src }] }; })}>
-                    <Plus size={12} /> 添加指令
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, position: 'relative' }}>
+                  <button ref={addAgentBtnRefModal} className="dp-btn dp-btn-orange" style={{ flex: 1 }}
+                    onClick={() => setShowAddAgentPickerModal(v => !v)}>
+                    <Plus size={12} /> 增加处理节点 <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
                   </button>
                   <button className="dp-btn dp-btn-orange" onClick={() => { setBatchInstText(''); setShowBatchInstModal(true); }}>
                     <ClipboardPaste size={12} /> 批量粘贴
                   </button>
+                  {showAddAgentPickerModal && createPortal(
+                    <>
+                       <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setShowAddAgentPickerModal(false)} />
+                       <div style={{
+                          position: 'fixed',
+                          top: (addAgentBtnRefModal.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                          left: addAgentBtnRefModal.current?.getBoundingClientRect().left ?? 0,
+                          zIndex: 9999,
+                          background: 'var(--surface-color)', border: '1px solid var(--border-color)',
+                          borderRadius: 8, padding: 8, width: 220,
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                       }} onClick={e => e.stopPropagation()}>
+                          <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>普通指令</div>
+                          <button className="dp-btn" style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 8, background: 'none', border: 'none' }}
+                            onClick={() => {
+                               setConfig((c) => { 
+                                 const src = c.rawColumns[0] || ''; 
+                                 return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: `指令 ${c.aiInstructions.length + 1}`, prompt: '', outputColumn: src ? `${src}_ai处理` : `AI处理_${c.aiInstructions.length + 1}`, sourceColumn: src }] }; 
+                               });
+                               setShowAddAgentPickerModal(false);
+                            }}>
+                            <Sparkles size={14} style={{ color: '#e57c26' }} /> ✨ 自定义 Prompt 节点
+                          </button>
+
+                          <div style={{ fontSize: 10, color: 'var(--text-muted-color)', fontWeight: 700, marginBottom: 4 }}>独立专业工具 (Agent)</div>
+                          {AgentRegistry.map(agent => (
+                             <button key={agent.id} className="dp-btn" style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 2, background: 'none', border: 'none' }}
+                               title={agent.description}
+                               onClick={() => {
+                                 setConfig((c) => { 
+                                   const src = c.rawColumns[0] || ''; 
+                                   return { ...c, aiInstructions: [...c.aiInstructions, { id: uuid(), name: agent.name, prompt: '', outputColumn: '', sourceColumn: src, agentId: agent.id, agentConfig: {} }] }; 
+                                 });
+                                 setShowAddAgentPickerModal(false);
+                               }}>
+                               <span style={{ color: 'var(--brand-color)' }}>{agent.icon}</span> {agent.name}
+                             </button>
+                          ))}
+                       </div>
+                    </>,
+                    document.body
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                   {([
@@ -1795,7 +2725,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                   ))}
                 </div>
                 <button className="dp-btn dp-btn-orange" style={{ width: '100%', justifyContent: 'center', marginTop: 10, fontWeight: 700 }}
-                  disabled={config.aiInstructions.length === 0 || config.aiInstructions.every((i) => !i.prompt.trim())}
+                  disabled={config.aiInstructions.length === 0 || config.aiInstructions.every((i) => !i.agentId && (!i.prompt || !i.prompt.trim()))}
                   onClick={() => { setShowAIPicker(false); handleRunAI(); }}>
                   <Sparkles size={13} /> 开始运行 ({activeRows.filter((r) => r.status !== 'done').length} 行待处理)
                 </button>
@@ -1843,7 +2773,7 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
             {pasteHeaders.length > 0 && (
               <div style={{ marginBottom: 10 }}>
                 <p style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  检测到 <strong>{pasteHeaders.length}</strong> 列{pastePreview.length > 0 ? `，${pastePreview.length}+ 行数据` : ''}，点击选择要导入的列：
+                  <span>检测到 <strong>{pasteHeaders.length}</strong> 列{pastePreview.length > 0 ? `，${pastePreview.length}+ 行数据` : ''}，点击选择要导入的列：</span>
                   <span style={{ fontSize: 11, color: 'var(--text-muted-color)', cursor: 'pointer' }}
                     onClick={() => {
                       if (selectedColumns.size === pasteHeaders.length) setSelectedColumns(new Set());
@@ -1851,6 +2781,18 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                     }}>
                     {selectedColumns.size === pasteHeaders.length ? '取消全选' : '全选'}
                   </span>
+                  <div style={{ flex: 1 }} />
+                  <label style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 'normal', color: 'var(--text-muted-color)' }}>
+                    <input type="checkbox" checked={pasteHasHeaders} onChange={(e) => {
+                       const checked = e.target.checked;
+                       setPasteHasHeaders(checked);
+                       if (pasteWbRef.current) {
+                         handlePasteFromWorkbook(pasteWbRef.current, checked);
+                       } else {
+                         handlePaste(rawPasteText, checked);
+                       }
+                    }} /> 识别首行为标题
+                  </label>
                 </p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                   {pasteHeaders.map((h) => {
@@ -1884,6 +2826,14 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                 <p style={{ fontSize: 11, color: 'var(--text-muted-color)', marginTop: 4 }}>
                   已选 {selectedColumns.size}/{pasteHeaders.length} 列
                 </p>
+                {autoDisabledHeaders && (
+                  <div style={{ marginTop: 8, padding: '6px 10px', background: 'rgba(245, 158, 11, 0.1)', color: '#d97706', borderRadius: 6, fontSize: 12, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                    <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+                    <div style={{ lineHeight: 1.4 }}>
+                      系统检测到首行看起来像是数据内容（长度较长），已为您<strong>自动取消勾选</strong>「识别首行为标题」。如需恢复，请手动勾选。
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1893,7 +2843,36 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                 <table className="dp-table" style={{ minWidth: 'auto' }}>
                   <thead>
                     <tr style={{ background: 'var(--control-bg-color)' }}>
-                      {pasteHeaders.map((h, i) => <th key={i} style={{ color: 'var(--text-muted-color)', background: 'var(--control-bg-color)', fontWeight: 600 }}>{h}</th>)}
+                      {pasteHeaders.map((h, i) => (
+                        <th key={i} style={{ padding: '2px 4px', background: 'var(--control-bg-color)' }}>
+                          <input 
+                            className="dp-input" 
+                            style={{ width: '100%', fontSize: 12, fontWeight: 600, color: 'var(--text-muted-color)', background: 'transparent', border: '1px solid transparent', padding: '2px 4px' }}
+                            value={h}
+                            title="点击可直接修改列名"
+                            onFocus={e => e.target.style.border = '1px solid var(--border-color)'}
+                            onBlur={e => e.target.style.border = '1px solid transparent'}
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              const oldVal = pasteHeaders[i];
+                              setPasteHeaders(prev => {
+                                const next = [...prev];
+                                next[i] = newVal;
+                                return next;
+                              });
+                              setSelectedColumns(prev => {
+                                if (prev.has(oldVal)) {
+                                  const next = new Set(prev);
+                                  next.delete(oldVal);
+                                  next.add(newVal);
+                                  return next;
+                                }
+                                return prev;
+                              });
+                            }}
+                          />
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -2016,22 +2995,24 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
               <th style={{ background: '#374151' }}>状态</th>
               {config.rawColumns.map((col) => (
                 <th key={col} className={highlightedCols.has(col) ? 'dp-th-selected' : ''}
-                  style={{ background: highlightedCols.has(col) ? '#2563eb' : STAGE_COLORS.s1, position: 'relative' }}
+                  style={{ height: headerHeight ? `${headerHeight}px` : undefined, background: highlightedCols.has(col) ? '#2563eb' : STAGE_COLORS.s1, position: 'relative' }}
                   onMouseDown={(e) => handleColumnMouseDown(col, e)}
                   onMouseEnter={() => handleColumnMouseEnter(col)}
                   title={`点击选中整列「${col}」`}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{col}</span>
+                  <span style={{ display: 'block', height: '100%', overflow: 'hidden', whiteSpace: 'normal', wordBreak: 'break-all' }}>{col}</span>
                   <div className="dp-resize-handle" onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, col); }} />
+                  <div className="dp-header-resize-handle" onMouseDown={(e) => { e.stopPropagation(); onHeaderResizeStart(e); }} />
                 </th>
               ))}
               {aiOutputColumns.map((col) => (
                 <th key={col} className={highlightedCols.has(col) ? 'dp-th-selected' : ''}
-                  style={{ background: highlightedCols.has(col) ? '#2563eb' : STAGE_COLORS.s3, position: 'relative' }}
+                  style={{ height: headerHeight ? `${headerHeight}px` : undefined, background: highlightedCols.has(col) ? '#2563eb' : STAGE_COLORS.s3, position: 'relative' }}
                   onMouseDown={(e) => handleColumnMouseDown(col, e)}
                   onMouseEnter={() => handleColumnMouseEnter(col)}
                   title={`点击选中整列「${col}」`}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{col}</span>
+                  <span style={{ display: 'block', height: '100%', overflow: 'hidden', whiteSpace: 'normal', wordBreak: 'break-all' }}>{col}</span>
                   <div className="dp-resize-handle" onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, col); }} />
+                  <div className="dp-header-resize-handle" onMouseDown={(e) => { e.stopPropagation(); onHeaderResizeStart(e); }} />
                 </th>
               ))}
             </tr>
@@ -2044,11 +3025,21 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                     onMouseDown={(e) => handleRowMouseDown(idx, e)}
                     onMouseEnter={() => handleRowMouseEnter(idx)}
                   >{idx + 1}</td>
-                  <td style={{ textAlign: 'center' }}>
+                  <td style={{ textAlign: 'center', position: 'relative' }}>
                     {row.status === 'processing' && <Loader2 size={12} className="animate-spin" style={{ color: '#e57c26', margin: 'auto' }} />}
                     {row.status === 'done' && <CheckCircle2 size={12} style={{ color: '#3aaa6b', margin: 'auto' }} />}
                     {row.status === 'error' && <span title={row.errorMsg}><AlertCircle size={12} style={{ color: '#ef4444', margin: 'auto' }} /></span>}
                     {row.status === 'idle' && <span style={{ color: 'var(--text-muted-color)' }}>·</span>}
+                    <div className="dp-row-actions">
+                      <button className="dp-row-action-btn" onClick={(e) => { e.stopPropagation(); handleRunAI([row.id]); }} data-tooltip="单独运行此行">
+                        <Zap size={14} style={{ color: '#e57c26' }} />
+                      </button>
+                      {row.aiLogs && row.aiLogs.length > 0 && (
+                        <button className="dp-row-action-btn" onClick={(e) => { e.stopPropagation(); setViewLogsFor(row.id); }} data-tooltip="查看 AI 完整日志">
+                          <Eye size={14} style={{ color: '#3b82f6' }} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                   {config.rawColumns.map((col) => {
                     const cellKey = `${row.id}:${col}`;
@@ -2099,7 +3090,9 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
                             onKeyDown={(e) => { if (e.key === 'Escape') { setEditingCell(null); } }}
                           />
                         ) : row.status === 'processing' ? (
-                          <span style={{ color: '#e57c26', fontStyle: 'italic' }}>处理中...</span>
+                          row.ai[col] 
+                            ? <span style={{ color: 'var(--text-color)' }}>{row.ai[col]}</span> 
+                            : <span style={{ color: '#e57c26', fontStyle: 'italic' }}>处理中...</span>
                         ) : (
                           <span style={{ color: row.ai[col] ? 'var(--text-color)' : 'var(--text-muted-color)' }}>{row.ai[col] ?? '—'}</span>
                         )}
@@ -2256,6 +3249,62 @@ const DataPipelinePanel: React.FC<DataPipelinePanelProps> = ({ getAiInstance, mo
               onClick={() => setExpandedCell(null)}>
               <X size={16} />
             </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ─── View Logs Modal ── */}
+      {viewLogsFor && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setViewLogsFor(null)}>
+          <div style={{ background: 'var(--surface-color)', borderRadius: 12, padding: '20px 24px', width: '90%', maxWidth: 900, maxHeight: '85vh', display: 'flex', flexDirection: 'column', gap: 14, boxShadow: '0 12px 40px rgba(0,0,0,0.4)', position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Eye size={16} style={{ color: '#3b82f6' }} />
+                AI 处理日志分析 (ID: {viewLogsFor.substring(0, 8)})
+              </div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted-color)' }}
+                onClick={() => setViewLogsFor(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16, paddingRight: 8 }}>
+              {rows.find((r) => r.id === viewLogsFor)?.aiLogs?.length ? (
+                rows.find((r) => r.id === viewLogsFor)!.aiLogs!.map((log, idx) => (
+                  <div key={idx} style={{ background: 'var(--bg-color)', borderRadius: 8, padding: 16, border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ background: '#e57c26', color: '#fff', fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 500 }}>{log.phase}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted-color)' }}>{log.time}</span>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted-color)', background: 'var(--control-bg-color)', padding: '2px 6px', borderRadius: 4 }}>
+                        耗时: {(log.runtimeMs / 1000).toFixed(2)}s
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted-color)', marginBottom: 6, textTransform: 'uppercase' }}>📤 请求报文 (Request Payload)</div>
+                        <pre style={{ margin: 0, padding: 10, background: 'rgba(0,0,0,0.03)', borderRadius: 6, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 300, overflowY: 'auto' }}>
+                          {log.request}
+                        </pre>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted-color)', marginBottom: 6, textTransform: 'uppercase' }}>📥 响应数据 (Response Data)</div>
+                        <pre style={{ margin: 0, padding: 10, background: 'rgba(58, 170, 107, 0.05)', border: '1px solid rgba(58, 170, 107, 0.2)', borderRadius: 6, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 300, overflowY: 'auto' }}>
+                          {log.response || '<Empty Response>'}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted-color)', fontSize: 13 }}>
+                  暂无日志记录
+                </div>
+              )}
+            </div>
           </div>
         </div>,
         document.body

@@ -10,7 +10,7 @@ import {
 } from '../../services/projectService';
 import { v4 as uuidv4 } from 'uuid';
 import { ImageItem, Preset, ImageRecognitionState, ChatMessage, InnovationItem, RecognitionTab, initialImageRecognitionState, savePresetsToStorage, DEFAULT_PRESETS, createDefaultTab } from './types';
-import { savePresets as savePresetsToFirebase, loadPresets as loadPresetsFromFirebase } from '@/services/firestoreService';
+import { savePresets as savePresetsToFirebase, loadPresets as loadPresetsFromFirebase } from '../../services/firestoreService';
 
 type DescSendItem = {
     text: string;
@@ -59,9 +59,10 @@ import {
     scanMasterSheets,
 } from './services/randomLibraryService';
 import { QuickInnovationPanel } from './components/quick-innovation/QuickInnovationPanel';
+import { playCompletionSound } from '@/utils/soundNotification';
 
 // 提示词创新相关类型
-interface DescEntry {
+export interface DescEntry {
     id: string;
     source: string;
     outputs: string[];
@@ -70,7 +71,7 @@ interface DescEntry {
     originImageId?: string | null;
 }
 
-interface DescState {
+export interface DescState {
     entries: DescEntry[];
     descPrompt: string;
     count: number;
@@ -107,6 +108,8 @@ interface ImageRecognitionAppProps {
     templateState?: { savedTemplates: Array<{ id: string; name: string; sections: any[]; values: Record<string, string> }> };
     // 统一预设共享
     unifiedPresets?: SimplePreset[];
+    // 全局文本模型
+    textModel?: string;
 }
 
 // 默认 Gyazo Token
@@ -167,7 +170,8 @@ async function processWithConcurrency<T>(
     items: T[],
     concurrency: number,
     processItem: (item: T) => Promise<void>,
-    delayMs: number = 1000 // 每个请求之间的间隔
+    delayMs: number = 1000, // 每个请求之间的间隔
+    shouldAbort?: () => boolean
 ) {
     const queue = [...items];
     const activeWorkers = new Set<Promise<void>>();
@@ -185,8 +189,8 @@ async function processWithConcurrency<T>(
         await processItem(item);
     };
 
-    while (queue.length > 0 || activeWorkers.size > 0) {
-        while (queue.length > 0 && activeWorkers.size < concurrency) {
+    while ((queue.length > 0 || activeWorkers.size > 0) && !(shouldAbort && shouldAbort())) {
+        while (queue.length > 0 && activeWorkers.size < concurrency && !(shouldAbort && shouldAbort())) {
             const item = queue.shift()!;
             const promise = processWithDelay(item).finally(() => {
                 activeWorkers.delete(promise);
@@ -287,13 +291,14 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     onNavigateToDesc,
     onSendToDescInnovation,
     templateState,
-    unifiedPresets = []
+    unifiedPresets = [],
+    textModel
 }) => {
     const { images, prompt, presets, isProcessing, copyMode, viewMode, autoUploadGyazo, innovationInstruction, globalInnovationTemplateId, globalInnovationCount, globalInnovationRounds, pureReplyMode, workMode = 'standard' as const, creativeCount = 4, creativeResults = [], creativeInstruction = '', needOriginalDesc = false, batchAdvancedMode = false, originalDescPresetId = '1', originalDescCustomPrompt = '', tabs = [], activeTabId = '' } = state;
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [pendingDropFiles, setPendingDropFiles] = useState<File[] | null>(null); // 多图拖拽待选择
     const [isPaused, setIsPaused] = useState(false);
-    const [copySuccess, setCopySuccess] = useState<'links' | 'formulas' | 'results' | 'results-zh' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | null>(null);  // 复制成功提示
+    const [copySuccess, setCopySuccess] = useState<'links' | 'formulas' | 'results' | 'results-zh' | 'original' | 'creative' | 'creative-en' | 'creative-zh' | 'creative-all' | 'formula-zh' | 'formula-en' | null>(null);  // 复制成功提示
     const [showAllComplete, setShowAllComplete] = useState(false);  // 全部完成提示
     const [showHistoryPanel, setShowHistoryPanel] = useState(false); // 历史面板 - 已被项目面板替代
     const [showProjectPanel, setShowProjectPanel] = useState(false); // 新的项目管理面板
@@ -384,12 +389,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
             localStorage.setItem('split_instruction', splitInstruction);
         }
     }, [splitElements, splitInstruction]);
-    const [imageModel, setImageModel] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('image_model') || 'gemini-3-flash-preview';
-        }
-        return 'gemini-3-flash-preview';
-    });
+    
+    // 强制跟随全局文本模型，不再提供独立设置
+    const activeModel = textModel || (typeof window !== 'undefined' ? localStorage.getItem('app_text_model') : null) || 'gemini-3-flash-preview';
+    
     const [sentToDescIds, setSentToDescIds] = useState<string[]>([]);
     const [sentAllCount, setSentAllCount] = useState<number | null>(null);
     const [isToolbarCompact, setIsToolbarCompact] = useState(() => {
@@ -690,6 +693,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         const saved = localStorage.getItem('ai-image-recognition-image-batch-size');
         return saved ? parseInt(saved, 10) : 1; // 默认1（单张模式）
     }); // 图片批次分类大小：多张图片合并成一次AI请求
+    const [imageConcurrency, setImageConcurrency] = useState(() => {
+        const saved = localStorage.getItem('ai-image-recognition-concurrency');
+        return saved ? parseInt(saved, 10) : 3; // 默认3挡并发
+    });
 
     // 自动保存无图模式状态和卡片到localStorage
     useEffect(() => {
@@ -715,6 +722,10 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     useEffect(() => {
         localStorage.setItem('ai-image-recognition-image-batch-size', String(imageBatchSize));
     }, [imageBatchSize]);
+    // 保存并发数量设置
+    useEffect(() => {
+        localStorage.setItem('ai-image-recognition-concurrency', String(imageConcurrency));
+    }, [imageConcurrency]);
     const [toastMessage, setToastMessage] = useState<string | null>(null); // Toast提示
     const [confirmModal, setConfirmModal] = useState<{ show: boolean; message: string; onConfirm: () => void }>({
         show: false,
@@ -1021,6 +1032,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
 
         // 保存到项目
         const saveToProject = async () => {
+            if (!user) return;
             let projectId = currentProject.id;
 
             // 临时项目需要先在云端创建
@@ -1275,7 +1287,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const classifyImage = async (base64Data: string, mimeType: string, prompt: string): Promise<string> => {
         return retryWithBackoff(async () => {
             const ai = getAiInstance();
-            const modelId = imageModel;
+            const modelId = activeModel;
 
             const response = await ai.models.generateContent({
                 model: modelId,
@@ -1446,7 +1458,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     ): Promise<Map<string, string>> => {
         return retryWithBackoff(async () => {
             const ai = getAiInstance();
-            const modelId = imageModel;
+            const modelId = activeModel;
 
             // 构建 parts：交替放置图片和编号标记
             const parts: any[] = [];
@@ -1523,14 +1535,14 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
     const generateText = useCallback(async (prompt: string): Promise<string> => {
         const ai = getAiInstance();
         const response = await ai.models.generateContent({
-            model: imageModel || 'gemini-3-flash-preview',
+            model: activeModel,
             contents: prompt,
             config: {
                 temperature: 0.8, // 更高温度增加创意性
             }
         });
         return response.text || "";
-    }, [imageModel]);
+    }, [activeModel]);
 
     // 多模态图片分析（用于图片转库功能）
     const analyzeImages = useCallback(async (images: { base64: string; mimeType: string }[], prompt: string): Promise<string> => {
@@ -1553,7 +1565,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         parts.push({ text: prompt });
 
         const response = await ai.models.generateContent({
-            model: imageModel || 'gemini-3-flash-preview',
+            model: activeModel,
             contents: { role: 'user', parts },
             config: {
                 temperature: 0.7,
@@ -1561,7 +1573,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         });
 
         return response.text || "";
-    }, [imageModel]);
+    }, [activeModel]);
 
     // 无图模式：添加文字卡片
     const addTextCard = useCallback(() => {
@@ -2554,6 +2566,7 @@ ${transitionInstruction}
                     imageUrl: isGyazoDirect ? '' : (isDataUrl ? '' : p.url),  // data URL 不直显，等上传后用 Gyazo 链接
                     fetchUrl: p.url,
                     status: 'loading',  // 表示正在准备base64
+                    mimeType: (p.content.toLowerCase().includes('video') || p.content.toLowerCase().includes('视频') || p.content.toLowerCase().includes('录屏') || p.url.toLowerCase().includes('.mp4') || p.url.toLowerCase().includes('.mov')) ? 'video/mp4' : undefined,
                     result: '',
                     chatHistory: [],
                     isUploadingToGyazo: shouldUploadToGyazo  // 如果需要代理或是 data URL，自动上传到 Gyazo
@@ -2807,13 +2820,7 @@ ${transitionInstruction}
             const isVisible = rect.width > 0 && rect.height > 0;
             if (!isVisible) return;
 
-            // 检查粘贴目标是否在本组件容器内
-            const pasteTarget = e.target as Node;
-            const isInContainer = container.contains(pasteTarget);
-
-            // 只有当粘贴目标在本组件容器内时才处理
-            if (!isInContainer) return;
-
+            // 移除严格的 isInContainer 检查，允许在组件可见时处理全局粘贴（兼容点击空白处的情况）
             // 创新模式下：若选中了卡片，粘贴应进入卡片；否则允许新建卡片
 
             // 如果粘贴目标是普通的 INPUT 或 TEXTAREA（非隐藏的粘贴捕获元素），允许正常粘贴
@@ -3434,7 +3441,7 @@ ${transitionInstruction}
             }
 
             // 使用并发处理批次
-            await processWithConcurrency(batches, 3, async (batch: ImageItem[]) => {
+            await processWithConcurrency(batches, imageConcurrency, async (batch: ImageItem[]) => {
                 if (stoppedRef.current) return;
                 while (pausedRef.current && !stoppedRef.current) {
                     await new Promise(resolve => setTimeout(resolve, 200));
@@ -3511,12 +3518,12 @@ ${transitionInstruction}
                         }
                     }
                 }
-            }, 300); // 批次之间 300ms 间隔
+            }, 300, () => stoppedRef.current); // 批次之间 300ms 间隔
 
             // 处理有自定义 prompt 的图片（逐张处理）
             if (customPromptItems.length > 0 && !stoppedRef.current) {
                 console.log(`[图片批次模式] ${customPromptItems.length} 张图片有自定义指令，逐张处理`);
-                await processWithConcurrency(customPromptItems, 3, async (item: ImageItem) => {
+                await processWithConcurrency(customPromptItems, imageConcurrency, async (item: ImageItem) => {
                     if (stoppedRef.current) return;
                     while (pausedRef.current && !stoppedRef.current) {
                         await new Promise(resolve => setTimeout(resolve, 200));
@@ -3541,13 +3548,13 @@ ${transitionInstruction}
                     } catch (err: any) {
                         setImages(prev => prev.map(img => img.id === item.id ? { ...img, status: 'error', errorMsg: err.message } : img));
                     }
-                }, 500);
+                }, 500, () => stoppedRef.current);
             }
 
         } else {
             // === 单张模式（原始逻辑）===
-            // Process with rate limit protection (concurrency=2, delay=1000ms between requests)
-            await processWithConcurrency(queue, 2, async (item: ImageItem) => {
+            // Process with rate limit protection (delay=1000ms between requests)
+            await processWithConcurrency(queue, imageConcurrency, async (item: ImageItem) => {
                 // Check if stopped
                 if (stoppedRef.current) {
                     return;
@@ -3673,6 +3680,7 @@ ${transitionInstruction}
             const hasSuccess = prev.some(img => img.status === 'success');
             if (!hasRemaining && hasSuccess && prev.length > 0) {
                 setShowAllComplete(true);
+                playCompletionSound();
                 setTimeout(() => setShowAllComplete(false), 3000);
                 // 单条已保存，批量完成时不再重复保存
             }
@@ -3741,7 +3749,7 @@ ${transitionInstruction}
         ));
 
         // Process with rate limit protection
-        await processWithConcurrency(failedItems, 2, async (item: ImageItem) => {
+        await processWithConcurrency(failedItems, imageConcurrency, async (item: ImageItem) => {
             if (stoppedRef.current) return;
 
             while (pausedRef.current && !stoppedRef.current) {
@@ -3793,7 +3801,7 @@ ${transitionInstruction}
                     errorMsg: error.message
                 } : img));
             }
-        });
+        }, 1000, () => stoppedRef.current);
 
         setIsProcessing(false);
         setIsPaused(false);
@@ -3804,6 +3812,7 @@ ${transitionInstruction}
             const hasSuccess = prev.images.some(img => img.status === 'success');
             if (!hasRemaining && hasSuccess && prev.images.length > 0) {
                 setShowAllComplete(true);
+                playCompletionSound();
                 setTimeout(() => setShowAllComplete(false), 3000);
             }
             return prev;
@@ -4145,7 +4154,7 @@ ${transitionInstruction}
             });
 
             const response = await ai.models.generateContent({
-                model: imageModel,
+                model: activeModel,
                 contents: contents
             });
 
@@ -4188,7 +4197,7 @@ ${transitionInstruction}
                     : img
             ));
         }
-    }, [images, getAiInstance, imageModel, setImages, user]);
+    }, [images, getAiInstance, activeModel, setImages, user]);
 
     // 复制对话历史
     const copyChatHistory = useCallback((imageId: string) => {
@@ -4499,7 +4508,7 @@ ${transitionInstruction}
 
         try {
             const ai = getAiInstance();
-            const modelId = imageModel; // 使用用户选择的模型
+            const modelId = activeModel; // 使用用户选择的模型
             // 使用图片自定义设置 > 全局设置 > 默认值
             const count = image.customInnovationCount || globalInnovationCount || 3;
             const rounds = image.customInnovationRounds || globalInnovationRounds || 1;
@@ -4622,7 +4631,7 @@ ${image.result}
                     : img
             ));
         }
-    }, [images, getAiInstance, setImages, innovationInstruction, templateState, unifiedPresets, imageModel, globalInnovationTemplateId, globalInnovationCount, globalInnovationRounds]);
+    }, [images, getAiInstance, setImages, innovationInstruction, templateState, unifiedPresets, activeModel, globalInnovationTemplateId, globalInnovationCount, globalInnovationRounds]);
 
     const toggleInnovationChat = useCallback((imageId: string, innovationId: string) => {
         setImages(prev => prev.map(img => {
@@ -4729,7 +4738,7 @@ ${image.result}
             });
 
             const response = await ai.models.generateContent({
-                model: imageModel,
+                model: activeModel,
                 contents,
                 config: {
                     systemInstruction: 'You are refining a single innovative AI image prompt. Keep answers concise and return the improved prompt directly.'
@@ -4784,7 +4793,7 @@ ${image.result}
                 return { ...img, innovationItems: updated, innovationOutputs: syncedOutputs };
             }));
         }
-    }, [getAiInstance, imageModel, images, setImages]);
+    }, [getAiInstance, activeModel, images, setImages]);
 
     const copyInnovationChatHistory = useCallback((imageId: string, innovationId: string) => {
         const image = images.find(img => img.id === imageId);
@@ -4824,7 +4833,7 @@ ${image.result}
 
 ${text}`;
             const response = await ai.models.generateContent({
-                model: imageModel || 'gemini-3-flash-preview',
+                model: activeModel,
                 contents: prompt
             });
             return response.text?.trim() || text;
@@ -4832,7 +4841,7 @@ ${text}`;
             console.error('Translation failed:', error);
             throw error;
         }
-    }, [getAiInstance, imageModel]);
+    }, [getAiInstance, activeModel]);
 
     // 保存翻译结果到缓存
     const saveTranslation = useCallback((itemId: string, translatedText: string) => {
@@ -5006,15 +5015,6 @@ ${text}`;
     // 切换工作模式
     const setWorkMode = useCallback((mode: 'standard' | 'creative' | 'quick' | 'split') => {
         setState(prev => ({ ...prev, workMode: mode }));
-    }, [setState]);
-
-    // 每次打开软件后首次进入页面时，清空一次“全局追加要求”输入框
-    const hasClearedPromptOnLaunchRef = useRef(false);
-    useEffect(() => {
-        if (!hasClearedPromptOnLaunchRef.current) {
-            setState(prev => (prev.prompt ? { ...prev, prompt: '' } : prev));
-            hasClearedPromptOnLaunchRef.current = true;
-        }
     }, [setState]);
 
     // 构建拆分元素模式的 prompt
@@ -5271,7 +5271,7 @@ ${text}`;
         }
 
         const ai = getAiInstance();
-        const modelId = imageModel;
+        const modelId = activeModel;
 
         // === 开始前自动提取：处理 autoExtract 的参考图模式 ===
         const ov = quickOverridesRef.current;
@@ -5558,7 +5558,7 @@ ${effectiveInstruction}
         }
 
         // 单图模式：保持原有逻辑
-        await processWithConcurrency(readyImages, 2, async (item: ImageItem) => {
+        await processWithConcurrency(readyImages, imageConcurrency, async (item: ImageItem) => {
             if (stoppedRef.current) return;
 
             while (pausedRef.current && !stoppedRef.current) {
@@ -6426,10 +6426,10 @@ ${itemEffectiveInstruction}
                     )
                 }));
             }
-        });
+        }, 1000, () => stoppedRef.current);
 
         setIsProcessing(false);
-    }, [images, prompt, creativeCount, imageModel, needOriginalDesc, onRotateApiKey, setState, setImages, setIsProcessing]);
+    }, [images, prompt, creativeCount, activeModel, needOriginalDesc, onRotateApiKey, setState, setImages, setIsProcessing]);
 
     // 结果列表中的单卡“开始”按钮：在创新/快捷模式下应直接触发该卡片的创新流程
     const startSingleCardInnovation = useCallback((id: string) => {
@@ -6644,7 +6644,7 @@ ${itemEffectiveInstruction}
                         <CompactToolbar
                             images={images}
                             prompt={prompt}
-                            imageModel={imageModel}
+                            imageModel={activeModel}
                             isProcessing={isProcessing}
                             isPaused={isPaused}
                             viewMode={viewMode}
@@ -6658,7 +6658,7 @@ ${itemEffectiveInstruction}
                             isUploading={isUploading}
                             workMode={workMode}
                             imageBatchSize={imageBatchSize}
-                            setImageModel={setImageModel}
+                            setImageModel={() => {}}
                             setPrompt={setPrompt}
                             setPresets={setPresets}
                             setViewMode={setViewMode}
@@ -7067,6 +7067,26 @@ ${itemEffectiveInstruction}
                                                 </div>
                                             </div>
 
+                                            {/* 并发度设置 */}
+                                            <div className="flex items-center justify-between gap-2 py-1.5 px-1 border-t border-zinc-800/50">
+                                                <span className="text-[0.6875rem] text-zinc-400">并行发包</span>
+                                                <div className="flex bg-zinc-900 rounded p-0.5 border border-zinc-800">
+                                                    {[1, 2, 3, 5, 10, 20].map(size => (
+                                                        <button
+                                                            key={size}
+                                                            onClick={() => setImageConcurrency(size)}
+                                                            className={`px-2 py-0.5 rounded text-[0.625rem] font-medium transition-colors ${imageConcurrency === size
+                                                                ? 'bg-emerald-600/30 text-emerald-300'
+                                                                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                                                                }`}
+                                                            data-tip={`并发 ${size}：同时允许 ${size} 个请求进行处理`}
+                                                        >
+                                                            {size}挡
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
                                             {/* 控制按钮 */}
                                             {!isProcessing ? (
                                                 <div className="flex gap-2">
@@ -7086,8 +7106,7 @@ ${itemEffectiveInstruction}
                                                     </button>
 
                                                     {/* 辅助按钮 */}
-                                                    {images.filter(i => i.status === 'idle' && i.base64Data).length === 0 &&
-                                                        images.filter(i => (i.status === 'success' || i.status === 'error') && i.base64Data).length > 0 && (
+                                                    {images.filter(i => (i.status === 'success' || i.status === 'error') && i.base64Data).length > 0 && (
                                                             <button
                                                                 onClick={handleResetAndRun}
                                                                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 shadow-sm hover:shadow-blue-500/20 shrink-0 tooltip-bottom"
