@@ -18,6 +18,9 @@ import { LoginPromptModal } from './gallery/LoginPromptModal';
 import { CopyViewModal } from './gallery/CopyViewModal';
 import { FolderSelectionMenu, BatchFolderMenu } from './gallery/FolderMenus';
 import { ConfirmDialog } from './gallery/ConfirmDialog';
+import { HoverPreview } from './gallery/HoverPreview';
+import { DragDropSidebar } from './gallery/DragDropSidebar';
+import { ThumbnailContextMenu } from './gallery/ThumbnailContextMenu';
 import {
     savePresetToCloud,
     loadPresetsFromCloud,
@@ -10745,68 +10748,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 </div>
             </div>
 
-            {/* Hover Preview Overlay for Gallery Mode - Responsive sizing */}
-            {
-                hoveredImage && hoverPosition && thumbnailRect && (() => {
-                    // Responsive preview size: adapt to window size
-                    // Larger screens get bigger preview, smaller screens get smaller preview
-                    const screenWidth = window.innerWidth;
-                    const screenHeight = window.innerHeight;
-
-                    // Base size 480px (doubled from 240), max 50% of smaller screen dimension
-                    const maxDimension = Math.min(screenWidth, screenHeight) * 0.5;
-                    const basePreviewSize = Math.min(480, maxDimension);
-                    const previewWidth = basePreviewSize;
-                    const previewHeight = basePreviewSize;
-                    const padding = 15;
-
-                    // Try to position on the right of the thumbnail
-                    let left = thumbnailRect.right + padding;
-                    let top = thumbnailRect.top;
-
-                    // If no room on right, try left
-                    if (left + previewWidth > screenWidth) {
-                        left = thumbnailRect.left - previewWidth - padding;
-                    }
-
-                    // If still no room, position below
-                    if (left < 0) {
-                        left = Math.max(padding, thumbnailRect.left);
-                        top = thumbnailRect.bottom + padding;
-                    }
-
-                    // Ensure within viewport vertically
-                    if (top + previewHeight > screenHeight) {
-                        top = Math.max(padding, screenHeight - previewHeight - padding);
-                    }
-                    if (top < padding) top = padding;
-
-                    // Clamp left to ensure visibility
-                    if (left + previewWidth > screenWidth - padding) {
-                        left = screenWidth - previewWidth - padding;
-                    }
-                    if (left < padding) left = padding;
-
-                    return (
-                        <div
-                            className="fixed z-40 pointer-events-none"
-                            style={{ left, top }}
-                        >
-                            <div className="bg-white rounded-xl shadow-2xl p-3 border border-slate-200">
-                                <img
-                                    src={hoveredImage}
-                                    alt=""
-                                    style={{
-                                        maxWidth: previewWidth - 24,
-                                        maxHeight: previewHeight - 24
-                                    }}
-                                    className="object-contain rounded-lg"
-                                />
-                            </div>
-                        </div>
-                    );
-                })()
-            }
+            {/* Hover Preview Overlay for Gallery Mode */}
+            <HoverPreview
+                imageUrl={hoveredImage}
+                thumbnailRect={thumbnailRect}
+            />
 
             {/* Copy Feedback Toast */}
             {
@@ -10821,78 +10767,16 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             }
 
             {/* Drag Drop Sidebar - appears when dragging */}
-            {isDraggingImage && (
-                <div className="fixed left-4 bottom-4 z-50 animate-in slide-in-from-left duration-300">
-                    <div className="bg-white backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200 p-4 w-64 text-slate-700">
-                        <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-3">
-                            📌 拖拽到目标位置
-                        </div>
-
-                        {/* 收藏夹列表 */}
-                        <div className="mb-4">
-                            <div className="px-2 py-1 text-[10px] font-semibold text-amber-600 uppercase tracking-wider flex items-center gap-1">
-                                <Star size={10} className="inline mr-0.5" /> 收藏夹
-                            </div>
-                            <div className="space-y-1 max-h-40 overflow-y-auto">
-                                {favoriteFolders.map(folder => (
-                                    <div
-                                        key={folder.id}
-                                        onDragOver={(e) => {
-                                            e.preventDefault();
-                                            e.dataTransfer.dropEffect = 'copy';
-                                            setDragOverTarget(`folder-${folder.id}`);
-                                        }}
-                                        onDragLeave={() => setDragOverTarget(null)}
-                                        onDrop={(e) => handleDropToFolder(e, folder.id)}
-                                        className={`px-3 py-2 rounded-lg border transition-all cursor-pointer flex items-center gap-2 ${dragOverTarget === `folder-${folder.id}`
-                                            ? 'bg-green-100 border-green-400 ring-2 ring-green-300'
-                                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
-                                            }`}
-                                    >
-                                        <span>{folder.emoji || '📁'}</span>
-                                        <span className="flex-1 text-sm truncate text-slate-800">{folder.name}</span>
-                                        <span className="text-[10px] text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded">{getFavoritesInFolder(folder.id).length}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* 媒体标签列表 */}
-                        {config.categoryOptions.filter(c => c.trim()).length > 0 && (
-                            <div>
-                                <div className="px-2 py-1 text-[10px] font-semibold text-purple-600 uppercase tracking-wider flex items-center gap-1">
-                                    <Tag size={10} className="inline mr-0.5" /> 媒体标签
-                                </div>
-                                <div className="space-y-1 max-h-40 overflow-y-auto">
-                                    {config.categoryOptions.filter(c => c.trim()).map(category => (
-                                        <div
-                                            key={category}
-                                            onDragOver={(e) => {
-                                                e.preventDefault();
-                                                e.dataTransfer.dropEffect = 'copy';
-                                                setDragOverTarget(`category-${category}`);
-                                            }}
-                                            onDragLeave={() => setDragOverTarget(null)}
-                                            onDrop={(e) => handleDropToCategory(e, category)}
-                                            className={`px-3 py-2 rounded-lg border transition-all cursor-pointer flex items-center gap-2 ${dragOverTarget === `category-${category}`
-                                                ? 'bg-purple-100 border-purple-400 ring-2 ring-purple-300'
-                                                : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
-                                                }`}
-                                        >
-                                            <Tag size={14} className="text-purple-500" />
-                                            <span className="flex-1 text-sm truncate text-slate-800">{category}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-500 text-center">
-                            ✨ 释放鼠标即可添加
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DragDropSidebar
+                isVisible={isDraggingImage}
+                folders={favoriteFolders}
+                categoryOptions={config.categoryOptions}
+                dragOverTarget={dragOverTarget}
+                onDragOverTarget={setDragOverTarget}
+                onDropToFolder={handleDropToFolder}
+                onDropToCategory={handleDropToCategory}
+                getFavoritesCount={(folderId) => getFavoritesInFolder(folderId).length}
+            />
 
             {/* Custom Confirm Dialog */}
             <ConfirmDialog
@@ -10991,259 +10875,39 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             }
 
             {/* Context Menu for Thumbnail */}
-            {
-                contextMenu && (
-                    <div
-                        ref={contextMenuRef}
-                        className="fixed z-[100] bg-white rounded-lg shadow-2xl border border-slate-200 py-1 w-[360px] max-w-[calc(100vw-16px)] animate-in fade-in zoom-in-95 duration-100"
-                        style={{
-                            left: contextMenuPos ? contextMenuPos.x : contextMenu.x,
-                            top: contextMenuPos ? contextMenuPos.y : contextMenu.y,
-                            maxHeight: 'min(560px, 78vh)',
-                            overflowY: 'auto'
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseEnter={() => {
-                            if (contextMenuCloseTimerRef.current) {
-                                clearTimeout(contextMenuCloseTimerRef.current);
-                                contextMenuCloseTimerRef.current = null;
-                            }
-                        }}
-                        onMouseLeave={() => {
-                            if (contextMenuCloseTimerRef.current) {
-                                clearTimeout(contextMenuCloseTimerRef.current);
-                            }
-                            contextMenuCloseTimerRef.current = setTimeout(() => {
-                                setContextMenu(null);
-                                contextMenuCloseTimerRef.current = null;
-                            }, 120);
-                        }}
-                    >
-                        {/* Image Copy Options */}
-                        <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">图片</div>
-                        <button
-                            onClick={() => {
-                                copyImageToClipboard(contextMenu.imageUrl);
-                                setContextMenu(null);
-                            }}
-                            className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
-                        >
-                            <Image size={14} /> 复制图片
-                        </button>
-                        <button
-                            onClick={() => copyTextToClipboard(contextMenu.imageUrl, '图片链接')}
-                            className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
-                        >
-                            <ExternalLink size={14} /> 复制图片链接
-                        </button>
-                        {contextMenu.imageFormula.startsWith('=IMAGE') && (
-                            <button
-                                onClick={() => copyTextToClipboard(contextMenu.imageFormula, '图片公式')}
-                                className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2"
-                            >
-                                <Grid3X3 size={14} /> 复制图片公式
-                            </button>
-                        )}
-
-                        {/* Label Column Values */}
-                        {effectiveLabelColumns.length > 0 && (
-                            <>
-                                <div className="border-t border-slate-100 my-1"></div>
-                                <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">字段</div>
-                                {effectiveLabelColumns.map(col => {
-                                    const value = String(contextMenu.row[col] || '');
-                                    const displayValue = value || '(空)';
-                                    const copyValue = value; // Only copy actual value, not placeholder
-                                    return (
-                                        <button
-                                            key={col}
-                                            onClick={() => copyValue ? copyTextToClipboard(copyValue, col) : null}
-                                            disabled={!copyValue}
-                                            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${copyValue
-                                                ? 'text-slate-700 hover:bg-green-50 hover:text-green-700'
-                                                : 'text-slate-300 cursor-not-allowed'
-                                                }`}
-                                        >
-                                            <span className="text-[10px] text-slate-400 w-16 truncate">{col}:</span>
-                                            <span className="truncate flex-1">{displayValue.length > 20 ? displayValue.slice(0, 20) + '...' : displayValue}</span>
-                                        </button>
-                                    );
-                                })}
-                            </>
-                        )}
-
-                        {/* Full text preview area for selected column */}
-                        {contextDetailColumns.length > 0 && (
-                            <>
-                                <div className="border-t border-slate-100 my-1"></div>
-                                <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">完整内容</div>
-                                <div className="px-3 pb-2 space-y-2">
-                                    <select
-                                        value={contextDetailColumn}
-                                        onChange={(e) => setContextDetailColumn(e.target.value)}
-                                        className="w-full px-2 py-1.5 text-xs rounded-md border border-slate-200 bg-slate-50 text-slate-700 focus:outline-none focus:border-blue-400"
-                                    >
-                                        {contextDetailColumns.map(col => (
-                                            <option key={col} value={col}>{col}</option>
-                                        ))}
-                                    </select>
-                                    <div className="max-h-36 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 px-2 py-2">
-                                        {String(contextMenu.row[contextDetailColumn] ?? '').trim() ? (
-                                            <pre className="text-xs text-slate-700 whitespace-pre-wrap break-words font-sans m-0">
-                                                {String(contextMenu.row[contextDetailColumn])}
-                                            </pre>
-                                        ) : (
-                                            <span className="text-xs text-slate-400">(空)</span>
-                                        )}
-                                    </div>
-                                    <button
-                                        onClick={() => {
-                                            const fullText = String(contextMenu.row[contextDetailColumn] ?? '');
-                                            if (!fullText.trim()) return;
-                                            copyTextToClipboard(fullText, `${contextDetailColumn}完整内容`);
-                                        }}
-                                        disabled={!String(contextMenu.row[contextDetailColumn] ?? '').trim()}
-                                        className={`w-full px-2 py-1.5 text-xs rounded-md border transition-colors ${String(contextMenu.row[contextDetailColumn] ?? '').trim()
-                                            ? 'text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100'
-                                            : 'text-slate-300 border-slate-200 bg-slate-50 cursor-not-allowed'
-                                            }`}
-                                    >
-                                        复制当前完整内容
-                                    </button>
-                                </div>
-                            </>
-                        )}
-
-                        {/* Link if available */}
-                        {effectiveLinkColumn && contextMenu.row[effectiveLinkColumn] && (
-                            <>
-                                <div className="border-t border-slate-100 my-1"></div>
-                                <button
-                                    onClick={() => copyTextToClipboard(String(contextMenu.row[effectiveLinkColumn]), '链接')}
-                                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-2"
-                                >
-                                    <ExternalLink size={14} /> 复制关联链接
-                                </button>
-                            </>
-                        )}
-
-                        {/* Favorite and Copy Row options */}
-                        <div className="border-t border-slate-100 my-1"></div>
-                        <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">收藏夹</div>
-                        {isFavorited(contextMenu.imageUrl) ? (
-                            <button
-                                onClick={() => {
-                                    toggleFavorite(contextMenu.imageUrl, contextMenu.row);
-                                    setContextMenu(null);
-                                }}
-                                className="w-full px-3 py-2 text-left text-sm text-amber-600 hover:bg-amber-50 flex items-center gap-2"
-                            >
-                                <Star size={14} fill="currentColor" /> 取消收藏
-                            </button>
-                        ) : (
-                            <>
-                                {favoriteFolders.map(folder => (
-                                    <button
-                                        key={folder.id}
-                                        onClick={() => {
-                                            addToFolder(contextMenu.imageUrl, contextMenu.row, folder.id);
-                                            setContextMenu(null);
-                                        }}
-                                        className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-amber-50 hover:text-amber-600 flex items-center gap-2"
-                                    >
-                                        <span>{folder.emoji || '📁'}</span>
-                                        <span className="truncate">{folder.name}</span>
-                                    </button>
-                                ))}
-                                <button
-                                    onClick={() => {
-                                        const imageUrl = contextMenu.imageUrl;
-                                        const row = contextMenu.row;
-                                        setNewFolderModal({
-                                            isOpen: true,
-                                            name: '收藏夹 ' + (favoriteFolders.length + 1),
-                                            emoji: '📂',
-                                            onSuccess: (folderId) => {
-                                                addToFolder(imageUrl, row, folderId);
-                                            }
-                                        });
-                                        setContextMenu(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-green-600 hover:bg-green-50 flex items-center gap-2"
-                                >
-                                    <Plus size={12} /> 新建收藏夹并添加
-                                </button>
-                            </>
-                        )}
-
-                        {/* Add Note Option */}
-                        <button
-                            onClick={() => {
-                                openNoteModal(contextMenu.imageUrl, contextMenu.row);
-                                setContextMenu(null);
-                            }}
-                            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${getNoteForImage(contextMenu.imageUrl)
-                                ? 'text-blue-600 hover:bg-blue-50'
-                                : 'text-slate-700 hover:bg-blue-50 hover:text-blue-600'
-                                }`}
-                        >
-                            <MessageSquare size={14} fill={getNoteForImage(contextMenu.imageUrl) ? 'currentColor' : 'none'} />
-                            {getNoteForImage(contextMenu.imageUrl) ? '编辑备注' : '添加备注'}
-                            {getNoteForImage(contextMenu.imageUrl) && (
-                                <span className="ml-auto text-[10px] text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded">已有</span>
-                            )}
-                        </button>
-
-                        {/* Add Category Option */}
-                        <button
-                            onClick={() => {
-                                openCategoryModal(contextMenu.imageUrl, contextMenu.row);
-                                setContextMenu(null);
-                            }}
-                            className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${getCategoryForImage(contextMenu.imageUrl)
-                                ? 'text-purple-600 hover:bg-purple-50'
-                                : 'text-slate-700 hover:bg-purple-50 hover:text-purple-600'
-                                }`}
-                        >
-                            <Tag size={14} fill={getCategoryForImage(contextMenu.imageUrl) ? 'currentColor' : 'none'} />
-                            {getCategoryForImage(contextMenu.imageUrl) ? '编辑分类' : '添加分类'}
-                            {getCategoryForImage(contextMenu.imageUrl) && (
-                                <span className="ml-auto text-[10px] text-purple-400 bg-purple-50 px-1.5 py-0.5 rounded truncate max-w-[80px]">{getCategoryForImage(contextMenu.imageUrl)}</span>
-                            )}
-                        </button>
-
-                        {/* Display current note/category info if exists */}
-                        {(getNoteForImage(contextMenu.imageUrl) || getCategoryForImage(contextMenu.imageUrl)) && (
-                            <>
-                                <div className="border-t border-slate-100 my-1"></div>
-                                <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">当前标注</div>
-                                {getCategoryForImage(contextMenu.imageUrl) && (
-                                    <div className="px-3 py-1.5 text-sm text-slate-600 flex items-center gap-2">
-                                        <Tag size={12} className="text-purple-400" />
-                                        <span className="text-purple-600 font-medium">{getCategoryForImage(contextMenu.imageUrl)}</span>
-                                    </div>
-                                )}
-                                {getNoteForImage(contextMenu.imageUrl) && (
-                                    <div className="px-3 py-1.5 text-sm text-slate-600 flex items-start gap-2">
-                                        <MessageSquare size={12} className="text-blue-400 mt-0.5 flex-shrink-0" />
-                                        <span className="text-blue-600 text-xs break-words max-w-[180px]">{getNoteForImage(contextMenu.imageUrl)?.slice(0, 60)}{(getNoteForImage(contextMenu.imageUrl)?.length || 0) > 60 ? '...' : ''}</span>
-                                    </div>
-                                )}
-                            </>
-                        )}
-
-                        <button
-                            onClick={() => {
-                                copyRowDataToClipboard(contextMenu.row, contextMenu.imageUrl);
-                                setContextMenu(null);
-                            }}
-                            className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 flex items-center gap-2"
-                        >
-                            <Copy size={14} /> 复制整行数据
-                        </button>
-                    </div>
-                )
-            }
+            <ThumbnailContextMenu
+                menu={contextMenu}
+                menuPos={contextMenuPos}
+                menuRef={contextMenuRef}
+                closeTimerRef={contextMenuCloseTimerRef}
+                onClose={() => setContextMenu(null)}
+                labelColumns={effectiveLabelColumns}
+                detailColumns={contextDetailColumns}
+                detailColumn={contextDetailColumn}
+                onDetailColumnChange={setContextDetailColumn}
+                linkColumn={effectiveLinkColumn}
+                folders={favoriteFolders}
+                copyImageToClipboard={copyImageToClipboard}
+                copyTextToClipboard={copyTextToClipboard}
+                copyRowDataToClipboard={copyRowDataToClipboard}
+                isFavorited={isFavorited}
+                toggleFavorite={toggleFavorite}
+                addToFolder={addToFolder}
+                onCreateFolderAndAdd={(imageUrl, row) => {
+                    setNewFolderModal({
+                        isOpen: true,
+                        name: '収藏夹 ' + (favoriteFolders.length + 1),
+                        emoji: '📂',
+                        onSuccess: (folderId) => {
+                            addToFolder(imageUrl, row, folderId);
+                        }
+                    });
+                }}
+                openNoteModal={openNoteModal}
+                openCategoryModal={openCategoryModal}
+                getNoteForImage={getNoteForImage}
+                getCategoryForImage={getCategoryForImage}
+            />
 
             {/* Note Modal (备注弹窗) */}
             <NoteModal
