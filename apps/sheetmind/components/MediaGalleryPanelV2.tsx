@@ -66,6 +66,8 @@ import {
     GalleryPreset, FavoriteItem, FavoriteFolder,
 } from './galleryUtils';
 import { sortRowsByRules as sortRowsByRulesImpl, sortDateKeys as sortDateKeysImpl, computeProcessedRows, generateExportData as generateExportDataImpl , computeTimelineData, computeGroupedTimelineData, computeMatrixData , generateViewLayoutText } from './galleryViewData';
+import { useThumbnailDownload } from './useThumbnailDownload';
+import { useGallerySheetSync } from './useGallerySheetSync';
 
 interface MediaGalleryPanelProps {
     data: SheetData;
@@ -499,6 +501,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const [pasteConditionOperator, setPasteConditionOperator] = useState<TextGroupCondition['operator']>('contains');
     const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+    const { downloadAllThumbnails: doDownload, downloadProgress, downloadFeedback } = useThumbnailDownload();
     const viewSectionRef = React.useRef<HTMLDivElement | null>(null);
     const notesSectionRef = React.useRef<HTMLDivElement | null>(null);
     const advancedSectionRef = React.useRef<HTMLDivElement | null>(null);
@@ -844,6 +847,18 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     // Global toggle: auto sync categories to Google Sheets S column
     const [autoSyncCategoriesToSheet, setAutoSyncCategoriesToSheet] = useState(true);
+
+    const { syncAllNotesToSheet, syncAllCategoriesToSheet, isBatchSyncing, isBatchCategorySyncing } = useGallerySheetSync(
+        sourceUrl || '', 
+        currentSheetName || '', 
+        galleryNotes, 
+        galleryCategories, 
+        effectiveData, 
+        effectiveImageColumn, 
+        autoSyncNotesToSheet, 
+        autoSyncCategoriesToSheet, 
+        setCopyFeedback
+    );
 
     const notesSyncCount = useMemo(() => {
         return Array.from(galleryNotes.values()).filter(note => note.note && note.rowIndex > 0).length;
@@ -3489,199 +3504,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     }, [effectiveData.rows, effectiveData.columns, config.imageColumn, getNoteForImage]);
 
     // State for batch sync
-    const [isBatchSyncing, setIsBatchSyncing] = useState(false);
-
-    // Batch sync all notes to Google Sheets A column
-    const syncAllNotesToSheet = useCallback(async () => {
-        if (!sourceUrl || !currentSheetName) {
-            setCopyFeedback('⚠️ 未连接 Google 表格');
-            setTimeout(() => setCopyFeedback(null), 2000);
-            return;
-        }
-
-        const accessToken = getGoogleAccessToken();
-        if (!accessToken) {
-            setCopyFeedback('⚠️ 请先登录 Google 账号');
-            setTimeout(() => setCopyFeedback(null), 2000);
-            return;
-        }
-
-        // Get all notes that need to be synced
-        const notesToSync = Array.from(galleryNotes.values()).filter(note =>
-            note.note && note.rowIndex > 0
-        );
-
-        if (notesToSync.length === 0) {
-            setCopyFeedback('没有备注需要同步');
-            setTimeout(() => setCopyFeedback(null), 1500);
-            return;
-        }
-
-        setIsBatchSyncing(true);
-        setCopyFeedback(`⏳ 正在同步 ${notesToSync.length} 条备注...`);
-
-        try {
-            const parsed = parseGoogleSheetsUrl(sourceUrl);
-            if (!parsed?.spreadsheetId) {
-                throw new Error('无法解析表格 ID');
-            }
-
-            let successCount = 0;
-            let failCount = 0;
-
-            await ensureNotesAndCategoriesColumns(
-                parsed.spreadsheetId,
-                currentSheetName,
-                accessToken
-            );
-
-            // Sync notes one by one (to avoid rate limits)
-            for (const note of notesToSync) {
-                try {
-                    await updateSingleCellInGoogleSheet(
-                        parsed.spreadsheetId,
-                        currentSheetName,
-                        NOTE_COLUMN,
-                        note.rowIndex,
-                        note.note,
-                        accessToken
-                    );
-                    successCount++;
-                    setCopyFeedback(`⏳ 同步中... (${successCount}/${notesToSync.length})`);
-                } catch (err) {
-                    console.error(`[Notes] Failed to sync row ${note.rowIndex}:`, err);
-                    failCount++;
-                }
-            }
-
-            if (failCount === 0) {
-                setCopyFeedback(`✅ 已同步 ${successCount} 条备注到 ${NOTE_COLUMN} 列`);
-            } else {
-                setCopyFeedback(`⚠️ 同步完成: ${successCount} 成功, ${failCount} 失败`);
-            }
-            setTimeout(() => setCopyFeedback(null), 3000);
-        } catch (err) {
-            console.error('[Notes] Batch sync failed:', err);
-            setCopyFeedback('❌ 同步失败: ' + (err instanceof Error ? err.message : '未知错误'));
-            setTimeout(() => setCopyFeedback(null), 3000);
-        } finally {
-            setIsBatchSyncing(false);
-        }
-    }, [sourceUrl, currentSheetName, galleryNotes]);
-
-    // When auto-sync toggle is turned ON, sync all existing notes
-    React.useEffect(() => {
-        if (autoSyncNotesToSheet && galleryNotes.size > 0 && !isBatchSyncing) {
-            syncAllNotesToSheet();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [autoSyncNotesToSheet]); // Only trigger when toggle changes
-
-    // State for batch category sync
-    const [isBatchCategorySyncing, setIsBatchCategorySyncing] = useState(false);
-
-    // Batch sync all categories to Google Sheets B column
-    const syncAllCategoriesToSheet = useCallback(async () => {
-        if (!sourceUrl || !currentSheetName) {
-            setCopyFeedback('⚠️ 未连接 Google 表格');
-            setTimeout(() => setCopyFeedback(null), 2000);
-            return;
-        }
-
-        const accessToken = getGoogleAccessToken();
-        if (!accessToken) {
-            setCopyFeedback('⚠️ 请先登录 Google 账号');
-            setTimeout(() => setCopyFeedback(null), 2000);
-            return;
-        }
-
-        // Build a map of imageUrl -> rowIndex from the data
-        const imageUrlToRowIndex = new Map<string, number>();
-        effectiveData.rows.forEach((row, idx) => {
-            const imageUrl = extractImageUrl(row[config.imageColumn]);
-            if (imageUrl) {
-                imageUrlToRowIndex.set(imageUrl, idx + 2); // +2 because idx is 0-indexed and row 1 is header
-            }
-        });
-
-        // Get all categories that have a corresponding row
-        const categoriesToSync: { imageUrl: string; category: string; rowIndex: number }[] = [];
-        galleryCategories.forEach((category, imageUrl) => {
-            const rowIndex = imageUrlToRowIndex.get(imageUrl);
-            if (category && rowIndex) {
-                categoriesToSync.push({ imageUrl, category, rowIndex });
-            }
-        });
-
-        if (categoriesToSync.length === 0) {
-            if (galleryCategories.size === 0) {
-                setCopyFeedback('⚠️ 请先为图片设置分类（点击图片左侧的标签图标）');
-            } else {
-                setCopyFeedback('⚠️ 没有分类匹配到当前表格的图片');
-            }
-            setTimeout(() => setCopyFeedback(null), 3000);
-            return;
-        }
-
-        setIsBatchCategorySyncing(true);
-        setCopyFeedback(`⏳ 正在同步 ${categoriesToSync.length} 条分类...`);
-
-        try {
-            const parsed = parseGoogleSheetsUrl(sourceUrl);
-            if (!parsed?.spreadsheetId) {
-                throw new Error('无法解析表格 ID');
-            }
-
-            let successCount = 0;
-            let failCount = 0;
-
-            await ensureNotesAndCategoriesColumns(
-                parsed.spreadsheetId,
-                currentSheetName,
-                accessToken
-            );
-
-            // Sync categories one by one (to avoid rate limits)
-            for (const item of categoriesToSync) {
-                try {
-                    await updateSingleCellInGoogleSheet(
-                        parsed.spreadsheetId,
-                        currentSheetName,
-                        CATEGORY_COLUMN, // Fixed column B for categories
-                        item.rowIndex,
-                        item.category,
-                        accessToken
-                    );
-                    successCount++;
-                    setCopyFeedback(`⏳ 同步中... (${successCount}/${categoriesToSync.length})`);
-                } catch (err) {
-                    console.error(`[Categories] Failed to sync row ${item.rowIndex}:`, err);
-                    failCount++;
-                }
-            }
-
-            if (failCount === 0) {
-                setCopyFeedback(`✅ 已同步 ${successCount} 条分类到 ${CATEGORY_COLUMN} 列`);
-            } else {
-                setCopyFeedback(`⚠️ 同步完成: ${successCount} 成功, ${failCount} 失败`);
-            }
-            setTimeout(() => setCopyFeedback(null), 3000);
-        } catch (err) {
-            console.error('[Categories] Batch sync failed:', err);
-            setCopyFeedback('❌ 同步失败: ' + (err instanceof Error ? err.message : '未知错误'));
-            setTimeout(() => setCopyFeedback(null), 3000);
-        } finally {
-            setIsBatchCategorySyncing(false);
-        }
-    }, [sourceUrl, currentSheetName, galleryCategories, effectiveData.rows, config.imageColumn]);
-
-    // When auto-sync toggle is turned ON, sync all existing categories
-    React.useEffect(() => {
-        if (autoSyncCategoriesToSheet && galleryCategories.size > 0 && !isBatchCategorySyncing) {
-            syncAllCategoriesToSheet();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [autoSyncCategoriesToSheet]); // Only trigger when toggle changes
 
     // Hover handlers with delay (gated by hoverPreview toggle)
     const handleThumbnailMouseEnter = useCallback((imageUrl: string, e: React.MouseEvent) => {
@@ -3784,130 +3606,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     }, [copyDataToClipboard]);
 
     // Download all thumbnails as ZIP
-    const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number; status: string } | null>(null);
+    const downloadAllThumbnails = useCallback(() => {
+        doDownload(processedRows, effectiveImageColumn, effectiveGroupColumns[0]);
+    }, [doDownload, processedRows, effectiveImageColumn, effectiveGroupColumns]);
 
-    const downloadAllThumbnails = useCallback(async () => {
-        if (!effectiveImageColumn) {
-            setCopyFeedback('⚠️ 请先配置图片列'); setTimeout(() => setCopyFeedback(null), 3000);
-            return;
+    React.useEffect(() => {
+        if (downloadFeedback) {
+            setCopyFeedback(downloadFeedback);
         }
-
-        const primaryGroupColumn = effectiveGroupColumns[0];
-        const allImages: { url: string; group: string; index: number }[] = [];
-
-        processedRows.forEach((row, idx) => {
-            const imageUrl = extractImageUrl(row[effectiveImageColumn]);
-            if (!imageUrl) return;
-            const group = primaryGroupColumn
-                ? String(row[primaryGroupColumn] || '未分组').replace(/[\/\\:*?"<>|]/g, '_')
-                : '';
-            allImages.push({ url: imageUrl, group, index: idx });
-        });
-
-        if (allImages.length === 0) {
-            setCopyFeedback('⚠️ 没有找到可下载的图片'); setTimeout(() => setCopyFeedback(null), 3000);
-            return;
-        }
-
-        if (!confirm(`确定下载 ${allImages.length} 张缩略图？\n${primaryGroupColumn ? '将按分组建立子文件夹' : '所有图片在同一目录'}`)) {
-            return;
-        }
-
-        const zip = new JSZip();
-        let completed = 0;
-        let failed = 0;
-        const total = allImages.length;
-        const concurrency = 4; // 并发下载数（canvas方式稍减少并发）
-
-        setDownloadProgress({ current: 0, total, status: '准备下载...' });
-
-        // Group images by folder
-        const groupCounters: Record<string, number> = {};
-
-        // 检测是否在 Electron 环境（无 CORS 限制）
-        const inElectron = !!(window as any).electronCache?.isElectron;
-
-        // 获取文件扩展名
-        const getExtFromUrl = (url: string, contentType?: string): string => {
-            if (contentType) {
-                if (contentType.includes('png')) return 'png';
-                if (contentType.includes('webp')) return 'webp';
-                if (contentType.includes('gif')) return 'gif';
-                if (contentType.includes('jpeg') || contentType.includes('jpg')) return 'jpg';
-            }
-            const match = url.match(/\.(png|webp|gif|jpeg|jpg)($|\?)/i);
-            if (match) return match[1].toLowerCase();
-            return 'jpg';
-        };
-
-        // 通过本地代理下载图片（绕过 CORS）
-        const fetchViaLocalProxy = async (url: string): Promise<{ blob: Blob; ext: string }> => {
-            const proxyUrl = `/api/image-proxy?url=${encodeURIComponent(url)}`;
-            const response = await fetch(proxyUrl);
-            if (!response.ok) throw new Error(`Proxy: ${response.status}`);
-            const blob = await response.blob();
-            const ext = getExtFromUrl(url, response.headers.get('content-type') || '');
-            return { blob, ext };
-        };
-
-        // 直接 fetch（Electron 环境）
-        const fetchDirect = async (url: string): Promise<{ blob: Blob; ext: string }> => {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const blob = await response.blob();
-            const ext = getExtFromUrl(url, response.headers.get('content-type') || '');
-            return { blob, ext };
-        };
-
-        const downloadOne = async (img: typeof allImages[0]) => {
-            try {
-                let result: { blob: Blob; ext: string };
-
-                if (inElectron) {
-                    result = await fetchDirect(img.url);
-                } else {
-                    result = await fetchViaLocalProxy(img.url);
-                }
-
-                // Build filename with counter per group
-                const folder = img.group || '';
-                const counterKey = folder || '__root__';
-                groupCounters[counterKey] = (groupCounters[counterKey] || 0) + 1;
-                const filename = `${String(groupCounters[counterKey]).padStart(4, '0')}.${result.ext}`;
-                const path = folder ? `${folder}/${filename}` : filename;
-
-                zip.file(path, result.blob);
-                completed++;
-                setDownloadProgress({ current: completed, total, status: `下载中 ${completed}/${total}` });
-            } catch (err) {
-                console.warn(`下载失败: ${img.url}`, err);
-                failed++;
-                completed++;
-                setDownloadProgress({ current: completed, total, status: `下载中 ${completed}/${total} (${failed} 失败)` });
-            }
-        };
-
-        // Process in batches for concurrency control
-        for (let i = 0; i < allImages.length; i += concurrency) {
-            const batch = allImages.slice(i, i + concurrency);
-            await Promise.all(batch.map(downloadOne));
-        }
-
-        setDownloadProgress({ current: total, total, status: '正在打包 ZIP...' });
-
-        try {
-            const content = await zip.generateAsync({ type: 'blob' });
-            const zipName = `缩略图_${new Date().toISOString().slice(0, 10)}_${allImages.length}张.zip`;
-            saveAs(content, zipName);
-            setDownloadProgress(null);
-            setCopyFeedback(`✅ 已下载 ${allImages.length - failed} 张图片${failed > 0 ? `（${failed} 张失败）` : ''}`);
-            setTimeout(() => setCopyFeedback(null), 3000);
-        } catch (err) {
-            console.error('ZIP 生成失败:', err);
-            setDownloadProgress(null);
-            setCopyFeedback('❌ ZIP 打包失败，请重试'); setTimeout(() => setCopyFeedback(null), 3000);
-        }
-    }, [processedRows, effectiveImageColumn, effectiveGroupColumns, extractImageUrl]);
+    }, [downloadFeedback]);
 
     // Copy view layout to clipboard (grouped thumbnails in grid format)
     const copyViewLayoutToClipboard = useCallback((
