@@ -43,6 +43,7 @@ interface PrayerResult {
     englishOutput: string;
     chineseOutput: string;
     rawOutput: string;
+    scriptureNote?: string;
     status: 'idle' | 'processing' | 'success' | 'error';
     error?: string;
     createdAt: number;
@@ -52,6 +53,7 @@ interface PrayerResult {
 interface PrayerRewriteViewProps {
     getAiInstance: () => GoogleGenAI;
     textModel: string;
+    deitySettings?: any;
 }
 
 // --- 预设类型 ---
@@ -227,7 +229,7 @@ const PRESETS_STORAGE_KEY = 'prayer_rewrite_presets_v1';
 
 // --- Component ---
 
-export function PrayerRewriteView({ getAiInstance, textModel }: PrayerRewriteViewProps) {
+export function PrayerRewriteView({ getAiInstance, textModel, deitySettings }: PrayerRewriteViewProps) {
     // --- State ---
     const [inputText, setInputText] = useState('');
     const [pendingPrayers, setPendingPrayers] = useState<string[]>([]); // 从 Google Sheets 解析出的待处理祷告词
@@ -268,6 +270,29 @@ export function PrayerRewriteView({ getAiInstance, textModel }: PrayerRewriteVie
 
     const stopRef = useRef(false);
 
+    // --- Deity Rules ---
+    const deityRules = React.useMemo(() => {
+        let rules = '\n\n【补充全局要求】\n';
+        if (deitySettings) {
+            if (deitySettings.capitalization === 'all_caps') {
+                rules += '- 必须且只能使用全大写的 LORD 或 GOD，禁止使用首字母大写的 Lord 或 God。\n';
+                rules += '- 如果要用代词，必须且只能使用全大写的 HE, HIM, HIS，禁止使用 He, Him, His。\n';
+            } else if (deitySettings.capitalization === 'first_caps') {
+                rules += '- 必须且只能使用首字母大写的 Lord 或 God，禁止使用全大写的 LORD 或 GOD。\n';
+                rules += '- 如果要用代词，必须且只能使用首字母大写的 He, Him, His，禁止使用 HE, HIM, HIS。\n';
+            }
+            if (deitySettings.enableScriptureDetection) {
+                rules += `- 经文引用限制：请使用 ${deitySettings.scriptureVersion || 'WEB (World English Bible) 或 KJV (King James Version)'} 的用词风格。绝不允许使用 NLT 或 NIV 的专属现代意译表达！\n`;
+                rules += `- ⚠️ 极其重要：在你的输出的最后，你必须附加一段“经文修改反馈”。
+请严格使用 "|||" 分隔符添加反馈。格式必须是这三种之一：
+1. 如果原文没有包含任何经文：请在输出最后加上 \`|||不包含经文\`
+2. 如果你匹配或修改了经文：请在输出最后加上 \`|||经文已修改为: [经文章节]\`
+3. 如果原文经文符合要求不需要修改：请在输出最后加上 \`|||不需要修改经文: [经文章节]\`\n`;
+            }
+        }
+        return rules;
+    }, [deitySettings]);
+
     // Persist state
     useEffect(() => {
         try {
@@ -295,19 +320,29 @@ export function PrayerRewriteView({ getAiInstance, textModel }: PrayerRewriteVie
     }, [customPresets]);
 
     // --- Parse Response ---
-    const parseResponse = (responseText: string): { english: string; chinese: string } => {
+    const parseResponse = (responseText: string): { english: string; chinese: string; scriptureNote?: string } => {
         const parts = responseText.split('|||');
-        if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
-            return {
-                english: parts[0].trim(),
-                chinese: parts[1].trim()
-            };
+        let english = '';
+        let chinese = '';
+        let scriptureNote = undefined;
+
+        if (deitySettings?.enableScriptureDetection && parts.length >= 3) {
+            english = parts[0].trim();
+            chinese = parts[1].trim();
+            scriptureNote = parts[parts.length - 1].trim();
+        } else if (parts.length >= 2) {
+            english = parts[0].trim();
+            chinese = parts[1].trim();
+            if (deitySettings?.enableScriptureDetection && chinese.includes('|||')) {
+                const subParts = chinese.split('|||');
+                chinese = subParts[0].trim();
+                scriptureNote = subParts[subParts.length - 1].trim();
+            }
+        } else {
+            english = responseText.trim();
         }
-        // Fallback: 如果没有 ||| 分隔符，尝试其他方式
-        return {
-            english: responseText.trim(),
-            chinese: ''
-        };
+
+        return { english, chinese, scriptureNote };
     };
 
     // --- Google Sheets 粘贴处理 ---
@@ -428,7 +463,7 @@ ${prayerText}
                             model: textModel || 'gemini-2.0-flash',
                             contents: { role: 'user', parts: [{ text: userPrompt }] },
                             config: {
-                                systemInstruction: systemPrompt,
+                                systemInstruction: systemPrompt + deityRules,
                                 temperature: 0.8,
                                 topP: 0.95,
                                 maxOutputTokens: 4096,
@@ -456,11 +491,11 @@ ${prayerText}
                 }
 
                 const text = apiResult?.text?.trim() || '';
-                const { english, chinese } = parseResponse(text);
+                const { english, chinese, scriptureNote } = parseResponse(text);
 
                 setResults(prev => prev.map(r =>
                     r.id === newResult.id
-                        ? { ...r, englishOutput: english, chineseOutput: chinese, rawOutput: text, status: 'success' }
+                        ? { ...r, englishOutput: english, chineseOutput: chinese, scriptureNote, rawOutput: text, status: 'success' }
                         : r
                 ));
             } catch (error: any) {
@@ -537,7 +572,7 @@ ${result.originalText}
                         model: textModel || 'gemini-2.0-flash',
                         contents: { role: 'user', parts: [{ text: userPrompt }] },
                         config: {
-                            systemInstruction: systemPrompt,
+                            systemInstruction: systemPrompt + deityRules,
                             temperature: 0.8,
                             topP: 0.95,
                             maxOutputTokens: 4096,
@@ -557,11 +592,11 @@ ${result.originalText}
             }
 
             const text = apiResult?.text?.trim() || '';
-            const { english, chinese } = parseResponse(text);
+            const { english, chinese, scriptureNote } = parseResponse(text);
 
             setResults(prev => prev.map(r =>
                 r.id === result.id
-                    ? { ...r, englishOutput: english, chineseOutput: chinese, rawOutput: text, status: 'success' as const }
+                    ? { ...r, englishOutput: english, chineseOutput: chinese, scriptureNote, rawOutput: text, status: 'success' as const }
                     : r
             ));
         } catch (error: any) {
@@ -612,7 +647,7 @@ ${item.originalText}
                             model: textModel || 'gemini-2.0-flash',
                             contents: { role: 'user', parts: [{ text: userPrompt }] },
                             config: {
-                                systemInstruction: systemPrompt,
+                                systemInstruction: systemPrompt + deityRules,
                                 temperature: 0.8,
                                 topP: 0.95,
                                 maxOutputTokens: 4096,
@@ -632,11 +667,11 @@ ${item.originalText}
                 }
 
                 const text = apiResult?.text?.trim() || '';
-                const { english, chinese } = parseResponse(text);
+                const { english, chinese, scriptureNote } = parseResponse(text);
 
                 setResults(prev => prev.map(r =>
                     r.id === item.id
-                        ? { ...r, englishOutput: english, chineseOutput: chinese, rawOutput: text, status: 'success' as const }
+                        ? { ...r, englishOutput: english, chineseOutput: chinese, scriptureNote, rawOutput: text, status: 'success' as const }
                         : r
                 ));
             } catch (error: any) {
@@ -1082,6 +1117,11 @@ ${item.originalText}
                                                     </div>
                                                     <div className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">
                                                         {result.chineseOutput}
+                                                        {result.scriptureNote && (
+                                                            <div className="mt-2 pt-2 border-t border-amber-500/20 text-xs text-amber-300">
+                                                                {result.scriptureNote}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>

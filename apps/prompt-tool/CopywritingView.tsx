@@ -95,6 +95,7 @@ interface InstructionResult {
     resultForeign: string;      // 改写后的外文
     resultChinese: string;      // 翻译后的中文
     resultExtraParts?: string[]; // 额外的 ||| 分隔部分（第3、4...列）
+    scriptureNote?: string;      // 经文修改情况反馈
     status: 'idle' | 'processing' | 'success' | 'error';
     error?: string;
     voiceIntegrityIssue?: VoiceIntegrityIssue;
@@ -126,6 +127,8 @@ interface CopywritingItem {
     instructionResults?: InstructionResult[];
     // 拆分结果
     splitResults?: Record<string, string>; // columnId -> 提取的内容
+    // 经文反馈（如果是无文案模式或不支持多指令的模式产生的结果）
+    scriptureNote?: string;
     // 折叠状态
     collapsed?: boolean;
     // 单条设置
@@ -2433,7 +2436,7 @@ const CLEANER_MODEL_OPTIONS = [
   { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
 ];
 
-export function CopywritingView({ getAiInstance, textModel, promptTabId = 'default' }: CopywritingViewProps) {
+export function CopywritingView({ getAiInstance, textModel, promptTabId = 'default', deitySettings }: CopywritingViewProps) {
     const { user } = useAuth();
 
     // --- State ---
@@ -3308,34 +3311,47 @@ ${columnDescriptions}
             let systemPrompt: string;
             let userPrompt: string;
 
+            let deityRules = '';
+            if (deitySettings) {
+                if (deitySettings.deityTerms && deitySettings.deityTerms.length > 0) {
+                    deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.\n`;
+                    if (deitySettings.applyDeityCapitalizationToAll) {
+                        deityRules += `For any other output language, you MUST also capitalize the corresponding translated terms for these words.\n`;
+                    }
+                }
+                if (deitySettings.enableScriptureDetection) {
+                    deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${deitySettings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${deitySettings.scriptureVersion}】"\n`;
+                }
+            }
+
             if (mode === 'freeform') {
                 // 无文案模式 - 纯指令生成，不需要原文
                 const hasCustomFormat = inst.includes('|||');
                 if (hasCustomFormat) {
-                    systemPrompt = `你是一个专业的文案创作助手。\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`;
+                    systemPrompt = `你是一个专业的文案创作助手。${deityRules}\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`;
                     userPrompt = inst;
                 } else if (!autoTranslate) {
-                    systemPrompt = `你是一个专业的文案创作助手。\n\n【输出规则】\n1. 只输出最终文案，不要任何解释或前缀\n2. 直接输出结果，不需要分隔符`;
+                    systemPrompt = `你是一个专业的文案创作助手。${deityRules}\n\n【输出规则】\n1. 只输出最终文案，不要任何解释或前缀\n2. 直接输出结果，不需要分隔符`;
                     userPrompt = inst;
                 } else {
-                    systemPrompt = `你是一个专业的文案创作助手。\n\n【输出规则·分隔层】\n1. 整个输出中有且仅有一个 ||| 分隔符\n2. ||| 左边是外文文案，右边是对应的中文翻译\n3. 不要任何额外解释\n\n【重要】\n- 如果用户指令中有关于内容格式的要求（如分段、编号等），请在 ||| 左边的外文部分和右边的中文部分内分别应用\n- 如果用户指令中要求输出中文或双语，请忽略用户的中文输出要求，统一由 ||| 右边的中文翻译来提供\n- ||| 是语言版本分界符，不是内容格式分隔符`;
+                    systemPrompt = `你是一个专业的文案创作助手。${deityRules}\n\n【输出规则·分隔层】\n1. 整个输出中有且仅有一个 ||| 分隔符\n2. ||| 左边是外文文案，右边是对应的中文翻译\n3. 不要任何额外解释\n\n【重要】\n- 如果用户指令中有关于内容格式的要求（如分段、编号等），请在 ||| 左边的外文部分和右边的中文部分内分别应用\n- 如果用户指令中要求输出中文或双语，请忽略用户的中文输出要求，统一由 ||| 右边的中文翻译来提供\n- ||| 是语言版本分界符，不是内容格式分隔符`;
                     userPrompt = `${inst}\n\n请按以下格式输出：外文文案|||中文文案`;
                 }
             } else if (mode === 'prayer') {
                 // 祷告词提炼改写模式 - 独立系统指令
-                systemPrompt = `${PRAYER_MODE_SYSTEM_INSTRUCTION}\n\n【输出规则】\n1. 只输出最终文案，不要任何解释\n2. 输出格式：英文三段式文案|||中文三段式文案\n3. 使用 ||| 作为分隔符`;
+                systemPrompt = `${PRAYER_MODE_SYSTEM_INSTRUCTION}${deityRules}\n\n【输出规则】\n1. 只输出最终文案，不要任何解释\n2. 输出格式：英文三段式文案|||中文三段式文案\n3. 使用 ||| 作为分隔符`;
 
                 userPrompt = `请提炼改写以下祷告词为三段式双语短视频文案：${inst ? `\n\n额外要求：${inst}` : ''}\n\n原始祷告词：\n${item.originalForeign}\n\n输出格式：英文版|||中文版`;
             } else {
                 const hasCustomFormat = inst.includes('|||');
                 if (hasCustomFormat) {
-                    systemPrompt = `${systemInstruction}\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`;
+                    systemPrompt = `${systemInstruction}${deityRules}\n\n【输出规则】\n1. 严格按照用户指令中定义的输出格式输出\n2. 使用 ||| 作为分隔符\n3. 不要任何额外解释`;
                     userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。`;
                 } else if (!autoTranslate) {
-                    systemPrompt = `${systemInstruction}\n\n【输出规则】\n1. 只输出改写后的最终文案，不要任何解释或前缀\n2. 直接输出结果`;
+                    systemPrompt = `${systemInstruction}${deityRules}\n\n【输出规则】\n1. 只输出改写后的最终文案，不要任何解释或前缀\n2. 直接输出结果`;
                     userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。直接输出改写结果。`;
                 } else {
-                    systemPrompt = `${systemInstruction}\n\n【输出规则·分隔层】\n1. 整个输出中有且仅有一个 ||| 分隔符\n2. ||| 左边是改写后的外文，右边是对应的中文翻译\n3. 不要任何额外解释\n\n【重要】\n- 用户指令中的格式要求（如分段、编号、标题等）属于内容层，请在 ||| 的左右两部分中分别应用\n- 如果用户指令中要求输出中文或双语，请忽略用户的中文输出要求，统一由 ||| 右边的中文翻译来提供\n- ||| 是语言版本分界符，不是内容格式分隔符，整个输出中只能出现一次`;
+                    systemPrompt = `${systemInstruction}${deityRules}\n\n【输出规则·分隔层】\n1. 整个输出中有且仅有一个 ||| 分隔符\n2. ||| 左边是改写后的外文，右边是对应的中文翻译\n3. 不要任何额外解释\n\n【重要】\n- 用户指令中的格式要求（如分段、编号、标题等）属于内容层，请在 ||| 的左右两部分中分别应用\n- 如果用户指令中要求输出中文或双语，请忽略用户的中文输出要求，统一由 ||| 右边的中文翻译来提供\n- ||| 是语言版本分界符，不是内容格式分隔符，整个输出中只能出现一次`;
                     userPrompt = `改写指令：\n${inst}\n\n原始外文：\n${item.originalForeign}\n\n请严格按照指令改写，只修改指令要求的部分，其他保持原样。输出格式：改写后的外文|||中文翻译`;
                 }
             }
@@ -3358,11 +3374,22 @@ ${columnDescriptions}
             // 只在第一个 ||| 处拆分（防止用户内容中包含 ||| 导致多拆）
             const sepIdx = responseText.indexOf('|||');
             if (sepIdx >= 0) {
+                const afterFirst = responseText.substring(sepIdx + 3).trim();
+                const remainingParts = afterFirst.split('|||').map(p => p.trim());
+                const chinese = remainingParts[0];
+                const extraParts = remainingParts.length > 1 ? remainingParts.slice(1) : undefined;
+                let scriptureNote: string | undefined = undefined;
+                if (deitySettings?.enableScriptureDetection && extraParts && extraParts.length > 0) {
+                    scriptureNote = extraParts[extraParts.length - 1];
+                }
+
                 return {
                     foreign: responseText.substring(0, sepIdx).trim(),
-                    chinese: responseText.substring(sepIdx + 3).trim(),
+                    chinese: chinese,
+                    extraParts: extraParts,
+                    scriptureNote: scriptureNote,
                     rawResponse: responseText
-                };
+                } as any;
             } else {
                 console.warn('[CopywritingView] Unexpected response format:', responseText);
                 return {
@@ -3377,12 +3404,11 @@ ${columnDescriptions}
         }
     };
 
-    // --- 批量处理函数：一次 API 调用处理多条文案 ---
     const processBatch = async (
         batchItems: CopywritingItem[],
         inst: string
-    ): Promise<Map<string, { foreign: string; chinese: string; classifyResults?: Record<string, string>; extraParts?: string[]; rawResponse?: string }>> => {
-        const results = new Map<string, { foreign: string; chinese: string; classifyResults?: Record<string, string>; extraParts?: string[]; rawResponse?: string }>();
+    ): Promise<Map<string, { foreign: string; chinese: string; classifyResults?: Record<string, string>; extraParts?: string[]; rawResponse?: string; scriptureNote?: string }>> => {
+        const results = new Map<string, { foreign: string; chinese: string; classifyResults?: Record<string, string>; extraParts?: string[]; rawResponse?: string; scriptureNote?: string }>();
 
         // 构建批量输入
         const numberedInputs = batchItems.map((item, idx) => `[${idx + 1}] ${item.originalForeign}`).join('\n\n');
@@ -3390,9 +3416,22 @@ ${columnDescriptions}
         let systemPrompt: string;
         let userPrompt: string;
 
+        let deityRules = '';
+        if (deitySettings) {
+            if (deitySettings.deityTerms && deitySettings.deityTerms.length > 0) {
+                deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.\n`;
+                if (deitySettings.applyDeityCapitalizationToAll) {
+                    deityRules += `For any other output language, you MUST also capitalize the corresponding translated terms for these words.\n`;
+                }
+            }
+            if (deitySettings.enableScriptureDetection) {
+                deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${deitySettings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${deitySettings.scriptureVersion}】"\n`;
+            }
+        }
+
         if (mode === 'voice') {
             // 人声模式批量处理
-            systemPrompt = `${voiceModeSystemInstruction}
+            systemPrompt = `${voiceModeSystemInstruction}${deityRules}
 
 【批量处理输出规则】
 你需要处理多条文案，每条以 [编号] 开头。
@@ -3460,7 +3499,7 @@ ${numberedInputs}
 
         } else if (mode === 'prayer') {
             // 祷告词提炼改写模式批量处理
-            systemPrompt = `${PRAYER_MODE_SYSTEM_INSTRUCTION}\n\n【批量处理输出规则】\n你需要处理多条祷告词，每条以 [编号] 开头。\n对于每条祷告词，提炼改写为三段式双语文案。\n输出格式为：[编号] 英文三段式文案|||中文三段式文案\n每条结果占一行。`;
+            systemPrompt = `${PRAYER_MODE_SYSTEM_INSTRUCTION}${deityRules}\n\n【批量处理输出规则】\n你需要处理多条祷告词，每条以 [编号] 开头。\n对于每条祷告词，提炼改写为三段式双语文案。\n输出格式为：[编号] 英文三段式文案|||中文三段式文案\n每条结果占一行。`;
 
             userPrompt = `请提炼改写以下每条祷告词为三段式双语短视频文案：${inst ? `\n\n额外要求：${inst}` : ''}\n\n${numberedInputs}\n\n按格式输出每条结果：[编号] 英文版|||中文版`;
 
@@ -3473,7 +3512,8 @@ ${numberedInputs}
                 textModel,
                 inst,
                 autoTranslate,
-                systemInstruction
+                systemInstruction,
+                deitySettings
             });
 
             coreResults.forEach((res, idx) => {
@@ -3486,13 +3526,15 @@ ${numberedInputs}
                             foreign: rawParts[0] || res.foreign,
                             chinese: rawParts.length > 1 ? rawParts[1] : res.chinese,
                             extraParts: rawParts.length > 2 ? rawParts.slice(2) : undefined,
-                            rawResponse: res.rawResponse
+                            rawResponse: res.rawResponse,
+                            scriptureNote: res.scriptureNote
                         });
                     } else {
                         results.set(item.id, {
                             foreign: res.foreign,
                             chinese: res.chinese,
-                            rawResponse: res.rawResponse
+                            rawResponse: res.rawResponse,
+                            scriptureNote: res.scriptureNote
                         });
                     }
                 }
@@ -3568,10 +3610,17 @@ ${numberedInputs}
                                         validateVoiceModeIntegrity(item.originalForeign, voiceTagged, voiceSegmented);
                                     }
 
+                                    const extraParts = parts.length > 2 ? parts.slice(2).map((p: string) => p.trim()) : undefined;
+                                    let scriptureNote: string | undefined = undefined;
+                                    if (deitySettings?.enableScriptureDetection && extraParts && extraParts.length > 0) {
+                                        scriptureNote = extraParts[extraParts.length - 1];
+                                    }
+
                                     results.set(item.id, {
                                         foreign: voiceTagged,
                                         chinese: voiceSegmented,
-                                        extraParts: parts.length > 2 ? parts.slice(2).map((p: string) => p.trim()) : undefined,
+                                        extraParts,
+                                        scriptureNote,
                                         rawResponse: content
                                     });
                                 } else {
@@ -3626,7 +3675,7 @@ ${numberedInputs}
                         const result = await processItem(item);
                         if (result) {
                             setItems(prev => prev.map(i =>
-                                i.id === item.id ? { ...i, status: 'success' as const, resultForeign: result.foreign, resultChinese: result.chinese, rawResponse: result.rawResponse } : i
+                                i.id === item.id ? { ...i, status: 'success' as const, resultForeign: result.foreign, resultChinese: result.chinese, scriptureNote: (result as any).scriptureNote, rawResponse: result.rawResponse } : i
                             ));
                         } else {
                             setItems(prev => prev.map(i =>
@@ -4622,6 +4671,7 @@ ${allLibsPrompt}`;
                                             resultForeign: result.foreign,
                                             resultChinese: result.chinese,
                                             resultExtraParts: result.extraParts,
+                                            scriptureNote: result.scriptureNote,
                                             status: 'success',
                                             createdAt: Date.now()
                                         };
@@ -5582,6 +5632,8 @@ ${item.originalForeign}
                                 inputForeign: item.originalForeign,
                                 resultForeign: (result as any).foreign,
                                 resultChinese: (result as any).chinese,
+                                resultExtraParts: (result as any).extraParts,
+                                scriptureNote: (result as any).scriptureNote,
                                 status: 'success',
                                 createdAt: Date.now()
                             });
@@ -5629,7 +5681,7 @@ ${item.originalForeign}
     };
 
     // --- Process item with specific instruction ---
-    const processItemWithInstruction = async (item: CopywritingItem, itemInstruction: string): Promise<{ foreign: string; chinese: string } | null> => {
+    const processItemWithInstruction = async (item: CopywritingItem, itemInstruction: string): Promise<{ foreign: string; chinese: string; scriptureNote?: string; extraParts?: string[]; rawResponse?: string } | null> => {
         try {
             const ai = getAiInstance();
 
@@ -5637,9 +5689,22 @@ ${item.originalForeign}
             let systemPrompt: string;
             let userPrompt: string;
 
+            let deityRules = '';
+            if (deitySettings) {
+                if (deitySettings.deityTerms && deitySettings.deityTerms.length > 0) {
+                    deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.\n`;
+                    if (deitySettings.applyDeityCapitalizationToAll) {
+                        deityRules += `For any other output language, you MUST also capitalize the corresponding translated terms for these words.\n`;
+                    }
+                }
+                if (deitySettings.enableScriptureDetection) {
+                    deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${deitySettings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${deitySettings.scriptureVersion}】"\n`;
+                }
+            }
+
             if (mode === "voice") {
                 // 人声文案模式：使用用户编辑过的系统指令
-                systemPrompt = voiceModeSystemInstruction;
+                systemPrompt = `${voiceModeSystemInstruction}${deityRules}`;
                 userPrompt = `${itemInstruction}
 
 原始文案：
@@ -5652,7 +5717,7 @@ ${item.originalForeign}
 两部分用 ||| 分隔。`;
             } else if (mode === 'social-media') {
                 // 自媒体改写模式：使用专用系统指令 + 动态分项
-                systemPrompt = socialMediaModeSystemInstruction;
+                systemPrompt = `${socialMediaModeSystemInstruction}${deityRules}`;
                 const enabledSections = socialMediaOutputSections.filter(s => s.enabled);
                 const sectionInstructions = enabledSections.map((s, idx) => `${idx + 1}. 【${s.name}】\n   要求: ${s.description}`).join('\n\n');
                 const sectionMarkers = enabledSections.map(s => `===【${s.name}】===`).join('\n...\n');
@@ -5672,7 +5737,7 @@ ${sectionMarkers}
 ${item.originalForeign}`;
             } else {
                 // 标准模式：输出外文+中文翻译
-                systemPrompt = `${systemInstruction}
+                systemPrompt = `${systemInstruction}${deityRules}
 
 【输出规则】
 1. 只输出最终文案，不要任何解释
@@ -5837,9 +5902,17 @@ ${item.originalForeign}
                 // 标准模式：解析 ||| 分隔符
                 const parts = responseText.split('|||');
                 if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
+                    const extraParts = parts.length > 2 ? parts.slice(2).map(p => p.trim()) : undefined;
+                    let scriptureNote: string | undefined = undefined;
+                    if (deitySettings?.enableScriptureDetection && extraParts && extraParts.length > 0) {
+                        scriptureNote = extraParts[extraParts.length - 1];
+                    }
                     return {
                         foreign: parts[0].trim(),
-                        chinese: parts[1].trim()
+                        chinese: parts[1].trim(),
+                        extraParts,
+                        scriptureNote,
+                        rawResponse: responseText
                     };
                 } else {
                     // 解析失败，抛出错误
@@ -6175,8 +6248,10 @@ ${batchInput}
                 if (result) {
                     newResults[instIdx] = {
                         ...newResults[instIdx],
-                        resultForeign: result.foreign,
-                        resultChinese: result.chinese,
+                        resultForeign: (result as any).foreign,
+                        resultChinese: (result as any).chinese,
+                        resultExtraParts: (result as any).extraParts,
+                        scriptureNote: (result as any).scriptureNote,
                         status: 'success',
                         error: undefined,
                         voiceIntegrityIssue: undefined
@@ -8372,6 +8447,11 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                         ) : result.status === 'success' ? (
                                                                             <div className="text-sm text-blue-100 whitespace-pre-wrap break-words">
                                                                                 {result.resultChinese}
+                                                                                {result.scriptureNote && (
+                                                                                    <div className="mt-2 pt-2 border-t border-blue-500/20 text-xs text-blue-300">
+                                                                                        {result.scriptureNote}
+                                                                                    </div>
+                                                                                )}
                                                                             </div>
                                                                         ) : (
                                                                             <div className="text-sm text-zinc-600">-</div>
@@ -8499,6 +8579,11 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                                 {item.status === 'success' ? (
                                                                     <div className={`text-sm ${mode === "voice" ? 'text-cyan-100' : 'text-blue-100'} whitespace-pre-wrap break-words`}>
                                                                         {item.resultChinese}
+                                                                        {item.scriptureNote && (
+                                                                            <div className={`mt-2 pt-2 border-t ${mode === 'voice' ? 'border-cyan-500/20 text-cyan-300' : 'border-blue-500/20 text-blue-300'} text-xs`}>
+                                                                                {item.scriptureNote}
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 ) : (
                                                                     <div className="text-sm text-zinc-600 italic">-</div>
