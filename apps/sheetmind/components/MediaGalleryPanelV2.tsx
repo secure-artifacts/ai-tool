@@ -65,7 +65,7 @@ import {
     CustomFilter, HighlightRule, GalleryConfig, SavedConfig,
     GalleryPreset, FavoriteItem, FavoriteFolder,
 } from './galleryUtils';
-import { sortRowsByRules as sortRowsByRulesImpl, sortDateKeys as sortDateKeysImpl, computeProcessedRows, generateExportData as generateExportDataImpl , computeTimelineData, computeGroupedTimelineData, computeMatrixData , generateViewLayoutText } from './galleryViewData';
+import { sortRowsByRules as sortRowsByRulesImpl, sortDateKeys as sortDateKeysImpl, computeProcessedRows, generateExportData as generateExportDataImpl , computeTimelineData, computeGroupedTimelineData, computeMatrixData , generateViewLayoutText , computeCalendarGrid , computeRowGroupKey } from './galleryViewData';
 import { useThumbnailDownload } from './useThumbnailDownload';
 import { useGallerySheetSync } from './useGallerySheetSync';
 
@@ -3821,55 +3821,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     // Calendar grid
     const calendarGrid = useMemo(() => {
-        const mode = config.calendarMode;
-        const selDate = config.selectedDate ? new Date(config.selectedDate) : new Date();
-
-        if (mode === 'month') {
-            const year = calendarMonth.getFullYear();
-            const month = calendarMonth.getMonth();
-            const firstDay = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-            const weeks: (number | null)[][] = [];
-            let week: (number | null)[] = new Array(firstDay).fill(null);
-
-            for (let day = 1; day <= daysInMonth; day++) {
-                week.push(day);
-                if (week.length === 7) {
-                    weeks.push(week);
-                    week = [];
-                }
-            }
-            if (week.length > 0) {
-                while (week.length < 7) week.push(null);
-                weeks.push(week);
-            }
-
-            return { type: 'month' as const, year, month, weeks };
-        } else if (mode === 'day') {
-            return { type: 'day' as const, dates: [selDate] };
-        } else if (mode === 'week') {
-            const startOfWeek = new Date(selDate);
-            startOfWeek.setDate(selDate.getDate() - selDate.getDay());
-            const dates = [];
-            for (let i = 0; i < 7; i++) {
-                const d = new Date(startOfWeek);
-                d.setDate(startOfWeek.getDate() + i);
-                dates.push(d);
-            }
-            return { type: 'week' as const, dates };
-        } else if (mode === 'range7') {
-            const dates = [];
-            for (let i = -3; i <= 3; i++) {
-                const d = new Date(selDate);
-                d.setDate(selDate.getDate() + i);
-                dates.push(d);
-            }
-            return { type: 'range7' as const, dates };
-        } else {
-            // scroll mode
-            return { type: 'scroll' as const, dates: [] };
-        }
+        return computeCalendarGrid(config.calendarMode, config.selectedDate, calendarMonth);
     }, [config.calendarMode, config.selectedDate, calendarMonth]);
 
     // Helper function to get the group key for a row (handles binning)

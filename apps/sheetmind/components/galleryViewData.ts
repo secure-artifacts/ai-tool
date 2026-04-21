@@ -1268,3 +1268,177 @@ const text = outputRows.map(row => row.join('\t')).join('\n');
 
     return { text, groupCount, totalImages, error: null };
 }
+
+
+export function computeCalendarGrid(mode: string, selectedDate: string, calendarMonth: Date) {
+    const selDate = selectedDate ? new Date(selectedDate) : new Date();
+
+    if (mode === 'month') {
+        const year = calendarMonth.getFullYear();
+        const month = calendarMonth.getMonth();
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        const weeks: (number | null)[][] = [];
+        let week: (number | null)[] = new Array(firstDay).fill(null);
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            week.push(day);
+            if (week.length === 7) {
+                weeks.push(week);
+                week = [];
+            }
+        }
+        if (week.length > 0) {
+            while (week.length < 7) week.push(null);
+            weeks.push(week);
+        }
+
+        return { type: 'month' as const, year, month, weeks };
+    } else if (mode === 'day') {
+        return { type: 'day' as const, dates: [selDate] };
+    } else if (mode === 'week') {
+        const startOfWeek = new Date(selDate);
+        startOfWeek.setDate(selDate.getDate() - selDate.getDay());
+        const dates = [];
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(startOfWeek);
+            d.setDate(startOfWeek.getDate() + i);
+            dates.push(d);
+        }
+        return { type: 'week' as const, dates };
+    } else if (mode === 'range7') {
+        const dates = [];
+        for (let i = -3; i <= 3; i++) {
+            const d = new Date(selDate);
+            d.setDate(selDate.getDate() + i);
+            dates.push(d);
+        }
+        return { type: 'range7' as const, dates };
+    } else {
+        // scroll mode
+        return { type: 'scroll' as const, dates: [] };
+    }
+}
+
+
+export function computeRowGroupKey(
+    row: DataRow,
+    effectiveGroupLevels: GroupLevel[],
+    effectiveGroupColumn: string,
+    effectiveGroupBinning: boolean,
+    effectiveGroupBins: GroupBinRange[],
+    effectiveTextGrouping: boolean,
+    effectiveTextGroupBins: TextGroupBin[],
+    getGroupKey: (val: any) => { key: string, originalText: string } | null
+): string {
+    const useMultiLevelLogic = effectiveGroupLevels.length > 1 ||
+        (effectiveGroupLevels.length === 1 && (
+            effectiveGroupLevels[0].numericBins?.length ||
+            effectiveGroupLevels[0].dateBins?.length ||
+            effectiveGroupLevels[0].textBins?.length
+        ));
+
+    if (useMultiLevelLogic && effectiveGroupLevels.length > 0) {
+        const keys: string[] = [];
+        for (const level of effectiveGroupLevels) {
+            const rawVal = row[level.column];
+            let key = '';
+
+            if (level.type === 'numeric' && level.numericBins && level.numericBins.length > 0) {
+                const numVal = parseFloat(String(rawVal));
+                if (isNaN(numVal)) {
+                    key = '其他';
+                } else {
+                    const bin = level.numericBins.find(b => numVal >= b.min && numVal <= b.max);
+                    key = bin ? bin.label : '其他';
+                }
+            } else if (level.type === 'date' && level.dateBins && level.dateBins.length > 0) {
+                const dateVal = parseDate(rawVal);
+                if (!dateVal) {
+                    key = '无效日期';
+                } else {
+                    const dateTime = dateVal.getTime();
+                    const bin = level.dateBins.find(b => {
+                        const start = new Date(b.startDate).getTime();
+                        const end = new Date(b.endDate).getTime() + 86400000 - 1;
+                        return dateTime >= start && dateTime <= end;
+                    });
+                    key = bin ? bin.label : '其他日期';
+                }
+            } else if (level.type === 'text' && level.textBins && level.textBins.length > 0) {
+                const groupResult = getGroupKey(rawVal);
+                const strVal = groupResult?.originalText || groupResult?.key || String(rawVal || '').trim();
+                const strValLower = strVal.toLowerCase();
+                const matchedBin = level.textBins.find(b => {
+                    if (b.conditions && b.conditions.length > 0) {
+                        return b.conditions.some(cond => {
+                            const condValLower = (cond.value || '').toLowerCase();
+                            switch (cond.operator) {
+                                case 'equals': return strValLower === condValLower;
+                                case 'contains': return strValLower.includes(condValLower);
+                                case 'startsWith': return strValLower.startsWith(condValLower);
+                                case 'endsWith': return strValLower.endsWith(condValLower);
+                                default: return false;
+                            }
+                        });
+                    }
+                    return (b.values || []).some(v => v === strVal);
+                });
+                key = matchedBin ? matchedBin.label : (strVal || '(空)');
+            } else {
+                const groupResult = getGroupKey(rawVal);
+                key = groupResult?.originalText || groupResult?.key || String(rawVal || '').trim() || '(空)';
+            }
+            keys.push(key);
+        }
+        return keys.join(' › ');
+    }
+
+    if (!effectiveGroupColumn) return '未分组';
+
+    if (effectiveGroupBinning && effectiveGroupBins.length > 0) {
+        const val = parseFloat(String(row[effectiveGroupColumn]));
+        if (isNaN(val)) return '其他';
+        for (const bin of effectiveGroupBins) {
+            if (val >= bin.min && val <= bin.max) {
+                return bin.label;
+            }
+        }
+        return '其他';
+    }
+
+    if (effectiveTextGrouping && effectiveTextGroupBins.length > 0) {
+        const cellValue = String(row[effectiveGroupColumn] || '').trim();
+        const cellValueLower = cellValue.toLowerCase();
+        const cellNumValue = parseFloat(cellValue.replace(/[^\d.-]/g, ''));
+
+        for (const group of effectiveTextGroupBins) {
+            if (group.values.includes(cellValue)) {
+                return group.label;
+            }
+            if (group.conditions && group.conditions.length > 0) {
+                const matched = group.conditions.some(cond => {
+                    const condValLower = (cond.value || '').toLowerCase();
+                    const condNumVal = parseFloat(condValLower.replace(/[^\d.-]/g, ''));
+                    switch (cond.operator) {
+                        case 'equals': return cellValueLower === condValLower;
+                        case 'contains': return cellValueLower.includes(condValLower);
+                        case 'startsWith': return cellValueLower.startsWith(condValLower);
+                        case 'endsWith': return cellValueLower.endsWith(condValLower);
+                        case 'greaterThan': return !isNaN(cellNumValue) && !isNaN(condNumVal) && cellNumValue > condNumVal;
+                        case 'greaterOrEqual': return !isNaN(cellNumValue) && !isNaN(condNumVal) && cellNumValue >= condNumVal;
+                        case 'lessThan': return !isNaN(cellNumValue) && !isNaN(condNumVal) && cellNumValue < condNumVal;
+                        case 'lessOrEqual': return !isNaN(cellNumValue) && !isNaN(condNumVal) && cellNumValue <= condNumVal;
+                        default: return false;
+                    }
+                });
+                if (matched) return group.label;
+            }
+        }
+    }
+
+    const val = row[effectiveGroupColumn];
+    const groupResult = getGroupKey(val);
+    return groupResult?.originalText || groupResult?.key || String(val || '未分组');
+}
