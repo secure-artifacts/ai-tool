@@ -972,3 +972,299 @@ for (const [key, group] of colGroups) {
 
 return { rowKeys: sortedRows, colKeys: sortedCols, cells, rowLabels, colLabels };
 }
+
+export function generateViewLayoutText(
+    layoutMode: 'horizontal' | 'vertical' | 'columns',
+    columnsPerRow: number,
+    includeExtraData: boolean,
+    selectedColumns: string[],
+    applyOverrides: boolean,
+    processedRows: DataRow[],
+    effectiveGroupColumns: string[],
+    effectiveGroupLevels: GroupLevel[],
+    effectiveImageColumn: string,
+    classificationOverrides: Record<string, string>,
+    customOrderByGroup: Record<string, string[]>
+): { text: string; groupCount: number; totalImages: number; error: string | null } {
+const primaryGroupColumn = effectiveGroupColumns[0];
+
+if (!effectiveImageColumn) {
+    return { text: '', groupCount: 0, totalImages: 0, error: '❌ 请先配置图片列' };
+
+
+
+}
+
+// Multi-level grouping helper (inline version of getRowGroupKey logic)
+const useMultiLevelLogic = effectiveGroupLevels.length > 1 ||
+    (effectiveGroupLevels.length === 1 && (
+        effectiveGroupLevels[0].numericBins?.length ||
+        effectiveGroupLevels[0].dateBins?.length ||
+        effectiveGroupLevels[0].textBins?.length
+    ));
+
+const getGroupKeyForRow = (row: DataRow): string => {
+    if (useMultiLevelLogic && effectiveGroupLevels.length > 0) {
+        const keys: string[] = [];
+        for (const level of effectiveGroupLevels) {
+            const rawVal = row[level.column];
+            let key = '';
+
+            if (level.type === 'numeric' && level.numericBins && level.numericBins.length > 0) {
+                const numVal = parseFloat(String(rawVal));
+                if (isNaN(numVal)) {
+                    key = '其他';
+                } else {
+                    const bin = level.numericBins.find(b => numVal >= b.min && numVal <= b.max);
+                    key = bin ? bin.label : '其他';
+                }
+            } else if (level.type === 'date' && level.dateBins && level.dateBins.length > 0) {
+                const dateVal = parseDate(rawVal);
+                if (!dateVal) {
+                    key = '无效日期';
+                } else {
+                    const dateTime = dateVal.getTime();
+                    const bin = level.dateBins.find(b => {
+                        const start = new Date(b.startDate).getTime();
+                        const end = new Date(b.endDate).getTime() + 86400000 - 1;
+                        return dateTime >= start && dateTime <= end;
+                    });
+                    key = bin ? bin.label : '其他日期';
+                }
+            } else if (level.type === 'text' && level.textBins && level.textBins.length > 0) {
+                const groupResult = getGroupKey(rawVal);
+                const strVal = groupResult?.originalText || groupResult?.key || String(rawVal || '').trim();
+                const strValLower = strVal.toLowerCase();
+                const matchedBin = level.textBins.find(b => {
+                    if (b.conditions && b.conditions.length > 0) {
+                        return b.conditions.some(cond => {
+                            const condValLower = (cond.value || '').toLowerCase();
+                            switch (cond.operator) {
+                                case 'equals': return strValLower === condValLower;
+                                case 'contains': return strValLower.includes(condValLower);
+                                case 'startsWith': return strValLower.startsWith(condValLower);
+                                case 'endsWith': return strValLower.endsWith(condValLower);
+                                default: return false;
+                            }
+                        });
+                    }
+                    return (b.values || []).some(v => v === strVal);
+                });
+                key = matchedBin ? matchedBin.label : (strVal || '(空)');
+            } else {
+                const groupResult = getGroupKey(rawVal);
+                key = groupResult?.originalText || groupResult?.key || String(rawVal || '').trim() || '(空)';
+            }
+
+            keys.push(key);
+        }
+        return keys.join(' › ');
+    }
+
+    // Simple grouping: use primary group column
+    return primaryGroupColumn
+        ? String(row[primaryGroupColumn] || '未分组')
+        : '全部图片';
+};
+
+// Group rows by multi-level group key (considering classification overrides)
+const groups = new Map<string, DataRow[]>();
+processedRows.forEach(row => {
+    const imageUrl = extractImageUrl(row[effectiveImageColumn]);
+    let groupKey: string;
+
+    // Apply classification overrides if enabled
+    if (applyOverrides && imageUrl && classificationOverrides[imageUrl]) {
+        groupKey = classificationOverrides[imageUrl];
+    } else {
+        groupKey = getGroupKeyForRow(row);
+    }
+
+    if (!groups.has(groupKey)) groups.set(groupKey, []);
+    groups.get(groupKey)!.push(row);
+});
+
+// Sort groups numerically
+const sortedGroups = Array.from(groups.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }));
+
+// Apply custom ordering within each group
+const orderedGroups = sortedGroups.map(([groupKey, rows]) => {
+    const customOrder = customOrderByGroup[groupKey];
+    if (customOrder && customOrder.length > 0) {
+        // Sort rows by custom order
+        const orderedRows = [...rows].sort((a, b) => {
+            const urlA = extractImageUrl(a[effectiveImageColumn]) || '';
+            const urlB = extractImageUrl(b[effectiveImageColumn]) || '';
+            const indexA = customOrder.indexOf(urlA);
+            const indexB = customOrder.indexOf(urlB);
+            // Items not in custom order go to the end
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        });
+        return [groupKey, orderedRows] as [string, DataRow[]];
+    }
+    return [groupKey, rows] as [string, DataRow[]];
+});
+
+// Build the output rows
+const outputRows: string[][] = [];
+
+if (layoutMode === 'columns') {
+    // Transposed mode: Categories as headers, images directly below
+    const headerRow: string[] = [];
+    const subHeaderRow: string[] = []; // Only used if includeExtraData
+
+    // Parse formatted data per group
+    const groupData = orderedGroups.map(([, rows]) => {
+        return rows
+            .map(row => {
+                const url = extractImageUrl(row[effectiveImageColumn]);
+                const formula = url ? `=IMAGE("${url}")` : '';
+                const extraData: Record<string, string> = {};
+                if (includeExtraData) {
+                    selectedColumns.forEach(col => {
+                        extraData[col] = String(row[col] || '');
+                    });
+                }
+                return { formula, extraData };
+            })
+            .filter(item => item.formula);
+    });
+
+    // How many columns per group?
+    const colsPerGroup = includeExtraData && selectedColumns.length > 0 ? 1 + selectedColumns.length : 1;
+
+    orderedGroups.forEach(([groupKey]) => {
+        headerRow.push(groupKey);
+        for (let i = 1; i < colsPerGroup; i++) headerRow.push(groupKey); // Fill completely instead of empty padding for non-merged workflows
+
+        if (includeExtraData && selectedColumns.length > 0) {
+            selectedColumns.forEach(col => subHeaderRow.push(col));
+            subHeaderRow.push('缩略图');
+        }
+    });
+
+    outputRows.push(headerRow);
+    if (subHeaderRow.length > 0) outputRows.push(subHeaderRow);
+
+    const maxRows = Math.max(...groupData.map(d => d.length));
+
+    for (let r = 0; r < maxRows; r++) {
+        const dataRow: string[] = [];
+        groupData.forEach((items) => {
+            if (r < items.length) {
+                if (includeExtraData && selectedColumns.length > 0) {
+                    selectedColumns.forEach(col => {
+                        dataRow.push(items[r].extraData[col] || '');
+                    });
+                    dataRow.push(items[r].formula);
+                } else {
+                    dataRow.push(items[r].formula);
+                }
+            } else {
+                // Pad empty
+                for (let c = 0; c < colsPerGroup; c++) dataRow.push('');
+            }
+        });
+        outputRows.push(dataRow);
+    }
+} else {
+    orderedGroups.forEach(([groupKey, rows]) => {
+        // Extract rows with their image URLs and data
+        const rowsWithImages = rows
+            .map(row => {
+                const url = extractImageUrl(row[effectiveImageColumn]);
+                const formula = url ? `=IMAGE("${url}")` : '';
+                const extraData: Record<string, string> = {};
+                if (includeExtraData) {
+                    selectedColumns.forEach(col => {
+                        extraData[col] = String(row[col] || '');
+                    });
+                }
+                return { formula, extraData, row };
+            })
+            .filter(item => item.formula);
+
+        if (rowsWithImages.length === 0) return;
+
+        if (layoutMode === 'vertical') {
+            // Vertical mode: group header row + item rows below it
+            outputRows.push(['分组', groupKey]);
+            if (includeExtraData && selectedColumns.length > 0) {
+                outputRows.push(['序号', ...selectedColumns, '缩略图']);
+                rowsWithImages.forEach((item, idx) => {
+                    outputRows.push([
+                        String(idx + 1),
+                        ...selectedColumns.map(colName => item.extraData[colName] || ''),
+                        item.formula
+                    ]);
+                });
+            } else {
+                outputRows.push(['序号', '缩略图']);
+                rowsWithImages.forEach((item, idx) => {
+                    outputRows.push([String(idx + 1), item.formula]);
+                });
+            }
+            outputRows.push([]);
+            return;
+        }
+
+        // Horizontal mode: thumbnails in grid rows
+        for (let i = 0; i < rowsWithImages.length; i += columnsPerRow) {
+            const chunk = rowsWithImages.slice(i, i + columnsPerRow);
+
+            if (includeExtraData && selectedColumns.length > 0) {
+                // Add column name labels in first column, with groupKey prepended
+                selectedColumns.forEach(colName => {
+                    const dataRow = [groupKey, colName];
+                    chunk.forEach(item => {
+                        dataRow.push(item.extraData[colName] || '');
+                    });
+                    while (dataRow.length < columnsPerRow + 2) {
+                        dataRow.push('');
+                    }
+                    outputRows.push(dataRow);
+                });
+
+                // Add image row with groupKey prepended
+                const imageRow = [groupKey, '缩略图'];
+                chunk.forEach(item => {
+                    imageRow.push(item.formula);
+                });
+                while (imageRow.length < columnsPerRow + 2) {
+                    imageRow.push('');
+                }
+                outputRows.push(imageRow);
+            } else {
+                // Images only - prepend groupKey as first column
+                const rowImages = [groupKey];
+                chunk.forEach(item => {
+                    rowImages.push(item.formula);
+                });
+                while (rowImages.length < columnsPerRow + 1) {
+                    rowImages.push('');
+                }
+                outputRows.push(rowImages);
+            }
+        }
+    });
+}
+
+if (layoutMode === 'vertical') {
+    while (outputRows.length > 0 && outputRows[outputRows.length - 1].length === 0) {
+        outputRows.pop();
+    }
+}
+
+// Convert to TSV format
+const text = outputRows.map(row => row.join('\t')).join('\n');
+    const groupCount = orderedGroups.length;
+    const totalImages = orderedGroups.reduce((sum, [, rows]) => {
+        return sum + rows.filter(row => !!extractImageUrl(row[effectiveImageColumn])).length;
+    }, 0);
+
+    return { text, groupCount, totalImages, error: null };
+}
