@@ -32,8 +32,10 @@ import {
     BookOpen,
     FileText,
     List,
-    Columns
+    Columns,
+    ShieldCheck
 } from 'lucide-react';
+import { useScriptureDeitySettings, ScriptureDeitySettingsPanel } from './components/ScriptureDeitySettings';
 
 // --- Types ---
 
@@ -53,7 +55,6 @@ interface PrayerResult {
 interface PrayerRewriteViewProps {
     getAiInstance: () => GoogleGenAI;
     textModel: string;
-    deitySettings?: any;
 }
 
 // --- 预设类型 ---
@@ -229,7 +230,7 @@ const PRESETS_STORAGE_KEY = 'prayer_rewrite_presets_v1';
 
 // --- Component ---
 
-export function PrayerRewriteView({ getAiInstance, textModel, deitySettings }: PrayerRewriteViewProps) {
+export function PrayerRewriteView({ getAiInstance, textModel }: PrayerRewriteViewProps) {
     // --- State ---
     const [inputText, setInputText] = useState('');
     const [pendingPrayers, setPendingPrayers] = useState<string[]>([]); // 从 Google Sheets 解析出的待处理祷告词
@@ -253,6 +254,9 @@ export function PrayerRewriteView({ getAiInstance, textModel, deitySettings }: P
         return DEFAULT_SYSTEM_INSTRUCTION;
     });
     const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+    const [showDeitySettings, setShowDeitySettings] = useState(false);
+
+    const settings = useScriptureDeitySettings();
 
     // 预设管理
     const [customPresets, setCustomPresets] = useState<PrayerPreset[]>(() => {
@@ -272,26 +276,25 @@ export function PrayerRewriteView({ getAiInstance, textModel, deitySettings }: P
 
     // --- Deity Rules ---
     const deityRules = React.useMemo(() => {
-        let rules = '\n\n【补充全局要求】\n';
-        if (deitySettings) {
-            if (deitySettings.capitalization === 'all_caps') {
-                rules += '- 必须且只能使用全大写的 LORD 或 GOD，禁止使用首字母大写的 Lord 或 God。\n';
-                rules += '- 如果要用代词，必须且只能使用全大写的 HE, HIM, HIS，禁止使用 He, Him, His。\n';
-            } else if (deitySettings.capitalization === 'first_caps') {
-                rules += '- 必须且只能使用首字母大写的 Lord 或 God，禁止使用全大写的 LORD 或 GOD。\n';
-                rules += '- 如果要用代词，必须且只能使用首字母大写的 He, Him, His，禁止使用 HE, HIM, HIS。\n';
+        let rules = '';
+        if (settings.deityTerms && settings.deityTerms.length > 0) {
+            const termsStr = settings.deityTerms.join(', ');
+            if (settings.applyDeityCapitalizationToAll) {
+                rules += `\n【拼写要求】以下词汇及其对应语言的翻译必须永远首字母大写保护：[${termsStr}]。\n`;
+            } else {
+                rules += `\n【拼写要求】当翻译为英文时，以下词汇必须永远首字母大写保护：[${termsStr}]。\n`;
             }
-            if (deitySettings.enableScriptureDetection) {
-                rules += `- 经文引用限制：请使用 ${deitySettings.scriptureVersion || 'WEB (World English Bible) 或 KJV (King James Version)'} 的用词风格。绝不允许使用 NLT 或 NIV 的专属现代意译表达！\n`;
-                rules += `- ⚠️ 极其重要：在你的输出的最后，你必须附加一段“经文修改反馈”。
+        }
+        if (settings.enableScriptureDetection) {
+            rules += `\n【经文引用限制】\n请使用 ${settings.scriptureVersion || 'WEB (World English Bible) 或 KJV (King James Version)'} 的用词风格。绝不允许使用 NLT 或 NIV 的专属现代意译表达！\n`;
+            rules += `\n⚠️ 极其重要：在你的输出的最后，你必须附加一段“经文修改反馈”。
 请严格使用 "|||" 分隔符添加反馈。格式必须是这三种之一：
 1. 如果原文没有包含任何经文：请在输出最后加上 \`|||不包含经文\`
 2. 如果你匹配或修改了经文：请在输出最后加上 \`|||经文已修改为: [经文章节]\`
 3. 如果原文经文符合要求不需要修改：请在输出最后加上 \`|||不需要修改经文: [经文章节]\`\n`;
-            }
         }
         return rules;
-    }, [deitySettings]);
+    }, [settings.deityTerms, settings.applyDeityCapitalizationToAll, settings.enableScriptureDetection, settings.scriptureVersion]);
 
     // Persist state
     useEffect(() => {
@@ -326,14 +329,14 @@ export function PrayerRewriteView({ getAiInstance, textModel, deitySettings }: P
         let chinese = '';
         let scriptureNote = undefined;
 
-        if (deitySettings?.enableScriptureDetection && parts.length >= 3) {
+        if (settings.enableScriptureDetection && parts.length >= 3) {
             english = parts[0].trim();
             chinese = parts[1].trim();
             scriptureNote = parts[parts.length - 1].trim();
         } else if (parts.length >= 2) {
             english = parts[0].trim();
             chinese = parts[1].trim();
-            if (deitySettings?.enableScriptureDetection && chinese.includes('|||')) {
+            if (settings.enableScriptureDetection && chinese.includes('|||')) {
                 const subParts = chinese.split('|||');
                 chinese = subParts[0].trim();
                 scriptureNote = subParts[subParts.length - 1].trim();
@@ -453,7 +456,8 @@ ${prayerText}
 2. 不要写带4-5个逗号的长句子！要短句！要有力！
 3. 必须包含完整三段：经文来源行 + 核心正文 + If式互动结尾
 4. 输出格式：英文版|||中文版（用 ||| 分隔英文和中文）
-5. 不要输出任何标题、序号、解释`;
+5. 不要输出任何标题、序号、解释
+${deityRules}`;
 
                 // 429 自动重试
                 let apiResult: any;
@@ -463,7 +467,7 @@ ${prayerText}
                             model: textModel || 'gemini-2.0-flash',
                             contents: { role: 'user', parts: [{ text: userPrompt }] },
                             config: {
-                                systemInstruction: systemPrompt + deityRules,
+                                systemInstruction: systemPrompt,
                                 temperature: 0.8,
                                 topP: 0.95,
                                 maxOutputTokens: 4096,
@@ -563,7 +567,8 @@ ${result.originalText}
 2. 不要写带4-5个逗号的长句子！要短句！要有力！
 3. 必须包含完整三段：经文来源行 + 核心正文 + If式互动结尾
 4. 输出格式：英文版|||中文版（用 ||| 分隔英文和中文）
-5. 不要输出任何标题、序号、解释`;
+5. 不要输出任何标题、序号、解释
+${deityRules}`;
 
             let apiResult: any;
             for (let retryAttempt = 0; retryAttempt <= 3; retryAttempt++) {
@@ -572,7 +577,7 @@ ${result.originalText}
                         model: textModel || 'gemini-2.0-flash',
                         contents: { role: 'user', parts: [{ text: userPrompt }] },
                         config: {
-                            systemInstruction: systemPrompt + deityRules,
+                            systemInstruction: systemPrompt,
                             temperature: 0.8,
                             topP: 0.95,
                             maxOutputTokens: 4096,
@@ -879,6 +884,30 @@ ${item.originalText}
                                     className="w-full bg-zinc-950/50 border border-zinc-700/50 rounded-lg px-3 py-2.5 text-xs text-zinc-300 placeholder:text-zinc-600 resize-y focus:outline-none focus:ring-1 focus:ring-sky-500/30 font-mono leading-relaxed"
                                     style={{ minHeight: '200px' }}
                                 />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* === 信仰版权与规范设置 === */}
+                    <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden mb-4">
+                        <button
+                            onClick={() => setShowDeitySettings(!showDeitySettings)}
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/50 transition-colors"
+                        >
+                            <div className="flex items-center gap-2 text-zinc-300">
+                                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                                <span className="font-medium text-sm">信仰版权与规范</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {settings.enableScriptureDetection && (
+                                    <span className="text-[10px] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">经文检测开启</span>
+                                )}
+                                {showDeitySettings ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />}
+                            </div>
+                        </button>
+                        {showDeitySettings && (
+                            <div className="px-4 pb-4 pt-2 border-t border-zinc-800/50">
+                                <ScriptureDeitySettingsPanel settings={settings} />
                             </div>
                         )}
                     </div>

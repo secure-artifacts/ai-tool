@@ -5,9 +5,9 @@ export interface CopyViewModalState {
     open: boolean;
     layoutMode: 'horizontal' | 'vertical' | 'columns';
     columnsPerRow: number;
-    includeExtraData: boolean;
     selectedColumns: string[];
     applyClassificationOverrides: boolean;
+    emptyRowsBetweenGroups: number;
 }
 
 export interface CopyViewModalProps {
@@ -17,7 +17,7 @@ export interface CopyViewModalProps {
     allColumns: string[];
     imageColumn: string;
     classificationOverridesCount: number;
-    onCopy: (columnsPerRow: number, includeExtraData: boolean, selectedColumns: string[], applyOverrides: boolean, layoutMode: string) => void;
+    onCopy: (columnsPerRow: number, includeExtraData: boolean, selectedColumns: string[], applyOverrides: boolean, layoutMode: string, emptyRowsBetweenGroups: number) => void;
 }
 
 export const CopyViewModal = memo(function CopyViewModal({
@@ -150,7 +150,7 @@ export const CopyViewModal = memo(function CopyViewModal({
                             <div className="ml-6 p-3 bg-slate-50 rounded-lg space-y-2 max-h-52 overflow-auto">
                                 <p className="text-xs text-slate-500 mb-2">选择要导出的列 <span className="text-slate-400">(可拖拽调整顺序)</span>:</p>
                                 {/* 未选中的列 */}
-                                {allColumns.filter(col => col !== imageColumn && !modal.selectedColumns.includes(col)).map(col => (
+                                {[...allColumns.filter(col => col !== imageColumn && !modal.selectedColumns.includes(col)), ...(!modal.selectedColumns.includes('__THUMBNAIL__') ? ['__THUMBNAIL__'] : [])].map(col => (
                                     <label key={col} className="flex items-center gap-2 cursor-pointer py-0.5">
                                         <input
                                             type="checkbox"
@@ -160,7 +160,9 @@ export const CopyViewModal = memo(function CopyViewModal({
                                             }}
                                             className="w-3.5 h-3.5 text-blue-500 rounded focus:ring-blue-500"
                                         />
-                                        <span className="text-xs text-slate-400">{col}</span>
+                                        <span className="text-xs text-slate-400">
+                                            {col === '__THUMBNAIL__' ? '缩略图 (公式)' : col}
+                                        </span>
                                     </label>
                                 ))}
                                 {/* 已选中的列 - 可拖拽排序 */}
@@ -208,7 +210,9 @@ export const CopyViewModal = memo(function CopyViewModal({
                                                     }}
                                                     className="w-3.5 h-3.5 text-blue-500 rounded focus:ring-blue-500"
                                                 />
-                                                <span className="text-xs text-slate-700 font-medium flex-1">{col}</span>
+                                                <span className={`text-xs font-medium flex-1 ${col === '__THUMBNAIL__' ? 'text-purple-600' : 'text-slate-700'}`}>
+                                                    {col === '__THUMBNAIL__' ? '缩略图 (公式)' : col}
+                                                </span>
                                                 <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     {idx > 0 && (
                                                         <button
@@ -248,15 +252,48 @@ export const CopyViewModal = memo(function CopyViewModal({
                                 {modal.selectedColumns.length > 0 && (
                                     <p className="text-xs text-blue-600 mt-2">
                                         {modal.layoutMode === 'columns'
-                                            ? '布局: 每组为一列，顶部为标题，下方为图片与数据列'
+                                            ? '布局: 每组为一列，顶部为标题，下方为图片与数据列 (按选中列顺序)'
                                             : modal.layoutMode === 'vertical'
-                                            ? '布局: 分组标题行 → 明细行（每行1条数据+缩略图）'
-                                            : '布局: 第一列 = 分组，第二列 = 列名，后续 = 数据+缩略图'}
+                                            ? '布局: 分组标题行 → 明细行（按选中列顺序展示）'
+                                            : '布局: 对于每一个项，按照选中列顺序分别作为横排展示'}
                                     </p>
                                 )}
                             </div>
                         )}
                     </div>
+
+                    {/* Empty rows configuration */}
+                    {modal.layoutMode !== 'columns' && (
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700">组间空行 (留白间距):</label>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {[0, 1, 2, 3, 5].map(n => (
+                                    <button
+                                        key={n}
+                                        onClick={() => update({ emptyRowsBetweenGroups: n })}
+                                        className={`w-8 h-8 text-sm font-medium rounded-lg transition-colors ${modal.emptyRowsBetweenGroups === n
+                                            ? 'bg-purple-500 text-white'
+                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                            }`}
+                                    >
+                                        {n}
+                                    </button>
+                                ))}
+                                <input
+                                    type="number"
+                                    min="0"
+                                    max="20"
+                                    value={modal.emptyRowsBetweenGroups}
+                                    onChange={(e) => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        update({ emptyRowsBetweenGroups: Math.min(20, Math.max(0, val)) });
+                                    }}
+                                    className="w-14 h-8 px-2 text-sm text-center border border-slate-300 rounded-lg focus:border-purple-500 focus:outline-none tooltip-bottom"
+                                    data-tip="自定义空行"
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex justify-end gap-2 mt-6">
@@ -272,7 +309,8 @@ export const CopyViewModal = memo(function CopyViewModal({
                             modal.includeExtraData,
                             modal.selectedColumns,
                             modal.applyClassificationOverrides,
-                            modal.layoutMode
+                            modal.layoutMode,
+                            modal.emptyRowsBetweenGroups
                         )}
                         className="px-4 py-2 text-sm font-medium text-white bg-purple-500 rounded-lg hover:bg-purple-600 transition-colors"
                     >

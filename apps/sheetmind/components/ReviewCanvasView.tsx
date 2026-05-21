@@ -13,7 +13,7 @@ import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import {
     Check, AlertTriangle, XCircle, PenLine,
     ZoomIn, ZoomOut, Maximize2,
-    Play, X, Trash2,
+    Play, X, Trash2, LayoutGrid,
 } from 'lucide-react';
 
 // ==================== Types ====================
@@ -59,20 +59,20 @@ interface ReviewCanvasViewProps {
     onClearFeedbackAdvice?: (imgId: string) => void;
     onClearAllFeedbackAdvice?: () => void;
     onDriveProbeResult?: (results: Record<string, { isVideo?: boolean; name?: string }>) => void;
+    onColumnsChange?: (cols: number) => void;
 }
 
 // ==================== Constants ====================
 
 const MIN_SCALE = 0.1;
-const MAX_SCALE = 6;
+const MAX_SCALE = 3;
 const ZOOM_FACTOR = 0.08;
 const TILE_GAP = 12;
-const BUTTON_BAR_H = 30;
-const DRIVE_URL_RE = /drive\.google\.com|docs\.google\.com\/uc|lh3\.googleusercontent\.com\/d\//i;
+const DRIVE_URL_RE = /drive\.google\.com|drive\.usercontent\.google\.com|docs\.google\.com\/uc|lh3\.googleusercontent\.com\/d\//i;
 // Broad extension coverage for mixed user-provided names/URLs.
 const IMAGE_EXT_RE = /\.(jpe?g|jfif|pjpeg|pjp|png|apng|gif|webp|bmp|dib|tiff?|svgz?|ico|heic|heif|avif|jxl|raw|dng|cr2|cr3|nef|nrw|arw|srf|sr2|orf|rw2|raf|pef|srw|x3f)(?:[?#].*)?$/i;
 const VIDEO_EXT_RE = /\.(mp4|m4v|mov|qt|webm|mkv|avi|wmv|asf|flv|f4v|m3u8|ts|mts|m2ts|mpg|mpeg|mpe|m2v|3gp|3g2|ogv|vob|rm|rmvb|mxf|divx|xvid|hevc|h264|h265|av1)(?:[?#].*)?$/i;
-const URL_RE = /https?:\/\/[^\s<>"']+/gi;
+const URL_RE = /(?:https?:\/\/)?(?:drive\.google\.com|drive\.usercontent\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com)[^\s<>"']+|https?:\/\/[^\s<>"']+/gi;
 const IMAGE_FORMULA_RE = /=IMAGE\s*\(\s*"([^"]+)"/gi;
 const HYPERLINK_FORMULA_RE = /=HYPERLINK\s*\(\s*"([^"]+)"/gi;
 
@@ -83,10 +83,27 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
 };
 
 function normalizeUrlCandidate(raw: string): string {
-    return raw
+    let normalized = raw
         .trim()
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#34;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&apos;/gi, "'")
+        .replace(/&amp;/gi, '&')
+        .replace(/\\\//g, '/')
+        .replace(/\\u002f/gi, '/')
+        .replace(/\\u0026/gi, '&')
         .replace(/^[<("'\[]+/, '')
-        .replace(/[>)"'\],;.!?]+$/, '');
+        .replace(/[>)"'\],;.!?，。；：！？、]+$/, '');
+        
+    // Support URLs missing https:// but starting with known domains
+    if (/^(drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)/i.test(normalized)) {
+        normalized = `https://${normalized}`;
+    }
+    
+    return normalized;
 }
 
 function decodeUrlParam(value: string): string {
@@ -152,10 +169,22 @@ function extractLinksFromClipboard(clipboardData: DataTransfer | null): string[]
     const html = clipboardData.getData('text/html');
     if (html) {
         const doc = new DOMParser().parseFromString(html, 'text/html');
+        
+        // 1. Extract from Google Sheets cells (handles =IMAGE formulas and cell hyperlinks)
+        doc.querySelectorAll('td, th').forEach(cell => {
+            const url = extractUrlFromHtmlCell(cell);
+            if (url && /^https?:\/\//i.test(url)) {
+                links.add(url);
+            }
+        });
+
+        // 2. Extract from anchor tags
         doc.querySelectorAll('a[href]').forEach(a => {
             const href = normalizeUrlCandidate(a.getAttribute('href') || '');
             if (/^https?:\/\//i.test(href)) links.add(href);
         });
+
+        // 3. Fallback to text content
         extractLinksFromText(doc.body?.textContent || '', links);
     }
 
@@ -167,6 +196,7 @@ function extractUrlFromCellText(raw: string): string | null {
     const value = (raw || '').trim();
     if (!value) return null;
     if (/^https?:\/\//i.test(value)) return normalizeExtractedUrl(value);
+    if (/^(drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com)/i.test(value)) return normalizeExtractedUrl(`https://${value}`);
 
     // Google Sheets HTML may expose formulas without leading "=" in attributes.
     const formulaText = value.startsWith('=') ? value : (/^[A-Z_]+\s*\(/i.test(value) ? `=${value}` : value);
@@ -177,8 +207,39 @@ function extractUrlFromCellText(raw: string): string | null {
     const imageMatch = formulaText.match(/=IMAGE\s*\(\s*["']([^"']+)["']/i);
     if (imageMatch?.[1]) return normalizeExtractedUrl(imageMatch[1]);
 
-    const urlMatch = value.match(/https?:\/\/[^\s<>"']+/i);
+    const urlMatch = value.match(/(?:https?:\/\/)?(?:drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)[^\s<>"']+/i) || value.match(/https?:\/\/[^\s<>"']+/i);
     if (urlMatch?.[0]) return normalizeExtractedUrl(urlMatch[0]);
+    return null;
+}
+
+function extractUrlFromHtmlFragment(raw: string): string | null {
+    const value = raw || '';
+    if (!value) return null;
+
+    const attrUrlMatch = value.match(/(?:href|src|data-sheets-hyperlink|data-hyperlink|data-url)=["']([^"']+)["']/i);
+    if (attrUrlMatch?.[1]) {
+        const url = extractUrlFromCellText(attrUrlMatch[1]);
+        if (url) return url;
+    }
+
+    const formulaMatch = value.match(/data-sheets-formula=["']([^"']+)["']/i);
+    if (formulaMatch?.[1]) {
+        const formula = formulaMatch[1]
+            .replace(/&quot;/gi, '"')
+            .replace(/&#34;/gi, '"')
+            .replace(/&amp;/gi, '&');
+        const url = extractUrlFromCellText(formula);
+        if (url) return url;
+    }
+
+    const url = extractUrlFromCellText(value);
+    if (url) return url;
+
+    const driveIdMatch = value.match(/(?:file\/d\/|\/d\/|[?&]id=|driveFileId["']?\s*[:=]\s*["']?)([a-zA-Z0-9_-]{10,})/i);
+    if (driveIdMatch?.[1]) {
+        return `https://drive.google.com/file/d/${driveIdMatch[1]}/view`;
+    }
+
     return null;
 }
 
@@ -208,6 +269,9 @@ function extractUrlFromHtmlCell(cell: Element): string {
         if (src) return src;
     }
 
+    const outerHtmlUrl = extractUrlFromHtmlFragment((cell as HTMLElement).outerHTML || '');
+    if (outerHtmlUrl) return outerHtmlUrl;
+
     const text = (cell.textContent || '').trim();
     const textUrl = extractUrlFromCellText(text);
     return textUrl || text;
@@ -217,7 +281,9 @@ function stripUrlArtifacts(value: string): string {
     let text = (value || '').trim();
     if (!text) return '';
     text = text.replace(/=HYPERLINK\s*\(\s*"[^"]+"\s*,\s*"([^"]*)"\s*\)/ig, '$1');
+    text = text.replace(/=HYPERLINK\s*\(\s*'[^']+'\s*,\s*'([^']*)'\s*\)/ig, '$1');
     text = text.replace(/=IMAGE\s*\(\s*"[^"]+"(?:\s*,[^)]*)?\s*\)/ig, '');
+    text = text.replace(/=IMAGE\s*\(\s*'[^']+'(?:\s*,[^)]*)?\s*\)/ig, '');
     text = text.replace(/https?:\/\/[^\s<>"']+/ig, '');
     text = text.replace(/\s+/g, ' ').trim();
     return text;
@@ -230,12 +296,15 @@ function extractUrlCandidate(raw: string): { url: string; isDirect: boolean } | 
     if (/^https?:\/\//i.test(value)) {
         return { url: normalizeUrlCandidate(value), isDirect: true };
     }
+    if (/^(drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com)/i.test(value)) {
+        return { url: normalizeUrlCandidate(`https://${value}`), isDirect: true };
+    }
     const formulaText = value.startsWith('=') ? value : (/^[A-Z_]+\s*\(/i.test(value) ? `=${value}` : value);
     const hyperlinkMatch = formulaText.match(/=HYPERLINK\s*\(\s*["']([^"']+)["']/i);
     if (hyperlinkMatch?.[1]) return { url: normalizeUrlCandidate(hyperlinkMatch[1]), isDirect: false };
     const imageMatch = formulaText.match(/=IMAGE\s*\(\s*["']([^"']+)["']/i);
     if (imageMatch?.[1]) return { url: normalizeUrlCandidate(imageMatch[1]), isDirect: false };
-    const urlMatch = value.match(/https?:\/\/[^\s<>"']+/i);
+    const urlMatch = value.match(/(?:https?:\/\/)?(?:drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com)[^\s<>"']+/i) || value.match(/https?:\/\/[^\s<>"']+/i);
     if (urlMatch?.[0]) return { url: normalizeUrlCandidate(urlMatch[0]), isDirect: false };
 
     return null;
@@ -283,24 +352,111 @@ function parseInfoUrlFromCells(rawCells: string[]): { infoText: string; url: str
     return { infoText, url };
 }
 
-function inferExplicitMediaType(url: string, infoText?: string): boolean | undefined {
-    const candidates = [url, infoText || ''].filter(Boolean);
-    for (const value of candidates) {
-        const normalized = value.trim().replace(/[)\]>"'.,;!]+$/, '');
-        if (VIDEO_EXT_RE.test(normalized)) return true;
-    }
-    for (const value of candidates) {
-        const normalized = value.trim().replace(/[)\]>"'.,;!]+$/, '');
-        if (IMAGE_EXT_RE.test(normalized)) return false;
-    }
-    return undefined;
+function isGeneratedPreviewUrlCell(url: string, rawCell: string): boolean {
+    const lowerUrl = (url || '').toLowerCase();
+    const lowerRaw = (rawCell || '').toLowerCase();
+    if (lowerRaw.includes('=image(')) return true;
+    if (lowerUrl.includes('gyazo.com') || lowerUrl.includes('i.gyazo.com')) return true;
+    if (lowerUrl.includes('drive.google.com/thumbnail')) return true;
+    if (lowerUrl.includes('lh3.googleusercontent.com/d/')) return true;
+    return false;
 }
 
-function inferMediaTypeFromName(name?: string): boolean | undefined {
-    const value = (name || '').trim().replace(/[)\]>"'.,;!]+$/, '');
-    if (!value) return undefined;
-    if (VIDEO_EXT_RE.test(value)) return true;
-    if (IMAGE_EXT_RE.test(value)) return false;
+function isAnnotationUrlCell(url: string): boolean {
+    const lowerUrl = (url || '').toLowerCase();
+    return lowerUrl.includes('gyazo.com') || lowerUrl.includes('i.gyazo.com');
+}
+
+function getMediaUrlDedupKey(url: string): string {
+    const driveId = extractGoogleDriveFileId(url);
+    if (driveId) return `drive:${driveId}`;
+    return normalizeUrlCandidate(url).toLowerCase();
+}
+
+function pickMeaningfulUrlIndexes(
+    cells: string[],
+    parsed: Array<{ url: string; isDirect: boolean } | null>,
+    urlIndexes: number[]
+): number[] {
+    const out: number[] = [];
+    const seen = new Set<string>();
+
+    const add = (idx: number) => {
+        const url = parsed[idx]?.url || '';
+        if (!url) return;
+        const key = getMediaUrlDedupKey(url);
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(idx);
+    };
+
+    urlIndexes
+        .filter(idx => !isGeneratedPreviewUrlCell(parsed[idx]?.url || '', cells[idx] || ''))
+        .forEach(add);
+
+    urlIndexes
+        .filter(idx => isGeneratedPreviewUrlCell(parsed[idx]?.url || '', cells[idx] || ''))
+        .forEach(idx => {
+            const url = parsed[idx]?.url || '';
+            if (!url) return;
+            if (out.length > 0 && isAnnotationUrlCell(url)) return;
+            add(idx);
+        });
+
+    return out.length ? out : urlIndexes;
+}
+
+function parseInfoUrlsFromCells(rawCells: string[]): { infoText: string; url: string }[] {
+    const cells = rawCells.map(cell => (cell || '').trim()).filter(Boolean);
+    if (cells.length === 0) return [];
+
+    const parsed = cells.map(cell => extractUrlCandidate(cell));
+    const urlIndexes = parsed
+        .map((item, idx) => (item?.url ? idx : -1))
+        .filter(idx => idx >= 0);
+    if (urlIndexes.length === 0) return [];
+
+    if (urlIndexes.length === 1) {
+        const single = parseInfoUrlFromCells(cells);
+        return single ? [single] : [];
+    }
+
+    const indexes = pickMeaningfulUrlIndexes(cells, parsed, urlIndexes);
+
+    return indexes.map(idx => {
+        const url = parsed[idx]?.url || '';
+        const nonUrlInfo = cells
+            .filter((_, cellIdx) => cellIdx !== idx && !parsed[cellIdx]?.url)
+            .map(part => stripUrlArtifacts(part))
+            .filter(Boolean)
+            .join('\t')
+            .trim();
+        const urlCellInfo = stripUrlArtifacts(cells[idx] || '');
+        return {
+            url,
+            infoText: nonUrlInfo || urlCellInfo || '',
+        };
+    }).filter(item => item.url);
+}
+
+function extractHtmlCellPasteValue(cell: Element): string {
+    const url = extractUrlFromHtmlCell(cell);
+    const label = (cell.textContent || '').trim();
+    if (/^https?:\/\//i.test(url)) {
+        if (label && !/^https?:\/\//i.test(label) && label !== url) {
+            const safeLabel = label.replace(/"/g, '""');
+            return `=HYPERLINK("${url}","${safeLabel}")`;
+        }
+        return url;
+    }
+    return label || url;
+}
+
+function inferExplicitMediaType(url: string): boolean | undefined {
+    const normalized = (url || '').trim().replace(/[)\]>"'.,;!]+$/, '');
+    if (!normalized) return undefined;
+    if (VIDEO_EXT_RE.test(normalized)) return true;
+    if (IMAGE_EXT_RE.test(normalized)) return false;
     return undefined;
 }
 
@@ -309,16 +465,12 @@ function buildPastedReviewImage(url: string, id: string, infoText?: string): Rev
     const driveFileId = isGoogleDrive ? extractGoogleDriveFileId(url) : undefined;
     const previewUrl = driveFileId ? `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w1600` : url;
     
-    // 初始识别逻辑增强
+    // 格式判断只看链接本身；其他信息列不参与图片/视频判断。
     let isVideo: boolean | undefined = undefined;
     
-    // 1. 如果有明确后缀
-    const explicitType = inferExplicitMediaType(url, infoText);
+    const explicitType = inferExplicitMediaType(url);
     if (explicitType !== undefined) {
         isVideo = explicitType;
-    } else if (isGoogleDrive && infoText) {
-        // 2. Drive 链接下，如果 infoText 包含关键词
-        isVideo = inferMediaTypeFromName(infoText);
     }
     
     return {
@@ -346,7 +498,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
     onOpenAnnotation,
     onOpenFeedbackModal,
     onOpenDrivePlayer,
-    columns: requestedColumns = 5,
+    columns: requestedColumns = 1,
     onAppendLinks,
     onUpdateFeedbackText,
     onClear,
@@ -355,6 +507,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
     onClearFeedbackAdvice,
     onClearAllFeedbackAdvice,
     onDriveProbeResult,
+    onColumnsChange,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -365,7 +518,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
     }, []);
 
     // ── Transform state ──
-    const [scale, setScale] = useState(1);
+    const [scale, setScale] = useState(0.1);
     const [panX, setPanX] = useState(0);
     const [panY, setPanY] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
@@ -395,7 +548,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
         const merged: ReviewImage[] = [];
         const seen = new Set<string>();
         for (const img of [...images, ...pastedImages]) {
-            const key = img.originalUrl || img.id;
+            const key = getMediaUrlDedupKey(img.originalUrl || img.id);
             if (seen.has(key)) continue;
             seen.add(key);
             merged.push(img);
@@ -476,7 +629,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
     const handleFitAll = useCallback(() => {
         const ts = getTileSize();
         setTileSize(ts);
-        setScale(1);
+        setScale(0.1);
         setPanX(TILE_GAP);
         setPanY(TILE_GAP);
     }, [getTileSize]);
@@ -546,7 +699,9 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
             const twoColumnLines: { infoText: string; url: string }[] = [];
             const singleLinks: string[] = [];
 
+            // ── Phase 1: Parse structured HTML rows (primary source of truth for order) ──
             const html = e.clipboardData?.getData('text/html') || '';
+            let htmlRowsFound = false;
             if (html) {
                 const doc = new DOMParser().parseFromString(html, 'text/html');
                 const rows = doc.querySelectorAll('tr');
@@ -556,110 +711,129 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                         if (cells.length === 1) {
                             const cell = cells[0];
                             const url = extractUrlFromHtmlCell(cell);
-                            const label = (cell.textContent || '').trim();
-                            if (/^https?:\/\//i.test(url) && label && !/^https?:\/\//i.test(label)) {
-                                twoColumnLines.push({ infoText: label, url });
+                            if (url && /^https?:\/\//i.test(url)) {
+                                const label = (cell.textContent || '').trim();
+                                // Only use label as infoText if it's not just the URL itself
+                                const infoText = (!/^https?:\/\//i.test(label) && label !== url) ? label : '';
+                                twoColumnLines.push({ infoText, url });
                             }
                         }
                         return;
                     }
-                    const values = cells.map(cell => extractUrlFromHtmlCell(cell));
-                    const parsed = parseInfoUrlFromCells(values);
-                    if (parsed) twoColumnLines.push(parsed);
+                    const values = cells.map(cell => extractHtmlCellPasteValue(cell));
+                    twoColumnLines.push(...parseInfoUrlsFromCells(values));
                 });
+                htmlRowsFound = twoColumnLines.length > 0;
             }
 
-            for (const line of lines) {
-                const parts = line.split('\t');
-                if (parts.length < 2) continue;
-                const parsed = parseInfoUrlFromCells(parts);
-                if (parsed) twoColumnLines.push(parsed);
+            // ── Phase 2: Parse plain text lines (only if HTML rows didn't produce results) ──
+            // When HTML rows are found, plain text contains the SAME data in a different URL format,
+            // which would cause duplicates. Skip it to preserve HTML row order as the single source of truth.
+            if (!htmlRowsFound) {
+                for (const line of lines) {
+                    const parts = line.split('\t');
+                    if (parts.length >= 2) {
+                        twoColumnLines.push(...parseInfoUrlsFromCells(parts));
+                    } else {
+                        const lineLinks = new Set<string>();
+                        extractLinksFromText(line, lineLinks);
+                        singleLinks.push(...Array.from(lineLinks));
+                    }
+                }
             }
 
-            // Fallback to regular link extraction
-            if (twoColumnLines.length === 0) {
-                const links = extractLinksFromClipboard(e.clipboardData);
-                if (links.length === 0) return;
-                singleLinks.push(...links);
+            // ── Phase 3: Backstop link extraction (catch links missed by structured parsing) ──
+            singleLinks.push(...extractLinksFromClipboard(e.clipboardData));
+
+            // Dedup singleLinks against structured URLs using canonical keys (Drive file ID aware)
+            const structuredKeys = new Set(twoColumnLines.map(item => getMediaUrlDedupKey(item.url)));
+            const seenSingleKeys = new Set<string>();
+            const uniqueSingleLinks: string[] = [];
+            for (const link of singleLinks) {
+                const key = getMediaUrlDedupKey(link);
+                if (structuredKeys.has(key) || seenSingleKeys.has(key)) continue;
+                seenSingleKeys.add(key);
+                uniqueSingleLinks.push(link);
             }
+            singleLinks.length = 0;
+            singleLinks.push(...uniqueSingleLinks);
+
+            if (twoColumnLines.length === 0 && singleLinks.length === 0) return;
 
             e.preventDefault();
 
-            const existing = new Set([
-                ...images.map(img => img.originalUrl),
-                ...pastedImages.map(img => img.originalUrl),
+            // Build existing keys set using canonical dedup keys
+            const existingKeys = new Set([
+                ...images.map(img => getMediaUrlDedupKey(img.originalUrl)),
+                ...pastedImages.map(img => getMediaUrlDedupKey(img.originalUrl)),
             ]);
 
-            if (twoColumnLines.length > 0) {
-                const mergedByUrl = new Map<string, { infoText: string; url: string }>();
-                twoColumnLines.forEach(item => {
-                    const prev = mergedByUrl.get(item.url);
-                    if (!prev) {
-                        mergedByUrl.set(item.url, item);
-                        return;
-                    }
-                    if (!prev.infoText && item.infoText) {
-                        mergedByUrl.set(item.url, item);
-                    }
-                });
-
-                const mergedLines = Array.from(mergedByUrl.values());
-                const toAdd = mergedLines.filter(item => !existing.has(item.url));
-                const upsertLines = mergedLines.map(i => i.infoText ? `${i.infoText}\t${i.url}` : i.url);
-
-                if (upsertLines.length === 0) {
-                    setPasteHint('链接已存在');
+            // Merge two-column lines, deduplicating by canonical key (preserves first occurrence = HTML row order)
+            const mergedByUrl = new Map<string, { infoText: string; url: string }>();
+            const mergedKeyToUrl = new Map<string, string>(); // canonical key → first URL seen
+            twoColumnLines.forEach(item => {
+                const key = getMediaUrlDedupKey(item.url);
+                const prev = mergedByUrl.get(key);
+                if (!prev) {
+                    mergedByUrl.set(key, item);
+                    mergedKeyToUrl.set(key, item.url);
                     return;
                 }
-
-                setPastedImages(prev => {
-                    let changed = false;
-                    const updated = prev.map(img => {
-                        const incoming = mergedByUrl.get(img.originalUrl);
-                        if (incoming) {
-                            const nextInfo = img.infoText || incoming.infoText;
-                            const nextType = img.isVideo !== undefined
-                                ? img.isVideo
-                                : (img.isGoogleDrive ? (inferMediaTypeFromName(nextInfo) ?? undefined) : inferExplicitMediaType(img.originalUrl, nextInfo));
-                            if (nextInfo !== img.infoText || nextType !== img.isVideo) {
-                                changed = true;
-                                return { ...img, infoText: nextInfo, isVideo: nextType };
-                            }
-                        }
-                        return img;
-                    });
-
-                    const newImages = toAdd.map((item, idx) => ({
-                        ...buildPastedReviewImage(item.url, `pasted-${Date.now()}-${idx}`, item.infoText),
-                        infoText: item.infoText,
-                    }));
-                    if (newImages.length > 0) {
-                        return [...updated, ...newImages];
-                    }
-                    return changed ? updated : prev;
-                });
-                onAppendLinks?.(upsertLines);
-
-                if (toAdd.length > 0) {
-                    setPasteHint(`已识别 ${toAdd.length} 条链接（含信息列）`);
-                } else {
-                    setPasteHint(`已更新 ${upsertLines.length} 条信息列`);
+                if (!prev.infoText && item.infoText) {
+                    mergedByUrl.set(key, { ...item, url: prev.url }); // keep first URL, take better infoText
                 }
-                return;
-            }
+            });
+            singleLinks.forEach(url => {
+                const key = getMediaUrlDedupKey(url);
+                if (!mergedByUrl.has(key)) {
+                    mergedByUrl.set(key, { infoText: '', url });
+                    mergedKeyToUrl.set(key, url);
+                }
+            });
 
-            const toAdd = singleLinks.filter(link => !existing.has(link));
-            if (toAdd.length === 0) {
+            const mergedLines = Array.from(mergedByUrl.values());
+            const toAdd = mergedLines.filter(item => !existingKeys.has(getMediaUrlDedupKey(item.url)));
+            const upsertLines = mergedLines.map(i => i.infoText ? `${i.infoText}\t${i.url}` : i.url);
+
+            if (upsertLines.length === 0) {
                 setPasteHint('链接已存在');
                 return;
             }
 
-            setPastedImages(prev => [
-                ...prev,
-                ...toAdd.map((url, idx) => buildPastedReviewImage(url, `pasted-${Date.now()}-${idx}`)),
-            ]);
-            onAppendLinks?.(toAdd);
-            setPasteHint(`已识别 ${toAdd.length} 条链接`);
+            setPastedImages(prev => {
+                let changed = false;
+                const updated = prev.map(img => {
+                        const incoming = mergedByUrl.get(getMediaUrlDedupKey(img.originalUrl));
+                        if (incoming) {
+                            const nextInfo = img.infoText || incoming.infoText;
+                            const nextType = img.isVideo !== undefined
+                                ? img.isVideo
+                                : inferExplicitMediaType(img.originalUrl);
+                            if (nextInfo !== img.infoText || nextType !== img.isVideo) {
+                                changed = true;
+                                return { ...img, infoText: nextInfo, isVideo: nextType };
+                            }
+                    }
+                    return img;
+                });
+
+                const newImages = toAdd.map((item, idx) => ({
+                    ...buildPastedReviewImage(item.url, `pasted-${Date.now()}-${idx}`, item.infoText),
+                    infoText: item.infoText,
+                }));
+                if (newImages.length > 0) {
+                    return [...updated, ...newImages];
+                }
+                return changed ? updated : prev;
+            });
+            onAppendLinks?.(upsertLines);
+
+            if (toAdd.length > 0) {
+                const hasInfoText = mergedLines.some(item => item.infoText);
+                setPasteHint(`已识别 ${toAdd.length} 条链接${hasInfoText ? '（含信息列）' : ''}`);
+            } else {
+                setPasteHint(`已更新 ${upsertLines.length} 条链接`);
+            }
         };
 
         window.addEventListener('paste', onPaste);
@@ -720,7 +894,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
             if (Object.keys(typeByFileId).length === 0 && Object.keys(nameByFileId).length === 0) return;
 
             const finalResults: Record<string, { isVideo?: boolean; name?: string }> = {};
-            for (const fileId of new Set([...Object.keys(typeByFileId), ...Object.keys(nameByFileId)])) {
+            for (const fileId of Array.from(new Set([...Object.keys(typeByFileId), ...Object.keys(nameByFileId)]))) {
                 finalResults[fileId] = {
                     isVideo: typeByFileId[fileId],
                     name: nameByFileId[fileId],
@@ -748,84 +922,6 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
         };
     }, [images, pastedImages, driveApiKey]);
 
-    // ── No-API fallback: probe Drive files via <img> element ──
-    // If the Drive API key is absent, use a client-side technique:
-    // try loading `lh3.googleusercontent.com/d/{fileId}` as an <img>.
-    // Images load successfully → isVideo = false.
-    // Videos fail to render as <img> → isVideo = true.
-    useEffect(() => {
-        // 静默探测任务：作为 API 探测的兜底或无 API 时的主要手段。
-
-        const allImgs = [...images, ...pastedImages];
-        const targets = allImgs.filter(
-            img => img.isGoogleDrive && img.driveFileId && img.isVideo === undefined
-        );
-        if (targets.length === 0) return;
-
-        let cancelled = false;
-        const results: Record<string, boolean> = {};
-        let resolved = 0;
-
-        // Count unique fileIds to probe (not total targets, since duplicates are skipped)
-        const uniqueFileIds = new Set(targets.map(t => t.driveFileId!));
-        const expectedCount = uniqueFileIds.size;
-
-        const finish = () => {
-            if (cancelled || Object.keys(results).length === 0) return;
-
-            const finalResults: Record<string, { isVideo?: boolean }> = {};
-            Object.entries(results).forEach(([fileId, isVideo]) => {
-                finalResults[fileId] = { isVideo };
-            });
-            onDriveProbeResult?.(finalResults);
-
-            // Update pastedImages
-            setPastedImages(prev => prev.map(img => {
-                const fileId = img.driveFileId || '';
-                if (!fileId || results[fileId] === undefined) return img;
-                if (img.isVideo !== undefined) return img;
-                return { ...img, isVideo: results[fileId] };
-            }));
-        };
-
-        for (const target of targets) {
-            const fileId = target.driveFileId!;
-            if (results[fileId] !== undefined) continue;
-
-            const probe = new Image();
-            // 注意: 不设置 crossOrigin，因为 lh3.googleusercontent.com 会拒绝 CORS
-            // 请求导致所有文件（包括图片）都触发 onerror，全部被误判为视频
-
-            probe.onload = () => {
-                if (cancelled) return;
-                // Image loaded successfully → it's an image file
-                results[fileId] = false;
-                resolved++;
-                if (resolved >= expectedCount) finish();
-            };
-
-            probe.onerror = () => {
-                if (cancelled) return;
-                // Failed to load as image → likely a video
-                results[fileId] = true;
-                resolved++;
-                if (resolved >= expectedCount) finish();
-            };
-
-            // lh3 URL tends to work for images but fail for videos
-            probe.src = `https://lh3.googleusercontent.com/d/${fileId}=w200`;
-        }
-
-        // Safety timeout: resolve after 5s even if some probes haven't completed
-        const timer = window.setTimeout(() => {
-            if (!cancelled && Object.keys(results).length > 0) finish();
-        }, 5000);
-
-        return () => {
-            cancelled = true;
-            window.clearTimeout(timer);
-        };
-    }, [images, pastedImages, driveApiKey]);
 
     // ── Binary Probe: fetch first 8-16 bytes via proxy to identify MP4/WebM/PNG/JPG ──
     useEffect(() => {
@@ -977,7 +1073,10 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
     }, [handleFitAll]);
 
     const tileW = tileSize;
-    const tileH = tileSize + BUTTON_BAR_H;
+    const uiScale = Math.max(0.7, tileW / 300);
+    const DYN_INFO_BAR_H = Math.round(26 * uiScale);
+    const DYN_BUTTON_BAR_H = Math.round(30 * uiScale);
+    const tileH = tileSize + DYN_INFO_BAR_H + DYN_BUTTON_BAR_H;
 
     return (
         <div
@@ -1018,6 +1117,31 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                     style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 2 }}>
                     <Maximize2 size={14} />
                 </button>
+                {/* ── Column selector ── */}
+                <div style={{ width: 1, height: 14, background: '#3f3f46', margin: '0 4px' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <LayoutGrid size={12} style={{ color: '#64748b', flexShrink: 0 }} />
+                    {[1, 2, 3, 4, 5, 6, 8].map(n => (
+                        <button
+                            key={n}
+                            onClick={() => onColumnsChange?.(n)}
+                            title={`每行 ${n} 个`}
+                            style={{
+                                background: requestedColumns === n ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.06)',
+                                border: requestedColumns === n ? '1px solid rgba(129,140,248,0.6)' : '1px solid transparent',
+                                color: requestedColumns === n ? '#a5b4fc' : '#71717a',
+                                cursor: 'pointer',
+                                padding: '1px 5px',
+                                borderRadius: 3,
+                                fontSize: 10,
+                                fontWeight: requestedColumns === n ? 700 : 500,
+                                minWidth: 18,
+                                textAlign: 'center' as const,
+                                transition: 'all 0.12s',
+                            }}
+                        >{n}</button>
+                    ))}
+                </div>
                 {onClear && displayImages.length > 0 && (
                     <>
                         <div style={{ width: 1, height: 14, background: '#3f3f46', margin: '0 4px' }} />
@@ -1128,7 +1252,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                     style={{
                     display: 'grid',
                     gridTemplateColumns: `repeat(${cols}, ${tileW}px)`,
-                    gridAutoFlow: 'dense',
+                    gridAutoFlow: 'row',
                     gap: `${TILE_GAP}px`,
                 }}>
                     {displayImages.map((img, idx) => {
@@ -1140,12 +1264,13 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                         const currentUrl = allUrls[fbIdx] || img.previewUrl;
                         const isInvalid = !img.isValid;
                         const isDriveFile = Boolean(img.isGoogleDrive && img.driveFileId);
-                        const isVideo = !isInvalid && (videoTypeOverrides[img.id] === true || img.isVideo === true);
+                        const overrideType = videoTypeOverrides[img.id];
+                        const isVideo = !isInvalid && (overrideType !== undefined ? overrideType : img.isVideo === true);
                         const isDriveVideo = isDriveFile && isVideo;
                         const isNonDriveVideo = !isDriveFile && isVideo;
-                        const isDriveImage = isDriveFile && img.isVideo === false;
-                        const hasTopRightPlayerButtons = isDriveVideo && (playingVideoId === img.id);
-                        const metaTop = hasTopRightPlayerButtons ? 40 : 4;
+                        const isDriveImage = isDriveFile && !isVideo;
+                        // Always reserve top-right space for video buttons (both Drive and non-Drive)
+                        const metaTop = isVideo ? 44 : 4;
                         // Video cards span 2 columns for landscape layout (only if grid has 2+ cols)
                         const isWide = !isInvalid && isVideo && cols >= 2;
                         const cardW = isWide ? tileW * 2 + TILE_GAP : tileW;
@@ -1154,8 +1279,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                         const cardMediaH = isVideo
                             ? Math.round(cardW * 9 / 16)
                             : tileW;
-                        const INFO_BAR_H = 26;
-                        const cardH = cardMediaH + INFO_BAR_H + BUTTON_BAR_H;
+                        const cardH = cardMediaH + DYN_INFO_BAR_H + DYN_BUTTON_BAR_H;
 
                         const cardPos = cardPositions[img.id];
                         return (
@@ -1202,125 +1326,47 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                                                 {img.originalUrl || img.infoText || '未识别内容'}
                                             </div>
                                         </div>
-                                    ) : isDriveVideo && playingVideoId === img.id ? (
-                                        /* ── PLAYING: full Drive preview iframe ── */
+                                    ) : isDriveVideo ? (
+                                        /* ── Drive VIDEO: Always render the interactive Drive player ── */
                                         <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                             <iframe
                                                 data-video-id={img.id}
                                                 src={`https://drive.google.com/file/d/${img.driveFileId}/preview`}
                                                 style={{ width: '100%', height: '100%', border: 'none' }}
                                                 allow="autoplay"
+                                                loading="lazy"
                                             />
+                                            {/* Top-Left Controls */}
                                             <div style={{
-                                                position: 'absolute', top: 4, right: 4,
-                                                display: 'flex', gap: 4,
+                                                position: 'absolute', top: 4, left: 4, zIndex: 5,
+                                                display: 'flex', gap: 6, alignItems: 'center',
                                             }}>
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); setPlayingVideoId(null); onOpenDrivePlayer(img.driveFileId!, img.originalUrl); }}
+                                                <span 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setVideoTypeOverrides(prev => ({ ...prev, [img.id]: false }));
+                                                    }}
                                                     style={{
-                                                        background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: 5,
-                                                        color: '#fff', cursor: 'pointer', padding: '3px 6px',
-                                                    }}
-                                                    title="放大播放"
-                                                ><Maximize2 size={11} /></button>
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); setPlayingVideoId(null); }}
-                                                    style={{
-                                                        background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: 5,
-                                                        color: '#fff', cursor: 'pointer', padding: '3px 6px',
-                                                    }}
-                                                    title="关闭"
-                                                ><X size={11} /></button>
-                                            </div>
-                                        </div>
-                                    ) : isDriveVideo ? (
-                                        /* ── Drive VIDEO: thumbnail + two play buttons ── */
-                                        <>
-                                            {!failedThumbs.has(img.id) && (
-                                                <img
-                                                    src={currentUrl}
-                                                    alt=""
-                                                    referrerPolicy="no-referrer"
-                                                    style={{
-                                                        width: '100%', height: '100%',
-                                                        objectFit: 'contain',
-                                                        background: '#000',
-                                                        position: 'absolute', inset: 0, zIndex: 2,
-                                                    }}
-                                                    loading="lazy"
-                                                    draggable={false}
-                                                    onError={() => {
-                                                        if (fbIdx + 1 < allUrls.length) {
-                                                            setFallbackIndex(prev => ({ ...prev, [img.id]: fbIdx + 1 }));
-                                                        } else {
-                                                            setFailedThumbs(prev => new Set(prev).add(img.id));
-                                                        }
-                                                    }}
-                                                />
-                                            )}
-                                            {/* Drive embed iframe behind img */}
-                                            <div style={{
-                                                position: 'absolute', inset: 0, zIndex: 1,
-                                                display: 'grid', placeItems: 'center',
-                                                background: '#000',
-                                            }}>
-                                                <div style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: '100%' }}>
-                                                    <iframe
-                                                        src={`https://drive.google.com/file/d/${img.driveFileId}/preview`}
-                                                        style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
-                                                        loading="lazy"
-                                                        tabIndex={-1}
-                                                    />
-                                                </div>
-                                            </div>
-                                            {/* Two buttons: inline play + expand play */}
-                                            <div style={{
-                                                position: 'absolute', top: '50%', left: '50%',
-                                                transform: 'translate(-50%, -50%)', zIndex: 4,
-                                                display: 'flex', gap: 10, alignItems: 'center',
-                                            }}>
-                                                {/* Inline play button */}
-                                                <button
-                                                    onClick={e => { e.stopPropagation(); setPlayingVideoId(img.id); }}
-                                                    style={{
-                                                        background: 'rgba(0,0,0,0.6)', border: '2px solid rgba(255,255,255,0.3)',
-                                                        borderRadius: '50%', width: 44, height: 44,
-                                                        color: '#fff', cursor: 'pointer',
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        backdropFilter: 'blur(4px)',
-                                                        transition: 'all 0.15s',
-                                                    }}
-                                                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.7)'; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.6)'; }}
-                                                    title="在卡片内播放"
+                                                        background: 'rgba(99,102,241,0.85)', borderRadius: 4, padding: '1px 6px',
+                                                        fontSize: 9, color: '#fff', fontWeight: 600, cursor: 'pointer'
+                                                    }} 
+                                                    title="点击强制切换为图片"
                                                 >
-                                                    <Play size={18} fill="#fff" style={{ marginLeft: 2 }} />
-                                                </button>
-                                                {/* Expand play button */}
+                                                    ▶ 视频
+                                                </span>
                                                 <button
                                                     onClick={e => { e.stopPropagation(); onOpenDrivePlayer(img.driveFileId!, img.originalUrl); }}
                                                     style={{
-                                                        background: 'rgba(0,0,0,0.6)', border: '2px solid rgba(255,255,255,0.3)',
-                                                        borderRadius: '50%', width: 36, height: 36,
-                                                        color: '#fff', cursor: 'pointer',
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        backdropFilter: 'blur(4px)',
-                                                        transition: 'all 0.15s',
+                                                        background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: 5,
+                                                        color: '#fff', cursor: 'pointer', padding: '3px 6px',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
                                                     }}
-                                                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.7)'; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.6)'; }}
-                                                    title="放大播放（含反馈功能）"
+                                                    title="放大标注"
                                                 >
-                                                    <Maximize2 size={14} />
+                                                    <Maximize2 size={11} />
                                                 </button>
                                             </div>
-                                            {/* Video badge */}
-                                            <span style={{
-                                                position: 'absolute', top: 4, left: 4, zIndex: 5,
-                                                background: 'rgba(99,102,241,0.85)', borderRadius: 4, padding: '1px 6px',
-                                                fontSize: 9, color: '#fff', fontWeight: 600,
-                                            }}>▶ 视频</span>
-                                        </>
+                                        </div>
                                     ) : isNonDriveVideo ? (
                                         /* ── External VIDEO: render native video player ── */
                                         <>
@@ -1344,62 +1390,87 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); setPlayingVideoId(img.id); }}
                                                     style={{
-                                                        position: 'absolute', top: '50%', left: '50%',
-                                                        transform: 'translate(-50%, -50%)',
-                                                        background: 'rgba(0,0,0,0.6)', border: '2px solid rgba(255,255,255,0.3)',
-                                                        borderRadius: '50%', width: 44, height: 44,
+                                                        position: 'absolute', top: 6, left: 50, zIndex: 4,
+                                                        background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.3)',
+                                                        borderRadius: '50%', width: 32, height: 32,
                                                         color: '#fff', cursor: 'pointer',
                                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                         backdropFilter: 'blur(4px)',
                                                     }}
                                                     title="播放视频"
                                                 >
-                                                    <Play size={18} fill="#fff" style={{ marginLeft: 2 }} />
+                                                    <Play size={16} fill="#fff" style={{ marginLeft: 2 }} />
                                                 </button>
                                             )}
-                                            <span style={{
+                                            <span 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setVideoTypeOverrides(prev => ({ ...prev, [img.id]: false }));
+                                                }}
+                                                style={{
                                                 position: 'absolute', top: 4, left: 4, zIndex: 5,
                                                 background: 'rgba(99,102,241,0.85)', borderRadius: 4, padding: '1px 6px',
-                                                fontSize: 9, color: '#fff', fontWeight: 600,
-                                            }}>▶ 视频</span>
+                                                fontSize: 9, color: '#fff', fontWeight: 600, cursor: 'pointer'
+                                            }} title="点击强制切换为图片">▶ 视频</span>
                                         </>
                                     ) : (
                                         /* ── Regular image (Drive image or non-Drive) ── */
                                         <>
-                                            <img
-                                                src={currentUrl}
-                                                alt=""
-                                                referrerPolicy="no-referrer"
-                                                style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
-                                                loading="lazy"
-                                                draggable={false}
-                                                onClick={() => {
-                                                    // Handle non-video (images) by directly opening the annotation editor
-                                                    // which now has both drawing and text feedback capabilities
-                                                    onOpenAnnotation(img);
-                                                }}
-                                                onError={() => {
-                                                    // 如果加载失败，且该资源类型未定，我们可以尝试将其视为视频
-                                                    if (img.isGoogleDrive && img.isVideo === undefined) {
-                                                        onDriveProbeResult?.({ [img.driveFileId!]: { isVideo: true } });
-                                                    } else if (!img.isGoogleDrive && img.isVideo === undefined) {
-                                                        probeNonDriveVideo(img);
-                                                    }
-                                                    
-                                                    if (fbIdx + 1 < allUrls.length) {
-                                                        setFallbackIndex(prev => ({ ...prev, [img.id]: fbIdx + 1 }));
-                                                    } else {
-                                                        setFailedThumbs(prev => new Set(prev).add(img.id));
-                                                    }
-                                                }}
-                                            />
+                                            {img.isGoogleDrive && failedThumbs.has(img.id) ? (
+                                                <div 
+                                                    style={{ position: 'absolute', inset: 0, cursor: 'pointer' }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onOpenAnnotation(img);
+                                                    }}
+                                                >
+                                                    <iframe
+                                                        src={`https://drive.google.com/file/d/${img.driveFileId}/preview`}
+                                                        style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
+                                                        loading="lazy"
+                                                        tabIndex={-1}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <img
+                                                    src={currentUrl}
+                                                    alt=""
+                                                    referrerPolicy="no-referrer"
+                                                    style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+                                                    loading="lazy"
+                                                    draggable={false}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // Handle non-video (images) by directly opening the annotation editor
+                                                        // which now has both drawing and text feedback capabilities
+                                                        onOpenAnnotation(img);
+                                                    }}
+                                                    onError={() => {
+                                                        // Only probe non-drive videos. Do NOT assume Drive files are videos just because a thumbnail 403s.
+                                                        if (!img.isGoogleDrive && img.isVideo === undefined) {
+                                                            probeNonDriveVideo(img);
+                                                        }
+                                                        
+                                                        if (fbIdx + 1 < allUrls.length) {
+                                                            setFallbackIndex(prev => ({ ...prev, [img.id]: fbIdx + 1 }));
+                                                        } else {
+                                                            setFailedThumbs(prev => new Set(prev).add(img.id));
+                                                        }
+                                                    }}
+                                                />
+                                            )}
                                             {/* Image badge for Drive images */}
-                                            {isDriveImage && (
-                                                <span style={{
+                                            {(isDriveImage || !img.isGoogleDrive) && (
+                                                <span 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setVideoTypeOverrides(prev => ({ ...prev, [img.id]: true }));
+                                                    }}
+                                                    style={{
                                                     position: 'absolute', top: 4, left: 4, zIndex: 5,
                                                     background: 'rgba(34,197,94,0.85)', borderRadius: 4, padding: '1px 6px',
-                                                    fontSize: 9, color: '#fff', fontWeight: 600,
-                                                }}>🖼 图片</span>
+                                                    fontSize: 9, color: '#fff', fontWeight: 600, cursor: 'pointer'
+                                                }} title="点击强制切换为视频">🖼 图片</span>
                                             )}
                                         </>
                                     )}
@@ -1456,8 +1527,8 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                                 <div
                                     data-card-id={img.id}
                                     style={{
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                        height: 26, padding: '0 6px',
+                                        display: 'flex', alignItems: 'center', gap: Math.round(6 * uiScale),
+                                        height: DYN_INFO_BAR_H, padding: `0 ${Math.round(6 * uiScale)}px`,
                                         background: sc ? sc.bg : '#16161a',
                                         borderTop: '1px solid #2a2a32',
                                         flexShrink: 0,
@@ -1489,15 +1560,15 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                                     title="拖拽移动卡片"
                                 >
                                     <span style={{
-                                        fontSize: 9, color: '#52525b', marginRight: 2, userSelect: 'none',
+                                        fontSize: Math.round(9 * uiScale), color: '#52525b', marginRight: Math.round(2 * uiScale), userSelect: 'none',
                                     }}>⠿</span>
                                     <span style={{
-                                        background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '1px 5px',
-                                        fontSize: 10, color: '#94a3b8', fontFamily: 'monospace',
+                                        background: 'rgba(0,0,0,0.6)', borderRadius: Math.round(4 * uiScale), padding: `${Math.max(1, Math.round(1 * uiScale))}px ${Math.round(5 * uiScale)}px`,
+                                        fontSize: Math.round(10 * uiScale), color: '#94a3b8', fontFamily: 'monospace',
                                     }}>#{idx + 1}</span>
                                     {img.infoText && (
                                         <div style={{
-                                            fontSize: 10, color: '#e2e8f0', fontWeight: 500,
+                                            fontSize: Math.round(10 * uiScale), color: '#e2e8f0', fontWeight: 500,
                                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                             flex: 1,
                                         }} title={img.infoText}>
@@ -1508,7 +1579,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
 
                                 {/* ── Three-button bar ── */}
                                 <div style={{
-                                    display: 'flex', height: BUTTON_BAR_H, borderTop: '1px solid #2a2a32',
+                                    display: 'flex', height: DYN_BUTTON_BAR_H, borderTop: '1px solid #2a2a32',
                                     background: sc ? sc.bg : '#1c1c22',
                                     flexShrink: 0,
                                 }}>
@@ -1519,7 +1590,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             color: '#fbbf24',
-                                            fontSize: 11,
+                                            fontSize: Math.round(11 * uiScale),
                                             fontWeight: 600,
                                         }}>
                                             无效链接占位
@@ -1575,15 +1646,15 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
                                                 }}
                                                 style={{
                                                     flex: 1, border: 'none', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
-                                                    fontSize: 11, fontWeight: active ? 700 : 400,
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: Math.round(3 * uiScale),
+                                                    fontSize: Math.round(11 * uiScale), fontWeight: active ? 700 : 400,
                                                     background: active ? c.bg : 'transparent',
                                                     color: active ? c.text : '#71717a',
                                                     transition: 'all 0.15s',
                                                     borderRight: bi < 2 ? '1px solid #2a2a32' : 'none',
                                                 }}
                                             >
-                                                <Icon size={12} /> {displayLabel}
+                                                <Icon size={Math.round(12 * uiScale)} /> {displayLabel}
                                             </button>
                                         );
                                     })}

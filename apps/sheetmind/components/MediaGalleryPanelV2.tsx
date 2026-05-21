@@ -23,12 +23,15 @@ import { BatchCategoryModal, BatchNoteModal } from './gallery/BatchModals';
 import { PresetEditorModal } from './gallery/PresetEditorModal';
 import { LoginPromptModal } from './gallery/LoginPromptModal';
 import { CopyViewModal } from './gallery/CopyViewModal';
+import { CopyDataModal } from './gallery/CopyDataModal';
 import { FolderSelectionMenu, BatchFolderMenu } from './gallery/FolderMenus';
 import { ConfirmDialog } from './gallery/ConfirmDialog';
 import { HoverPreview } from './gallery/HoverPreview';
 import { DragDropSidebar } from './gallery/DragDropSidebar';
 import { ThumbnailContextMenu } from './gallery/ThumbnailContextMenu';
 import { ImageModal, RowDetailModal } from './gallery/DetailModals';
+import CollabPanel from './gallery/CollabPanel';
+import { getCollabService, type SMRowData } from '../services/gasCollabService';
 import { FolderContextMenu } from './gallery/FolderContextMenu';
 import {
     savePresetToCloud,
@@ -73,6 +76,7 @@ import {
     GalleryPreset, FavoriteItem, FavoriteFolder,
 } from './galleryUtils';
 import { sortRowsByRules as sortRowsByRulesImpl, sortDateKeys as sortDateKeysImpl, computeProcessedRows, generateExportData as generateExportDataImpl , computeTimelineData, computeGroupedTimelineData, computeMatrixData , generateViewLayoutText , computeCalendarGrid , computeRowGroupKey } from './galleryViewData';
+import { tsvEscapeCell } from '../utils/tsvEscape';
 import { useThumbnailDownload } from './useThumbnailDownload';
 import { useGallerySheetSync } from './useGallerySheetSync';
 
@@ -557,8 +561,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         return firstNonEmpty || validColumns[0] || '';
     }, [effectiveDetailColumn, effectiveLabelColumns, effectiveImageColumn, effectiveLinkColumn]);
 
-    // Gallery collapsed groups (for grouped thumbnails - default expanded, track collapsed)
+    // Gallery collapsed groups (for grouped thumbnails - default collapsed, track collapsed)
     const [collapsedGalleryGroups, setCollapsedGalleryGroups] = useState<Set<string>>(new Set());
+    const galleryInitialCollapseRef = React.useRef(false);
+    // NOTE: Auto-collapse effect is placed after processedRows declaration (~line 4370)
     // Manual group order for reordering groups (stores ordered group keys)
     const [manualGroupOrder, setManualGroupOrder] = useState<string[]>([]);
 
@@ -577,31 +583,97 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         includeExtraData: boolean;
         selectedColumns: string[];
         applyClassificationOverrides: boolean;
+        emptyRowsBetweenGroups: number;
     }>({
         open: false,
         columnsPerRow: 10,
         layoutMode: 'horizontal',
         includeExtraData: false,
         selectedColumns: [],
-        applyClassificationOverrides: true
+        applyClassificationOverrides: true,
+        emptyRowsBetweenGroups: 0
     });
+
+    // Copy data modal state (column selection / by-sheet mode)
+    const [showCopyDataModal, setShowCopyDataModal] = useState(false);
+
+    // Group copy: columns per row setting
+    const [groupCopyColumnsPerRow, setGroupCopyColumnsPerRow] = useState(5);
+    const [groupCopyColumnsPicker, setGroupCopyColumnsPicker] = useState<{ x: number; y: number; groupKey: string; rows: DataRow[] } | null>(null);
 
     // Classification mode state
     const [classificationMode, setClassificationMode] = useState(false);
     const [selectedForClassification, setSelectedForClassification] = useState<Set<string>>(new Set()); // Row IDs selected for classification
+    const selectedForClassificationRef = useRef<Set<string>>(selectedForClassification);
+    selectedForClassificationRef.current = selectedForClassification; // Keep ref in sync
     const [draggedItems, setDraggedItems] = useState<string[]>([]); // Items being dragged
     const [dragOverGroup, setDragOverGroup] = useState<string | null>(null); // Group being hovered over
-    const [customGroups, setCustomGroups] = useState<string[]>([]); // Custom groups added by user
+    const CUSTOM_GROUPS_KEY = `sheetmind_customgroups_${sourceUrl || 'local'}`;
+    const [customGroups, setCustomGroups] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem(CUSTOM_GROUPS_KEY);
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    }); // Custom groups added by user
     const [editingCustomGroup, setEditingCustomGroup] = useState<{ index: number; value: string } | null>(null); // Editing custom group name
     const [draggingGroupIdx, setDraggingGroupIdx] = useState<number | null>(null); // Index of group being dragged for reordering
-    const [newGroupInput, setNewGroupInput] = useState(''); // New group name input
+    const newGroupInputRef = useRef<HTMLInputElement>(null); // New group name input ref (uncontrolled to avoid re-render lag)
     const [showNewGroupInput, setShowNewGroupInput] = useState(false); // Show add group input
     const [syncToSheet, setSyncToSheet] = useState(false); // Whether to sync classification changes to Google Sheet
+
+    // Save custom groups to localStorage
+    useEffect(() => {
+        if (customGroups.length > 0) {
+            localStorage.setItem(CUSTOM_GROUPS_KEY, JSON.stringify(customGroups));
+        } else {
+            localStorage.removeItem(CUSTOM_GROUPS_KEY);
+        }
+    }, [customGroups, CUSTOM_GROUPS_KEY]);
+
+    // Writeback grouping to sheet modal
+    const [groupWritebackModal, setGroupWritebackModal] = useState<{
+        open: boolean;
+        targetColumn: string;
+        writeThumbnail?: boolean;
+    }>({ open: false, targetColumn: '', writeThumbnail: true });
+
+    // Sub-groups: hierarchical grouping via path separator "/"
+    // Maps parent path -> array of child names, e.g. {"动物": ["猫","狗"], "动物/猫": ["橘猫"]}
+    const SUBGROUPS_KEY = `sheetmind_subgroups_${sourceUrl || 'local'}`;
+    const [subGroups, setSubGroups] = useState<Record<string, string[]>>(() => {
+        try {
+            const saved = localStorage.getItem(SUBGROUPS_KEY);
+            return saved ? JSON.parse(saved) : {};
+        } catch {
+            return {};
+        }
+    });
+    useEffect(() => {
+        localStorage.setItem(SUBGROUPS_KEY, JSON.stringify(subGroups));
+    }, [subGroups, SUBGROUPS_KEY]);
+
+    // Group context menu (right-click on group target buttons)
+    const [groupContextMenu, setGroupContextMenu] = useState<{
+        x: number; y: number; groupPath: string; isCustom: boolean;
+    } | null>(null);
+    const [subGroupInput, setSubGroupInput] = useState<{
+        parentPath: string; x: number; y: number;
+    } | null>(null);
+    const [renameGroupInput, setRenameGroupInput] = useState<{
+        groupPath: string; isCustom: boolean; x: number; y: number;
+    } | null>(null);
+    const [deleteGroupConfirm, setDeleteGroupConfirm] = useState<{
+        groupPath: string; x: number; y: number;
+    } | null>(null);
+    const [moveGroupInput, setMoveGroupInput] = useState<{
+        groupPath: string; isCustom: boolean; x: number; y: number;
+    } | null>(null);
     // Drag target types - which drop zones to show
-    const [dragTargetTypes, setDragTargetTypes] = useState<{ classification: boolean; favorites: boolean; tags: boolean }>({
+    const [dragTargetTypes, setDragTargetTypes] = useState<{ classification: boolean; favorites: boolean }>({
         classification: true,
-        favorites: true,
-        tags: true
+        favorites: true
     });
     const [dragOverFavoriteFolder, setDragOverFavoriteFolder] = useState<string | null>(null); // Favorite folder being hovered
 
@@ -760,6 +832,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const [selectedFavorites, setSelectedFavorites] = useState<Set<string>>(new Set()); // Selected favorite IDs
     const [selectedThumbnails, setSelectedThumbnails] = useState<Set<string>>(new Set()); // Selected row IDs (imageUrl||sheetName) for batch operations
     const [gallerySelectMode, setGallerySelectMode] = useState(false); // Enable selection mode in gallery
+    // Refs 保持最新值，供 onClick 闭包中立即读取（避免 re-render 延迟）
+    const selectedThumbnailsRef = useRef(selectedThumbnails);
+    selectedThumbnailsRef.current = selectedThumbnails;
+    const gallerySelectModeRef = useRef(gallerySelectMode);
+    gallerySelectModeRef.current = gallerySelectMode;
     const [favoriteSearchKeyword, setFavoriteSearchKeyword] = useState(''); // Search keyword for favorites
     const [localSearchInput, setLocalSearchInput] = useState(config.searchKeyword || ''); // Local search input (commit on Enter)
 
@@ -803,6 +880,12 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const [galleryViewportHeight, setGalleryViewportHeight] = useState(0);
     const [galleryViewportWidth, setGalleryViewportWidth] = useState(0);
 
+    // ==================== Marquee/Lasso Selection (框选) ====================
+    const marqueeActiveRef = React.useRef(false);
+    const marqueeStartRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const marqueeRectRef = React.useRef<HTMLDivElement | null>(null);
+    const marqueeCtrlRef = React.useRef(false); // true = subtract mode
+
     // ==================== Notes (备注) State ====================
     const [galleryNotes, setGalleryNotes] = useState<Map<string, GalleryNote>>(new Map());
     const [notesSyncing, setNotesSyncing] = useState(false);
@@ -813,6 +896,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         isOpen: boolean;
         imageUrl: string;
         rowIndex: number;  // 1-indexed row in spreadsheet (excluding header)
+        smId: string;      // SM_ID for GAS collaboration
         currentNote: string;
         isSaving: boolean;
         syncToSheet: boolean;  // Whether to sync note to Google Sheets (default false)
@@ -821,6 +905,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         isOpen: false,
         imageUrl: '',
         rowIndex: 0,
+        smId: '',
         currentNote: '',
         isSaving: false,
         syncToSheet: false  // Default: don't sync to sheet
@@ -855,7 +940,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     // Global toggle: auto sync categories to Google Sheets S column
     const [autoSyncCategoriesToSheet, setAutoSyncCategoriesToSheet] = useState(true);
 
-    const { syncAllNotesToSheet, syncAllCategoriesToSheet, isBatchSyncing, isBatchCategorySyncing } = useGallerySheetSync(
+    const { syncAllNotesToSheet, syncAllCategoriesToSheet, syncGroupingToSheet, isBatchSyncing, isBatchCategorySyncing, isBatchGroupSyncing } = useGallerySheetSync(
         sourceUrl || '', 
         currentSheetName || '', 
         galleryNotes, 
@@ -877,7 +962,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         effectiveData.rows.forEach((row, idx) => {
             const imageUrl = extractImageUrl(row[effectiveImageColumn]);
             if (imageUrl) {
-                imageUrlToRowIndex.set(imageUrl, idx + 2);
+                const rowIndex = row._originalRowIndex ? Number(row._originalRowIndex) : idx + 2;
+                imageUrlToRowIndex.set(imageUrl, rowIndex);
             }
         });
 
@@ -1018,8 +1104,21 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     // Helper: get category for an image
     const getCategoryForImage = useCallback((imageUrl: string): string => {
-        return galleryCategories.get(imageUrl) || '';
-    }, [galleryCategories]);
+        // First check overrides
+        if (classificationOverrides[imageUrl]) {
+            return classificationOverrides[imageUrl];
+        }
+        
+        // Then check original data
+        if (effectiveGroupColumn && effectiveData && effectiveData.rows) {
+            const row = effectiveData.rows.find(r => extractImageUrl(r[effectiveImageColumn]) === imageUrl);
+            if (row && row[effectiveGroupColumn]) {
+                return String(row[effectiveGroupColumn]).trim();
+            }
+        }
+        
+        return '';
+    }, [classificationOverrides, effectiveGroupColumn, effectiveData, effectiveImageColumn]);
 
     // Load categories from Firebase on mount
     const categoriesCloudLoadedRef = React.useRef(false);
@@ -1171,28 +1270,69 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     // Find row index in original data (for sync-back)
     const findRowIndex = useCallback((row: DataRow, imageUrl: string): number => {
-        // Find the index in the original effectiveData.rows array
+        // 优先级 1: 直接使用行自身携带的物理行号（最可靠）
+        if (row?._originalRowIndex) {
+            return Number(row._originalRowIndex);
+        }
+        if (row?.__rowIndex) {
+            return Number(row.__rowIndex);
+        }
+
+        // 优先级 2: 用 SM_ID 精确匹配（协作模式下可靠）
+        const rowSmId = row?.['SM_ID'] ? String(row['SM_ID']).trim() : '';
+        if (rowSmId) {
+            const matchIdx = effectiveData.rows.findIndex(r => 
+                r['SM_ID'] && String(r['SM_ID']).trim() === rowSmId
+            );
+            if (matchIdx >= 0) {
+                const matchedRow = effectiveData.rows[matchIdx];
+                if (matchedRow?._originalRowIndex) return Number(matchedRow._originalRowIndex);
+                if (matchedRow?.__rowIndex) return Number(matchedRow.__rowIndex);
+                return matchIdx + 2;
+            }
+        }
+
+        // 优先级 3: 按引用找到传入的 row 对象在数组中的位置
+        const refIndex = effectiveData.rows.indexOf(row);
+        if (refIndex >= 0) {
+            const matchedRow = effectiveData.rows[refIndex];
+            if (matchedRow?._originalRowIndex) return Number(matchedRow._originalRowIndex);
+            if (matchedRow?.__rowIndex) return Number(matchedRow.__rowIndex);
+            return refIndex + 2;
+        }
+
+        // 优先级 4: 按 image URL 匹配（回退方案，多重复时可能不准）
         const index = effectiveData.rows.findIndex(r => {
-            // Match by image URL column if available
             if (effectiveImageColumn && r[effectiveImageColumn]) {
                 const rowImageUrl = extractImageUrl(r[effectiveImageColumn]);
                 return rowImageUrl === imageUrl;
             }
-            // Otherwise try to match all properties
             return Object.keys(row).every(k => r[k] === row[k]);
         });
+
+        if (index < 0) return -1;
+
+        // 合并模式下：使用原始分页的行号而非合并数组中的位置
+        const matchedRow = effectiveData.rows[index];
+        if (matchedRow?._originalRowIndex) {
+            return Number(matchedRow._originalRowIndex);
+        }
+
         // Return 1-indexed row (add 2: 1 for header row, 1 for 0-based to 1-based)
-        return index >= 0 ? index + 2 : -1;
+        return index + 2;
     }, [effectiveData.rows, effectiveImageColumn]);
 
     // Open note modal
     const openNoteModal = useCallback((imageUrl: string, row: DataRow) => {
         const rowIndex = findRowIndex(row, imageUrl);
         const existingNote = getNoteForImage(imageUrl);
+        // 直接从传入的 row 取 SM_ID
+        const smId = row?.['SM_ID'] ? String(row['SM_ID']) : '';
         setNoteModal({
             isOpen: true,
             imageUrl,
             rowIndex,
+            smId,
             currentNote: existingNote,
             isSaving: false,
             syncToSheet: autoSyncNotesToSheet  // Default follows global toggle
@@ -1249,6 +1389,33 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     // Don't block - local state is already updated
                 }
             }
+
+            // ── GAS 协作同步：将备注写入 SM_备注 列 ──
+            try {
+                const collabService = getCollabService();
+                const noteTarget = { id: noteModal.smId || undefined, rowIndex: noteModal.rowIndex > 0 ? noteModal.rowIndex : undefined };
+                if (collabService.isConnected() && (noteTarget.id || noteTarget.rowIndex)) {
+                    // 合并模式下，通过 _sourceSheet 路由到正确的分页
+                    const noteRow = effectiveData.rows.find(r => {
+                        if (!effectiveImageColumn) return false;
+                        const url = extractImageUrl(r[effectiveImageColumn]);
+                        return url === noteModal.imageUrl;
+                    });
+                    const targetSheet = noteRow?._sourceSheet ? String(noteRow._sourceSheet) : undefined;
+                    collabService.addNote(noteTarget, noteModal.currentNote, targetSheet).then(result => {
+                        if (result?.ok) {
+                            setCopyFeedback('☁️ 备注已同步到表格');
+                            setTimeout(() => setCopyFeedback(null), 2000);
+                        } else {
+                            setCopyFeedback(`⚠️ 备注同步失败: ${result?.error || '未知错误'}`);
+                            setTimeout(() => setCopyFeedback(null), 4000);
+                        }
+                    }).catch(err => {
+                        setCopyFeedback(`⚠️ 备注同步失败: ${err instanceof Error ? err.message : String(err)}`);
+                        setTimeout(() => setCopyFeedback(null), 4000);
+                    });
+                }
+            } catch { /* collab not available */ }
 
             // Sync to Google Sheets column A (if enabled and available)
             if (syncToSheet && spreadsheetId && currentSheetName) {
@@ -1332,8 +1499,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         setCategoryModal(prev => ({ ...prev, isOpen: false }));
     }, []);
 
-    // Save category
-    const saveCategory = useCallback(async (selectedCategory: string, syncToSheet: boolean = true) => {
+    // Save category - inline classification logic to avoid referencing handleClassificationChange before declaration
+    const saveCategory = useCallback(async (selectedCategory: string) => {
         if (!categoryModal.imageUrl || categoryModal.rowIndex <= 0) {
             setCopyFeedback('⚠️ 无法确定行位置，请稍后重试'); setTimeout(() => setCopyFeedback(null), 3000);
             return;
@@ -1341,74 +1508,81 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
         setCategoryModal(prev => ({ ...prev, isSaving: true }));
 
-        // Parse spreadsheet ID first
-        let spreadsheetId: string | undefined;
-        if (sourceUrl) {
-            const parsed = parseGoogleSheetsUrl(sourceUrl);
-            spreadsheetId = parsed?.spreadsheetId;
-        }
-
         try {
-            // Update local state FIRST (always succeeds)
-            setGalleryCategories(prev => {
-                const next = new Map(prev);
+            // Update classificationOverrides directly (same logic as handleClassificationChange)
+            const imageUrl = categoryModal.imageUrl;
+            setClassificationOverrides(prev => {
+                const next = { ...prev };
                 if (selectedCategory) {
-                    next.set(categoryModal.imageUrl, selectedCategory);
+                    next[imageUrl] = selectedCategory;
                 } else {
-                    next.delete(categoryModal.imageUrl); // Clear category
+                    delete next[imageUrl];
                 }
                 return next;
             });
 
-            // Try to save to Firebase (optional, don't block on failure)
-            if (isUserLoggedIn() && selectedCategory) {
-                try {
-                    await upsertGalleryCategoryToCloud({
-                        id: btoa(categoryModal.imageUrl).slice(0, 50),
-                        imageUrl: categoryModal.imageUrl,
-                        category: selectedCategory,
-                        createdAt: Date.now(),
-                        updatedAt: Date.now()
+            // ── GAS 协作同步：将标签写入 SM_标签 列 ──
+            try {
+                const collabService = getCollabService();
+                if (collabService.isConnected() && categoryModal.rowIndex > 0) {
+                    // 合并模式下，通过 _sourceSheet 路由到正确的分页
+                    const tagRow = effectiveData.rows.find(r => {
+                        if (!effectiveImageColumn) return false;
+                        const url = extractImageUrl(r[effectiveImageColumn]);
+                        return url === categoryModal.imageUrl;
                     });
-                } catch (firebaseErr) {
-                    console.warn('[Category] Firebase save failed:', firebaseErr);
-                    // Don't block - local state is already updated
+                    const targetSheet = tagRow?._sourceSheet ? String(tagRow._sourceSheet) : undefined;
+                    collabService.addTag({ rowIndex: categoryModal.rowIndex }, selectedCategory, targetSheet).catch(err => console.warn('[Collab] 标签同步失败:', err));
                 }
-            }
+            } catch { /* collab not available */ }
 
-            // Sync to Google Sheets column B (if enabled and available)
-            if (syncToSheet && spreadsheetId && currentSheetName) {
-                try {
-                    const accessToken = getGoogleAccessToken();
-                    if (accessToken) {
-                        await ensureNotesAndCategoriesColumns(
-                            spreadsheetId,
-                            currentSheetName,
-                            accessToken
-                        );
-
-                        // Then write the category value
-                        await updateSingleCellInGoogleSheet(
-                            spreadsheetId,
-                            currentSheetName,
-                            CATEGORY_COLUMN,
-                            categoryModal.rowIndex,
-                            selectedCategory,
-                            accessToken
-                        );
-                        setCopyFeedback(`✅ 分类已保存并同步到表格`);
+            // Sync to Google Sheets if enabled
+            if (syncToSheet && sourceUrl && effectiveGroupColumns[0]) {
+                const primaryGroupColumn = effectiveGroupColumns[0];
+                const primaryColIndex = effectiveData.columns.indexOf(primaryGroupColumn);
+                if (primaryColIndex >= 0) {
+                    const colToLetter = (index: number): string => {
+                        let letter = '';
+                        let num = index;
+                        while (num >= 0) {
+                            letter = String.fromCharCode((num % 26) + 65) + letter;
+                            num = Math.floor(num / 26) - 1;
+                        }
+                        return letter;
+                    };
+                    const columnLetter = colToLetter(primaryColIndex);
+                    const match = sourceUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                    const spreadsheetId = match ? match[1] : null;
+                    if (spreadsheetId) {
+                        try {
+                            const token = await getGoogleAccessToken();
+                            if (token) {
+                                await updateSingleCellInGoogleSheet(
+                                    spreadsheetId,
+                                    currentSheetName || '',
+                                    columnLetter,
+                                    categoryModal.rowIndex,
+                                    selectedCategory,
+                                    token
+                                );
+                                setCopyFeedback(`✅ 分类已保存并同步到表格`);
+                            } else {
+                                setCopyFeedback('✅ 分类已保存');
+                            }
+                        } catch (sheetErr) {
+                            console.error('[Category] Sheet sync failed:', sheetErr);
+                            setCopyFeedback('⚠️ 分类已保存，但同步表格失败');
+                        }
                     } else {
-                        setCopyFeedback('✅ 分类已保存（未登录Google，无法同步表格）');
+                        setCopyFeedback('✅ 分类已保存');
                     }
-                } catch (sheetErr) {
-                    console.error('[Category] Failed to sync to sheet:', sheetErr);
-                    setCopyFeedback('⚠️ 分类已保存，但同步到表格失败');
+                } else {
+                    setCopyFeedback('✅ 分类已保存');
                 }
             } else {
                 setCopyFeedback('✅ 分类已保存');
             }
             setTimeout(() => setCopyFeedback(null), 2000);
-
             closeCategoryModal();
         } catch (err) {
             console.error('[Category] Failed to save:', err);
@@ -1417,7 +1591,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         } finally {
             setCategoryModal(prev => ({ ...prev, isSaving: false }));
         }
-    }, [categoryModal, sourceUrl, currentSheetName, closeCategoryModal]);
+    }, [categoryModal, effectiveData, effectiveGroupColumns, syncToSheet, sourceUrl, currentSheetName, closeCategoryModal]);
 
     // Batch category modal state
     const [batchCategoryModal, setBatchCategoryModal] = useState<{
@@ -2319,15 +2493,413 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         }
     }, [contextMenu]);
 
+    // Close group context menu on click outside
     React.useEffect(() => {
-        if (!contextMenu) {
-            setContextDetailColumn('');
+        const handleClick = () => { setGroupContextMenu(null); };
+        if (groupContextMenu) {
+            document.addEventListener('click', handleClick);
+            return () => document.removeEventListener('click', handleClick);
+        }
+    }, [groupContextMenu]);
+
+    // Close sub-group input on click outside
+    React.useEffect(() => {
+        const handleClick = () => { setSubGroupInput(null); };
+        if (subGroupInput) {
+            document.addEventListener('click', handleClick);
+            return () => document.removeEventListener('click', handleClick);
+        }
+    }, [subGroupInput]);
+
+    // Close rename group input on click outside
+    React.useEffect(() => {
+        const handleClick = () => { setRenameGroupInput(null); };
+        if (renameGroupInput) {
+            document.addEventListener('click', handleClick);
+            return () => document.removeEventListener('click', handleClick);
+        }
+    }, [renameGroupInput]);
+
+    // Close delete group confirm on click outside
+    React.useEffect(() => {
+        const handleClick = () => { setDeleteGroupConfirm(null); };
+        if (deleteGroupConfirm) {
+            document.addEventListener('click', handleClick);
+            return () => document.removeEventListener('click', handleClick);
+        }
+    }, [deleteGroupConfirm]);
+
+    // Close move group input on click outside
+    React.useEffect(() => {
+        const handleClick = () => { setMoveGroupInput(null); };
+        if (moveGroupInput) {
+            document.addEventListener('click', handleClick);
+            return () => document.removeEventListener('click', handleClick);
+        }
+    }, [moveGroupInput]);
+
+    // Helper: get all sub-group paths (recursive) for rendering in target zone
+    const getSubGroupPaths = useCallback((parentPath: string): string[] => {
+        const children = subGroups[parentPath] || [];
+        const paths: string[] = [];
+        children.forEach(child => {
+            const fullPath = `${parentPath}/${child}`;
+            paths.push(fullPath);
+            paths.push(...getSubGroupPaths(fullPath));
+        });
+        return paths;
+    }, [subGroups]);
+
+    // Helper: count images in group including all descendant sub-groups
+    const countImagesInGroupTree = useCallback((groupPath: string): number => {
+        let count = 0;
+        Object.values(classificationOverrides).forEach(val => {
+            if (val === groupPath || val.startsWith(groupPath + '/')) {
+                count++;
+            }
+        });
+        return count;
+    }, [classificationOverrides]);
+
+    // Handle right-click on group target button
+    const handleGroupContextMenu = useCallback((e: React.MouseEvent, groupPath: string, isCustom: boolean) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setGroupContextMenu({ x: e.clientX, y: e.clientY, groupPath, isCustom });
+    }, []);
+
+    // Add a sub-group under a parent path
+    const addSubGroup = useCallback((parentPath: string, childName: string) => {
+        if (!childName.trim()) return;
+        setSubGroups(prev => {
+            const existing = prev[parentPath] || [];
+            if (existing.includes(childName.trim())) return prev;
+            return { ...prev, [parentPath]: [...existing, childName.trim()] };
+        });
+        setSubGroupInput(null);
+    }, []);
+
+    // Delete a sub-group (and all its descendants)
+    const deleteSubGroup = useCallback((groupPath: string) => {
+        // Find parent path
+        const lastSlash = groupPath.lastIndexOf('/');
+        if (lastSlash === -1) return; // Can't delete top-level via this method
+        const parentPath = groupPath.substring(0, lastSlash);
+        const childName = groupPath.substring(lastSlash + 1);
+
+        setSubGroups(prev => {
+            const updated = { ...prev };
+            // Remove from parent's children
+            if (updated[parentPath]) {
+                updated[parentPath] = updated[parentPath].filter(c => c !== childName);
+                if (updated[parentPath].length === 0) delete updated[parentPath];
+            }
+            // Remove all descendant entries
+            Object.keys(updated).forEach(key => {
+                if (key === groupPath || key.startsWith(groupPath + '/')) {
+                    delete updated[key];
+                }
+            });
+            return updated;
+        });
+
+        // Move images from deleted sub-group back to parent
+        setClassificationOverrides(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(key => {
+                if (updated[key] === groupPath || updated[key].startsWith(groupPath + '/')) {
+                    updated[key] = parentPath;
+                }
+            });
+        });
+    }, []);
+
+    // Rename a group (custom top-level or sub-group)
+    const renameGroup = useCallback((groupPath: string, newName: string, isCustom: boolean) => {
+        newName = newName.trim();
+        if (!newName || newName.includes('/')) {
+            setCopyFeedback('❌ 名称不能为空，且不能包含斜杠 "/"');
+            setTimeout(() => setCopyFeedback(null), 3000);
             return;
         }
-        if (!contextDetailColumn || contextMenu.row[contextDetailColumn] === undefined) {
-            setContextDetailColumn(pickDefaultContextDetailColumn(contextMenu.row));
+
+        const lastSlash = groupPath.lastIndexOf('/');
+        const oldName = lastSlash === -1 ? groupPath : groupPath.substring(lastSlash + 1);
+        if (oldName === newName) return;
+
+        const parentPath = lastSlash === -1 ? '' : groupPath.substring(0, lastSlash);
+        const newGroupPath = parentPath ? `${parentPath}/${newName}` : newName;
+
+        // 1. Update Top-level custom groups if it's a top level
+        if (lastSlash === -1 && isCustom) {
+            setCustomGroups(prev => prev.map(g => g === groupPath ? newName : g));
         }
-    }, [contextMenu, contextDetailColumn, pickDefaultContextDetailColumn]);
+
+        // 1b. Update categoryOptions for non-custom top-level groups (data column groups)
+        if (lastSlash === -1 && !isCustom) {
+            setConfig(prev => ({
+                ...prev,
+                categoryOptions: (prev.categoryOptions || []).map(o => o === groupPath ? newName : o)
+            }));
+        }
+
+        // 2. Update subGroups
+        setSubGroups(prev => {
+            const updated = { ...prev };
+            
+            // Rename in parent's children array
+            if (parentPath && updated[parentPath]) {
+                updated[parentPath] = updated[parentPath].map(c => c === oldName ? newName : c);
+            }
+
+            // Rename keys for descendants
+            const keysToUpdate = Object.keys(updated).filter(key => key === groupPath || key.startsWith(groupPath + '/'));
+            
+            keysToUpdate.forEach(key => {
+                const newKey = newGroupPath + key.substring(groupPath.length);
+                updated[newKey] = updated[key];
+                delete updated[key];
+            });
+
+            return updated;
+        });
+
+        // 3. Update classification overrides
+        setClassificationOverrides(prev => {
+            let hasChanges = false;
+            const updated = { ...prev };
+            Object.keys(updated).forEach(key => {
+                const val = updated[key];
+                if (val === groupPath || val.startsWith(groupPath + '/')) {
+                    updated[key] = newGroupPath + val.substring(groupPath.length);
+                    hasChanges = true;
+                }
+            });
+            return hasChanges ? updated : prev;
+        });
+    }, []);
+
+    // Move a group to a new parent
+    const moveGroup = useCallback((groupPath: string, newParentPath: string, isCustom: boolean) => {
+        const lastSlash = groupPath.lastIndexOf('/');
+        const groupName = lastSlash === -1 ? groupPath : groupPath.substring(lastSlash + 1);
+        const oldParentPath = lastSlash === -1 ? '' : groupPath.substring(0, lastSlash);
+
+        // Can't move to itself or its own descendants
+        if (newParentPath === groupPath || newParentPath.startsWith(groupPath + '/')) {
+            setCopyFeedback('❌ 不能移动到自身或其子分组中');
+            setTimeout(() => setCopyFeedback(null), 3000);
+            return;
+        }
+
+        if (oldParentPath === newParentPath) return; // No change
+
+        const newGroupPath = newParentPath ? `${newParentPath}/${groupName}` : groupName;
+
+        // 0. If moving a top-level original group (not custom), remove it from config.categoryOptions
+        if (lastSlash === -1 && !isCustom) {
+            setConfig(prev => ({
+                ...prev,
+                categoryOptions: (prev.categoryOptions || []).filter(o => o !== groupPath)
+            }));
+        }
+
+        // 1. If moving a top-level custom group to a sub-group, remove it from customGroups array
+        if (lastSlash === -1 && isCustom) {
+            setCustomGroups(prev => prev.filter(g => g !== groupPath));
+        }
+
+        // 2. If moving a sub-group to top-level, add it to customGroups array
+        if (!newParentPath) {
+            setCustomGroups(prev => {
+                if (prev.includes(groupName)) return prev;
+                return [...prev, groupName];
+            });
+        }
+
+        // 3. Update subGroups
+        setSubGroups(prev => {
+            const updated = { ...prev };
+            
+            // Remove from old parent
+            if (oldParentPath && updated[oldParentPath]) {
+                updated[oldParentPath] = updated[oldParentPath].filter(c => c !== groupName);
+                if (updated[oldParentPath].length === 0) delete updated[oldParentPath];
+            }
+
+            // Add to new parent
+            if (newParentPath) {
+                const existing = updated[newParentPath] || [];
+                if (!existing.includes(groupName)) {
+                    updated[newParentPath] = [...existing, groupName];
+                }
+            }
+
+            // Rename keys for descendants
+            const keysToUpdate = Object.keys(updated).filter(key => key === groupPath || key.startsWith(groupPath + '/'));
+            
+            keysToUpdate.forEach(key => {
+                const newKey = newGroupPath + key.substring(groupPath.length);
+                updated[newKey] = updated[key];
+                delete updated[key];
+            });
+
+            return updated;
+        });
+
+        // 4. Update classification overrides
+        setClassificationOverrides(prev => {
+            let hasChanges = false;
+            const updated = { ...prev };
+            Object.keys(updated).forEach(key => {
+                const val = updated[key];
+                if (val === groupPath || val.startsWith(groupPath + '/')) {
+                    updated[key] = newGroupPath + val.substring(groupPath.length);
+                    hasChanges = true;
+                }
+            });
+            return hasChanges ? updated : prev;
+        });
+    }, []);
+
+    // ==================== Marquee/Lasso Selection (框选) Handlers ====================
+    const MARQUEE_THRESHOLD = 3; // min px to start marquee
+
+    const handleMarqueeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (!classificationMode || e.button !== 0) return;
+        const target = e.target as HTMLElement;
+        if (target.closest('button, input, select, a, [data-no-marquee], [data-selection-overlay]')) return;
+        if (target.closest('.sticky')) return;
+
+        marqueeCtrlRef.current = e.ctrlKey || e.metaKey;
+        const container = contentScrollRef.current;
+        if (!container) return;
+
+        // Prevent native drag from stealing mouse events
+        e.preventDefault();
+        const blockDrag = (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); };
+        document.addEventListener('dragstart', blockDrag, true);
+
+        const rect = container.getBoundingClientRect();
+        marqueeStartRef.current = { x: e.clientX - rect.left + container.scrollLeft, y: e.clientY - rect.top + container.scrollTop };
+        marqueeActiveRef.current = false;
+
+        // === PERF: Build cache IMMEDIATELY on mousedown (not on threshold) ===
+        type TC = { id: string; el: HTMLElement; l: number; t: number; r: number; b: number; hit: boolean };
+        const cache: TC[] = [];
+        const containerRect = container.getBoundingClientRect();
+        const thumbs = container.querySelectorAll<HTMLElement>('[data-marquee-id]');
+        for (let i = 0; i < thumbs.length; i++) {
+            const thumb = thumbs[i];
+            const tr = thumb.getBoundingClientRect();
+            const l = tr.left - containerRect.left + container.scrollLeft;
+            const t = tr.top - containerRect.top + container.scrollTop;
+            cache.push({ id: thumb.getAttribute('data-marquee-id')!, el: thumb, l, t, r: l + tr.width, b: t + tr.height, hit: false });
+        }
+
+        let rafId = 0;
+        let lastX = 0, lastY = 0;
+
+        const doFrame = () => {
+            rafId = 0;
+            const cr = container.getBoundingClientRect();
+            const cx = lastX - cr.left + container.scrollLeft;
+            const cy = lastY - cr.top + container.scrollTop;
+            const dx = cx - marqueeStartRef.current.x;
+            const dy = cy - marqueeStartRef.current.y;
+
+            if (!marqueeActiveRef.current) {
+                if (dx * dx + dy * dy < MARQUEE_THRESHOLD * MARQUEE_THRESHOLD) return;
+                marqueeActiveRef.current = true;
+                if (!marqueeRectRef.current) {
+                    const div = document.createElement('div');
+                    div.style.cssText = 'position:absolute;border:2px dashed rgba(147,51,234,0.7);background:rgba(147,51,234,0.12);pointer-events:none;z-index:50;border-radius:4px;';
+                    container.style.position = 'relative';
+                    container.appendChild(div);
+                    marqueeRectRef.current = div;
+                }
+                marqueeRectRef.current.style.display = 'block';
+            }
+
+            const el = marqueeRectRef.current;
+            if (!el) return;
+            const left = Math.min(marqueeStartRef.current.x, cx);
+            const top = Math.min(marqueeStartRef.current.y, cy);
+            const right = Math.max(marqueeStartRef.current.x, cx);
+            const bottom = Math.max(marqueeStartRef.current.y, cy);
+            el.style.left = `${left}px`;
+            el.style.top = `${top}px`;
+            el.style.width = `${right - left}px`;
+            el.style.height = `${bottom - top}px`;
+
+            // Hit test - only update DOM on state change
+            const isCtrl = marqueeCtrlRef.current;
+            for (let i = 0; i < cache.length; i++) {
+                const c = cache[i];
+                const hit = !(c.r < left || c.l > right || c.b < top || c.t > bottom);
+                if (hit !== c.hit) {
+                    c.hit = hit;
+                    c.el.style.outline = hit ? (isCtrl ? '2px solid rgba(239,68,68,0.7)' : '2px solid rgba(147,51,234,0.7)') : '';
+                    c.el.style.outlineOffset = hit ? '1px' : '';
+                }
+            }
+
+            // Auto-scroll near edges
+            const mouseY = lastY - cr.top;
+            if (mouseY < 40) container.scrollTop -= 10;
+            else if (mouseY > cr.height - 40) container.scrollTop += 10;
+        };
+
+        const onMove = (ev: MouseEvent) => {
+            lastX = ev.clientX; lastY = ev.clientY;
+            if (!rafId) rafId = requestAnimationFrame(doFrame);
+        };
+
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.removeEventListener('dragstart', blockDrag, true);
+            if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+
+            if (marqueeActiveRef.current && marqueeRectRef.current) {
+                const hitIds: string[] = [];
+                const isCtrl = marqueeCtrlRef.current;
+                for (let i = 0; i < cache.length; i++) {
+                    const c = cache[i];
+                    c.el.style.outline = '';
+                    c.el.style.outlineOffset = '';
+                    if (c.hit) {
+                        hitIds.push(c.id);
+                        // === INSTANT DOM feedback: toggle visual state NOW ===
+                        const overlay = c.el.querySelector('[data-selection-overlay]') as HTMLElement;
+                        if (isCtrl) {
+                            c.el.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
+                            if (overlay) overlay.classList.replace('opacity-100', 'opacity-0');
+                        } else {
+                            c.el.classList.add('ring-2', 'ring-purple-500', 'ring-offset-1');
+                            if (overlay) overlay.classList.replace('opacity-0', 'opacity-100');
+                        }
+                    }
+                }
+
+                if (hitIds.length > 0) {
+                    setSelectedForClassification(prev => {
+                        const s = new Set(prev);
+                        if (isCtrl) { hitIds.forEach(id => s.delete(id)); }
+                        else { hitIds.forEach(id => s.add(id)); }
+                        return s;
+                    });
+                }
+
+                marqueeRectRef.current.style.display = 'none';
+            }
+            marqueeActiveRef.current = false;
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    }, [classificationMode]);
+
 
     React.useLayoutEffect(() => {
         if (!contextMenu) {
@@ -2631,15 +3203,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
         // In classification mode, track which items are being dragged
         if (classificationMode) {
-            if (selectedForClassification.size > 0) {
+            if (selectedForClassificationRef.current.size > 0) {
                 // If items are selected for classification, drag all of them
-                setDraggedItems(Array.from(selectedForClassification));
+                setDraggedItems(Array.from(selectedForClassificationRef.current));
             } else {
                 // Otherwise, just drag this single item
                 setDraggedItems([rowId]);
             }
         }
-    }, [gallerySelectMode, selectedThumbnails, effectiveData.rows, effectiveData.columns, config.imageColumn, effectiveImageColumn, classificationMode, selectedForClassification]);
+    }, [gallerySelectMode, selectedThumbnails, effectiveData.rows, effectiveData.columns, config.imageColumn, effectiveImageColumn, classificationMode]);
 
     // Handle drag start from favorite item (for reordering and cross-folder move)
     const handleFavoriteDragStart = useCallback((
@@ -2698,16 +3270,72 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     // Handle classification change - save to localStorage and optionally sync to Google Sheets
     const handleClassificationChange = useCallback(async (rowIds: string[], targetGroup: string) => {
-        // Always save to localStorage first
-        const newOverrides = { ...classificationOverrides };
-        rowIds.forEach(rowId => {
-            const parts = rowId.split('||');
-            const imageUrl = parts[0] || rowId;
-            newOverrides[imageUrl] = targetGroup;
+        // Always save to localStorage first (functional updater 避免闭包过期)
+        setClassificationOverrides(prev => {
+            const newOverrides = { ...prev };
+            rowIds.forEach(rowId => {
+                const parts = rowId.split('||');
+                const imageUrl = parts[0] || rowId;
+                newOverrides[imageUrl] = targetGroup;
+            });
+            return newOverrides;
         });
-        setClassificationOverrides(newOverrides);
 
-        // If syncToSheet is enabled and sourceUrl exists, sync to Google Sheets
+        // ── GAS 协作同步：将分类写入 SM_分类 列 ──
+        try {
+            const collabService = getCollabService();
+            if (collabService.isConnected()) {
+                const batchItems: Array<{ id?: string; rowIndex?: number; category: string; _sourceSheet?: string }> = [];
+                rowIds.forEach(rowId => {
+                    const parts = rowId.split('||');
+                    // SM_ID 可选（如果本地数据有的话）
+                    const row = processedRowsRef.current.find(r => String(r._rowId) === rowId);
+                    const smId = row?.['SM_ID'] ? String(row['SM_ID']) : undefined;
+                    // 合并模式下提取来源分页
+                    const sourceSheet = row?.['_sourceSheet'] ? String(row['_sourceSheet']) : undefined;
+                    // 合并模式下使用原始行号；单分页模式用数组索引计算
+                    let sheetRowIndex: number;
+                    if (row?.['_originalRowIndex']) {
+                        sheetRowIndex = Number(row['_originalRowIndex']);
+                    } else {
+                        const originalIndex = parts.length >= 3 ? parseInt(parts[2], 10) : -1;
+                        sheetRowIndex = originalIndex >= 0 ? originalIndex + 2 : 0;
+                    }
+                    if (sheetRowIndex > 1 || smId) {
+                        batchItems.push({ id: smId, rowIndex: sheetRowIndex, category: targetGroup, _sourceSheet: sourceSheet });
+                    }
+                });
+                if (batchItems.length > 0) {
+                    collabService.batchClassify(batchItems).then(result => {
+                        if (result?.ok) {
+                            setCopyFeedback(`☁️ 已同步 ${batchItems.length} 条分类到表格`);
+                            setTimeout(() => setCopyFeedback(null), 2000);
+                        } else {
+                            console.error('[Collab] 分类同步失败:', result);
+                            setCopyFeedback(`⚠️ 同步失败: ${result?.error || JSON.stringify(result)}`);
+                            setTimeout(() => setCopyFeedback(null), 4000);
+                        }
+                    }).catch(err => {
+                        console.error('[Collab] 分类同步异常:', err);
+                        setCopyFeedback(`⚠️ 同步失败: ${err instanceof Error ? err.message : String(err)}`);
+                        setTimeout(() => setCopyFeedback(null), 4000);
+                    });
+                }
+            }
+        } catch (e) { console.error('[Collab] 协作服务不可用:', e); }
+
+        // Also update galleryCategories (media tags) — unified with classification
+        setGalleryCategories(prev => {
+            const newMap = new Map(prev);
+            rowIds.forEach(rowId => {
+                const parts = rowId.split('||');
+                const imageUrl = parts[0] || rowId;
+                newMap.set(imageUrl, targetGroup);
+            });
+            return newMap;
+        });
+
+        // If syncToSheet is enabled and sourceUrl exists, sync to Google Sheets (non-blocking)
         if (syncToSheet && sourceUrl && effectiveGroupColumns[0]) {
             const primaryGroupColumn = effectiveGroupColumns[0];
             const primaryColIndex = effectiveData.columns.indexOf(primaryGroupColumn);
@@ -2730,41 +3358,57 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 const spreadsheetId = match ? match[1] : null;
 
                 if (spreadsheetId) {
-                    try {
-                        // Get access token
-                        const token = await getGoogleAccessToken();
-                        if (!token) {
-                            setCopyFeedback('⚠️ 无法获取访问令牌，已保存到本地');
-                            setTimeout(() => setCopyFeedback(null), 3000);
-                            return;
-                        }
+                    // 立即给用户反馈，后台异步同步
+                    setCopyFeedback(`⏳ 正在同步 ${rowIds.length} 张图片到表格...`);
 
-                        // Update each row
-                        const updatePromises = rowIds.map(async (rowId) => {
-                            const parts = rowId.split('||');
-                            const originalIndex = parts.length >= 3 ? parseInt(parts[2], 10) : -1;
-                            if (originalIndex >= 0) {
-                                const sheetRowIndex = originalIndex + 2; // +1 for header, +1 for 1-based
-                                try {
-                                    await updateSingleCellInGoogleSheet(
-                                        spreadsheetId,
-                                        currentSheetName || '',
-                                        columnLetter,
-                                        sheetRowIndex,
-                                        targetGroup,
-                                        token
-                                    );
-                                } catch (err) {
-                                    console.error('Failed to update sheet:', err);
-                                }
+                    // 非阻塞：后台执行，不 await
+                    (async () => {
+                        try {
+                            const token = await getGoogleAccessToken();
+                            if (!token) {
+                                setCopyFeedback('⚠️ 无法获取访问令牌，已保存到本地');
+                                setTimeout(() => setCopyFeedback(null), 3000);
+                                return;
                             }
-                        });
-                        await Promise.all(updatePromises);
-                        setCopyFeedback(`✅ 已将 ${rowIds.length} 张图片移动到 "${targetGroup}"，已同步到表格`);
-                    } catch (err) {
-                        console.error('Sync to sheet failed:', err);
-                        setCopyFeedback(`⚠️ 同步失败，已保存到本地: ${err}`);
-                    }
+
+                            // Update each row
+                            const updatePromises = rowIds.map(async (rowId) => {
+                                const parts = rowId.split('||');
+                                // 合并模式：从行数据获取原始行号
+                                const row = processedRowsRef.current.find(r => String(r._rowId) === rowId);
+                                let sheetRowIndex: number;
+                                if (row?.['_originalRowIndex']) {
+                                    sheetRowIndex = Number(row['_originalRowIndex']);
+                                } else {
+                                    const originalIndex = parts.length >= 3 ? parseInt(parts[2], 10) : -1;
+                                    sheetRowIndex = originalIndex >= 0 ? originalIndex + 2 : 0;
+                                }
+                                // 合并模式：使用来源分页名
+                                const targetSheet = row?.['_sourceSheet'] ? String(row['_sourceSheet']) : (currentSheetName || '');
+                                if (sheetRowIndex >= 2) {
+                                    try {
+                                        await updateSingleCellInGoogleSheet(
+                                            spreadsheetId,
+                                            targetSheet,
+                                            columnLetter,
+                                            sheetRowIndex,
+                                            targetGroup,
+                                            token
+                                        );
+                                    } catch (err) {
+                                        console.error('Failed to update sheet:', err);
+                                    }
+                                }
+                            });
+                            await Promise.all(updatePromises);
+                            setCopyFeedback(`✅ 已将 ${rowIds.length} 张图片移动到 "${targetGroup}"，已同步到表格`);
+                            setTimeout(() => setCopyFeedback(null), 2000);
+                        } catch (err) {
+                            console.error('Sync to sheet failed:', err);
+                            setCopyFeedback(`⚠️ 同步失败，已保存到本地: ${err}`);
+                            setTimeout(() => setCopyFeedback(null), 3000);
+                        }
+                    })();
                 } else {
                     setCopyFeedback(`✅ 已将 ${rowIds.length} 张图片分类到 "${targetGroup}"`);
                 }
@@ -2777,8 +3421,20 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
         setTimeout(() => setCopyFeedback(null), 2000);
         setDraggedItems([]);
-        // Keep selection so user can retry if needed
-    }, [classificationOverrides, syncToSheet, sourceUrl, effectiveGroupColumns, effectiveData.columns, currentSheetName, setCopyFeedback]);
+
+        // 清除分类选中状态（state + DOM 两层）
+        setSelectedForClassification(new Set());
+
+        // 强制清理 DOM 上手动添加的选中样式（因为 onClick 中用了直接 DOM 操作）
+        requestAnimationFrame(() => {
+            document.querySelectorAll('[data-marquee-id].ring-purple-500').forEach(el => {
+                el.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
+            });
+            document.querySelectorAll('[data-selection-overlay].opacity-100').forEach(el => {
+                el.classList.replace('opacity-100', 'opacity-0');
+            });
+        });
+    }, [syncToSheet, sourceUrl, effectiveGroupColumns, effectiveData.columns, currentSheetName, setCopyFeedback]);
 
     // Handle reorder drop - reorder items within a group (supports multi-select)
     const handleReorderDrop = useCallback(async (groupKey: string, draggedImageUrl: string, dropIndex: number, allImageUrlsInGroup: string[]) => {
@@ -2788,9 +3444,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         // Get all selected items to move (extract imageUrls from rowIds)
         // rowId format is: "imageUrl||sourceSheet||index"
         let itemsToMove: string[] = [];
-        if (selectedForClassification.size > 0) {
+        if (selectedForClassificationRef.current.size > 0) {
             // Get image URLs for all selected items by parsing rowId
-            selectedForClassification.forEach(rowId => {
+            selectedForClassificationRef.current.forEach(rowId => {
                 // Extract imageUrl from rowId format: "imageUrl||sourceSheet||index"
                 const parts = rowId.split('||');
                 const imgUrl = parts[0]; // First part is the imageUrl
@@ -2930,7 +3586,80 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             }
             setTimeout(() => setCopyFeedback(null), 2000);
         }
-    }, [customOrderByGroup, syncToSheet, sourceUrl, effectiveData.columns, effectiveData.rows, effectiveImageColumn, currentSheetName, selectedForClassification]);
+    }, [customOrderByGroup, syncToSheet, sourceUrl, effectiveData.columns, effectiveData.rows, effectiveImageColumn, currentSheetName]);
+
+    // Handle quick assign to folder (Click in Sidebar)
+    const handleQuickAssignFolder = useCallback((folderId: string) => {
+        if (selectedThumbnails.size === 0) return;
+        
+        const imageUrls = Array.from(selectedThumbnails);
+        const targetFolder = favoriteFolders.find(f => f.id === folderId);
+        
+        let addedCount = 0;
+        setFavorites(prev => {
+            const moved = prev.map(f =>
+                imageUrls.includes(f.imageUrl)
+                    ? { ...f, folderId: folderId }
+                    : f
+            );
+            const existingUrls = new Set(moved.map(f => f.imageUrl));
+            const newItems: FavoriteItem[] = [];
+
+            imageUrls.forEach((imageUrl, idx) => {
+                if (existingUrls.has(imageUrl)) return;
+                // Note: imageUrl here is actually rowId because selectedThumbnails stores rowIds
+                // So we extract the actual imageUrl from the rowId (imageUrl||sourceSheet||index)
+                const parts = imageUrl.split('||');
+                const actualImageUrl = parts[0] || imageUrl;
+                
+                // For row data, we can try to find it by rowId if rowById is available
+                // But rowById is declared after this function, so it causes TS errors
+                // We'll just construct a basic row or use the one from effectiveData.rows
+                let rowData = {};
+                if (effectiveData && effectiveData.rows) {
+                    const row = effectiveData.rows.find(r => String(r._rowId) === imageUrl);
+                    if (row) rowData = { ...row };
+                }
+
+                newItems.push({
+                    id: `fav-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${idx}`,
+                    imageUrl: actualImageUrl,
+                    rowData: rowData,
+                    folderId: folderId,
+                    addedAt: new Date().toISOString()
+                });
+                addedCount++;
+            });
+
+            return [...moved, ...newItems];
+        });
+        
+        setCopyFeedback(`已将 ${imageUrls.length} 项添加至收藏夹「${targetFolder?.name || '未知'}」`);
+        setTimeout(() => setCopyFeedback(null), 1500);
+        setSelectedThumbnails(new Set());
+        setGallerySelectMode(false);
+    }, [selectedThumbnails, favoriteFolders, effectiveData]);
+
+    // Handle quick assign to category (Click in Sidebar)
+    const handleQuickAssignCategory = useCallback((categoryName: string) => {
+        if (selectedThumbnails.size === 0) return;
+        
+        const rowIds = Array.from(selectedThumbnails);
+        rowIds.forEach(rowId => {
+            const parts = rowId.split('||');
+            const actualImageUrl = parts[0] || rowId;
+            setGalleryCategories(prev => {
+                const next = new Map(prev);
+                next.set(actualImageUrl, categoryName);
+                return next;
+            });
+        });
+        
+        setCopyFeedback(`已设置 ${rowIds.length} 项的标签为「${categoryName}」`);
+        setTimeout(() => setCopyFeedback(null), 1500);
+        setSelectedThumbnails(new Set());
+        setGallerySelectMode(false);
+    }, [selectedThumbnails]);
 
     // Handle drop to folder (収藏夹)
     const handleDropToFolder = useCallback((e: React.DragEvent, targetFolderId: string) => {
@@ -3126,7 +3855,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const baseColumns = effectiveData.columns.length > 0 ? [...effectiveData.columns] : [];
             const extraKeys = Object.keys(rowData).filter(k => !baseColumns.includes(k));
             const headers = [...baseColumns, ...extraKeys];
-            const values = headers.map(h => String(rowData[h] ?? ''));
+            const values = headers.map(h => tsvEscapeCell(String(rowData[h] ?? '')));
 
             // Add note to A column if available
             let note = '';
@@ -3143,7 +3872,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             if (note) {
                 const noteIndex = headers.findIndex(h => h === NOTE_HEADER);
                 if (noteIndex >= 0) {
-                    values[noteIndex] = note;
+                    values[noteIndex] = tsvEscapeCell(note);
                 } else {
                     headers.unshift(NOTE_HEADER);
                     values.unshift(note);
@@ -3298,7 +4027,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const headers = [...baseColumns, ...Array.from(extraKeys)];
 
             const rows = selectedItems.map(item =>
-                headers.map(h => String(item.rowData[h] ?? '')).join('\t')
+                headers.map(h => tsvEscapeCell(String(item.rowData[h] ?? ''))).join('\t')
             );
             const text = headers.join('\t') + '\n' + rows.join('\n');
             await navigator.clipboard.writeText(text);
@@ -3329,7 +4058,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const headers = [...baseColumns, ...Array.from(extraKeys)];
 
             const rows = favorites.map(item =>
-                headers.map(h => String(item.rowData[h] ?? '')).join('\t')
+                headers.map(h => tsvEscapeCell(String(item.rowData[h] ?? ''))).join('\t')
             );
             const text = headers.join('\t') + '\n' + rows.join('\n');
             await navigator.clipboard.writeText(text);
@@ -3457,7 +4186,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             // Exclude internal _rowId column from export
             const headers = Object.keys(selectedRows[0]).filter(h => h !== '_rowId');
             const rowsData = selectedRows.map(row =>
-                headers.map(h => String(row[h] || '')).join('\t')
+                headers.map(h => tsvEscapeCell(String(row[h] || ''))).join('\t')
             );
             const text = headers.join('\t') + '\n' + rowsData.join('\n');
             await navigator.clipboard.writeText(text);
@@ -3468,6 +4197,45 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             setTimeout(() => setCopyFeedback(null), 1500);
         }
     }, [config.imageColumn, selectedThumbnails]);
+
+    // Copy selected thumbnails' image formulas to clipboard
+    // source: 'classification' uses selectedForClassification, otherwise uses selectedThumbnails
+    const copySelectedImageFormulas = useCallback(async (rows: DataRow[], source?: string) => {
+        const selectionSet = source === 'classification' ? selectedForClassification : selectedThumbnails;
+        const selectedRows = rows.filter(row => {
+            const rowId = String(row._rowId || '');
+            return rowId && selectionSet.has(rowId);
+        });
+
+        if (selectedRows.length === 0) {
+            setCopyFeedback('请先选择图片');
+            setTimeout(() => setCopyFeedback(null), 1500);
+            return;
+        }
+
+        try {
+            const imgCol = config.imageColumn || effectiveImageColumn;
+            const formulas = selectedRows
+                .map(row => {
+                    const url = imgCol ? extractImageUrl(row[imgCol]) : '';
+                    return url ? `=IMAGE("${url}")` : '';
+                })
+                .filter(Boolean);
+
+            if (formulas.length === 0) {
+                setCopyFeedback('没有可复制的图片公式');
+                setTimeout(() => setCopyFeedback(null), 1500);
+                return;
+            }
+
+            await navigator.clipboard.writeText(formulas.join('\n'));
+            setCopyFeedback(`已复制 ${formulas.length} 个图片公式`);
+            setTimeout(() => setCopyFeedback(null), 1500);
+        } catch {
+            setCopyFeedback('复制失败');
+            setTimeout(() => setCopyFeedback(null), 1500);
+        }
+    }, [config.imageColumn, effectiveImageColumn, selectedThumbnails, selectedForClassification]);
 
     // Copy entire table data to clipboard
     const copyAllDataToClipboard = useCallback(async () => {
@@ -3492,10 +4260,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         // Note column (A) - add note if available
                         const imageUrl = config.imageColumn ? extractImageUrl(row[config.imageColumn]) : null;
                         if (imageUrl) {
-                            return getNoteForImage(imageUrl) || String(row[h] || '');
+                            return tsvEscapeCell(getNoteForImage(imageUrl) || String(row[h] || ''));
                         }
                     }
-                    return String(row[h] || '');
+                    return tsvEscapeCell(String(row[h] || ''));
                 });
                 return values.join('\t');
             });
@@ -3546,6 +4314,32 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const processedRows = useMemo(() => {
         return computeProcessedRows(deferredRows, config.searchKeyword, effectiveImageColumn, effectiveSortRules, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveCustomFilters, effectiveNumFilters);
     }, [deferredRows, config.searchKeyword, effectiveImageColumn, effectiveSortRules, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveCustomFilters, effectiveNumFilters]);
+
+    // Ref 保持 processedRows 最新引用，供回调中无依赖访问
+    const processedRowsRef = useRef(processedRows);
+    processedRowsRef.current = processedRows;
+
+    // Auto-collapse all gallery groups on initial data load (runs once via ref guard)
+    const collapseGroupColumn = effectiveGroupColumn;
+    const collapseImageColumn = effectiveImageColumn;
+    React.useEffect(() => {
+        if (galleryInitialCollapseRef.current) return;
+        if (processedRows.length === 0) return;
+        // Compute all unique group keys and collapse them
+        const allKeys = new Set<string>();
+        processedRows.forEach(row => {
+            let key = '';
+            if (collapseGroupColumn && row[collapseGroupColumn]) {
+                key = String(row[collapseGroupColumn]).trim();
+            }
+            if (key) allKeys.add(key);
+        });
+        if (allKeys.size > 0) {
+            setCollapsedGalleryGroups(allKeys);
+            galleryInitialCollapseRef.current = true;
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [processedRows.length]);
 
     // Large data safety: track when data is massive for UI hints
     const LARGE_DATA_THRESHOLD = 5000;
@@ -3598,14 +4392,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         );
     }, [config.viewMode, config.matrixRowColumn, config.matrixColColumn, config.dateColumn, config.imageColumn, config.groupColumn, processedRows, effectiveData.columns, sortDateKeys, sortRowsByRules]);
 
-    // Copy data to clipboard based on current view
+    // Copy data to clipboard - opens modal for column/sheet selection
     const copyDataToClipboard = useCallback(() => {
-        const { headers, rows } = generateExportData();
-        const text = headers.join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
-        navigator.clipboard.writeText(text).then(() => {
-            setCopyFeedback(`✅ 已复制 ${rows.length} 行数据到剪贴板 (${config.viewMode}视图)`); setTimeout(() => setCopyFeedback(null), 3000);
-        });
-    }, [generateExportData, config.viewMode]);
+        setShowCopyDataModal(true);
+    }, []);
 
     // Update ref for use in UI
     React.useEffect(() => {
@@ -3629,12 +4419,13 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         includeExtraData: boolean,
         selectedColumns: string[],
         applyOverrides: boolean,
-        layoutMode: 'horizontal' | 'vertical' | 'columns'
+        layoutMode: 'horizontal' | 'vertical' | 'columns',
+        emptyRowsBetweenGroups: number
     ) => {
         const { text, groupCount, totalImages, error } = generateViewLayoutText(
             layoutMode, columnsPerRow, includeExtraData, selectedColumns, applyOverrides,
             processedRows, effectiveGroupColumns, effectiveGroupLevels, effectiveImageColumn,
-            classificationOverrides, customOrderByGroup
+            classificationOverrides, customOrderByGroup, emptyRowsBetweenGroups
         );
 
         if (error) {
@@ -3677,7 +4468,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         // Generate headers - use all columns from the data
         const headers = data.columns;
         const rows = groupRows.map(row =>
-            headers.map(col => String(row[col] ?? ''))
+            headers.map(col => tsvEscapeCell(String(row[col] ?? '')))
         );
 
         const text = headers.join('\t') + '\n' + rows.map(r => r.join('\t')).join('\n');
@@ -3921,6 +4712,22 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             return '其他';
         }
 
+        // Date binning on groupColumn (when dateBinning is enabled and groupColumn contains dates)
+        if (effectiveDateBinning && effectiveDateBins.length > 0) {
+            const dateVal = parseDate(row[effectiveGroupColumn]);
+            if (dateVal) {
+                const dateTime = dateVal.getTime();
+                for (const bin of effectiveDateBins) {
+                    const startTime = new Date(bin.startDate).getTime();
+                    const endTime = new Date(bin.endDate).getTime() + 86400000 - 1; // 包含结束日期
+                    if (dateTime >= startTime && dateTime <= endTime) {
+                        return bin.label;
+                    }
+                }
+                return '其他日期';
+            }
+        }
+
         // Text grouping
         if (effectiveTextGrouping && effectiveTextGroupBins.length > 0) {
             const cellValue = String(row[effectiveGroupColumn] || '').trim();
@@ -4013,7 +4820,110 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         const result = getGroupKey(row[effectiveGroupColumn]);
         // 优先使用 originalText（完整文本），而不是 key（可能只是数字）
         return result?.originalText || result?.key || '未分组';
-    }, [effectiveGroupColumn, effectiveGroupColumns, effectiveGroupLevels, effectiveGroupBinning, effectiveGroupBins, effectiveTextGrouping, effectiveTextGroupBins, effectiveFuzzyRuleText]);
+    }, [effectiveGroupColumn, effectiveGroupColumns, effectiveGroupLevels, effectiveGroupBinning, effectiveGroupBins, effectiveTextGrouping, effectiveTextGroupBins, effectiveFuzzyRuleText, effectiveDateBinning, effectiveDateBins]);
+
+    // Handle: write current grouping/classification to a user-selected column in Google Sheets
+    const handleSyncGroupingToSheet = useCallback(async (targetColumn: string) => {
+        if (!targetColumn) {
+            setCopyFeedback('⚠️ 请选择目标列');
+            setTimeout(() => setCopyFeedback(null), 2000);
+            return;
+        }
+
+        // Build mapping: uniqueKey → { rowIndex, group, row }
+        const groupMapping = new Map<string, { rowIndex: number; group: string; smId?: string; sourceSheet?: string; id?: string; image?: string }>();
+
+        effectiveData.rows.forEach((row, idx) => {
+            const imageUrl = extractImageUrl(row[effectiveImageColumn]);
+            if (!imageUrl) return;
+
+            // Priority: classificationOverrides > original groupColumn value
+            // Priority: classificationOverrides > visual group
+            let group = '';
+            if (classificationOverrides[imageUrl]) {
+                group = classificationOverrides[imageUrl];
+            } else {
+                group = getRowGroupKey(row);
+            }
+            if (!group) return;
+
+            // Calculate sheet row index (1-indexed, +2 for header + 0-based)
+            const rowIndex = row._originalRowIndex
+                ? Number(row._originalRowIndex)
+                : idx + 2;
+
+            const rawImageVal = String(row[effectiveImageColumn] || '').trim();
+            let imageFormula = rawImageVal;
+            if (rawImageVal && !rawImageVal.toUpperCase().startsWith('=IMAGE') && imageUrl.startsWith('http')) {
+                imageFormula = `=IMAGE("${imageUrl}")`;
+            }
+
+            const uniqueKey = row.SM_ID ? String(row.SM_ID) : `row_${rowIndex}`;
+            groupMapping.set(uniqueKey, {
+                rowIndex,
+                group,
+                id: row.SM_ID ? String(row.SM_ID) : undefined,
+                smId: row.SM_ID ? String(row.SM_ID) : undefined,
+                sourceSheet: row._sourceSheet ? String(row._sourceSheet) : undefined,
+                image: imageFormula
+            });
+        });
+
+        if (groupMapping.size === 0) {
+            setCopyFeedback('⚠️ 没有分组数据（请先进行分组或分类操作）');
+            setTimeout(() => setCopyFeedback(null), 3000);
+            return;
+        }
+
+        // ── 路径选择：协作模式 (GAS) vs Google Sheets API ──
+        const collabService = getCollabService();
+        if (collabService.isConnected()) {
+            // ── 协作模式：通过 GAS batchWriteColumn 写入任意列 ──
+            setCopyFeedback(`⏳ 正在通过协作模式写入 ${groupMapping.size} 条到「${targetColumn}」列...`);
+            try {
+                const writeRows = Array.from(groupMapping.entries()).map(([, val]) => ({
+                    id: val.id,
+                    rowIndex: val.rowIndex,
+                    value: val.group,
+                    _sourceSheet: val.sourceSheet,
+                    image: groupWritebackModal.writeThumbnail !== false ? val.image : undefined
+                }));
+
+                console.log(`[Grouping] GAS batchWriteColumn: targetColumn=${targetColumn}, rows=${writeRows.length}`);
+                const result = await collabService.batchWriteColumn(targetColumn, writeRows, true);
+                console.log('[Grouping] GAS batchWriteColumn result:', result);
+
+                if (!result) {
+                    // null = network error or service exception
+                    setCopyFeedback('❌ 协作写入失败: 无法连接到 GAS 服务（请检查网络和 Web App URL）');
+                } else if (result.ok) {
+                    const failedCount = result.results?.filter(r => r.error)?.length || 0;
+                    if (failedCount > 0) {
+                        setCopyFeedback(`⚠️ 写入完成: ${result.count - failedCount}/${result.count} 成功, ${failedCount} 失败`);
+                    } else {
+                        setCopyFeedback(`✅ 已通过协作写入 ${result.count} 条分组到「${targetColumn}」列`);
+                    }
+                } else {
+                    // result exists but ok=false — server returned error
+                    const errorMsg = (result as unknown as { error?: string }).error || '未知服务端错误';
+                    setCopyFeedback(`❌ 协作写入失败: ${errorMsg}`);
+                }
+                setTimeout(() => setCopyFeedback(null), 4000);
+            } catch (err) {
+                console.error('[Grouping] GAS collab batchWriteColumn failed:', err);
+                setCopyFeedback('❌ 协作写入异常: ' + (err instanceof Error ? err.message : '未知错误'));
+                setTimeout(() => setCopyFeedback(null), 4000);
+            }
+        } else {
+            // ── Google Sheets API 路径：需要 OAuth access token ──
+            const apiMapping = new Map<string, { rowIndex: number; group: string }>();
+            groupMapping.forEach((val, key) => apiMapping.set(key, { rowIndex: val.rowIndex, group: val.group }));
+            await syncGroupingToSheet(targetColumn, apiMapping);
+        }
+
+        // Delay closing modal so user sees the feedback
+        setTimeout(() => setGroupWritebackModal(prev => ({ ...prev, open: false })), 2500);
+    }, [effectiveData.rows, effectiveImageColumn, classificationOverrides, effectiveGroupColumn, syncGroupingToSheet, setCopyFeedback, getRowGroupKey]);
 
     // 多级分组 key 生成函数 - 将多个列的值组合成一个嵌套 key
     const getMultiLevelGroupKey = useCallback((row: DataRow): string => {
@@ -4242,13 +5152,13 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         }
 
         // Determine if we have any numbered groups
-        const hasNumberedGroups = [...subGroups.values()].some(g => g.type === 'numbered');
-        const hasBinGroups = [...subGroups.values()].some(g => g.type === 'bin');
+        const hasNumberedGroups = Array.from(subGroups.values()).some(g => g.type === 'numbered');
+        const hasBinGroups = Array.from(subGroups.values()).some(g => g.type === 'bin');
 
         // Find if user has a sort rule for the groupColumn
         const groupSortRule = effectiveSortRules.find(r => r.column === effectiveGroupColumn);
 
-        const sortedEntries = [...subGroups.entries()].sort((a, b) => {
+        const sortedEntries = Array.from(subGroups.entries()).sort((a, b) => {
             const aData = a[1], bData = b[1];
 
             // For bin-based groups, always sort by bin index
@@ -4302,7 +5212,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         return sortedEntries.map(([subKey, { rows: subRows, originalTexts }]) => {
             let label = subKey;
             if (!effectiveGroupBinning && originalTexts.size > 0) {
-                const texts = Array.from(originalTexts);
+                const texts = Array.from(originalTexts) as string[];
                 label = texts.reduce((a, b) => a.length <= b.length ? a : b);
             }
             // Strictly sort items within each group by user's sortRules
@@ -4380,10 +5290,29 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 {/* Main Content */}
                 <div className="flex-1 overflow-hidden flex flex-col relative flex-overflow-container" >
                     {/* Toolbar */}
-                    <GalleryToolbar MessageSquare={MessageSquare} calendarMonth={calendarMonth} classificationMode={classificationMode} classificationOverrides={classificationOverrides} clearThumbnailSelection={clearThumbnailSelection} collapseAll={collapseAll} config={config} copyFeedback={copyFeedback} copySelectedThumbnailsData={copySelectedThumbnailsData} customGroups={customGroups} effectiveDateBinning={effectiveDateBinning} effectiveDateBins={effectiveDateBins} effectiveDateColumn={effectiveDateColumn} effectiveGroupLevels={effectiveGroupLevels} effectiveImageColumn={effectiveImageColumn} expandAll={expandAll} extractImageUrl={extractImageUrl} favorites={favorites} favoritesSyncing={favoritesSyncing} galleryCategories={galleryCategories} gallerySelectMode={gallerySelectMode} getRowGroupKey={getRowGroupKey} localSearchInput={localSearchInput} openBatchCategoryModal={openBatchCategoryModal} openBatchNoteModal={openBatchNoteModal} parseDate={parseDate} primaryGroupColumn={primaryGroupColumn} processedRows={processedRows} selectedForClassification={selectedForClassification} selectedThumbnails={selectedThumbnails} setCalendarMonth={setCalendarMonth} setClassificationMode={setClassificationMode} setCollapsedGalleryGroups={setCollapsedGalleryGroups} setCopyFeedback={setCopyFeedback} setDraggedItems={setDraggedItems} setGallerySelectMode={setGallerySelectMode} setLocalSearchInput={setLocalSearchInput} setSelectedForClassification={setSelectedForClassification} setSelectedThumbnails={setSelectedThumbnails} setShowBatchFolderMenu={setShowBatchFolderMenu} setShowCategoryView={setShowCategoryView} setShowFavorites={setShowFavorites} showCategoryView={showCategoryView} showFavorites={showFavorites} stats={stats} updateConfig={updateConfig} />
+                    <GalleryToolbar MessageSquare={MessageSquare} calendarMonth={calendarMonth} classificationMode={classificationMode} classificationOverrides={classificationOverrides} clearThumbnailSelection={clearThumbnailSelection} collapseAll={collapseAll} config={config} copyFeedback={copyFeedback} copySelectedImageFormulas={copySelectedImageFormulas} copySelectedThumbnailsData={copySelectedThumbnailsData} customGroups={customGroups} effectiveDateBinning={effectiveDateBinning} effectiveDateBins={effectiveDateBins} effectiveDateColumn={effectiveDateColumn} effectiveGroupLevels={effectiveGroupLevels} effectiveImageColumn={effectiveImageColumn} expandAll={expandAll} extractImageUrl={extractImageUrl} favorites={favorites} favoritesSyncing={favoritesSyncing} galleryCategories={galleryCategories} gallerySelectMode={gallerySelectMode} getRowGroupKey={getRowGroupKey} localSearchInput={localSearchInput} openBatchCategoryModal={openBatchCategoryModal} openBatchNoteModal={openBatchNoteModal} parseDate={parseDate} primaryGroupColumn={primaryGroupColumn} processedRows={processedRows} selectedForClassification={selectedForClassification} selectedThumbnails={selectedThumbnails} setCalendarMonth={setCalendarMonth} setClassificationMode={setClassificationMode} setCollapsedGalleryGroups={setCollapsedGalleryGroups} setCopyFeedback={setCopyFeedback} setDraggedItems={setDraggedItems} setGallerySelectMode={setGallerySelectMode} setLocalSearchInput={setLocalSearchInput} setSelectedForClassification={setSelectedForClassification} setSelectedThumbnails={setSelectedThumbnails} setShowBatchFolderMenu={setShowBatchFolderMenu} setShowCategoryView={setShowCategoryView} setShowFavorites={setShowFavorites} showCategoryView={showCategoryView} showFavorites={showFavorites} stats={stats} updateConfig={updateConfig} collabPanel={(() => { const hasSourceSheet = effectiveData.columns.includes('_sourceSheet'); const mergedSheetNames = hasSourceSheet ? Array.from(new Set(effectiveData.rows.map(r => String(r._sourceSheet || '')).filter(Boolean))) : undefined; const mergedSheetSet = mergedSheetNames ? new Set(mergedSheetNames) : undefined; return <CollabPanel currentSheetName={currentSheetName} isMultiSheetMode={hasSourceSheet} selectedSheets={mergedSheetSet} onSMDataChange={(smData: SMRowData[]) => { smData.forEach(row => { const rowIdx = row.__rowIndex; if (!rowIdx) return; const smSourceSheet = (row as SMRowData & { _sourceSheet?: string })._sourceSheet; let matchingRow; if (smSourceSheet) { matchingRow = effectiveData.rows.find((r, idx) => { const rSource = String(r._sourceSheet || ''); if (rSource !== smSourceSheet) return false; const rOrigIdx = r._originalRowIndex ? Number(r._originalRowIndex) : idx + 2; return rOrigIdx === rowIdx; }); } if (!matchingRow) { matchingRow = effectiveData.rows.find((r, idx) => { const rOrigIdx = r._originalRowIndex ? Number(r._originalRowIndex) : idx + 2; return rOrigIdx === rowIdx; }); } if (!matchingRow) return; const imageUrl = effectiveImageColumn ? extractImageUrl(matchingRow[effectiveImageColumn]) : ''; if (!imageUrl) return; if (row.SM_分类) { setClassificationOverrides(prev => { if (prev[imageUrl] === row.SM_分类) return prev; return { ...prev, [imageUrl]: row.SM_分类 as string }; }); } if (row.SM_备注) { setGalleryNotes(prev => { const existing = prev.get(imageUrl); if (existing && existing.note === row.SM_备注) return prev; const next = new Map(prev); next.set(imageUrl, { ...(existing || { id: '', imageUrl, rowIndex: rowIdx, createdAt: Date.now() }), note: row.SM_备注 as string, updatedAt: Date.now() }); return next; }); } if (row.SM_标签) { setGalleryCategories(prev => { if (prev.get(imageUrl) === row.SM_标签) return prev; const next = new Map(prev); next.set(imageUrl, row.SM_标签 as string); return next; }); } }); }} onStatusChange={(status) => { if (status === 'error') setCopyFeedback('⚠️ 协作连接失败'); }} />; })()} />
+
+                    {/* Floating: Write Grouping to Sheet button */}
+                    {(sourceUrl || getCollabService().isConnected()) && (Object.keys(classificationOverrides).length > 0 || effectiveGroupColumn || classificationMode) && (() => {
+                        const isCollab = getCollabService().isConnected();
+                        return (
+                        <button
+                            onClick={() => setGroupWritebackModal({ open: true, targetColumn: CATEGORY_COLUMN })}
+                            className={`absolute bottom-4 right-4 z-40 px-3 py-2 text-xs font-medium text-white rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center gap-1.5 ${isCollab ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                            title="将当前分组/分类结果写回 Google 表格"
+                        >
+                            {isCollab ? '👥' : '📤'} 写回分组到表格
+                            {Object.keys(classificationOverrides).length > 0 && (
+                                <span className="bg-white/20 px-1.5 py-0.5 rounded text-[10px]">
+                                    {Object.keys(classificationOverrides).length}
+                                </span>
+                            )}
+                        </button>
+                        );
+                    })()}
 
                     {/* Content */}
-                    <div className="flex-1 overflow-auto p-4 flex-overflow-container" ref={contentScrollRef}>
+                    <div className="flex-1 overflow-auto p-4 pb-20 flex-overflow-container" ref={contentScrollRef} onMouseDown={handleMarqueeMouseDown} style={classificationMode ? { userSelect: 'none' } : undefined}>
                         {/* Processing indicator */}
                         {isProcessingRows && (
                             <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 animate-pulse">
@@ -4857,15 +5786,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 />
                                                                                 <span className="text-[10px] text-slate-600">收藏</span>
                                                                             </label>
-                                                                            <label className="flex items-center gap-0.5 cursor-pointer">
-                                                                                <input
-                                                                                    type="checkbox"
-                                                                                    checked={dragTargetTypes.tags}
-                                                                                    onChange={(e) => setDragTargetTypes(prev => ({ ...prev, tags: e.target.checked }))}
-                                                                                    className="w-3 h-3 text-blue-500 rounded focus:ring-blue-500"
-                                                                                />
-                                                                                <span className="text-[10px] text-slate-600">标签</span>
-                                                                            </label>
                                                                         </div>
                                                                         {/* Sync Toggle */}
                                                                         <label className="flex items-center gap-1 cursor-pointer">
@@ -4876,7 +5796,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     const checked = e.target.checked;
                                                                                     if (checked) {
                                                                                         if (!sourceUrl) {
-                                                                                            alert('要同步到表格，数据源必须来自 Google Sheets。\\n\\n请通过"加载 Google Sheets"功能导入数据，而不是粘贴。');
+                                                                                            setCopyFeedback('⚠️ 要同步到表格，数据源必须来自 Google Sheets（请通过「加载 Google Sheets」导入）'); setTimeout(() => setCopyFeedback(null), 4000);
                                                                                             return;
                                                                                         }
                                                                                         if (!isUserLoggedIn()) {
@@ -4905,9 +5825,35 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                         {/* 当没有分组列时，使用 categoryOptions 作为分组目标 */}
                                                                         {!primaryGroupColumn && !hasDateBinning ? (
                                                                             config.categoryOptions.length > 0 ? (
-                                                                                config.categoryOptions.map((option) => (
+                                                                                <>
+                                                                                {config.categoryOptions.map((option) => (
                                                                                     <div
                                                                                         key={option}
+                                                                                        onClick={async (e) => {
+                                                                                            const ct = selectedThumbnailsRef.current;
+                                                                                            const sm = gallerySelectModeRef.current;
+                                                                                            const ids = selectedForClassification.size > 0
+                                                                                                ? Array.from(selectedForClassification)
+                                                                                                : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                            if (ids.length > 0) {
+                                                                                                const btn = e.currentTarget as HTMLElement;
+                                                                                                btn.style.transform = 'scale(1.15)';
+                                                                                                btn.style.background = '#a855f7';
+                                                                                                btn.style.color = '#fff';
+                                                                                                btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
+                                                                                                btn.textContent = `✓ ${option}`;
+                                                                                                await handleClassificationChange(ids, option);
+                                                                                                setSelectedForClassification(new Set());
+                                                                                                if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                                setTimeout(() => {
+                                                                                                    btn.style.transform = '';
+                                                                                                    btn.style.background = '';
+                                                                                                    btn.style.color = '';
+                                                                                                    btn.style.boxShadow = '';
+                                                                                                    btn.textContent = option;
+                                                                                                }, 600);
+                                                                                            }
+                                                                                        }}
                                                                                         onDragOver={(e) => {
                                                                                             e.preventDefault();
                                                                                             setDragOverGroup(option);
@@ -4922,18 +5868,78 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }}
                                                                                         className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === option
                                                                                             ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                            : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
+                                                                                            : selectedForClassification.size > 0
+                                                                                                ? 'bg-purple-50 border-purple-400 text-purple-700 hover:bg-purple-200 hover:scale-105 ring-1 ring-purple-300'
+                                                                                                : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                             }`}
-                                                                                        data-tip="拖拽图片到此分类"
+                                                                                        data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '右键添加子分组'}
+                                                                                        onContextMenu={(e) => handleGroupContextMenu(e, option, false)}
                                                                                     >
                                                                                         {option}
+                                                                                        {(subGroups[option]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[option].length}</span>}
                                                                                     </div>
-                                                                                ))
+                                                                                ))}
+                                                                                {/* Render sub-groups for categoryOptions */}
+                                                                                {config.categoryOptions.flatMap(option => getSubGroupPaths(option)).map(subPath => {
+                                                                                    const depth = subPath.split('/').length - 1;
+                                                                                    const leafName = subPath.split('/').pop();
+                                                                                    return (
+                                                                                        <div
+                                                                                            key={`sub-${subPath}`}
+                                                                                            onClick={async (e) => {
+                                                                                                const ct = selectedThumbnailsRef.current;
+                                                                                                const sm = gallerySelectModeRef.current;
+                                                                                                const ids = selectedForClassification.size > 0
+                                                                                                    ? Array.from(selectedForClassification)
+                                                                                                    : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                                if (ids.length > 0) {
+                                                                                                    const btn = e.currentTarget as HTMLElement;
+                                                                                                    btn.style.transform = 'scale(1.15)';
+                                                                                                    btn.style.background = '#a855f7';
+                                                                                                    btn.style.color = '#fff';
+                                                                                                    btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
+                                                                                                    await handleClassificationChange(ids, subPath);
+                                                                                                    setSelectedForClassification(new Set());
+                                                                                                    if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                                    setTimeout(() => {
+                                                                                                        btn.style.transform = '';
+                                                                                                        btn.style.background = '';
+                                                                                                        btn.style.color = '';
+                                                                                                        btn.style.boxShadow = '';
+                                                                                                    }, 600);
+                                                                                                }
+                                                                                            }}
+                                                                                            onDragOver={(e) => { e.preventDefault(); setDragOverGroup(subPath); }}
+                                                                                            onDragLeave={() => setDragOverGroup(null)}
+                                                                                            onDrop={async (e) => {
+                                                                                                e.preventDefault();
+                                                                                                setDragOverGroup(null);
+                                                                                                if (draggedItems.length > 0) {
+                                                                                                    await handleClassificationChange(draggedItems, subPath);
+                                                                                                }
+                                                                                            }}
+                                                                                            onContextMenu={(e) => handleGroupContextMenu(e, subPath, false)}
+                                                                                            className={`px-2 py-0.5 text-[10px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === subPath
+                                                                                                ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
+                                                                                                : selectedForClassification.size > 0
+                                                                                                    ? 'bg-purple-50/80 border-purple-300 text-purple-600 hover:bg-purple-200 hover:scale-105'
+                                                                                                    : 'bg-white/80 border-purple-200 text-purple-500 hover:bg-purple-100'
+                                                                                                }`}
+                                                                                            style={{ marginLeft: depth * 12 }}
+                                                                                            data-tip={selectedForClassification.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
+                                                                                        >
+                                                                                            {'└ '}{leafName}
+                                                                                            {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[subPath].length}</span>}
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
+                                                                                </>
                                                                             ) : (
                                                                                 <span className="text-xs text-amber-600"><AlertCircle size={12} className="inline mr-1" /> 请先在「媒体标签」设置中添加分类选项</span>
                                                                             )
                                                                         ) : (
-                                                                            filteredGroups.map(([targetGroup]) => (
+                                                                            <>
+                                                                            {filteredGroups.map(([targetGroup]) => (
                                                                                 <div
                                                                                     key={targetGroup}
                                                                                     onDragOver={(e) => {
@@ -4949,31 +5955,115 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             await handleClassificationChange(draggedItems, targetGroup);
                                                                                         }
                                                                                     }}
-                                                                                    onClick={() => {
-                                                                                        // Scroll to group section
-                                                                                        const groupElement = document.querySelector(`[data-group-key="${targetGroup}"]`);
-                                                                                        if (groupElement) {
-                                                                                            groupElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                                                                            // Expand if collapsed
-                                                                                            setCollapsedGalleryGroups(prev => {
-                                                                                                const next = new Set(prev);
-                                                                                                next.delete(targetGroup);
-                                                                                                return next;
-                                                                                            });
+                                                                                    onClick={async (e) => {
+                                                                                        // 用 ref 获取最新值，避免闭包延迟
+                                                                                        const currentThumbnails = selectedThumbnailsRef.current;
+                                                                                        const isSelectMode = gallerySelectModeRef.current;
+                                                                                        const classifyIds = selectedForClassification.size > 0
+                                                                                            ? Array.from(selectedForClassification)
+                                                                                            : (isSelectMode && currentThumbnails.size > 0)
+                                                                                                ? Array.from(currentThumbnails)
+                                                                                                : [];
+                                                                                        if (classifyIds.length > 0) {
+                                                                                            const btn = e.currentTarget as HTMLElement;
+                                                                                            btn.style.transform = 'scale(1.15)';
+                                                                                            btn.style.background = '#a855f7';
+                                                                                            btn.style.color = '#fff';
+                                                                                            btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
+                                                                                            // handleClassificationChange 内部已清除选中；不再需要外层 await
+                                                                                            handleClassificationChange(classifyIds, targetGroup);
+                                                                                            // handleClassificationChange 已清理 selectedForClassification
+                                                                                            if (isSelectMode) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setTimeout(() => {
+                                                                                                btn.style.transform = '';
+                                                                                                btn.style.background = '';
+                                                                                                btn.style.color = '';
+                                                                                                btn.style.boxShadow = '';
+                                                                                            }, 600);
+                                                                                        } else {
+                                                                                            // 没选中时，跳转到分组
+                                                                                            const groupElement = document.querySelector(`[data-group-key="${targetGroup}"]`);
+                                                                                            if (groupElement) {
+                                                                                                groupElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                                                                setCollapsedGalleryGroups(prev => {
+                                                                                                    const next = new Set(prev);
+                                                                                                    next.delete(targetGroup);
+                                                                                                    return next;
+                                                                                                });
+                                                                                            }
                                                                                         }
                                                                                     }}
                                                                                     className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === targetGroup
                                                                                         ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                        : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
+                                                                                        : (selectedForClassification.size > 0 || (gallerySelectMode && selectedThumbnails.size > 0))
+                                                                                            ? 'bg-purple-50 border-purple-400 text-purple-700 hover:bg-purple-200 hover:scale-105 ring-1 ring-purple-300'
+                                                                                            : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                         }`}
-                                                                                    data-tip="点击跳转到该分组，拖拽图片到此改变分类"
+                                                                                    data-tip={(selectedForClassification.size > 0 || (gallerySelectMode && selectedThumbnails.size > 0)) ? `点击将 ${selectedForClassification.size || selectedThumbnails.size} 张图片分到此组` : '点击跳转 · 右键添加子分组'}
+                                                                                    onContextMenu={(e) => handleGroupContextMenu(e, targetGroup, false)}
                                                                                 >
                                                                                     {targetGroup}
                                                                                     <span className="ml-1 text-xs opacity-70">
                                                                                         ({filteredGroups.find(g => g[0] === targetGroup)?.[1].length || 0})
                                                                                     </span>
+                                                                                    {(subGroups[targetGroup]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[targetGroup].length}</span>}
                                                                                 </div>
-                                                                            ))
+                                                                            ))}
+                                                                            {/* Render sub-groups for filteredGroups */}
+                                                                            {filteredGroups.flatMap(([g]) => getSubGroupPaths(g)).map(subPath => {
+                                                                                const depth = subPath.split('/').length - 1;
+                                                                                const leafName = subPath.split('/').pop();
+                                                                                return (
+                                                                                    <div
+                                                                                        key={`sub-${subPath}`}
+                                                                                        onClick={async (e) => {
+                                                                                            const ct = selectedThumbnailsRef.current;
+                                                                                            const sm = gallerySelectModeRef.current;
+                                                                                            const ids = selectedForClassification.size > 0
+                                                                                                ? Array.from(selectedForClassification)
+                                                                                                : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                            if (ids.length > 0) {
+                                                                                                const btn = e.currentTarget as HTMLElement;
+                                                                                                btn.style.transform = 'scale(1.15)';
+                                                                                                btn.style.background = '#a855f7';
+                                                                                                btn.style.color = '#fff';
+                                                                                                btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
+                                                                                                await handleClassificationChange(ids, subPath);
+                                                                                                setSelectedForClassification(new Set());
+                                                                                                if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                                setTimeout(() => {
+                                                                                                    btn.style.transform = '';
+                                                                                                    btn.style.background = '';
+                                                                                                    btn.style.color = '';
+                                                                                                    btn.style.boxShadow = '';
+                                                                                                }, 600);
+                                                                                            }
+                                                                                        }}
+                                                                                        onDragOver={(e) => { e.preventDefault(); setDragOverGroup(subPath); }}
+                                                                                        onDragLeave={() => setDragOverGroup(null)}
+                                                                                        onDrop={async (e) => {
+                                                                                            e.preventDefault();
+                                                                                            setDragOverGroup(null);
+                                                                                            if (draggedItems.length > 0) {
+                                                                                                await handleClassificationChange(draggedItems, subPath);
+                                                                                            }
+                                                                                        }}
+                                                                                        onContextMenu={(e) => handleGroupContextMenu(e, subPath, false)}
+                                                                                        className={`px-2 py-0.5 text-[10px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === subPath
+                                                                                            ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
+                                                                                            : selectedForClassification.size > 0
+                                                                                                ? 'bg-purple-50/80 border-purple-300 text-purple-600 hover:bg-purple-200 hover:scale-105'
+                                                                                                : 'bg-white/80 border-purple-200 text-purple-500 hover:bg-purple-100'
+                                                                                            }`}
+                                                                                        style={{ marginLeft: depth * 12 }}
+                                                                                        data-tip={selectedForClassification.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
+                                                                                    >
+                                                                                        {'└ '}{leafName}
+                                                                                        {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[subPath].length}</span>}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                            </>
                                                                         )}
                                                                         {/* Custom groups added by user - 双击编辑名称 */}
                                                                         {customGroups.map((customGroup, groupIdx) => (
@@ -5070,6 +6160,29 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 <div
                                                                                     key={`custom-${customGroup}`}
                                                                                     draggable
+                                                                                    onClick={async (e) => {
+                                                                                        const ct = selectedThumbnailsRef.current;
+                                                                                        const sm = gallerySelectModeRef.current;
+                                                                                        const ids = selectedForClassification.size > 0
+                                                                                            ? Array.from(selectedForClassification)
+                                                                                            : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                        if (ids.length > 0) {
+                                                                                            const btn = e.currentTarget as HTMLElement;
+                                                                                            btn.style.transform = 'scale(1.15)';
+                                                                                            btn.style.background = '#22c55e';
+                                                                                            btn.style.color = '#fff';
+                                                                                            btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.5)';
+                                                                                            await handleClassificationChange(ids, customGroup);
+                                                                                            setSelectedForClassification(new Set());
+                                                                                            if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setTimeout(() => {
+                                                                                                btn.style.transform = '';
+                                                                                                btn.style.background = '';
+                                                                                                btn.style.color = '';
+                                                                                                btn.style.boxShadow = '';
+                                                                                            }, 600);
+                                                                                        }
+                                                                                    }}
                                                                                     onDragStart={(e) => {
                                                                                         // 标记为分组拖拽（用于区分图片拖拽）
                                                                                         e.dataTransfer.setData('groupReorder', groupIdx.toString());
@@ -5120,11 +6233,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             ? draggingGroupIdx !== null
                                                                                                 ? 'bg-yellow-200 border-yellow-500 text-yellow-800 scale-105' // 分组重排序
                                                                                                 : 'bg-green-200 border-green-500 text-green-800 scale-105'   // 图片拖入
-                                                                                            : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                                                                                            : selectedForClassification.size > 0
+                                                                                                ? 'bg-green-50 border-green-400 text-green-700 hover:bg-green-200 hover:scale-105 ring-1 ring-green-300'
+                                                                                                : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                         }`}
-                                                                                    data-tip="双击编辑 | 拖拽调整顺序"
+                                                                                    data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '右键添加子分组 | 双击编辑 | 拖拽调整顺序'}
+                                                                                    onContextMenu={(e) => handleGroupContextMenu(e, customGroup, true)}
                                                                                 >
                                                                                     ✨ {customGroup}
+                                                                                    {(subGroups[customGroup]?.length > 0) && <span className="ml-0.5 text-green-400 text-[9px]">▸{subGroups[customGroup].length}</span>}
                                                                                     <button
                                                                                         onClick={(e) => {
                                                                                             e.stopPropagation();
@@ -5143,21 +6260,74 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 </div>
                                                                             )
                                                                         ))}
+                                                                        {/* Render sub-groups for customGroups */}
+                                                                        {customGroups.flatMap(cg => getSubGroupPaths(cg)).map(subPath => {
+                                                                            const depth = subPath.split('/').length - 1;
+                                                                            const leafName = subPath.split('/').pop();
+                                                                            return (
+                                                                                <div
+                                                                                    key={`csub-${subPath}`}
+                                                                                    onClick={async (e) => {
+                                                                                        const ct = selectedThumbnailsRef.current;
+                                                                                        const sm = gallerySelectModeRef.current;
+                                                                                        const ids = selectedForClassification.size > 0
+                                                                                            ? Array.from(selectedForClassification)
+                                                                                            : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                        if (ids.length > 0) {
+                                                                                            const btn = e.currentTarget as HTMLElement;
+                                                                                            btn.style.transform = 'scale(1.15)';
+                                                                                            btn.style.background = '#22c55e';
+                                                                                            btn.style.color = '#fff';
+                                                                                            btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.5)';
+                                                                                            await handleClassificationChange(ids, subPath);
+                                                                                            setSelectedForClassification(new Set());
+                                                                                            if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setTimeout(() => {
+                                                                                                btn.style.transform = '';
+                                                                                                btn.style.background = '';
+                                                                                                btn.style.color = '';
+                                                                                                btn.style.boxShadow = '';
+                                                                                            }, 600);
+                                                                                        }
+                                                                                    }}
+                                                                                    onDragOver={(e) => { e.preventDefault(); setDragOverGroup(subPath); }}
+                                                                                    onDragLeave={() => setDragOverGroup(null)}
+                                                                                    onDrop={async (e) => {
+                                                                                        e.preventDefault();
+                                                                                        setDragOverGroup(null);
+                                                                                        if (draggedItems.length > 0) {
+                                                                                            await handleClassificationChange(draggedItems, subPath);
+                                                                                        }
+                                                                                    }}
+                                                                                    onContextMenu={(e) => handleGroupContextMenu(e, subPath, true)}
+                                                                                    className={`px-2 py-0.5 text-[10px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === subPath
+                                                                                        ? 'bg-green-200 border-green-500 text-green-800 scale-105'
+                                                                                        : selectedForClassification.size > 0
+                                                                                            ? 'bg-green-50/80 border-green-300 text-green-600 hover:bg-green-200 hover:scale-105'
+                                                                                            : 'bg-white/80 border-green-200 text-green-500 hover:bg-green-100'
+                                                                                        }`}
+                                                                                    style={{ marginLeft: depth * 12 }}
+                                                                                    data-tip={selectedForClassification.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
+                                                                                >
+                                                                                    {'└ '}{leafName}
+                                                                                    {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-green-400 text-[9px]">▸{subGroups[subPath].length}</span>}
+                                                                                </div>
+                                                                            );
+                                                                        })}
                                                                         {/* Add new group button/input */}
                                                                         {showNewGroupInput ? (
                                                                             <div className="flex items-center gap-1">
                                                                                 <input
                                                                                     type="text"
-                                                                                    value={newGroupInput}
-                                                                                    onChange={(e) => setNewGroupInput(e.target.value)}
+                                                                                    ref={newGroupInputRef}
+                                                                                    defaultValue=""
                                                                                     onKeyDown={(e) => {
-                                                                                        if (e.key === 'Enter' && newGroupInput.trim()) {
-                                                                                            setCustomGroups([...customGroups, newGroupInput.trim()]);
-                                                                                            setNewGroupInput('');
+                                                                                        const val = (e.target as HTMLInputElement).value.trim();
+                                                                                        if (e.key === 'Enter' && val) {
+                                                                                            setCustomGroups([...customGroups, val]);
                                                                                             setShowNewGroupInput(false);
                                                                                         } else if (e.key === 'Escape') {
                                                                                             setShowNewGroupInput(false);
-                                                                                            setNewGroupInput('');
                                                                                         }
                                                                                     }}
                                                                                     autoFocus
@@ -5166,9 +6336,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 />
                                                                                 <button
                                                                                     onClick={() => {
-                                                                                        if (newGroupInput.trim()) {
-                                                                                            setCustomGroups([...customGroups, newGroupInput.trim()]);
-                                                                                            setNewGroupInput('');
+                                                                                        const val = newGroupInputRef.current?.value.trim() || '';
+                                                                                        if (val) {
+                                                                                            setCustomGroups([...customGroups, val]);
                                                                                             setShowNewGroupInput(false);
                                                                                         }
                                                                                     }}
@@ -5179,7 +6349,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 <button
                                                                                     onClick={() => {
                                                                                         setShowNewGroupInput(false);
-                                                                                        setNewGroupInput('');
                                                                                     }}
                                                                                     className="px-2 py-1 text-sm text-slate-500 hover:text-slate-700"
                                                                                 >
@@ -5303,97 +6472,18 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                     </div>
                                                                 )}
 
-                                                                {/* Tags Drop Zone Row */}
-                                                                {dragTargetTypes.tags && (
-                                                                    <div className="flex flex-wrap gap-1.5 items-center">
-                                                                        <span className="text-[10px] text-blue-600 font-medium self-center mr-0.5"><Tag size={10} className="inline mr-0.5" /> 标签:</span>
-                                                                        {config.categoryOptions.filter(c => c.trim()).map(category => {
-                                                                            const tagCount = Array.from(galleryCategories.entries()).filter(([, cat]) => cat === category).length;
-                                                                            return (
-                                                                                <div
-                                                                                    key={category}
-                                                                                    onDragOver={(e) => {
-                                                                                        e.preventDefault();
-                                                                                        setDragOverGroup(`tag:${category}`);
-                                                                                    }}
-                                                                                    onDragLeave={() => setDragOverGroup(null)}
-                                                                                    onDrop={(e) => {
-                                                                                        e.preventDefault();
-                                                                                        setDragOverGroup(null);
-                                                                                        // Add category to dragged images
-                                                                                        if (draggedItems.length > 0) {
-                                                                                            // Collect all image URLs first
-                                                                                            const imageUrlsToTag: string[] = [];
-                                                                                            draggedItems.forEach(rowId => {
-                                                                                                const row = processedRows.find(r => String(r._rowId) === rowId);
-                                                                                                if (row) {
-                                                                                                    const imgUrl = extractImageUrl(row[effectiveImageColumn]);
-                                                                                                    if (imgUrl) {
-                                                                                                        imageUrlsToTag.push(imgUrl);
-                                                                                                    }
-                                                                                                }
-                                                                                            });
-
-                                                                                            if (imageUrlsToTag.length > 0) {
-                                                                                                // Batch update all categories at once
-                                                                                                setGalleryCategories(prev => {
-                                                                                                    const newMap = new Map(prev);
-                                                                                                    imageUrlsToTag.forEach(url => {
-                                                                                                        newMap.set(url, category);
-                                                                                                    });
-                                                                                                    return newMap;
-                                                                                                });
-
-                                                                                                setCopyFeedback(`✅ 已为 ${imageUrlsToTag.length} 张图片添加标签 "${category}"`);
-                                                                                                setTimeout(() => setCopyFeedback(null), 2000);
-                                                                                            }
-
-                                                                                            setDraggedItems([]);
-                                                                                            // Keep selection so user can retry if needed
-                                                                                        }
-                                                                                    }}
-                                                                                    onClick={() => {
-                                                                                        // Show tip about media tags
-                                                                                        setCopyFeedback('🏷️ 拖拽图片到标签，或点击左侧「🏷️ 媒体标签」查看');
-                                                                                        setTimeout(() => setCopyFeedback(null), 2000);
-                                                                                    }}
-                                                                                    className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === `tag:${category}`
-                                                                                        ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
-                                                                                        : 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
-                                                                                        }`}
-                                                                                    data-tip="点击切换媒体标签视图，拖拽添加标签"
-                                                                                >
-                                                                                    <Tag size={10} className="inline mr-0.5" /> {category}
-                                                                                    <span className="ml-1 text-xs opacity-70">({tagCount})</span>
-                                                                                </div>
-                                                                            );
-                                                                        })}
-                                                                        {/* Add new tag button */}
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                const newTag = prompt('输入新标签名称:');
-                                                                                if (newTag && newTag.trim() && !config.categoryOptions.includes(newTag.trim())) {
-                                                                                    updateConfig({ categoryOptions: [...config.categoryOptions, newTag.trim()] });
-                                                                                }
-                                                                            }}
-                                                                            className="px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center gap-1 tooltip-bottom"
-                                                                            data-tip="添加新标签"
-                                                                        >
-                                                                            <Plus size={12} />
-                                                                            新标签
-                                                                        </button>
-                                                                    </div>
-                                                                )}
+                                                                {/* Tags merged into Classification - no separate tags row needed */}
                                                             </div>
                                                         )}
                                                         {filteredGroups.map(([groupKey, rows], groupIdx) => {
                                                             // Default is expanded, collapsed only if in collapsedGalleryGroups set
                                                             const isExpanded = !collapsedGalleryGroups.has(groupKey);
                                                             const imageCount = rows.filter(r => extractImageUrl(r[effectiveImageColumn])).length;
+                                                            const isCustomGroup = customGroups.includes(groupKey);
 
                                                             return (
-                                                                <div key={groupKey} data-group-key={groupKey} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                                                                    <div className="w-full px-3 py-1 flex items-center justify-between bg-gradient-to-r from-purple-50 to-white border-b border-purple-50">
+                                                                <div key={groupKey} data-group-key={groupKey} className={`bg-white rounded-lg border overflow-hidden ${isCustomGroup ? 'border-emerald-200' : 'border-slate-200'}`}>
+                                                                    <div className={`w-full px-3 py-1 flex items-center justify-between border-b ${isCustomGroup ? 'bg-gradient-to-r from-emerald-50 to-white border-emerald-50' : 'bg-gradient-to-r from-purple-50 to-white border-purple-50'}`}>
                                                                         <div className="flex items-center gap-2 flex-1 min-w-0">
                                                                             <button
                                                                                 onClick={() => {
@@ -5402,13 +6492,13 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     else next.delete(groupKey);          // Expand
                                                                                     setCollapsedGalleryGroups(next);
                                                                                 }}
-                                                                                className="flex items-center gap-1 hover:bg-purple-100 rounded px-1 transition-colors tooltip-bottom"
+                                                                                className={`flex items-center gap-1 rounded px-1 transition-colors tooltip-bottom ${isCustomGroup ? 'hover:bg-emerald-100' : 'hover:bg-purple-100'}`}
                                                                                 data-tip={isExpanded ? '折叠' : '展开'}
                                                                             >
                                                                                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                                                                <span className="font-semibold text-sm text-slate-800">{groupKey}</span>
+                                                                                <span className={`font-semibold text-sm ${isCustomGroup ? 'text-emerald-800' : 'text-slate-800'}`}>{isCustomGroup ? '✨ ' : ''}{groupKey}</span>
                                                                             </button>
-                                                                            <span className="text-[11px] text-slate-500 bg-slate-100 px-1.5 rounded-full flex-shrink-0">{imageCount} 张</span>
+                                                                            <span className={`text-[11px] px-1.5 rounded-full flex-shrink-0 ${isCustomGroup ? 'text-emerald-600 bg-emerald-50' : 'text-slate-500 bg-slate-100'}`}>{imageCount} 张</span>
                                                                             {/* Group note - inline display and edit */}
                                                                             {editingGroupNote === groupKey ? (
                                                                                 <div className="flex items-center gap-2 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
@@ -5511,10 +6601,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             <button
                                                                                 onClick={(e) => {
                                                                                     e.stopPropagation();
-                                                                                    copyGroupViewToClipboard(groupKey, rows);
+                                                                                    copyGroupViewToClipboard(groupKey, rows, groupCopyColumnsPerRow);
+                                                                                }}
+                                                                                onContextMenu={(e) => {
+                                                                                    e.preventDefault();
+                                                                                    e.stopPropagation();
+                                                                                    setGroupCopyColumnsPicker({ x: e.clientX, y: e.clientY, groupKey, rows });
                                                                                 }}
                                                                                 className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors tooltip-bottom"
-                                                                                data-tip="复制缩略图视图"
+                                                                                data-tip={`复制缩略图 (每行${groupCopyColumnsPerRow}个 · 右键设置)`}
                                                                             >
                                                                                 <Image size={14} />
                                                                             </button>
@@ -5606,6 +6701,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                         <div className="absolute -left-1 top-0 bottom-0 w-1 bg-purple-500 rounded-full z-20" />
                                                                                                     )}
                                                                                                     <div
+                                                                                                        data-marquee-id={rowId}
                                                                                                         className={`relative group cursor-pointer ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'ring-2 ring-blue-500 ring-offset-1 rounded-lg' : ''} ${classificationMode && selectedForClassification.has(rowId) ? 'ring-2 ring-purple-500 ring-offset-1 rounded-lg' : ''} ${isBeingDragged ? 'opacity-50' : ''} ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
                                                                                                         draggable={classificationMode || !gallerySelectMode || selectedThumbnails.has(rowId)}
                                                                                                         onDragStart={(e) => {
@@ -5653,14 +6749,28 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                             if ((e.target as HTMLElement).closest('button')) return;
                                                                                                             // Classification mode: toggle selection for classification
                                                                                                             if (classificationMode) {
-                                                                                                                setSelectedForClassification(prev => {
-                                                                                                                    const newSet = new Set(prev);
-                                                                                                                    if (newSet.has(rowId)) {
-                                                                                                                        newSet.delete(rowId);
-                                                                                                                    } else {
-                                                                                                                        newSet.add(rowId);
-                                                                                                                    }
-                                                                                                                    return newSet;
+                                                                                                                // Instant DOM feedback - border
+                                                                                                                const container = e.currentTarget as HTMLElement;
+                                                                                                                const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                                                                                                const isSelected = container.classList.contains('ring-purple-500');
+                                                                                                                if (isSelected) {
+                                                                                                                    container.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
+                                                                                                                    overlay?.classList.replace('opacity-100', 'opacity-0');
+                                                                                                                } else {
+                                                                                                                    container.classList.add('ring-2', 'ring-purple-500', 'ring-offset-1');
+                                                                                                                    overlay?.classList.replace('opacity-0', 'opacity-100');
+                                                                                                                }
+                                                                                                                // Defer state update
+                                                                                                                React.startTransition(() => {
+                                                                                                                    setSelectedForClassification(prev => {
+                                                                                                                        const newSet = new Set(prev);
+                                                                                                                        if (newSet.has(rowId)) {
+                                                                                                                            newSet.delete(rowId);
+                                                                                                                        } else {
+                                                                                                                            newSet.add(rowId);
+                                                                                                                        }
+                                                                                                                        return newSet;
+                                                                                                                    });
                                                                                                                 });
                                                                                                                 return;
                                                                                                             }
@@ -5702,9 +6812,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                         {gallerySelectMode && selectedThumbnails.has(rowId) && (
                                                                                                             <div className="absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none" />
                                                                                                         )}
-                                                                                                        {/* Purple overlay for selected items in classification mode */}
-                                                                                                        {classificationMode && selectedForClassification.has(rowId) && (
-                                                                                                            <div className="absolute inset-0 bg-purple-500/40 rounded-lg pointer-events-none flex items-center justify-center">
+                                                                                                        {classificationMode && (
+                                                                                                            <div data-selection-overlay className={`absolute inset-0 bg-purple-500/40 rounded-lg pointer-events-none flex items-center justify-center ${selectedForClassification.has(rowId) ? 'opacity-100' : 'opacity-0'}`}>
                                                                                                                 <div className="bg-white/90 rounded-full p-1">
                                                                                                                     <Check size={16} className="text-purple-600" />
                                                                                                                 </div>
@@ -5960,6 +7069,31 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             config.categoryOptions.map((option) => (
                                                                                 <div
                                                                                     key={option}
+                                                                                    onClick={async (e) => {
+                                                                                        const ct = selectedThumbnailsRef.current;
+                                                                                        const sm = gallerySelectModeRef.current;
+                                                                                        const ids = selectedForClassification.size > 0
+                                                                                            ? Array.from(selectedForClassification)
+                                                                                            : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                        if (ids.length > 0) {
+                                                                                            const btn = e.currentTarget as HTMLElement;
+                                                                                            btn.style.transform = 'scale(1.15)';
+                                                                                            btn.style.background = '#a855f7';
+                                                                                            btn.style.color = '#fff';
+                                                                                            btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
+                                                                                            btn.textContent = `✓ ${option}`;
+                                                                                            await handleClassificationChange(ids, option);
+                                                                                            setSelectedForClassification(new Set());
+                                                                                            if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setTimeout(() => {
+                                                                                                btn.style.transform = '';
+                                                                                                btn.style.background = '';
+                                                                                                btn.style.color = '';
+                                                                                                btn.style.boxShadow = '';
+                                                                                                btn.textContent = option;
+                                                                                            }, 600);
+                                                                                        }
+                                                                                    }}
                                                                                     onDragOver={(e) => {
                                                                                         e.preventDefault();
                                                                                         setDragOverGroup(option);
@@ -5974,9 +7108,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     }}
                                                                                     className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === option
                                                                                         ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                        : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
+                                                                                        : selectedForClassification.size > 0
+                                                                                            ? 'bg-purple-50 border-purple-400 text-purple-700 hover:bg-purple-200 hover:scale-105 ring-1 ring-purple-300'
+                                                                                            : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
                                                                                         }`}
-                                                                                    data-tip="拖拽图片到此分类"
+                                                                                    data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '拖拽图片到此分类'}
                                                                                 >
                                                                                     {option}
                                                                                 </div>
@@ -5988,6 +7124,29 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                         {customGroups.map((customGroup, groupIdx) => (
                                                                             <div
                                                                                 key={`custom-${groupIdx}`}
+                                                                                onClick={async (e) => {
+                                                                                    const ct = selectedThumbnailsRef.current;
+                                                                                    const sm = gallerySelectModeRef.current;
+                                                                                    const ids = selectedForClassification.size > 0
+                                                                                        ? Array.from(selectedForClassification)
+                                                                                        : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                    if (ids.length > 0) {
+                                                                                        const btn = e.currentTarget as HTMLElement;
+                                                                                        btn.style.transform = 'scale(1.15)';
+                                                                                        btn.style.background = '#22c55e';
+                                                                                        btn.style.color = '#fff';
+                                                                                        btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.5)';
+                                                                                        await handleClassificationChange(ids, customGroup);
+                                                                                        setSelectedForClassification(new Set());
+                                                                                        if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                        setTimeout(() => {
+                                                                                            btn.style.transform = '';
+                                                                                            btn.style.background = '';
+                                                                                            btn.style.color = '';
+                                                                                            btn.style.boxShadow = '';
+                                                                                        }, 600);
+                                                                                    }
+                                                                                }}
                                                                                 onDragOver={(e) => {
                                                                                     e.preventDefault();
                                                                                     setDragOverGroup(customGroup);
@@ -6002,9 +7161,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 }}
                                                                                 className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === customGroup
                                                                                     ? 'bg-green-200 border-green-500 text-green-800 scale-105'
-                                                                                    : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                                                                                    : selectedForClassification.size > 0
+                                                                                        ? 'bg-green-50 border-green-400 text-green-700 hover:bg-green-200 hover:scale-105 ring-1 ring-green-300'
+                                                                                        : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                     }`}
-                                                                                data-tip="拖拽图片到此自定义分组"
+                                                                                data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '拖拽图片到此自定义分组'}
                                                                             >
                                                                                 ✨ {customGroup}
                                                                             </div>
@@ -6159,6 +7320,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 return (
                                                                     <div
                                                                         key={rowId || `${imageUrl}-${idx}`}
+                                                                        data-marquee-id={rowId}
                                                                         className={`relative group cursor-pointer ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'ring-2 ring-blue-500 ring-offset-1 rounded-lg' : ''} ${classificationMode && selectedForClassification.has(rowId) ? 'ring-2 ring-purple-500 ring-offset-1 rounded-lg' : ''} ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
                                                                         draggable={classificationMode || !gallerySelectMode || selectedThumbnails.has(rowId)}
                                                                         onDragStart={(e) => {
@@ -6170,14 +7332,28 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             if ((e.target as HTMLElement).closest('button')) return;
                                                                             // Classification mode: toggle selection for classification
                                                                             if (classificationMode) {
-                                                                                setSelectedForClassification(prev => {
-                                                                                    const newSet = new Set(prev);
-                                                                                    if (newSet.has(rowId)) {
-                                                                                        newSet.delete(rowId);
-                                                                                    } else {
-                                                                                        newSet.add(rowId);
-                                                                                    }
-                                                                                    return newSet;
+                                                                                // Instant DOM feedback - border
+                                                                                const container = e.currentTarget as HTMLElement;
+                                                                                const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                                                                const isSelected = container.classList.contains('ring-purple-500');
+                                                                                if (isSelected) {
+                                                                                    container.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
+                                                                                    overlay?.classList.replace('opacity-100', 'opacity-0');
+                                                                                } else {
+                                                                                    container.classList.add('ring-2', 'ring-purple-500', 'ring-offset-1');
+                                                                                    overlay?.classList.replace('opacity-0', 'opacity-100');
+                                                                                }
+                                                                                // Defer state update
+                                                                                React.startTransition(() => {
+                                                                                    setSelectedForClassification(prev => {
+                                                                                        const newSet = new Set(prev);
+                                                                                        if (newSet.has(rowId)) {
+                                                                                            newSet.delete(rowId);
+                                                                                        } else {
+                                                                                            newSet.add(rowId);
+                                                                                        }
+                                                                                        return newSet;
+                                                                                    });
                                                                                 });
                                                                                 return;
                                                                             }
@@ -6217,6 +7393,13 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                         {/* Blue overlay for selected items */}
                                                                         {gallerySelectMode && selectedThumbnails.has(rowId) && (
                                                                             <div className="absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none" />
+                                                                        )}
+                                                                        {classificationMode && (
+                                                                            <div data-selection-overlay className={`absolute inset-0 bg-purple-500/40 rounded-lg pointer-events-none flex items-center justify-center ${selectedForClassification.has(rowId) ? 'opacity-100' : 'opacity-0'}`}>
+                                                                                <div className="bg-white/90 rounded-full p-1">
+                                                                                    <Check size={16} className="text-purple-600" />
+                                                                                </div>
+                                                                            </div>
                                                                         )}
                                                                         {/* Selection checkbox - in select mode */}
                                                                         {gallerySelectMode && (
@@ -6530,7 +7713,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             {/* Copy Feedback Toast */}
             {
                 copyFeedback && (
-                    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg animate-pulse">
+                    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[10000] bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg animate-pulse">
                         <div className="flex items-center gap-2">
                             <Check size={16} className="text-green-400" />
                             {copyFeedback}
@@ -6539,11 +7722,128 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 )
             }
 
-            {/* Drag Drop Sidebar - appears when dragging */}
+            {/* Bottom Action Bar for Selection Mode */}
+            {selectedThumbnails.size > 0 && !isDraggingImage && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
+                    <div className="bg-slate-900/95 text-white rounded-2xl shadow-2xl px-5 py-3 flex items-center gap-6 border border-slate-700/50 backdrop-blur-xl">
+                        {/* Status */}
+                        <div className="flex items-center gap-3">
+                            <div className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold px-2.5 py-1 rounded-full">
+                                {selectedThumbnails.size} 项
+                            </div>
+                            <span className="text-sm font-medium text-slate-300">已选择</span>
+                        </div>
+                        
+                        <div className="w-px h-6 bg-slate-700"></div>
+                        
+                        {/* Actions */}
+                        <div className="flex items-center gap-2">
+                            {/* Category Dropdown (Hover) */}
+                            <div className="relative group">
+                                <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-800 transition-colors">
+                                    <Tag size={16} className="text-purple-400" />
+                                    <span>归类到...</span>
+                                </button>
+                                
+                                {/* Dropdown Menu */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-200 overflow-hidden transform origin-bottom animate-in zoom-in-95 duration-100">
+                                    <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500">
+                                        选择要划入的分组
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto p-1">
+                                        {Array.from(new Set([...effectiveGroupBins.map(b => b.label), ...config.categoryOptions]))
+                                            .filter(Boolean)
+                                            .map(cat => (
+                                                <button
+                                                    key={cat}
+                                                    onClick={() => {
+                                                        handleClassificationChange(Array.from(selectedThumbnails), cat);
+                                                        setSelectedThumbnails(new Set());
+                                                        setGallerySelectMode(false);
+                                                    }}
+                                                    className="w-full text-left px-3 py-2 text-sm rounded-md hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                                                >
+                                                    {cat}
+                                                </button>
+                                            ))
+                                        }
+                                        {effectiveGroupBins.length === 0 && config.categoryOptions.length === 0 && (
+                                            <div className="px-3 py-4 text-center text-xs text-slate-400">
+                                                未发现分组或标签配置<br/>请先在设置中配置
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Favorite Dropdown (Hover) */}
+                            <div className="relative group">
+                                <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-800 transition-colors">
+                                    <Star size={16} className="text-amber-400" />
+                                    <span>收藏至...</span>
+                                </button>
+                                
+                                {/* Dropdown Menu */}
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-200 overflow-hidden transform origin-bottom animate-in zoom-in-95 duration-100">
+                                    <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500">
+                                        选择收藏夹
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto p-1">
+                                        {favoriteFolders.map(folder => (
+                                            <button
+                                                key={folder.id}
+                                                onClick={() => {
+                                                    handleQuickAssignFolder(folder.id);
+                                                }}
+                                                className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                                            >
+                                                <span>{folder.emoji || '📁'}</span>
+                                                <span className="truncate flex-1">{folder.name}</span>
+                                            </button>
+                                        ))}
+                                        {favoriteFolders.length === 0 && (
+                                            <div className="px-3 py-4 text-center text-xs text-slate-400">
+                                                尚未创建收藏夹
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Batch Note */}
+                            <button 
+                                onClick={() => openBatchNoteModal(Array.from(selectedThumbnails))}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm hover:bg-slate-800 transition-colors"
+                            >
+                                <MessageSquare size={16} className="text-blue-400" />
+                                <span>写备注</span>
+                            </button>
+                        </div>
+                        
+                        <div className="w-px h-6 bg-slate-700"></div>
+                        
+                        {/* Close / Cancel */}
+                        <button 
+                            onClick={() => {
+                                setSelectedThumbnails(new Set());
+                                setGallerySelectMode(false);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                            title="取消选择"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Drag Drop Sidebar - only appears when dragging (for favorites) */}
             <DragDropSidebar
                 isVisible={isDraggingImage}
+                isDraggingMode={true}
+                selectedCount={0}
                 folders={favoriteFolders}
-                categoryOptions={config.categoryOptions}
+                categoryOptions={[]}
                 dragOverTarget={dragOverTarget}
                 onDragOverTarget={setDragOverTarget}
                 onDropToFolder={handleDropToFolder}
@@ -6606,6 +7906,286 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 getNoteForImage={getNoteForImage}
                 getCategoryForImage={getCategoryForImage}
             />
+
+            {/* Group Copy Columns-Per-Row Picker */}
+            {groupCopyColumnsPicker && (() => {
+                const popW = 220, popH = 160, margin = 8;
+                const x = Math.min(groupCopyColumnsPicker.x, window.innerWidth - popW - margin);
+                const y = Math.min(groupCopyColumnsPicker.y, window.innerHeight - popH - margin);
+                return (
+                <div
+                    className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-slate-200 p-3 min-w-[180px] animate-in fade-in zoom-in-95"
+                    style={{ left: Math.max(margin, x), top: Math.max(margin, y) }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-[10px] text-slate-400 font-medium mb-2">每行图片数</div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {[3, 5, 8, 10, 15, 20].map(n => (
+                            <button
+                                key={n}
+                                onClick={() => {
+                                    setGroupCopyColumnsPerRow(n);
+                                    copyGroupViewToClipboard(groupCopyColumnsPicker.groupKey, groupCopyColumnsPicker.rows, n);
+                                    setGroupCopyColumnsPicker(null);
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${n === groupCopyColumnsPerRow ? 'bg-purple-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-purple-100 hover:text-purple-700'}`}
+                            >
+                                {n}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-slate-100">
+                        <div className="flex items-center gap-1.5">
+                            <input
+                                type="number"
+                                min={1}
+                                max={50}
+                                defaultValue={groupCopyColumnsPerRow}
+                                className="w-14 px-1.5 py-0.5 text-xs border border-slate-200 rounded-md text-center focus:outline-none focus:border-purple-400"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        const val = Math.max(1, Math.min(50, parseInt((e.target as HTMLInputElement).value) || 5));
+                                        setGroupCopyColumnsPerRow(val);
+                                        copyGroupViewToClipboard(groupCopyColumnsPicker.groupKey, groupCopyColumnsPicker.rows, val);
+                                        setGroupCopyColumnsPicker(null);
+                                    }
+                                }}
+                                autoFocus
+                            />
+                            <span className="text-[10px] text-slate-400">自定义 (回车确认)</span>
+                        </div>
+                    </div>
+                </div>
+                ); })()}
+            {groupCopyColumnsPicker && (
+                <div className="fixed inset-0 z-[9998]" onClick={() => setGroupCopyColumnsPicker(null)} />
+            )}
+
+            {/* Group Context Menu (right-click on classification group buttons) */}
+            {groupContextMenu && (
+                <div
+                    className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 min-w-[160px] animate-in fade-in zoom-in-95"
+                    style={{ left: groupContextMenu.x, top: groupContextMenu.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="px-3 py-1 text-[10px] text-slate-400 font-medium border-b border-slate-100 mb-1">
+                        {groupContextMenu.groupPath}
+                    </div>
+                    <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-50 flex items-center gap-2 transition-colors"
+                        onClick={() => {
+                            setSubGroupInput({ parentPath: groupContextMenu.groupPath, x: groupContextMenu.x, y: groupContextMenu.y + 30 });
+                            setGroupContextMenu(null);
+                        }}
+                    >
+                        <FolderOpen size={13} /> 添加子分组
+                    </button>
+                    {groupContextMenu.groupPath.includes('/') && (
+                        <button
+                            className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors"
+                            onClick={() => {
+                                setDeleteGroupConfirm({ groupPath: groupContextMenu.groupPath, x: groupContextMenu.x, y: groupContextMenu.y + 30 });
+                                setGroupContextMenu(null);
+                            }}
+                        >
+                            <X size={13} /> 删除子分组
+                        </button>
+                    )}
+                    <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 flex items-center gap-2 transition-colors"
+                        onClick={() => {
+                            setRenameGroupInput({ groupPath: groupContextMenu.groupPath, isCustom: groupContextMenu.isCustom, x: groupContextMenu.x, y: groupContextMenu.y + 30 });
+                            setGroupContextMenu(null);
+                        }}
+                    >
+                        <Edit3 size={13} /> 重命名
+                    </button>
+                    <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 flex items-center gap-2 transition-colors"
+                        onClick={() => {
+                            setMoveGroupInput({ groupPath: groupContextMenu.groupPath, isCustom: groupContextMenu.isCustom, x: groupContextMenu.x, y: groupContextMenu.y + 30 });
+                            setGroupContextMenu(null);
+                        }}
+                    >
+                        <FolderTree size={13} /> 移动到...
+                    </button>
+                    <button
+                        className="w-full text-left px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                        onClick={() => setGroupContextMenu(null)}
+                    >
+                        <X size={13} /> 取消
+                    </button>
+                </div>
+            )}
+
+            {/* Sub-group name input popup */}
+            {subGroupInput && (
+                <div
+                    className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-purple-200 p-3 min-w-[200px] animate-in fade-in zoom-in-95"
+                    style={{ left: subGroupInput.x, top: subGroupInput.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-[10px] text-purple-500 mb-1.5">在「{subGroupInput.parentPath}」下添加子分组:</div>
+                    <div className="flex gap-1.5">
+                        <input
+                            type="text"
+                            autoFocus
+                            placeholder="子分组名称..."
+                            className="flex-1 px-2 py-1 text-xs border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-400 focus:outline-none"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                                    addSubGroup(subGroupInput.parentPath, (e.target as HTMLInputElement).value);
+                                } else if (e.key === 'Escape') {
+                                    setSubGroupInput(null);
+                                }
+                            }}
+                        />
+                        <button
+                            className="px-2 py-1 text-xs bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                            onClick={(e) => {
+                                const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                                if (input.value.trim()) {
+                                    addSubGroup(subGroupInput.parentPath, input.value);
+                                }
+                            }}
+                        >
+                            确定
+                        </button>
+                        <button
+                            className="px-2 py-1 text-xs bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300 transition-colors"
+                            onClick={() => setSubGroupInput(null)}
+                        >
+                            取消
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Rename group name input popup */}
+            {renameGroupInput && (
+                <div
+                    className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-blue-200 p-3 min-w-[200px] animate-in fade-in zoom-in-95"
+                    style={{ left: renameGroupInput.x, top: renameGroupInput.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-[10px] text-blue-500 mb-1.5">重命名「{renameGroupInput.groupPath.split('/').pop()}」:</div>
+                    <div className="flex gap-1.5">
+                        <input
+                            type="text"
+                            autoFocus
+                            defaultValue={renameGroupInput.groupPath.split('/').pop()}
+                            placeholder="新名称..."
+                            className="flex-1 px-2 py-1 text-xs border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                                    renameGroup(renameGroupInput.groupPath, (e.target as HTMLInputElement).value, renameGroupInput.isCustom);
+                                    setRenameGroupInput(null);
+                                } else if (e.key === 'Escape') {
+                                    setRenameGroupInput(null);
+                                }
+                            }}
+                        />
+                        <button
+                            className="px-2 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                            onClick={(e) => {
+                                const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                                if (input.value.trim()) {
+                                    renameGroup(renameGroupInput.groupPath, input.value, renameGroupInput.isCustom);
+                                    setRenameGroupInput(null);
+                                }
+                            }}
+                        >
+                            确定
+                        </button>
+                        <button
+                            className="px-2 py-1 text-xs bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300 transition-colors"
+                            onClick={() => setRenameGroupInput(null)}
+                        >
+                            取消
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete confirm popup */}
+            {deleteGroupConfirm && (
+                <div
+                    className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-red-200 p-3 min-w-[200px] animate-in fade-in zoom-in-95"
+                    style={{ left: deleteGroupConfirm.x, top: deleteGroupConfirm.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-[11px] text-slate-700 mb-2">确认删除子分组 <strong>{deleteGroupConfirm.groupPath.split('/').pop()}</strong>？<br/><span className="text-[10px] text-slate-500">其中的图片将移回父分组。</span></div>
+                    <div className="flex gap-2">
+                        <button
+                            className="flex-1 px-2 py-1 text-xs bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                            onClick={() => {
+                                deleteSubGroup(deleteGroupConfirm.groupPath);
+                                setDeleteGroupConfirm(null);
+                            }}
+                        >
+                            确认删除
+                        </button>
+                        <button
+                            className="flex-1 px-2 py-1 text-xs bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300 transition-colors"
+                            onClick={() => setDeleteGroupConfirm(null)}
+                        >
+                            取消
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Move group popup */}
+            {moveGroupInput && (
+                <div
+                    className="fixed z-[9999] bg-white rounded-xl shadow-2xl border border-indigo-200 p-3 min-w-[200px] animate-in fade-in zoom-in-95"
+                    style={{ left: moveGroupInput.x, top: moveGroupInput.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="text-[10px] text-indigo-500 mb-1.5">将「{moveGroupInput.groupPath.split('/').pop()}」移动到:</div>
+                    <div className="flex gap-1.5 flex-col">
+                        <select
+                            className="w-full px-2 py-1.5 text-xs border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:outline-none bg-white"
+                            onChange={(e) => {
+                                moveGroup(moveGroupInput.groupPath, e.target.value, moveGroupInput.isCustom);
+                                setMoveGroupInput(null);
+                            }}
+                            defaultValue=""
+                        >
+                            <option value="" disabled>-- 选择目标分组 --</option>
+                            <option value="">(提升为顶级分组)</option>
+                            {/* Options for config categories */}
+                            {config.categoryOptions.map(opt => (
+                                <optgroup key={`opt-${opt}`} label={opt}>
+                                    <option value={opt}>{opt}</option>
+                                    {getSubGroupPaths(opt).map(sub => (
+                                        <option key={`opt-sub-${sub}`} value={sub}>  └ {sub.split('/').pop()}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                            {/* Options for custom groups */}
+                            {customGroups.length > 0 && (
+                                <optgroup label="自定义分组">
+                                    {customGroups.map(cg => (
+                                        <React.Fragment key={`cg-${cg}`}>
+                                            <option value={cg}>{cg}</option>
+                                            {getSubGroupPaths(cg).map(sub => (
+                                                <option key={`cg-sub-${sub}`} value={sub}>  └ {sub.split('/').pop()}</option>
+                                            ))}
+                                        </React.Fragment>
+                                    ))}
+                                </optgroup>
+                            )}
+                        </select>
+                        <button
+                            className="w-full mt-1 px-2 py-1.5 text-xs bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                            onClick={() => setMoveGroupInput(null)}
+                        >
+                            取消
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Note Modal (备注弹窗) */}
             <NoteModal
@@ -6778,8 +8358,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 autoSyncToSheet={autoSyncCategoriesToSheet}
                 categoryColumn={CATEGORY_COLUMN}
                 sheetName={currentSheetName}
-                onSelectCategory={(cat) => saveCategory(cat, autoSyncCategoriesToSheet)}
-                onClearCategory={() => saveCategory('', autoSyncCategoriesToSheet)}
+                onSelectCategory={(cat) => saveCategory(cat)}
+                onClearCategory={() => saveCategory('')}
                 onSyncToggle={() => setAutoSyncCategoriesToSheet(!autoSyncCategoriesToSheet)}
                 onClose={closeCategoryModal}
             />
@@ -6837,6 +8417,167 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 classificationOverridesCount={Object.keys(classificationOverrides).length}
                 onCopy={copyViewLayoutToClipboard}
             />
+
+            {/* Copy Data Modal (column selection / by-sheet) */}
+            <CopyDataModal
+                isOpen={showCopyDataModal}
+                allColumns={effectiveData.columns}
+                processedRows={processedRows}
+                totalRows={processedRows.length}
+                onClose={() => setShowCopyDataModal(false)}
+                onCopyDone={(msg) => { setCopyFeedback(msg); setTimeout(() => setCopyFeedback(null), 3000); }}
+            />
+
+            {/* Grouping Writeback to Sheet Modal */}
+            {groupWritebackModal.open && (() => {
+                // Pre-compute group stats for the modal
+                const overrideCount = Object.keys(classificationOverrides).length;
+                const totalGroupedCount = effectiveData.rows.filter(row => {
+                    const imageUrl = extractImageUrl(row[effectiveImageColumn]);
+                    if (!imageUrl) return false;
+                    if (classificationOverrides[imageUrl]) return true;
+                    if (effectiveGroupColumn && row[effectiveGroupColumn]) return true;
+                    return false;
+                }).length;
+                // Detect collab mode
+                const collabService = getCollabService();
+                const isCollabConnected = collabService.isConnected();
+                const effectiveTarget = groupWritebackModal.targetColumn;
+                return (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+                    onClick={() => setGroupWritebackModal({ open: false, targetColumn: '' })}>
+                    <div className="bg-white rounded-xl shadow-2xl border border-slate-200 p-6 w-[420px] max-w-[90vw]"
+                        onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                            📤 写回分组到 Google 表格
+                            {isCollabConnected && (
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-semibold rounded-full border border-green-200">
+                                    👥 协作模式
+                                </span>
+                            )}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-4">
+                            {isCollabConnected
+                                ? '通过协作服务（GAS）将分组结果写入指定列，无需 Google 登录。值将直接覆盖写入。'
+                                : <>将当前分类/分组结果写入 Google 表格的指定列。手动分类覆盖 {'>'} 原始分组列值。</>
+                            }
+                        </p>
+                        {/* Column selector: show for both modes, collab uses column name */}
+                        <div className="mb-4">
+                            <label className="block text-xs font-medium text-slate-600 mb-1.5">
+                                目标列 {isCollabConnected && <span className="text-green-600 text-[10px]">（协作模式：支持写入任意列）</span>}
+                            </label>
+                            <select
+                                value={groupWritebackModal.targetColumn}
+                                onChange={(e) => setGroupWritebackModal(prev => ({ ...prev, targetColumn: e.target.value }))}
+                                className={`w-full px-3 py-2 text-sm border rounded-lg bg-white focus:ring-2 outline-none ${isCollabConnected ? 'border-green-300 focus:ring-green-400 focus:border-green-400' : 'border-slate-300 focus:ring-blue-400 focus:border-blue-400'}`}
+                            >
+                                <option value="">-- 选择目标列 --</option>
+                                {(() => {
+                                    const headers = effectiveData.columns || [];
+                                    const options: { value: string; label: string }[] = [];
+                                    headers.forEach((header, idx) => {
+                                        if (header.startsWith('_')) return;
+                                        const letter = idx < 26 ? String.fromCharCode(65 + idx) : String.fromCharCode(65 + Math.floor(idx / 26) - 1) + String.fromCharCode(65 + (idx % 26));
+                                        if (isCollabConnected) {
+                                            // Collab mode: use header name as value (GAS batchWriteColumn supports column names)
+                                            options.push({ value: header, label: `${letter} 列 — ${header}` });
+                                        } else {
+                                            // API mode: use column letter as value
+                                            options.push({ value: letter, label: `${letter} 列 — ${header}` });
+                                        }
+                                    });
+                                    return options.length > 0
+                                        ? options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)
+                                        : Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map(col => (
+                                            <option key={col} value={col}>{col} 列</option>
+                                        ));
+                                })()}
+                            </select>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                                💡 {isCollabConnected ? '选择目标列，分组值将通过协作服务直接覆盖写入' : '选择写入的目标列，分组名将直接写入该列每一行'}
+                            </p>
+                        </div>
+                        <div className="mb-4 px-3 py-2.5 bg-blue-50 rounded-lg border border-blue-200">
+                            <div className="text-xs text-slate-700 space-y-1">
+                                <div className="flex items-center justify-between">
+                                    <span>📊 将写入的行数:</span>
+                                    <span className="font-bold text-blue-600">{totalGroupedCount} 行</span>
+                                </div>
+                                {overrideCount > 0 && (
+                                    <div className="flex items-center justify-between text-[11px]">
+                                        <span className="text-slate-500">├ 手动分类覆盖:</span>
+                                        <span className="text-purple-600 font-medium">{overrideCount} 条</span>
+                                    </div>
+                                )}
+                                {effectiveGroupColumn && (
+                                    <div className="flex items-center justify-between text-[11px]">
+                                        <span className="text-slate-500">└ 原始列「{effectiveGroupColumn}」:</span>
+                                        <span className="text-slate-600 font-medium">{totalGroupedCount - overrideCount} 条</span>
+                                    </div>
+                                )}
+                                {totalGroupedCount === 0 && (
+                                    <div className="text-amber-600 text-[11px] mt-1">
+                                        ⚠️ 没有可写入的分组数据，请先进行分组或手动分类操作
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="mb-4 px-1 flex items-center">
+                            <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                                    checked={groupWritebackModal.writeThumbnail !== false}
+                                    onChange={(e) => setGroupWritebackModal(prev => ({ ...prev, writeThumbnail: e.target.checked }))}
+                                />
+                                同时将图片写入「SM_缩略图」列（确保准确匹配）
+                            </label>
+                        </div>
+                        {/* Inline sync feedback inside modal */}
+                        {copyFeedback && copyFeedback.startsWith('⏳') && (
+                            <div className="mb-3 px-3 py-2 bg-blue-100 border border-blue-300 rounded-lg text-xs text-blue-800 font-medium flex items-center gap-2 animate-pulse">
+                                <Loader2 size={12} className="animate-spin" />
+                                {copyFeedback}
+                            </div>
+                        )}
+                        {copyFeedback && copyFeedback.startsWith('✅') && (
+                            <div className="mb-3 px-3 py-2 bg-green-100 border border-green-300 rounded-lg text-xs text-green-800 font-medium flex items-center gap-2">
+                                <Check size={14} className="text-green-600" />
+                                {copyFeedback}
+                            </div>
+                        )}
+                        {copyFeedback && (copyFeedback.startsWith('⚠️') || copyFeedback.startsWith('❌')) && (
+                            <div className="mb-3 px-3 py-2 bg-amber-100 border border-amber-300 rounded-lg text-xs text-amber-800 font-medium">
+                                {copyFeedback}
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2 justify-end">
+                            <button
+                                onClick={() => setGroupWritebackModal({ open: false, targetColumn: '' })}
+                                className="px-4 py-1.5 text-xs text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={() => handleSyncGroupingToSheet(effectiveTarget)}
+                                disabled={!effectiveTarget || isBatchGroupSyncing || totalGroupedCount === 0}
+                                className={`px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 ${isCollabConnected ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                            >
+                                {isBatchGroupSyncing || (copyFeedback && copyFeedback.startsWith('⏳')) ? (
+                                    <>
+                                        <Loader2 size={12} className="animate-spin" />
+                                        写入中...
+                                    </>
+                                ) : (
+                                    <>{isCollabConnected ? '👥' : '📤'} 写入 {totalGroupedCount} 行到表格</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                );
+            })()}
 
             {/* Floating Tooltip for click-position tips */}
             {

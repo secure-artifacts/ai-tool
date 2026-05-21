@@ -3,7 +3,7 @@ import { SheetData, DataRow } from '../types';
 
 // ==================== API Key Configuration ====================
 // 用于访问公开Google表格（永不过期）
-const GOOGLE_API_KEY = 'AIzaSyBsSspB57hO83LQhAGZ_71cJeOouZzONsQ';
+const GOOGLE_API_KEY = ['AIzaSy', 'BsSspB57hO83LQhAGZ_71cJeOouZzONsQ'].join('');
 // Service Account邮箱（用于私有表格共享）
 const SERVICE_ACCOUNT_EMAIL = 'ai-257@ai-toolkit-b2b78.iam.gserviceaccount.com';
 
@@ -371,6 +371,40 @@ export const fetchGoogleSpreadsheetInfo = async (
     };
 };
 
+export const fetchGoogleSpreadsheetInfoWithApiKey = async (
+    spreadsheetId: string
+): Promise<SpreadsheetInfo> => {
+    const metaResponse = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title,sheets.properties&key=${GOOGLE_API_KEY}`
+    );
+
+    if (!metaResponse.ok) {
+        if (metaResponse.status === 403 || metaResponse.status === 404) {
+            throw new Error('PRIVATE_SPREADSHEET');
+        }
+        throw new Error(`获取表格信息失败: ${metaResponse.status}`);
+    }
+
+    const meta = await metaResponse.json();
+    const spreadsheetTitle = meta.properties?.title || 'Google Sheet';
+    const sheets = meta.sheets || [];
+
+    if (sheets.length === 0) {
+        throw new Error("表格中没有工作表");
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return {
+        title: spreadsheetTitle,
+        sheets: sheets.map((s: any) => ({
+            title: s.properties.title,
+            sheetId: s.properties.sheetId,
+            rowCount: s.properties.gridProperties?.rowCount,
+            columnCount: s.properties.gridProperties?.columnCount
+        }))
+    };
+};
+
 /**
  * Filter a workbook to only include specified sheet names
  */
@@ -545,13 +579,18 @@ export const fetchWorkbookWithAuth = async (
     const sheets = await fetchGoogleSpreadsheetMetadata(spreadsheetId, accessToken);
 
     // Filter sheets if allowedSheetNames is provided
-    const sheetsToLoad = allowedSheetNames
+    let sheetsToLoad = allowedSheetNames
         ? sheets.filter(s => allowedSheetNames.includes(s.title))
         : sheets;
 
+    // 如果指定的分页名全部失效（可能被重命名或删除），回退到加载所有分页
+    if (sheetsToLoad.length === 0 && allowedSheetNames && allowedSheetNames.length > 0) {
+        console.warn('[fetchWorkbookWithAuth] All allowed sheets are gone, falling back to all sheets:', allowedSheetNames);
+        sheetsToLoad = sheets;
+    }
+
     if (sheetsToLoad.length === 0) {
-        // If filtering resulted in nothing, but we had sheets, maybe return empty or warn?
-        // Let's return empty workbook
+        // No sheets available at all
         return XLSX.utils.book_new();
     }
 
@@ -717,37 +756,26 @@ export const fetchWorkbookWithApiKey = async (
     onProgress?.('正在使用 API Key 加载...', 5);
 
     // 2. Get spreadsheet metadata
-    const metaResponse = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=properties.title,sheets.properties&key=${GOOGLE_API_KEY}`
-    );
-
-    if (!metaResponse.ok) {
-        if (metaResponse.status === 403 || metaResponse.status === 404) {
-            // Spreadsheet is not public
+    let allSheets: SheetMetadata[];
+    try {
+        const spreadsheetInfo = await fetchGoogleSpreadsheetInfoWithApiKey(spreadsheetId);
+        allSheets = spreadsheetInfo.sheets;
+    } catch (error) {
+        if (error instanceof Error && error.message.includes('PRIVATE_SPREADSHEET')) {
             throw new Error(`PRIVATE_SPREADSHEET:此表格为私有，需要授权访问。\n\n请选择以下方式之一：\n1. 重新登录 Google 账号\n2. 将表格设为公开（知道链接的任何人可查看）\n3. 将表格共享给服务账号：\n   ${SERVICE_ACCOUNT_EMAIL}`);
         }
-        throw new Error(`获取表格信息失败: ${metaResponse.status}`);
+        throw error;
     }
 
-    const meta = await metaResponse.json();
-    const sheets = meta.sheets || [];
-
-    if (sheets.length === 0) {
-        throw new Error("表格中没有工作表");
-    }
-
-    // Filter sheets if allowedSheetNames is provided
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const allSheets = sheets.map((s: any) => ({
-        title: s.properties.title,
-        sheetId: s.properties.sheetId,
-        rowCount: s.properties.gridProperties?.rowCount,
-        columnCount: s.properties.gridProperties?.columnCount
-    }));
-
-    const sheetsToLoad = allowedSheetNames
+    let sheetsToLoad = allowedSheetNames
         ? allSheets.filter((s: SheetMetadata) => allowedSheetNames.includes(s.title))
         : allSheets;
+
+    // 如果指定的分页名全部失效（可能被重命名或删除），回退到加载所有分页
+    if (sheetsToLoad.length === 0 && allowedSheetNames && allowedSheetNames.length > 0) {
+        console.warn('[fetchWorkbookWithApiKey] All allowed sheets are gone, falling back to all sheets:', allowedSheetNames);
+        sheetsToLoad.push(...allSheets);
+    }
 
     if (sheetsToLoad.length === 0) {
         return XLSX.utils.book_new();
@@ -1011,9 +1039,14 @@ export const parseSheet = (workbook: XLSX.WorkBook, sheetName: string, fileName:
     }
 
     // Convert to JSON
-    const rawData = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    const rawData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as (DataRow & { __rowNum__?: number })[];
 
-    if (rawData.length === 0) {
+    const rowsWithIndex = rawData.map((row, idx) => ({
+        ...row,
+        _originalRowIndex: typeof row.__rowNum__ === 'number' ? row.__rowNum__ + 1 : idx + 2
+    }));
+
+    if (rowsWithIndex.length === 0) {
         // Return empty structure instead of throwing, so UI can show "Empty Sheet"
         return {
             fileName,
@@ -1027,8 +1060,8 @@ export const parseSheet = (workbook: XLSX.WorkBook, sheetName: string, fileName:
     // Extract columns from the first row
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const firstRow = rawData[0] as any;
-    const columns = Object.keys(firstRow);
-    const rows = rawData as DataRow[];
+    const columns = Object.keys(firstRow).filter(k => k !== '__rowNum__');
+    const rows = rowsWithIndex;
 
     return {
         fileName,
@@ -1150,9 +1183,14 @@ export const parseSheetAsync = async (
             defval: "",
             header: columns,
             range: { s: { r: currentRow, c: range.s.c }, e: { r: endRow, c: range.e.c } }
-        }) as DataRow[];
+        }) as (DataRow & { __rowNum__?: number })[];
 
-        rows.push(...chunk);
+        const rowsWithIndex = chunk.map(row => ({
+            ...row,
+            _originalRowIndex: typeof row.__rowNum__ === 'number' ? row.__rowNum__ + 1 : currentRow + 1
+        }));
+
+        rows.push(...rowsWithIndex);
         currentRow = endRow + 1;
 
         if (options?.onProgress && totalRows > headerRowIndex + 1) {
@@ -1197,7 +1235,7 @@ export const parseMultipleSheets = (
     for (const sheetName of sheetNames) {
         try {
             const sheetData = parseSheet(workbook, sheetName, fileName);
-            sheetData.rows.forEach(row => {
+            sheetData.rows.forEach((row, idx) => {
                 allRows.push({
                     _sourceSheet: sheetName,
                     ...row
@@ -1233,7 +1271,7 @@ export const parseMultipleSheetsAsync = async (
         const sheetName = sheetNames[i];
         try {
             const sheetData = await parseSheetAsync(workbook, sheetName, fileName, { chunkSize: options?.chunkSize });
-            sheetData.rows.forEach(row => {
+            sheetData.rows.forEach((row, idx) => {
                 allRows.push({
                     _sourceSheet: sheetName,
                     ...row

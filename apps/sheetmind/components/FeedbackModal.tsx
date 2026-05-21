@@ -5,11 +5,12 @@ interface FeedbackModalProps {
     imageUrl: string;
     previewUrls?: string[];
     feedbackText: string;
+    severity: 'high' | 'medium' | 'low' | null;
     annotatedDataUrl: string | null;
     gyazoUrl: string | null;
     gyazoPermalink: string | null;
     uploading: boolean;
-    onSave: (data: { text: string; annotatedDataUrl: string | null }) => void;
+    onSave: (data: { text: string; severity: 'high' | 'medium' | 'low' | null; annotatedDataUrl: string | null }) => void;
     onCancel: () => void;
 }
 
@@ -17,12 +18,14 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
     imageUrl,
     previewUrls,
     feedbackText,
+    severity,
     annotatedDataUrl,
     uploading,
     onSave,
     onCancel,
 }) => {
     const [currentText, setCurrentText] = useState(feedbackText);
+    const [currentSeverity, setCurrentSeverity] = useState(severity);
 
     return (
         <div style={{
@@ -42,10 +45,13 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
                     imageUrl={annotatedDataUrl || imageUrl}
                     previewUrls={annotatedDataUrl ? undefined : previewUrls}
                     feedbackText={currentText}
+                    severity={currentSeverity}
                     onFeedbackTextChange={setCurrentText}
+                    onSeverityChange={setCurrentSeverity}
                     onSave={(dataUrl, text, meta) => {
                         onSave({
                             text: text || currentText,
+                            severity: currentSeverity,
                             annotatedDataUrl: meta?.hasVisualChanges ? dataUrl : null,
                         });
                     }}

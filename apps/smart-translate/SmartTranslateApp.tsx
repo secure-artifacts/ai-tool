@@ -29,6 +29,8 @@ const BATCH_LANG_STORAGE_KEY = 'smart_translate_batch_languages';
 const BATCH_ONLY_CHINESE_KEY = 'smart_translate_batch_only_chinese';
 const BATCH_CLEANUP_MODE_KEY = 'smart_translate_batch_cleanup_mode';
 const CUSTOM_INSTRUCTION_KEY = 'smart_translate_custom_instruction';
+const SCRIPTURE_DETECTION_KEY = 'smart_translate_scripture_detection';
+const SCRIPTURE_VERSION_KEY = 'smart_translate_scripture_version';
 const DEFAULT_BATCH_LANGS = ['en'];
 
 const zhDisplayNames = typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function'
@@ -113,12 +115,67 @@ const loadBatchCleanupMode = (): boolean => {
     }
 };
 
-const loadCustomInstruction = (): string => {
-    if (typeof localStorage === 'undefined') return '';
+const DEFAULT_DEITY_TERMS = ['God', 'the Lord', 'Yahweh', 'the Lord God', 'Jesus', 'the Lord Jesus', 'Christ', 'Jesus Christ', 'the Christ of the last days', 'Almighty God', 'He', 'Him', 'Heavenly Father', 'God the Father', 'Father', 'the Almighty God', 'the Creator', 'the Most High', 'King of kings', 'Lord of lords', 'Redeemer', 'the Son of God', 'the Lamb of God'];
+
+const DEITY_TERMS_KEY = 'smart_translate_deity_terms';
+const APPLY_DEITY_ALL_KEY = 'smart_translate_apply_deity_all';
+
+const loadDeityTerms = (): string[] => {
+    if (typeof localStorage === 'undefined') return DEFAULT_DEITY_TERMS;
     try {
-        return localStorage.getItem(CUSTOM_INSTRUCTION_KEY) || '';
+        const raw = localStorage.getItem(DEITY_TERMS_KEY);
+        if (!raw) return DEFAULT_DEITY_TERMS;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : DEFAULT_DEITY_TERMS;
     } catch {
-        return '';
+        return DEFAULT_DEITY_TERMS;
+    }
+};
+
+const loadApplyDeityCapitalizationToAll = (): boolean => {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        const raw = localStorage.getItem(APPLY_DEITY_ALL_KEY);
+        if (!raw) return false;
+        return JSON.parse(raw) === true;
+    } catch {
+        return false;
+    }
+};
+
+const DEFAULT_CUSTOM_INSTRUCTION = `如果翻译为英文，以下关于神的专属名词与代词【必须】全部首字母大写：
+God, the Lord, Yahweh, the Lord God, Jesus, the Lord Jesus, Christ, Jesus Christ, the Christ of the last days, Almighty God, He, Him, Heavenly Father, God the Father, Father, the Almighty God, the Creator, the Most High, King of kings, Lord of lords, Redeemer, the Son of God, the Lamb of God.`;
+
+const loadCustomInstruction = (): string => {
+    if (typeof localStorage === 'undefined') return DEFAULT_CUSTOM_INSTRUCTION;
+    try {
+        const val = localStorage.getItem(CUSTOM_INSTRUCTION_KEY);
+        return val !== null ? val : DEFAULT_CUSTOM_INSTRUCTION;
+    } catch {
+        return DEFAULT_CUSTOM_INSTRUCTION;
+    }
+};
+
+const loadScriptureDetection = (): boolean => {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+        const raw = localStorage.getItem(SCRIPTURE_DETECTION_KEY);
+        if (!raw) return false;
+        return JSON.parse(raw) === true;
+    } catch {
+        return false;
+    }
+};
+
+const loadScriptureVersion = (): string => {
+    if (typeof localStorage === 'undefined') return 'King James Version (KJV)';
+    try {
+        const val = localStorage.getItem(SCRIPTURE_VERSION_KEY);
+        // Map old 'KJV' shortcut to new full name
+        if (val === 'KJV') return 'King James Version (KJV)';
+        return val || 'King James Version (KJV)';
+    } catch {
+        return 'King James Version (KJV)';
     }
 };
 
@@ -637,6 +694,7 @@ const Loader = ({ small }: { small?: boolean }) => <div className={`loader ${sma
 // Model options removed - now using global textModel from parent
 
 // --- Types ---
+// --- Types ---
 interface TranslateItem {
     id: string;
     type: 'text' | 'image' | 'image-url';
@@ -649,6 +707,7 @@ interface TranslateItem {
     chineseText?: string; // 中文翻译（必须）
     translations?: Record<string, string>; // 多语言翻译结果（不含中文）
     detectedLanguage?: string; // 检测到的原文语言
+    scriptureNote?: string; // 经文反馈
     status: 'idle' | 'processing_upload' | 'processing_fetch' | 'processing_ocr' | 'processing_translate' | 'success' | 'error';
     uploadStatus?: 'idle' | 'success' | 'error'; // Track upload specifically
     uploadErrorType?: 'token_missing' | 'network' | 'other';
@@ -692,7 +751,7 @@ const BatchItemCard: React.FC<{
         }));
     }, [effectiveBatchLanguages, item.translatedText, item.translations, primaryBatchLanguage]);
     const translatedColumnCount = translationEntries.length;
-    const contentColumnCount = translatedColumnCount + 2;
+    const contentColumnCount = translatedColumnCount + 2 + (item.scriptureNote ? 1 : 0);
 
     // 拖拽调整高度
     const [cardHeight, setCardHeight] = useState<number | null>(null);
@@ -1066,7 +1125,7 @@ const BatchItemCard: React.FC<{
                             <span className="detected-language-tag">({item.detectedLanguage})</span>
                         )}
                         {/* 单条翻译按钮 */}
-                        {onTranslate && (item.originalText || item.content) && !item.status.startsWith('processing') && (
+                        {onTranslate && (item.originalText || (item.type === 'text' && item.content)) && !item.status.startsWith('processing') && (
                             <button
                                 className="mini-translate-btn tooltip-bottom"
                                 onClick={() => onTranslate(item.id)}
@@ -1133,6 +1192,17 @@ const BatchItemCard: React.FC<{
                         )}
                     </div>
                 </div>
+
+                {item.scriptureNote && (
+                    <div className="content-block scripture-feedback">
+                        <div className="block-header">
+                            <span style={{ fontSize: 14 }}>📖</span> 经文反馈
+                        </div>
+                        <div className="block-body" style={{ color: '#d97706', fontSize: 13, fontWeight: 500, backgroundColor: 'var(--alert-bg, rgba(245, 158, 11, 0.1))', borderRadius: 8, padding: '8px 12px' }}>
+                            {item.scriptureNote}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* 底部调整大小手柄 */}
@@ -1233,6 +1303,10 @@ export type SmartTranslateState = {
     batchOnlyChinese?: boolean;
     batchCleanupMode?: boolean;
     customInstruction?: string;
+    enableScriptureDetection?: boolean;
+    scriptureVersion?: string;
+    deityTerms?: string[];
+    applyDeityCapitalizationToAll?: boolean;
     isProcessing: boolean;
 };
 
@@ -1245,6 +1319,10 @@ export const initialSmartTranslateState: SmartTranslateState = {
     batchOnlyChinese: loadBatchOnlyChinese(),
     batchCleanupMode: loadBatchCleanupMode(),
     customInstruction: loadCustomInstruction(),
+    enableScriptureDetection: loadScriptureDetection(),
+    scriptureVersion: loadScriptureVersion(),
+    deityTerms: loadDeityTerms(),
+    applyDeityCapitalizationToAll: loadApplyDeityCapitalizationToAll(),
     isProcessing: false,
 };
 
@@ -1261,6 +1339,14 @@ interface TranslateToolProps {
     setBatchCleanupMode: (val: boolean | ((prev: boolean) => boolean)) => void;
     customInstruction: string;
     setCustomInstruction: (val: string) => void;
+    enableScriptureDetection: boolean;
+    setEnableScriptureDetection: (val: boolean | ((prev: boolean) => boolean)) => void;
+    scriptureVersion: string;
+    setScriptureVersion: (val: string) => void;
+    deityTerms: string[];
+    setDeityTerms: (val: string[] | ((prev: string[]) => string[])) => void;
+    applyDeityCapitalizationToAll: boolean;
+    setApplyDeityCapitalizationToAll: (val: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 const useBatchLanguageState = (
@@ -1271,6 +1357,10 @@ const useBatchLanguageState = (
     const [localBatchOnlyChinese, setLocalBatchOnlyChinese] = useState<boolean>(() => loadBatchOnlyChinese());
     const [localBatchCleanupMode, setLocalBatchCleanupMode] = useState<boolean>(() => loadBatchCleanupMode());
     const [localCustomInstruction, setLocalCustomInstruction] = useState<string>(() => loadCustomInstruction());
+    const [localEnableScriptureDetection, setLocalEnableScriptureDetection] = useState<boolean>(() => loadScriptureDetection());
+    const [localScriptureVersion, setLocalScriptureVersion] = useState<string>(() => loadScriptureVersion());
+    const [localDeityTerms, setLocalDeityTerms] = useState<string[]>(() => loadDeityTerms());
+    const [localApplyDeityCapitalizationToAll, setLocalApplyDeityCapitalizationToAll] = useState<boolean>(() => loadApplyDeityCapitalizationToAll());
 
     const batchOnlyChinese = useMemo(() => {
         if (typeof state?.batchOnlyChinese === 'boolean') {
@@ -1293,12 +1383,40 @@ const useBatchLanguageState = (
         return localCustomInstruction;
     }, [state?.customInstruction, localCustomInstruction]);
 
+    const enableScriptureDetection = useMemo(() => {
+        if (typeof state?.enableScriptureDetection === 'boolean') {
+            return state.enableScriptureDetection;
+        }
+        return localEnableScriptureDetection;
+    }, [state?.enableScriptureDetection, localEnableScriptureDetection]);
+
+    const scriptureVersion = useMemo(() => {
+        if (typeof state?.scriptureVersion === 'string') {
+            return state.scriptureVersion;
+        }
+        return localScriptureVersion;
+    }, [state?.scriptureVersion, localScriptureVersion]);
+
     const batchTargetLanguages = useMemo(() => {
         if (state?.batchTargetLanguages && state.batchTargetLanguages.length > 0) {
             return normalizeBatchLanguages(state.batchTargetLanguages);
         }
         return localBatchLanguages;
     }, [state?.batchTargetLanguages, localBatchLanguages]);
+
+    const deityTerms = useMemo(() => {
+        if (state?.deityTerms && Array.isArray(state.deityTerms)) {
+            return state.deityTerms;
+        }
+        return localDeityTerms;
+    }, [state?.deityTerms, localDeityTerms]);
+
+    const applyDeityCapitalizationToAll = useMemo(() => {
+        if (typeof state?.applyDeityCapitalizationToAll === 'boolean') {
+            return state.applyDeityCapitalizationToAll;
+        }
+        return localApplyDeityCapitalizationToAll;
+    }, [state?.applyDeityCapitalizationToAll, localApplyDeityCapitalizationToAll]);
 
     useEffect(() => {
         if (state?.batchTargetLanguages && state.batchTargetLanguages.length > 0) {
@@ -1333,6 +1451,39 @@ const useBatchLanguageState = (
             localStorage.setItem(CUSTOM_INSTRUCTION_KEY, state.customInstruction);
         }
     }, [state?.customInstruction]);
+
+    useEffect(() => {
+        if (typeof state?.enableScriptureDetection !== 'boolean') return;
+        setLocalEnableScriptureDetection(state.enableScriptureDetection);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SCRIPTURE_DETECTION_KEY, JSON.stringify(state.enableScriptureDetection));
+        }
+    }, [state?.enableScriptureDetection]);
+
+    useEffect(() => {
+        if (typeof state?.scriptureVersion !== 'string') return;
+        setLocalScriptureVersion(state.scriptureVersion);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SCRIPTURE_VERSION_KEY, state.scriptureVersion);
+        }
+    }, [state?.scriptureVersion]);
+
+    useEffect(() => {
+        if (state?.deityTerms && Array.isArray(state.deityTerms)) {
+            setLocalDeityTerms(state.deityTerms);
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(DEITY_TERMS_KEY, JSON.stringify(state.deityTerms));
+            }
+        }
+    }, [state?.deityTerms]);
+
+    useEffect(() => {
+        if (typeof state?.applyDeityCapitalizationToAll !== 'boolean') return;
+        setLocalApplyDeityCapitalizationToAll(state.applyDeityCapitalizationToAll);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(APPLY_DEITY_ALL_KEY, JSON.stringify(state.applyDeityCapitalizationToAll));
+        }
+    }, [state?.applyDeityCapitalizationToAll]);
 
     const setBatchTargetLanguages = useCallback((val: string[] | ((prev: string[]) => string[])) => {
         const prevLangs = batchOnlyChinese ? localBatchLanguages : batchTargetLanguages;
@@ -1379,7 +1530,59 @@ const useBatchLanguageState = (
         }
     }, [setState]);
 
-    return { batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese, batchCleanupMode, setBatchCleanupMode, customInstruction, setCustomInstruction };
+    const setEnableScriptureDetection = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+        const next = typeof val === 'function' ? val(enableScriptureDetection) : val;
+        if (setState) {
+            setState(prev => ({ ...prev, enableScriptureDetection: next }));
+        }
+        setLocalEnableScriptureDetection(next);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SCRIPTURE_DETECTION_KEY, JSON.stringify(next));
+        }
+    }, [enableScriptureDetection, setState]);
+
+    const setScriptureVersion = useCallback((val: string) => {
+        if (setState) {
+            setState(prev => ({ ...prev, scriptureVersion: val }));
+        }
+        setLocalScriptureVersion(val);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(SCRIPTURE_VERSION_KEY, val);
+        }
+    }, [setState]);
+
+    const setDeityTerms = useCallback((val: string[] | ((prev: string[]) => string[])) => {
+        const next = typeof val === 'function' ? val(deityTerms) : val;
+        if (setState) {
+            setState(prev => ({ ...prev, deityTerms: next }));
+        }
+        setLocalDeityTerms(next);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(DEITY_TERMS_KEY, JSON.stringify(next));
+        }
+    }, [deityTerms, setState]);
+
+    const setApplyDeityCapitalizationToAll = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+        const next = typeof val === 'function' ? val(applyDeityCapitalizationToAll) : val;
+        if (setState) {
+            setState(prev => ({ ...prev, applyDeityCapitalizationToAll: next }));
+        }
+        setLocalApplyDeityCapitalizationToAll(next);
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(APPLY_DEITY_ALL_KEY, JSON.stringify(next));
+        }
+    }, [applyDeityCapitalizationToAll, setState]);
+
+    return { 
+        batchTargetLanguages, setBatchTargetLanguages, 
+        batchOnlyChinese, setBatchOnlyChinese, 
+        batchCleanupMode, setBatchCleanupMode, 
+        customInstruction, setCustomInstruction,
+        enableScriptureDetection, setEnableScriptureDetection,
+        scriptureVersion, setScriptureVersion,
+        deityTerms, setDeityTerms,
+        applyDeityCapitalizationToAll, setApplyDeityCapitalizationToAll
+    };
 };
 
 const TranslateTool = ({
@@ -1394,7 +1597,15 @@ const TranslateTool = ({
     batchCleanupMode,
     setBatchCleanupMode,
     customInstruction,
-    setCustomInstruction
+    setCustomInstruction,
+    enableScriptureDetection,
+    setEnableScriptureDetection,
+    scriptureVersion,
+    setScriptureVersion,
+    deityTerms,
+    setDeityTerms,
+    applyDeityCapitalizationToAll,
+    setApplyDeityCapitalizationToAll
 }: TranslateToolProps) => {
     const { t } = useTranslation();
     const { getAiInstance, gyazoToken, setSettingsOpen } = useApi();
@@ -2057,7 +2268,28 @@ DO NOT remove:
 
 Only translate all the meaningful content, including titles and headings.` : '';
 
-            const customInstructionBlock = customInstruction?.trim() ? `\nADDITIONAL USER REQUIREMENTS:\n${customInstruction.trim()}\n` : '';
+            let customInstructionBlock = customInstruction?.trim() ? `\nCRITICAL GLOSSARY & FORMATTING RULES:\n1. STRICTLY follow these user-defined formatting and translation rules:\n${customInstruction.trim()}\n2. Any violation of these rules is unacceptable.\n` : '';
+
+            if (enableScriptureDetection) {
+                customInstructionBlock += `\nSCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT):\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST output a "scriptureNote" field in the JSON with one of these exact phrases:\n   - If scriptures were modified/quoted: "经文已修改为【${scriptureVersion}】"\n   - If scriptures were already correct: "不需要修改，当前是【${scriptureVersion}】"\n   - If no scriptures: "不包含经文"\n`;
+            }
+
+            if (deityTerms && deityTerms.length > 0) {
+                const termsStr = deityTerms.join(', ');
+                if (applyDeityCapitalizationToAll) {
+                    customInstructionBlock += `\nCAPITALIZATION RULE: The following terms and their translated equivalents in ANY language MUST ALWAYS be capitalized (or follow the respective language's respectful capitalization rules for deities): [${termsStr}].\n`;
+                } else {
+                    customInstructionBlock += `\nCAPITALIZATION RULE: When translating to English, the following terms MUST ALWAYS be capitalized: [${termsStr}].\n`;
+                }
+            }
+
+            const jsonSchemaChinese = enableScriptureDetection 
+                ? `[{"chinese": "...", "detectedLanguage": "...", "scriptureNote": "..."}]`
+                : `[{"chinese": "...", "detectedLanguage": "..."}]`;
+                
+            const jsonSchemaMulti = enableScriptureDetection
+                ? `[{"translations": {${effectiveBatchLanguages.map(c => `"${c}": "..."`).join(', ')}}, "chinese": "...", "detectedLanguage": "...", "scriptureNote": "..."}]`
+                : `[{"translations": {${effectiveBatchLanguages.map(c => `"${c}": "..."`).join(', ')}}, "chinese": "...", "detectedLanguage": "..."}]`;
 
             const numberedTexts = batch.map((b, i) => `--- ITEM ${i + 1} ---\n${b.text}`).join('\n\n');
 
@@ -2075,10 +2307,7 @@ CRITICAL RULES:
 5. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
 
 Return in this exact JSON format (no markdown, no extra text):
-[
-  {"chinese": "Chinese translation", "detectedLanguage": "语言名称"},
-  ...
-]
+${jsonSchemaChinese}
 
 Here are the ${batch.length} items:
 
@@ -2097,10 +2326,7 @@ CRITICAL RULES:
 6. Return a JSON array with exactly ${batch.length} objects, one for each item in order.
 
 Return in this exact JSON format (no markdown, no extra text):
-[
-  {"translations": {${effectiveBatchLanguages.map(c => `"${c}": "..."`).join(', ')}}, "chinese": "...", "detectedLanguage": "..."},
-  ...
-]
+${jsonSchemaMulti}
 
 Here are the ${batch.length} items:
 
@@ -2325,7 +2551,11 @@ ${numberedTexts}`;
                                 batch,
                                 effectiveBatchLanguages,
                                 batchCleanupMode,
-                                customInstruction
+                                customInstruction,
+                                enableScriptureDetection,
+                                scriptureVersion,
+                                deityTerms,
+                                applyDeityCapitalizationToAll
                             );
                             groqResults.forEach((result, i) => {
                                 if (i < batch.length) {
@@ -2637,7 +2867,10 @@ ${numberedTexts}`;
         const item = items.find(i => i.id === id);
         if (!item) return;
 
-        const textToTranslate = item.originalText || item.content;
+        const textToTranslate = (item.type === 'image' || item.type === 'image-url') 
+            ? item.originalText 
+            : (item.originalText || item.content);
+            
         if (!textToTranslate?.trim()) return;
 
         const ai = getAiInstance();
@@ -2662,7 +2895,11 @@ ${numberedTexts}`;
                 textToTranslate,
                 effectiveBatchLanguages,
                 batchCleanupMode,
-                customInstruction || ''
+                customInstruction || '',
+                enableScriptureDetection,
+                scriptureVersion,
+                deityTerms,
+                applyDeityCapitalizationToAll
             );
 
             setItems(prev => prev.map(i =>
@@ -3101,6 +3338,9 @@ ${numberedTexts}`;
                     getAiInstance={getAiInstance}
                     t={t}
                     model={textModel}
+                    customInstruction={customInstruction}
+                    enableScriptureDetection={enableScriptureDetection}
+                    scriptureVersion={scriptureVersion}
                     onSwitchToBatch={(files, urls) => {
                         // 切换到批量模式
                         setMode('batch');
@@ -3307,6 +3547,181 @@ ${numberedTexts}`;
                                     {' · '}Groq Key 独立于 Google 额度，可叠加使用
                                 </div>
                             </div>
+                        </div>
+                    </details>
+
+                    {/* ─── 翻译规则与经文设置面板 ─── */}
+                    <details className="translation-settings-panel" style={{
+                        margin: '0 0 8px 0',
+                        padding: 0,
+                        border: '1px solid var(--border-color, #333)',
+                        borderRadius: 8,
+                        background: 'var(--card-bg, #1c2130)',
+                        fontSize: 12,
+                    }}>
+                        <summary style={{
+                            padding: '6px 12px',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            color: 'var(--text-secondary, #aaa)',
+                            fontWeight: 500,
+                        }}>
+                            📝 翻译规则与经文设置
+                            <span style={{ fontSize: 11, opacity: 0.7 }}>
+                                {customInstruction ? '已设自定义要求' : '默认规则'}
+                                {enableScriptureDetection ? ` · 经文: ${scriptureVersion}` : ''}
+                            </span>
+                        </summary>
+                        <div style={{ padding: '8px 12px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {/* 自定义翻译要求 */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontWeight: 600 }}>自定义翻译要求 / 术语表:</span>
+                                </div>
+                                <textarea
+                                    value={customInstruction}
+                                    onChange={e => setCustomInstruction(e.target.value)}
+                                    placeholder="输入自定义格式或术语表要求..."
+                                    style={{
+                                        padding: '6px 8px',
+                                        borderRadius: 6,
+                                        border: '1px solid var(--border-color, #444)',
+                                        background: 'var(--input-bg, #0d1117)',
+                                        color: 'var(--text-primary, #e6e6e6)',
+                                        fontSize: 12,
+                                        minHeight: '80px',
+                                        resize: 'vertical'
+                                    }}
+                                />
+                            </div>
+
+                            {/* 信仰专属词汇大写规则 */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4, paddingTop: 10, borderTop: '1px solid var(--border-color, #333)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                        <span style={{ fontWeight: 600 }}>信仰词汇首字母大写保护:</span>
+                                        <span style={{ fontSize: 11, color: 'var(--text-secondary, #aaa)' }}>以下英文词块及其对应翻译将强制首字母大写。点击可删除，输入回车添加。</span>
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 11, background: 'var(--card-bg, #1c2130)', padding: '4px 8px', borderRadius: 4, border: '1px solid var(--border-color, #444)' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={applyDeityCapitalizationToAll}
+                                            onChange={e => setApplyDeityCapitalizationToAll(e.target.checked)}
+                                        />
+                                        <span>非英语语种也强制大写对应词</span>
+                                    </label>
+                                </div>
+                                <div style={{ 
+                                    display: 'flex', flexWrap: 'wrap', gap: 6, 
+                                    padding: '8px', background: 'var(--input-bg, #0d1117)', 
+                                    border: '1px solid var(--border-color, #444)', borderRadius: 6,
+                                    minHeight: '40px'
+                                }}>
+                                    {deityTerms.map(term => (
+                                        <div key={term} style={{ 
+                                            display: 'flex', alignItems: 'center', gap: 4, 
+                                            padding: '2px 8px', background: 'var(--card-bg, #1c2130)', 
+                                            border: '1px solid #475569', borderRadius: 4, fontSize: 11 
+                                        }}>
+                                            <span>{term}</span>
+                                            <button 
+                                                onClick={() => setDeityTerms(prev => prev.filter(t => t !== term))}
+                                                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 2px' }}
+                                                title="删除"
+                                            >×</button>
+                                        </div>
+                                    ))}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: '150px' }}>
+                                        <input 
+                                            type="text" 
+                                            placeholder="输入新词 (支持逗号分隔批量添加)..." 
+                                            style={{ 
+                                                background: 'transparent', border: 'none', outline: 'none', 
+                                                color: 'var(--text-primary, #e6e6e6)', fontSize: 11, width: '100%' 
+                                            }}
+                                            onKeyDown={e => {
+                                                if (e.key === 'Enter') {
+                                                    const val = (e.target as HTMLInputElement).value;
+                                                    if (val.trim()) {
+                                                        const newTerms = val.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+                                                        setDeityTerms(prev => Array.from(new Set([...prev, ...newTerms])));
+                                                        (e.target as HTMLInputElement).value = '';
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 经文检测开关与版本 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={enableScriptureDetection}
+                                        onChange={e => setEnableScriptureDetection(e.target.checked)}
+                                    />
+                                    <span style={{ fontWeight: 600 }}>开启经文引用检测</span>
+                                </label>
+                                
+                                {enableScriptureDetection && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ color: 'var(--text-secondary, #aaa)' }}>指定版本:</span>
+                                        <select
+                                            value={['King James Version (KJV)', 'American Standard Version (ASV)', 'World English Bible (WEB)'].includes(scriptureVersion) ? scriptureVersion : 'custom'}
+                                            onChange={e => {
+                                                if (e.target.value === 'custom') {
+                                                    setScriptureVersion('');
+                                                } else {
+                                                    setScriptureVersion(e.target.value);
+                                                }
+                                            }}
+                                            style={{
+                                                padding: '4px 8px',
+                                                borderRadius: 6,
+                                                border: '1px solid var(--border-color, #444)',
+                                                background: 'var(--input-bg, #0d1117)',
+                                                color: 'var(--text-primary, #e6e6e6)',
+                                                fontSize: 12,
+                                                outline: 'none',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <option value="King James Version (KJV)">King James Version (KJV)</option>
+                                            <option value="American Standard Version (ASV)">American Standard Version (ASV)</option>
+                                            <option value="World English Bible (WEB)">World English Bible (WEB)</option>
+                                            <option value="custom">自定义输入...</option>
+                                        </select>
+                                        {!['King James Version (KJV)', 'American Standard Version (ASV)', 'World English Bible (WEB)'].includes(scriptureVersion) && (
+                                            <input
+                                                type="text"
+                                                value={scriptureVersion}
+                                                onChange={e => setScriptureVersion(e.target.value)}
+                                                placeholder="手动输入版本"
+                                                autoFocus
+                                                style={{
+                                                    padding: '4px 8px',
+                                                    borderRadius: 6,
+                                                    border: '1px solid var(--border-color, #444)',
+                                                    background: 'var(--input-bg, #0d1117)',
+                                                    color: 'var(--text-primary, #e6e6e6)',
+                                                    fontSize: 12,
+                                                    width: '120px'
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                            {enableScriptureDetection && (
+                                <div style={{ fontSize: 11, color: '#f59e0b', opacity: 0.8 }}>
+                                    ⚠️ 开启经文检测后，AI 若识别到经文将强制使用指定版本的原文，禁止自行翻译以避免版权争议。
+                                </div>
+                            )}
                         </div>
                     </details>
 
@@ -3971,7 +4386,16 @@ const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = 
     const { t, setLanguage, language } = useTranslation();
     const { theme, toggleTheme } = useTheme();
     const { isKeySet, isSettingsOpen, setSettingsOpen, allowApiKeySettings } = useApi();
-    const { batchTargetLanguages, setBatchTargetLanguages, batchOnlyChinese, setBatchOnlyChinese, batchCleanupMode, setBatchCleanupMode, customInstruction, setCustomInstruction } = useBatchLanguageState(state, setState);
+    const { 
+        batchTargetLanguages, setBatchTargetLanguages, 
+        batchOnlyChinese, setBatchOnlyChinese, 
+        batchCleanupMode, setBatchCleanupMode, 
+        customInstruction, setCustomInstruction,
+        enableScriptureDetection, setEnableScriptureDetection,
+        scriptureVersion, setScriptureVersion,
+        deityTerms, setDeityTerms,
+        applyDeityCapitalizationToAll, setApplyDeityCapitalizationToAll
+    } = useBatchLanguageState(state, setState);
 
     useEffect(() => {
         if (!allowApiKeySettings) return;
@@ -4037,6 +4461,14 @@ const SmartTranslateInner: React.FC<SmartTranslateInnerProps> = ({ showHeader = 
                         setBatchCleanupMode={setBatchCleanupMode}
                         customInstruction={customInstruction}
                         setCustomInstruction={setCustomInstruction}
+                        enableScriptureDetection={enableScriptureDetection}
+                        setEnableScriptureDetection={setEnableScriptureDetection}
+                        scriptureVersion={scriptureVersion}
+                        setScriptureVersion={setScriptureVersion}
+                        deityTerms={deityTerms}
+                        setDeityTerms={setDeityTerms}
+                        applyDeityCapitalizationToAll={applyDeityCapitalizationToAll}
+                        setApplyDeityCapitalizationToAll={setApplyDeityCapitalizationToAll}
                     />
                 </main>
             </div>

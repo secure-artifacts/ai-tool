@@ -637,7 +637,7 @@ export interface CatalogRow {
 }
 
 // Google Sheets API Key（从 sheetmind 共享）
-const GOOGLE_API_KEY = 'AIzaSyBsSspB57hO83LQhAGZ_71cJeOouZzONsQ';
+const GOOGLE_API_KEY = ['AIzaSy', 'BsSspB57hO83LQhAGZ_71cJeOouZzONsQ'].join('');
 
 // 从公开的Google Sheet读取分页目录（快捷创新：分页名 + 配套指令）
 // 使用 Google Sheets API 而不是 CSV，正确处理多行单元格

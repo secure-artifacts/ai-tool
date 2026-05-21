@@ -184,6 +184,83 @@ export function useGallerySheetSync(
         }
     }, [sourceUrl, currentSheetName, galleryCategories, effectiveData.rows, imageColumn, setFeedback]);
 
+    // Sync grouping/classification results to a user-selected column
+    const [isBatchGroupSyncing, setIsBatchGroupSyncing] = useState(false);
+
+    const syncGroupingToSheet = useCallback(async (
+        targetColumn: string,
+        groupMapping: Map<string, { rowIndex: number; group: string }>
+    ) => {
+        if (!sourceUrl || !currentSheetName) {
+            setFeedback('⚠️ 未连接 Google 表格');
+            setTimeout(() => setFeedback(null), 2000);
+            return;
+        }
+
+        const accessToken = getGoogleAccessToken();
+        if (!accessToken) {
+            setFeedback('⚠️ 请先登录 Google 账号');
+            setTimeout(() => setFeedback(null), 2000);
+            return;
+        }
+
+        const itemsToSync = Array.from(groupMapping.values()).filter(item =>
+            item.group && item.rowIndex > 0
+        );
+
+        if (itemsToSync.length === 0) {
+            setFeedback('⚠️ 没有分组数据需要同步');
+            setTimeout(() => setFeedback(null), 2000);
+            return;
+        }
+
+        setIsBatchGroupSyncing(true);
+        setFeedback(`⏳ 正在写入 ${itemsToSync.length} 条分组到 ${targetColumn} 列...`);
+
+        try {
+            const parsed = parseGoogleSheetsUrl(sourceUrl);
+            if (!parsed?.spreadsheetId) {
+                throw new Error('无法解析表格 ID');
+            }
+
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const item of itemsToSync) {
+                try {
+                    await updateSingleCellInGoogleSheet(
+                        parsed.spreadsheetId,
+                        currentSheetName,
+                        targetColumn,
+                        item.rowIndex,
+                        item.group,
+                        accessToken
+                    );
+                    successCount++;
+                    if (successCount % 5 === 0 || successCount === itemsToSync.length) {
+                        setFeedback(`⏳ 写入中... (${successCount}/${itemsToSync.length})`);
+                    }
+                } catch (err) {
+                    console.error(`[Grouping] Failed to sync row ${item.rowIndex}:`, err);
+                    failCount++;
+                }
+            }
+
+            if (failCount === 0) {
+                setFeedback(`✅ 已写入 ${successCount} 条分组到 ${targetColumn} 列`);
+            } else {
+                setFeedback(`⚠️ 写入完成: ${successCount} 成功, ${failCount} 失败`);
+            }
+            setTimeout(() => setFeedback(null), 3000);
+        } catch (err) {
+            console.error('[Grouping] Batch sync failed:', err);
+            setFeedback('❌ 写入失败: ' + (err instanceof Error ? err.message : '未知错误'));
+            setTimeout(() => setFeedback(null), 3000);
+        } finally {
+            setIsBatchGroupSyncing(false);
+        }
+    }, [sourceUrl, currentSheetName, setFeedback]);
+
     useEffect(() => {
         if (autoSyncNotesToSheet && galleryNotes.size > 0 && !isBatchSyncing) {
             syncAllNotesToSheet();
@@ -199,7 +276,9 @@ export function useGallerySheetSync(
     return {
         syncAllNotesToSheet,
         syncAllCategoriesToSheet,
+        syncGroupingToSheet,
         isBatchSyncing,
-        isBatchCategorySyncing
+        isBatchCategorySyncing,
+        isBatchGroupSyncing
     };
 }

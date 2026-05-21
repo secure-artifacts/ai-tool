@@ -16,8 +16,12 @@ interface InstantTranslateToolProps {
     setTargetLanguage?: (lang: string) => void;
     getAiInstance: () => GoogleGenAI;
     t: (key: string) => string;
-    model: string;
     onSwitchToBatch?: (files?: File[], urls?: string[]) => void;
+    customInstruction?: string;
+    enableScriptureDetection?: boolean;
+    scriptureVersion?: string;
+    deityTerms?: string[];
+    applyDeityCapitalizationToAll?: boolean;
 }
 
 enum TranslationStatus {
@@ -49,7 +53,12 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
     getAiInstance,
     t,
     model,
-    onSwitchToBatch
+    onSwitchToBatch,
+    customInstruction = '',
+    enableScriptureDetection = false,
+    scriptureVersion = 'King James Version (KJV)',
+    deityTerms = [],
+    applyDeityCapitalizationToAll = false
 }) => {
     const [inputText, setInputText] = useState('');
     const [outputText, setOutputText] = useState('');
@@ -300,10 +309,10 @@ export const InstantTranslateTool: React.FC<InstantTranslateToolProps> = ({
             const ai = getAiInstance();
             const targetLangName = allLanguages.find(l => l.code === targetLang)?.name || targetLang;
 
-            let systemInstruction = `You are a professional, high - accuracy translation engine similar to DeepL. 
-Your goal is to provide fluent, natural - sounding translations that preserve the nuance and tone of the original text.
+            let systemInstruction = `You are a professional, high-accuracy translation engine similar to DeepL. 
+Your goal is to provide fluent, natural-sounding translations that preserve the nuance and tone of the original text.
 
-    Rules:
+Rules:
 1. Translate the input text to ${targetLangName}.
 2. Do NOT provide explanations, notes, or pronunciation guides. 
 3. Output ONLY the translated text.
@@ -319,6 +328,23 @@ Rules:
 3. Do NOT provide explanations, notes, or pronunciation guides. 
 4. Output ONLY the translated text.
 5. If the input is technically code or a proper noun that shouldn't be translated, keep it as is.`;
+            }
+            
+            if (customInstruction.trim()) {
+                systemInstruction += `\n\nCRITICAL GLOSSARY & FORMATTING RULES:\n1. STRICTLY follow these user-defined formatting and translation rules:\n${customInstruction.trim()}\n2. Any violation of these rules is unacceptable.`;
+            }
+            
+            if (enableScriptureDetection) {
+                systemInstruction += `\n\nSCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT):\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.`;
+            }
+
+            if (deityTerms && deityTerms.length > 0) {
+                const termsStr = deityTerms.join(', ');
+                if (applyDeityCapitalizationToAll) {
+                    systemInstruction += `\n\nCAPITALIZATION RULE: The following terms and their translated equivalents in ANY language MUST ALWAYS be capitalized (or follow the respective language's respectful capitalization rules for deities): [${termsStr}].`;
+                } else {
+                    systemInstruction += `\n\nCAPITALIZATION RULE: When translating to English, the following terms MUST ALWAYS be capitalized: [${termsStr}].`;
+                }
             }
 
             const responseStream = await ai.models.generateContentStream({
@@ -345,7 +371,7 @@ Rules:
             setStatus(TranslationStatus.ERROR);
             setOutputText("翻译出错。请检查您的网络连接或稍后重试。");
         }
-    }, [getAiInstance, model, allLanguages, user]);
+    }, [getAiInstance, model, allLanguages, user, customInstruction, enableScriptureDetection, scriptureVersion, deityTerms, applyDeityCapitalizationToAll]);
 
     // Auto-translate when text changes
     useEffect(() => {

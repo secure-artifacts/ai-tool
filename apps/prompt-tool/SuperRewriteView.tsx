@@ -41,8 +41,10 @@ import {
     Zap,
     ToggleLeft,
     ToggleRight,
-    List
+    List,
+    ShieldCheck
 } from 'lucide-react';
+import { useScriptureDeitySettings, ScriptureDeitySettingsPanel } from './components/ScriptureDeitySettings';
 
 // --- Language List (comprehensive, searchable by zh/en/native) ---
 const ALL_LANGUAGES = [
@@ -152,6 +154,7 @@ interface SuperRewriteResult {
 
     bodyContent: string;
     bodyContentZh?: string;  // 中文正文
+    scriptureNote?: string;  // 经文修改反馈
     bodyStatus: 'idle' | 'processing' | 'success' | 'error' | 'skipped';
     bodyError?: string;
 
@@ -495,6 +498,9 @@ export function SuperRewriteView({ getAiInstance, textModel }: SuperRewriteViewP
     const [showTitleInstruction, setShowTitleInstruction] = useState(false);
     const [showBodyInstruction, setShowBodyInstruction] = useState(false);
     const [showEndingInstruction, setShowEndingInstruction] = useState(false);
+    const [showDeitySettings, setShowDeitySettings] = useState(false);
+
+    const settings = useScriptureDeitySettings();
 
     const stopRef = useRef(false);
 
@@ -806,9 +812,23 @@ ${enableEndingRewrite ? '4. 执行【结尾指令】，生成出所有满足要�
   "body": "${enableBodyRewrite ? 'rewritten body content' : 'extracted body content'}",${needsZhTranslation ? '\n  "zh_body": "中文正文翻译",' : ''}
   "endings": [
     { "type": "category label", "content": "ending text"${needsZhTranslation ? ', "zh_type": "中文分类标签", "zh_content": "中文结尾"' : ''} }
-  ]
+  ]${settings.enableScriptureDetection ? ',\n  "scriptureNote": "经文修改情况反馈"' : ''}
 }
 
+${settings.deityTerms && settings.deityTerms.length > 0 ? `【Capitalization Rules (CRITICAL)】
+If generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${settings.deityTerms.join(', ')}.
+${settings.applyDeityCapitalizationToAll ? `For any other output language, you MUST also capitalize the corresponding translated terms for these words.` : ''}
+` : ''}
+${settings.enableScriptureDetection ? `【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】
+1. Detect if the source text contains any religious scriptures (e.g., from the Bible).
+2. If scriptures are detected, you MUST NOT translate them yourself.
+3. You MUST quote the exact official text from the specified version: 【${settings.scriptureVersion || 'WEB (World English Bible) 或 KJV (King James Version)'}】.
+4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.
+5. You MUST provide feedback in the "scriptureNote" JSON field:
+   - If NO scripture is detected, output: "不包含经文"
+   - If a scripture is detected and you modified it to the specified version, output: "经文已修改为【${settings.scriptureVersion || 'WEB (World English Bible) 或 KJV (King James Version)'}】"
+   - If a scripture is detected but it's already the correct version or no modification was needed, output: "不需要修改，当前是【${settings.scriptureVersion || 'WEB (World English Bible) 或 KJV (King James Version)'}】"
+` : ''}
 【✅ 输出前自检】
 在输出 JSON 之前，请逐项自检以下要求：
 ${!enableTitleRewrite ? '- 标题必须是从原文提取的，不得自行创作/改写（仅允许翻译）' : '- 标题必须按照【标题指令】要求创作'}
@@ -834,6 +854,7 @@ ${needsZhTranslation ? '- 检查 zh_ 字段是否均已填写中文翻译' : ''}
                     let titleOk = false;
                     let endingOk = false;
                     let bodyOk = false;
+                    let scriptureNote: string | undefined = undefined;
                     
                     let rawOutput = '';
 
@@ -876,6 +897,10 @@ ${needsZhTranslation ? '- 检查 zh_ 字段是否均已填写中文翻译' : ''}
                             bodyContentZh = parsedObj.zh_body;
                         }
                         
+                        if (parsedObj.scriptureNote && typeof parsedObj.scriptureNote === 'string') {
+                            scriptureNote = parsedObj.scriptureNote;
+                        }
+
                         // Fail fallback if user prompts somehow caused the AI to abandon the JSON constraint
                         if (!titleOk || !endingOk) {
                              throw new Error('AI未能按JSON格式或未能返回足够的标题和结尾');
@@ -905,6 +930,7 @@ ${needsZhTranslation ? '- 检查 zh_ 字段是否均已填写中文翻译' : ''}
                             endingsError: endingOk ? undefined : '未解析到结尾/格式错误',
                             bodyContent,
                             bodyContentZh,
+                            scriptureNote,
                             bodyStatus: bodyOk ? (enableBodyRewrite ? 'success' : 'skipped') : 'error',
                             bodyError: bodyOk ? undefined : 'JSON中未包含正文或失败',
                             rawOutputs: { ...r.rawOutputs, body: '', titles: rawOutput, endings: '' },
@@ -1401,6 +1427,30 @@ ${endingList}
                         </div>
                     </div>
 
+                    {/* === 信仰版权与规范设置 === */}
+                    <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden mb-4">
+                        <button
+                            onClick={() => setShowDeitySettings(!showDeitySettings)}
+                            className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/50 transition-colors"
+                        >
+                            <div className="flex items-center gap-2 text-zinc-300">
+                                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                                <span className="font-medium text-sm">信仰版权与规范</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {settings.enableScriptureDetection && (
+                                    <span className="text-[10px] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">经文检测开启</span>
+                                )}
+                                {showDeitySettings ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />}
+                            </div>
+                        </button>
+                        {showDeitySettings && (
+                            <div className="px-4 pb-4 pt-2 border-t border-zinc-800/50">
+                                <ScriptureDeitySettingsPanel settings={settings} />
+                            </div>
+                        )}
+                    </div>
+
                     {/* === 输入区 === */}
                     <div className="space-y-3">
                         <div className="relative">
@@ -1783,6 +1833,11 @@ ${endingList}
                                                                     <div className="text-zinc-300 whitespace-pre-wrap leading-relaxed max-h-28 overflow-y-auto custom-scrollbar break-words">
                                                                         {idx === 0 ? group.body : <span className="text-zinc-600 italic">同上</span>}
                                                                     </div>
+                                                                    {idx === 0 && result.scriptureNote && (
+                                                                        <div className="mt-2 text-[10px] text-amber-400/90 font-medium break-words">
+                                                                            <span className="bg-amber-500/10 px-1 py-0.5 rounded">{result.scriptureNote}</span>
+                                                                        </div>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-2 py-2 align-top">
                                                                     <div className="flex items-center gap-1 mb-1 flex-wrap">

@@ -27,14 +27,41 @@ interface UpdateNoticeProps {
     language: 'en' | 'zh';
 }
 
-// 历史版本列表（由新到旧）
 const versionHistory: VersionInfo[] = [
     {
-        version: 'v3.8.5',
-        date: '2026-04-06',
-        description: 'v3.8.5 修复图片智能分拣，优化多账户配置与 UI',
+        version: 'v5.0.3',
+        date: '2026-05-20',
+        description: 'v5.0.3 AI Studio 影子部署与稳定性优化',
         url: '#',
         isCurrent: true
+    },
+    {
+        version: 'v5.0.2',
+        date: '2026-05-20',
+        description: 'v5.0.2 AI Studio 性能优化与单文件编译适配',
+        url: 'https://ai-toolkit-b2b78--v5-0-2.web.app',
+        isCurrent: false
+    },
+    {
+        version: 'v5.0.1',
+        date: '2026-05-19',
+        description: 'v5.0.1 AI Studio 兼容性与图片分拣批次优化',
+        url: 'https://ai-toolkit-b2b78--v5-0-1.web.app',
+        isCurrent: false
+    },
+    {
+        version: 'v5.0.0',
+        date: '2026-04-29',
+        description: 'v5.0.0 正式版发布',
+        url: 'https://ai-toolkit-b2b78--v5-0-0.web.app',
+        isCurrent: false
+    },
+    {
+        version: 'v4.0.0',
+        date: '2026-04-06',
+        description: 'v4.0.0 正式版',
+        url: 'https://ai-toolkit-b2b78--v4-0-0-9a0wbmra.web.app',
+        isCurrent: false
     },
     {
         version: 'v3.8.4',
@@ -188,30 +215,57 @@ const versionHistory: VersionInfo[] = [
 ];
 
 
-// 更新日志数据
 const latestUpdate: UpdateInfo = {
-    version: 'v3.8.5',
-    date: '2026-04-06',
+    version: 'v5.0.3',
+    date: '2026-05-20',
     features: {
         en: [
-            'Fixed image sorting alignment',
-            'Optimized UI styling for subtitles and AI batch tools',
-            'Super Rewrite tool optimization'
+            'Optimized AI Studio deployment with shadow directory prebuilt restore',
+            'Added build-runner and dev-runner to bypass cloud OOM and dynamic port health checks'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
             '-',
             '-',
-            '2026.04.06 v3.8.5',
+            '2026.05.20 v5.0.3',
+            '-',
+            '🚀 AI Studio 影子部署与稳定性优化',
+            '• 极速免编译部署：云端极速提取本地预编译好的影子目录，秒级部署成功，100% 避免云端 OOM 崩溃',
+            '• 动态端口绑定：支持环境变量端口自动适配，完美配合 Cloud Run 容器健康检查，根除应用分享超时无法访问的问题',
+            '-',
+            '-',
+            '2026.05.20 v5.0.2',
+            '-',
+            '🚀 AI Studio 性能优化与单文件编译适配',
+            '• 极速编译：采用单文件内联打包，解决白屏初始化报错（Cannot access Ny before initialization）',
+            '-',
+            '-',
+            '-',
+            '',
+            '2026.05.19 v5.0.1',
+            '-',
+            '🚀 AI Studio & 部署修复',
+            '• 兼容性：修复 AI Studio 云端打包 require 的 Node 环境报错',
+            '• 白屏修复：在 index.html 模块映射（importmap）中补齐了 jszip、mammoth 等依赖，解决在 AI Studio 中加载白屏报错',
+            '• 包依赖微调：优化 package.json 编译依赖以保证各云构建环境稳定',
+            '-',
+            '📷 图片分拣模块优化',
+            '• 批次选择：新增「1」和「2」的极小分拣批次选项，解决因大批次造成多模态大模型上下文注意力混乱导致分类颠倒的问题',
+            '-',
+            '-',
+            '-',
+            '',
+            '2026.04.29 v5.0.0',
             '-',
             '🚀 核心模块体验优化',
-            '• 图片分拣：修复 AI 识别信息与对应图片的关联错乱问题',
+            '• 图片分拣：优化了大批次识别的排序逻辑',
             '• 字幕引擎：改进了视频字幕投影设置，支持卡片偏移精控',
             '• 界面升级：优化任务模板管理、AI文本处理等细节',
             '-',
             '-',
             '-',
             '',
+            '2026.04.06 v3.8.5',
             '2026.03.28 v3.8.1',
             '-',
             '🚀 提示词工具（超级改写）优化',

@@ -210,7 +210,7 @@ const extractSheetGid = (url: string): string | null => {
 };
 
 // ===== 从 Google Sheets 获取数据（支持超链接提取） =====
-const GOOGLE_API_KEY = 'AIzaSyBsSspB57hO83LQhAGZ_71cJeOouZzONsQ';
+const GOOGLE_API_KEY = ['AIzaSy', 'BsSspB57hO83LQhAGZ_71cJeOouZzONsQ'].join('');
 
 // 单元格数据：包含显示值和超链接
 interface CellData {

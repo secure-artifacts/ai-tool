@@ -18,7 +18,8 @@ import {
   Eraser,
   Combine,
   Trash2,
-  AlignLeft
+  AlignLeft,
+  Link2
 } from 'lucide-react';
 import {
   processGrid,
@@ -52,6 +53,7 @@ const MODEL_OPTIONS = [
 // Default grid size
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLS = 20;
+const LINK_VARIANT_LIMIT = 4096;
 
 interface PersistedScriptToolState {
   gridData: GridData;
@@ -64,6 +66,37 @@ interface PersistedScriptToolState {
 
 const createEmptyGrid = (): GridData =>
   Array.from({ length: DEFAULT_ROWS }, () => Array(DEFAULT_COLS).fill(''));
+
+const countAmbiguousLinkChars = (value: string): number => {
+  return (value.match(/[lI]/g) || []).length;
+};
+
+const generateLinkVariants = (value: string): string[] => {
+  const ambiguousCount = countAmbiguousLinkChars(value);
+  if (ambiguousCount === 0) return [];
+  if (ambiguousCount > Math.log2(LINK_VARIANT_LIMIT)) {
+    throw new Error(`可疑字符过多，会生成 ${Math.pow(2, ambiguousCount).toLocaleString()} 条候选。当前上限为 ${LINK_VARIANT_LIMIT.toLocaleString()} 条。`);
+  }
+
+  const variants: string[] = [''];
+  for (const ch of value) {
+    if (ch !== 'l' && ch !== 'I') {
+      for (let i = 0; i < variants.length; i++) {
+        variants[i] += ch;
+      }
+      continue;
+    }
+
+    const currentLength = variants.length;
+    for (let i = 0; i < currentLength; i++) {
+      const prefix = variants[i];
+      variants[i] = `${prefix}l`;
+      variants.push(`${prefix}I`);
+    }
+  }
+
+  return variants;
+};
 
 const normalizeGridData = (raw: unknown): GridData => {
   if (!Array.isArray(raw)) return createEmptyGrid();
@@ -135,6 +168,8 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
   const [mergeCycle, setMergeCycle] = useState<number>(persistedState?.mergeCycle ?? 1); // 循环列数
   const [showWrapModal, setShowWrapModal] = useState(false); // 自动断行弹窗
   const [lineWidth, setLineWidth] = useState<number>(18); // 断行宽度（默认18）
+  const [showLinkVariantModal, setShowLinkVariantModal] = useState(false);
+  const [linkVariantInput, setLinkVariantInput] = useState('');
 
   // ===== 合并行内容：多列合并为一列（顿号分隔）=====
   const handleMergeRowContent = () => {
@@ -192,6 +227,79 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
       return;
     }
     setShowMergeModal(true);
+  };
+
+  const getFirstSelectedText = (): string => {
+    if (!selection) return '';
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        const value = gridData[r]?.[c]?.trim();
+        if (value) return value;
+      }
+    }
+    return '';
+  };
+
+  const handleOpenLinkVariantModal = () => {
+    const selectedText = getFirstSelectedText();
+    setLinkVariantInput(selectedText);
+    setShowLinkVariantModal(true);
+    if (!selectedText) {
+      setStatusMsg('请输入链接，或先选中一个包含链接的单元格');
+    }
+  };
+
+  const handleGenerateLinkVariants = () => {
+    const source = linkVariantInput.trim();
+    if (!source) {
+      setStatusMsg('请输入需要枚举的链接');
+      return;
+    }
+
+    try {
+      const variants = generateLinkVariants(source);
+      if (variants.length === 0) {
+        setStatusMsg('链接中没有找到小写 l 或大写 I');
+        return;
+      }
+
+      const anchorRow = selection ? Math.min(selection.start.row, selection.end.row) : 0;
+      const anchorCol = selection ? Math.min(selection.start.col, selection.end.col) : 0;
+      const targetCol = anchorCol + 1;
+      const nextGrid = gridData.map(row => [...row]);
+      const minCols = Math.max(DEFAULT_COLS, targetCol + 1, nextGrid[0]?.length || 0);
+
+      while (nextGrid.length < anchorRow + variants.length) {
+        nextGrid.push(Array(minCols).fill(''));
+      }
+
+      for (let r = 0; r < nextGrid.length; r++) {
+        if (!nextGrid[r]) nextGrid[r] = [];
+        while (nextGrid[r].length < minCols) nextGrid[r].push('');
+      }
+
+      variants.forEach((variant, idx) => {
+        nextGrid[anchorRow + idx][targetCol] = variant;
+      });
+
+      const newSelection = {
+        start: { row: anchorRow, col: targetCol },
+        end: { row: anchorRow + variants.length - 1, col: targetCol }
+      };
+
+      setGridData(nextGrid);
+      setForceSelection(newSelection);
+      setSelection(newSelection);
+      setShowLinkVariantModal(false);
+      setStatusMsg(`已生成 ${variants.length} 个链接候选，结果在 ${colToLetter(targetCol)}${anchorRow + 1}:${colToLetter(targetCol)}${anchorRow + variants.length}`);
+    } catch (err: any) {
+      setStatusMsg(err?.message || '链接枚举失败');
+    }
   };
 
   const doMergeColumns = () => {
@@ -914,6 +1022,12 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
               onClick={handleMergeRowContent}
               disabled={!selection}
             />
+            <ToolButton
+              icon={<Link2 className="w-4 h-4" />}
+              label="链接枚举"
+              tooltip="枚举链接里小写 l 与大写 I 的所有可能组合，结果写入右侧一列"
+              onClick={handleOpenLinkVariantModal}
+            />
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-white">
               <span className="text-xs font-medium text-slate-600">AI模型:</span>
               <select
@@ -1037,6 +1151,52 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 className="prefix-modal-btn-confirm"
               >
                 确定断行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 链接 l/I 枚举弹窗 */}
+      {showLinkVariantModal && (
+        <div className="prefix-modal-overlay" onClick={() => setShowLinkVariantModal(false)}>
+          <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="prefix-modal-title">链接 l / I 枚举</h3>
+            <p className="prefix-modal-desc">
+              粘贴看不清的链接，工具会把其中的小写 <b>l</b> 和大写 <b>I</b> 生成所有组合。
+              结果会写入当前选区右侧一列，每行一个候选链接。
+              <br />当前最多生成 <b>{LINK_VARIANT_LIMIT.toLocaleString()}</b> 条，避免浏览器卡死。
+            </p>
+            <textarea
+              value={linkVariantInput}
+              onChange={(e) => setLinkVariantInput(e.target.value)}
+              placeholder="粘贴链接，例如：https://example.com/aIl..."
+              className="prefix-modal-input"
+              rows={4}
+              style={{ width: '100%', minHeight: 110, resize: 'vertical', textAlign: 'left' }}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  handleGenerateLinkVariants();
+                }
+              }}
+              autoFocus
+            />
+            <div className="text-xs text-slate-500" style={{ marginTop: '-4px', marginBottom: '12px' }}>
+              已识别 {countAmbiguousLinkChars(linkVariantInput)} 个可疑字符，预计生成 {countAmbiguousLinkChars(linkVariantInput) > 0 ? Math.pow(2, countAmbiguousLinkChars(linkVariantInput)).toLocaleString() : 0} 条。
+            </div>
+            <div className="prefix-modal-actions">
+              <button
+                onClick={() => setShowLinkVariantModal(false)}
+                className="prefix-modal-btn-cancel"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleGenerateLinkVariants}
+                disabled={!linkVariantInput.trim()}
+                className={`prefix-modal-btn-confirm ${!linkVariantInput.trim() ? 'disabled' : ''}`}
+              >
+                生成候选
               </button>
             </div>
           </div>

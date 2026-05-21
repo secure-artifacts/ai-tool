@@ -50,6 +50,7 @@ import {
 import AnnotationEditor from './AnnotationEditor';
 import ReviewCanvasView from './ReviewCanvasView';
 import FeedbackModal from './FeedbackModal';
+import { FeedbackPreviewModal } from './gallery/FeedbackPreviewModal';
 
 interface ImageFormulaProps {
     onBack?: () => void;
@@ -88,6 +89,7 @@ interface FeedbackColumnOptions {
     sourceImage: boolean;      // 原图预览
     annotatedImage: boolean;   // 标注图片（实际图片）
     reviewer: boolean;         // 反馈人
+    severity: boolean;         // 严重程度
     annotationLink: boolean;   // 标注链接
     annotationFormula: boolean; // 标注公式
     feedbackText: boolean;     // 文字建议
@@ -103,10 +105,11 @@ const FEEDBACK_COLUMN_DEFAULT_ORDER: FeedbackColumnKey[] = [
     'sourceImage',
     'reviewer',
     'status',
-    'annotatedImage',
+    'severity',
+    'feedbackText',
     'annotationLink',
     'annotationFormula',
-    'feedbackText',
+    'annotatedImage',
 ];
 
 const FEEDBACK_COLUMN_META: Record<FeedbackColumnKey, { label: string; icon: string; toggleable: boolean }> = {
@@ -117,6 +120,7 @@ const FEEDBACK_COLUMN_META: Record<FeedbackColumnKey, { label: string; icon: str
     annotatedImage: { label: '标注图片', icon: '🖼️', toggleable: true },
     reviewer: { label: '反馈人', icon: '👤', toggleable: true },
     status: { label: '状态', icon: '🏷️', toggleable: false },
+    severity: { label: '严重程度', icon: '🚨', toggleable: true },
     annotationLink: { label: '标注链接', icon: '✂️', toggleable: true },
     annotationFormula: { label: '标注公式', icon: '📐', toggleable: true },
     feedbackText: { label: '文字建议', icon: '💬', toggleable: true },
@@ -136,6 +140,13 @@ function sanitizeFeedbackColumnOrder(input: unknown): FeedbackColumnKey[] {
         if (out.includes(key)) continue;
         out.push(key);
     }
+
+    // Force reset to the new default order if migrating from a version without severity,
+    // because the requested sequence requires a complete re-ordering of existing columns.
+    if (!out.includes('severity')) {
+        return [...FEEDBACK_COLUMN_DEFAULT_ORDER];
+    }
+
     for (const key of FEEDBACK_COLUMN_DEFAULT_ORDER) {
         if (!out.includes(key)) out.push(key);
     }
@@ -301,12 +312,14 @@ const IMAGE_MIME_TYPES = new Set([
     'image/avif',
 ]);
 
-const MEDIA_MIME_TYPES = new Set([...VIDEO_MIME_TYPES, ...IMAGE_MIME_TYPES]);
+const MEDIA_MIME_TYPES = new Set(Array.from(VIDEO_MIME_TYPES).concat(Array.from(IMAGE_MIME_TYPES)));
 
 interface DriveFile {
     id: string;
     name: string;
     mimeType: string;
+    /** Relative folder path from the scanned root folder (e.g. 'SubA/SubB') */
+    folderPath?: string;
 }
 
 /** Extract Google Drive folder ID from folder URL */
@@ -322,7 +335,8 @@ function extractDriveFolderId(url: string): string | null {
     return null;
 }
 
-/** Recursively list all media files (images + videos) inside a Drive folder (breadth-first) */
+/** Recursively list all media files (images + videos) inside a Drive folder (breadth-first).
+ *  Each file's `folderPath` is the relative path from the root folder. */
 async function listDriveMediaRecursive(
     folderId: string,
     apiKey: string,
@@ -330,19 +344,21 @@ async function listDriveMediaRecursive(
     signal: AbortSignal,
 ): Promise<DriveFile[]> {
     const results: DriveFile[] = [];
-    const queue: string[] = [folderId];
+    // Queue entries now include the relative folder path
+    const queue: { id: string; path: string }[] = [{ id: folderId, path: '' }];
     let folderCount = 0;
 
     while (queue.length > 0) {
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        const currentId = queue.shift()!;
+        const current = queue.shift()!;
         folderCount++;
-        onProgress(`正在扫描第 ${folderCount} 个文件夹…`);
+        const pathLabel = current.path || '(根目录)';
+        onProgress(`正在扫描第 ${folderCount} 个文件夹 [${pathLabel}]…`);
 
         let pageToken: string | undefined;
         do {
             if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-            const q = encodeURIComponent(`'${currentId}' in parents and trashed=false`);
+            const q = encodeURIComponent(`'${current.id}' in parents and trashed=false`);
             const fields = encodeURIComponent('nextPageToken,files(id,name,mimeType)');
             let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1000&key=${apiKey}`;
             if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
@@ -357,9 +373,10 @@ async function listDriveMediaRecursive(
 
             for (const f of files) {
                 if (f.mimeType === 'application/vnd.google-apps.folder') {
-                    queue.push(f.id);
+                    const childPath = current.path ? `${current.path}/${f.name}` : f.name;
+                    queue.push({ id: f.id, path: childPath });
                 } else if (MEDIA_MIME_TYPES.has(f.mimeType)) {
-                    results.push(f);
+                    results.push({ ...f, folderPath: current.path || undefined });
                 }
             }
             pageToken = data.nextPageToken;
@@ -397,6 +414,7 @@ async function uploadToGyazo(dataUrl: string, token: string): Promise<{ url: str
 // ==================== Feedback Types ====================
 
 type FeedbackStatus = 'approved' | 'needs-edit' | 'rejected' | null;
+type FeedbackSeverity = 'high' | 'medium' | 'low' | null;
 type FeedbackScreenshotSource = 'thumbnail' | 'video' | 'paste';
 
 interface FeedbackScreenshot {
@@ -411,6 +429,7 @@ interface FeedbackScreenshot {
 
 interface FeedbackItem {
     status: FeedbackStatus;
+    severity: FeedbackSeverity;
     text: string;
     screenshots: FeedbackScreenshot[];
 }
@@ -463,6 +482,7 @@ function normalizeFeedbackScreenshots(item?: LegacyFeedbackItem | null): Feedbac
 function ensureFeedbackItem(item?: LegacyFeedbackItem | null): FeedbackItem {
     return {
         status: item?.status || null,
+        severity: (item as any)?.severity || null,
         text: item?.text || '',
         screenshots: normalizeFeedbackScreenshots(item),
     };
@@ -486,8 +506,25 @@ function decodeUrlParam(value: string): string {
     }
 }
 
+function decodeHtmlUrlText(value: string): string {
+    return (value || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#34;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&apos;/gi, "'")
+        .replace(/&amp;/gi, '&')
+        .replace(/\\\//g, '/')
+        .replace(/\\u002f/gi, '/')
+        .replace(/\\u0026/gi, '&');
+}
+
 function normalizeExtractedUrl(raw: string): string {
-    const value = (raw || '').trim();
+    const value = decodeHtmlUrlText(raw || '')
+        .trim()
+        .replace(/^[<("'\[]+/, '')
+        .replace(/[>)"'\],;.!?，。；：！？、]+$/, '');
     try {
         const parsed = new URL(value);
         const isGoogleRedirect = /(^|\.)google\./i.test(parsed.hostname) && parsed.pathname === '/url';
@@ -505,9 +542,10 @@ function normalizeExtractedUrl(raw: string): string {
 }
 
 function extractUrlFromFormulaOrText(raw: string): string | null {
-    const value = (raw || '').trim();
+    const value = decodeHtmlUrlText(raw || '').trim();
     if (!value) return null;
     if (/^https?:\/\//i.test(value)) return normalizeExtractedUrl(value);
+    if (/^(drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)/i.test(value)) return normalizeExtractedUrl(`https://${value}`);
 
     const hyperlinkMatch = value.match(/=?\s*HYPERLINK\s*\(\s*["']([^"']+)["']/i);
     if (hyperlinkMatch?.[1]) return normalizeExtractedUrl(hyperlinkMatch[1].trim());
@@ -518,10 +556,81 @@ function extractUrlFromFormulaOrText(raw: string): string | null {
     const imageFormulaMatch = value.match(/=?\s*IMAGE\s*\(\s*["']([^"']+)["']/i);
     if (imageFormulaMatch?.[1]) return normalizeExtractedUrl(imageFormulaMatch[1].trim());
 
-    const urlMatch = value.match(/https?:\/\/[^\s<>"']+/i);
+    const urlMatch = value.match(/(?:https?:\/\/)?(?:drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)[^\s<>"']+/i) || value.match(/https?:\/\/[^\s<>"']+/i);
     if (urlMatch?.[0]) return normalizeExtractedUrl(urlMatch[0].trim());
 
     return null;
+}
+
+function extractUrlFromHtmlFragment(raw: string): string | null {
+    const value = decodeHtmlUrlText(raw || '');
+    if (!value) return null;
+
+    const attrUrlMatch = value.match(/(?:href|src|data-sheets-hyperlink|data-hyperlink|data-url)=["']([^"']+)["']/i);
+    if (attrUrlMatch?.[1]) {
+        const url = extractUrlFromFormulaOrText(attrUrlMatch[1]);
+        if (url) return url;
+    }
+
+    const formulaMatch = value.match(/data-sheets-formula=["']([^"']+)["']/i);
+    if (formulaMatch?.[1]) {
+        const formula = formulaMatch[1]
+            .replace(/&quot;/gi, '"')
+            .replace(/&#34;/gi, '"')
+            .replace(/&amp;/gi, '&');
+        const url = extractUrlFromFormulaOrText(formula);
+        if (url) return url;
+    }
+
+    const url = extractUrlFromFormulaOrText(value);
+    if (url) return url;
+
+    const driveIdMatch = value.match(/(?:file\/d\/|\/d\/|[?&]id=|driveFileId["']?\s*[:=]\s*["']?)([a-zA-Z0-9_-]{10,})/i);
+    if (driveIdMatch?.[1]) {
+        return `https://drive.google.com/file/d/${driveIdMatch[1]}/view`;
+    }
+
+    return null;
+}
+
+function pushUniqueNormalizedUrl(out: string[], candidate: string | null | undefined) {
+    if (!candidate) return;
+    const normalized = normalizeExtractedUrl(candidate);
+    if (!/^https?:\/\//i.test(normalized)) return;
+    if (out.indexOf(normalized) >= 0) return;
+    out.push(normalized);
+}
+
+function extractUrlCandidatesFromText(raw: string): string[] {
+    const value = decodeHtmlUrlText(raw || '');
+    const out: string[] = [];
+    if (!value.trim()) return out;
+
+    const hyperlinkRe = /=?\s*HYPERLINK\s*\(\s*["']([^"']+)["']/ig;
+    const imageRe = /=?\s*IMAGE\s*\(\s*["']([^"']+)["']/ig;
+    const anchorRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>/ig;
+    const attrRe = /(?:href|src|data-sheets-hyperlink|data-hyperlink|data-url)=["']([^"']+)["']/ig;
+    const urlRe = /(?:https?:\/\/)?(?:drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)[^\s<>"']+|https?:\/\/[^\s<>"']+/ig;
+
+    [hyperlinkRe, imageRe, anchorRe, attrRe, urlRe].forEach(re => {
+        re.lastIndex = 0;
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(value)) !== null) {
+            const rawMatch = match[1] || match[0] || '';
+            if (/^(drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)/i.test(rawMatch)) {
+                pushUniqueNormalizedUrl(out, `https://${rawMatch}`);
+            } else {
+                pushUniqueNormalizedUrl(out, rawMatch);
+            }
+        }
+    });
+
+    const driveIdMatches = value.matchAll(/(?:file\/d\/|\/d\/|[?&]id=|driveFileId["']?\s*[:=]\s*["']?)([a-zA-Z0-9_-]{10,})/ig);
+    for (const match of driveIdMatches) {
+        pushUniqueNormalizedUrl(out, `https://drive.google.com/file/d/${match[1]}/view`);
+    }
+
+    return out;
 }
 
 function extractUrlCandidateFromCell(raw: string): { url: string; isDirect: boolean } | null {
@@ -533,16 +642,29 @@ function extractUrlCandidateFromCell(raw: string): { url: string; isDirect: bool
     const hyperlinkMatch = value.match(/=?\s*HYPERLINK\s*\(\s*["']([^"']+)["']/i);
     if (hyperlinkMatch?.[1]) return { url: normalizeExtractedUrl(hyperlinkMatch[1].trim()), isDirect: false };
 
-    const anchorMatch = value.match(/<a\s+[^>]*href="([^"]+)"[^>]*>/i);
+    const anchorMatch = value.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>/i);
     if (anchorMatch?.[1]) return { url: normalizeExtractedUrl(anchorMatch[1].trim()), isDirect: false };
 
     const imageFormulaMatch = value.match(/=?\s*IMAGE\s*\(\s*["']([^"']+)["']/i);
     if (imageFormulaMatch?.[1]) return { url: normalizeExtractedUrl(imageFormulaMatch[1].trim()), isDirect: false };
 
-    const urlMatch = value.match(/https?:\/\/[^\s<>"']+/i);
+    const urlMatch = value.match(/(?:https?:\/\/)?(?:drive\.google\.com|docs\.google\.com|lh3\.googleusercontent\.com|drive\.usercontent\.google\.com)[^\s<>"']+/i) || value.match(/https?:\/\/[^\s<>"']+/i);
     if (urlMatch?.[0]) return { url: normalizeExtractedUrl(urlMatch[0].trim()), isDirect: false };
 
+    const htmlUrl = extractUrlFromHtmlFragment(value);
+    if (htmlUrl) return { url: htmlUrl, isDirect: false };
+
     return null;
+}
+
+function extractUrlCandidatesFromCell(raw: string): Array<{ url: string; isDirect: boolean }> {
+    const direct = extractUrlCandidateFromCell(raw);
+    const urls = extractUrlCandidatesFromText(raw);
+    if (direct?.url && urls.indexOf(direct.url) < 0) urls.unshift(direct.url);
+    return urls.map(url => ({
+        url,
+        isDirect: direct?.url === url ? direct.isDirect : /^https?:\/\//i.test((raw || '').trim()),
+    }));
 }
 
 function inferExplicitMediaType(url: string, infoText?: string): boolean | undefined {
@@ -603,6 +725,16 @@ function extractUrlFromHtmlCellValue(cell: Element): string {
         }
     }
 
+    const outerHtmlUrl = extractUrlFromHtmlFragment((cell as HTMLElement).outerHTML || '');
+    if (outerHtmlUrl) {
+        const label = (cellText || outerHtmlUrl).trim();
+        if (label && !/^https?:\/\//i.test(label)) {
+            const safeLabel = label.replace(/"/g, '""');
+            return `=HYPERLINK("${outerHtmlUrl}","${safeLabel}")`;
+        }
+        return outerHtmlUrl;
+    }
+
     const media = cell.querySelector('img[src],video[src],source[src]');
     if (media) {
         const mediaUrl = extractUrlFromFormulaOrText(media.getAttribute('src') || '');
@@ -616,10 +748,110 @@ function stripUrlArtifacts(value: string): string {
     let text = (value || '').trim();
     if (!text) return '';
     text = text.replace(/=HYPERLINK\s*\(\s*"[^"]+"\s*,\s*"([^"]*)"\s*\)/ig, '$1');
+    text = text.replace(/=HYPERLINK\s*\(\s*'[^']+'\s*,\s*'([^']*)'\s*\)/ig, '$1');
     text = text.replace(/=IMAGE\s*\(\s*"[^"]+"(?:\s*,[^)]*)?\s*\)/ig, '');
+    text = text.replace(/=IMAGE\s*\(\s*'[^']+'(?:\s*,[^)]*)?\s*\)/ig, '');
     text = text.replace(/https?:\/\/[^\s<>"']+/ig, '');
     text = text.replace(/\s+/g, ' ').trim();
     return text;
+}
+
+function isGeneratedPreviewUrlCell(url: string, rawCell: string): boolean {
+    const lowerUrl = (url || '').toLowerCase();
+    const lowerRaw = (rawCell || '').toLowerCase();
+    if (lowerRaw.includes('=image(')) return true;
+    if (lowerUrl.includes('gyazo.com') || lowerUrl.includes('i.gyazo.com')) return true;
+    if (lowerUrl.includes('drive.google.com/thumbnail')) return true;
+    if (lowerUrl.includes('lh3.googleusercontent.com/d/')) return true;
+    return false;
+}
+
+function isAnnotationUrlCell(url: string): boolean {
+    const lowerUrl = (url || '').toLowerCase();
+    return lowerUrl.includes('gyazo.com') || lowerUrl.includes('i.gyazo.com');
+}
+
+function getMediaUrlDedupKey(url: string): string {
+    const driveId = extractGoogleDriveFileId(url);
+    if (driveId) return `drive:${driveId}`;
+    return normalizeExtractedUrl(url).toLowerCase();
+}
+
+function pickMeaningfulUrlIndexes(
+    cells: string[],
+    parsed: Array<{ url: string; isDirect: boolean } | null>,
+    urlIndexes: number[]
+): number[] {
+    const out: number[] = [];
+    const seen = new Set<string>();
+
+    const add = (idx: number) => {
+        const url = parsed[idx]?.url || '';
+        if (!url) return;
+        const key = getMediaUrlDedupKey(url);
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push(idx);
+    };
+
+    urlIndexes
+        .filter(idx => !isGeneratedPreviewUrlCell(parsed[idx]?.url || '', cells[idx] || ''))
+        .forEach(add);
+
+    urlIndexes
+        .filter(idx => isGeneratedPreviewUrlCell(parsed[idx]?.url || '', cells[idx] || ''))
+        .forEach(idx => {
+            const url = parsed[idx]?.url || '';
+            if (!url) return;
+            if (out.length > 0 && isAnnotationUrlCell(url)) return;
+            add(idx);
+        });
+
+    return out.length ? out : urlIndexes;
+}
+
+function buildInfoTextFromCells(cells: string[], fallbackCell?: string): string {
+    const info = cells
+        .map(part => stripUrlArtifacts(part))
+        .filter(Boolean)
+        .join('\t')
+        .trim();
+    if (info) return info;
+    return stripUrlArtifacts(fallbackCell || '');
+}
+
+function expandInfoUrlCells(rawCells: string[]): string[] {
+    const cells = rawCells.map(cell => (cell || '').trim()).filter(Boolean);
+    if (cells.length === 0) return [];
+
+    const parsed = cells.map(cell => extractUrlCandidateFromCell(cell));
+    const urlIndexes = parsed
+        .map((item, idx) => (item?.url ? idx : -1))
+        .filter(idx => idx >= 0);
+
+    if (urlIndexes.length === 0 && cells.length === 1) {
+        const urls = extractUrlCandidatesFromText(cells[0]);
+        if (urls.length > 1) return urls;
+    }
+
+    if (urlIndexes.length <= 1) {
+        const row = cells.join('\t').trim();
+        return row ? [row] : [];
+    }
+
+    const indexes = pickMeaningfulUrlIndexes(cells, parsed, urlIndexes);
+    const out: string[] = [];
+
+    indexes.forEach(idx => {
+        const rawCell = cells[idx] || '';
+        const infoText = buildInfoTextFromCells(
+            cells.filter((_, cellIdx) => cellIdx !== idx && !parsed[cellIdx]?.url),
+            rawCell
+        );
+        out.push(infoText ? `${infoText}\t${rawCell}` : rawCell);
+    });
+
+    return out;
 }
 
 function parseInfoUrlLine(rawLine: string): { url: string; infoText: string; normalized: string; rawUrlCell: string } | null {
@@ -636,19 +868,9 @@ function parseInfoUrlLine(rawLine: string): { url: string; infoText: string; nor
 
             if (urlIndexes.length > 0) {
                 // Feedback export rows may contain original URL + preview/annotation URLs.
-                // Prefer the left-most non-annotation/non-preview URL, then fallback to first URL cell.
-                const urlIndex = (() => {
-                    const preferred = urlIndexes.find(idx => {
-                        const url = (parsed[idx]?.url || '').toLowerCase();
-                        const raw = (parts[idx] || '').toLowerCase();
-                        if (!url) return false;
-                        const isGyazo = url.includes('gyazo.com') || url.includes('i.gyazo.com');
-                        const isDrivePreview = url.includes('drive.google.com/thumbnail') || url.includes('lh3.googleusercontent.com');
-                        const isImageFormulaCell = raw.includes('=image(');
-                        return !(isGyazo || isDrivePreview || isImageFormulaCell);
-                    });
-                    return preferred ?? urlIndexes[0];
-                })();
+                // Keep distinct source media links, and only collapse generated previews when
+                // they point to the same underlying Drive file as another URL in the row.
+                const urlIndex = pickMeaningfulUrlIndexes(parts, parsed, urlIndexes)[0] ?? urlIndexes[0];
                 const url = parsed[urlIndex]?.url;
                 if (url) {
                     const buildInfo = (segment: string[]) => segment
@@ -714,9 +936,12 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
     const [copyUrlStatus, setCopyUrlStatus] = useState<'idle' | 'copied'>('idle');
     const [copyFormulaStatus, setCopyFormulaStatus] = useState<'idle' | 'copied'>('idle');
+    const [copyGroupedStatus, setCopyGroupedStatus] = useState<'idle' | 'copied'>('idle');
+    const [groupedCopyMode, setGroupedCopyMode] = useState<'horizontal' | 'vertical'>('horizontal');
     const [previewFallbackIndex, setPreviewFallbackIndex] = useState<Record<string, number>>({});
     const [showFormulaInPreview, setShowFormulaInPreview] = useState(false);
-    const [addEmptyRow, setAddEmptyRow] = useState(false); // 组间是否插入空行
+    const [emptyRowCount, setEmptyRowCount] = useState(0); // 组间插入空行数量（0=不插入）
+    const [splitHorizontalUrls, setSplitHorizontalUrls] = useState(false); // 横版链接是否拆分为纵版
     const [imageMode, setImageMode] = useState<1 | 2 | 4>(1); // Google Sheets IMAGE mode
     const [customImageHeight, setCustomImageHeight] = useState(200);
     const [customImageWidth, setCustomImageWidth] = useState(200);
@@ -731,6 +956,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     const [scanProgress, setScanProgress] = useState('');
     const [scanError, setScanError] = useState('');
     const [scanResult, setScanResult] = useState<DriveFile[]>([]);
+    const [groupByFolder, setGroupByFolder] = useState(true); // 按子文件夹分组导入
     const scanAbortRef = useRef<AbortController | null>(null);
 
     // ── Drive preview/player modal ──
@@ -764,6 +990,8 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     });
     const [reviewerName, setReviewerName] = useState<string>(() => localStorage.getItem('sheetmind_reviewer_name') || '');
     const [showFeedbackColumnPicker, setShowFeedbackColumnPicker] = useState(false);
+    const [showFeedbackPreview, setShowFeedbackPreview] = useState(false);
+    const [previewData, setPreviewData] = useState<{ header: string[]; rows: { cells: string[], previewUrl: string }[] } | null>(null);
     const [includeFeedbackHeader, setIncludeFeedbackHeader] = useState(false);
     const [batchSelectMode, setBatchSelectMode] = useState(false);
     const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
@@ -784,6 +1012,8 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
 
     // ── Canvas / PureRef view mode ──
     const [canvasViewMode, setCanvasViewMode] = useState(false);
+    const [canvasColumns, setCanvasColumns] = useState(1);
+    const [includeThumbnailInCopy, setIncludeThumbnailInCopy] = useState(false);
 
     // ── Feedback modal state ──
     const [feedbackModalImg, setFeedbackModalImg] = useState<ParsedImage | null>(null);
@@ -856,12 +1086,47 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         return () => window.removeEventListener('paste', handleWindowPaste);
     }, [pasteTargetImageId]);
 
-    // Parse input URLs — supports tab-separated "infoText\tURL" lines
+    // Parse input URLs — supports tab-separated "infoText\tURL" lines and space-separated horizontal URLs
     const parsedImages: ParsedImage[] = useMemo(() => {
         if (!inputText.trim()) return [];
 
-        // Split strictly by newline to preserve accurate row alignment
-        const lines = inputText.split('\n').map(s => s.trim());
+        // Split strictly by newline first
+        const rawLines = inputText.split('\n').map(s => s.trim()).filter(Boolean);
+
+        // Optionally expand lines: if splitHorizontalUrls is on and a line has multiple space-separated URLs, split them
+        const lines: string[] = [];
+        for (const rawLine of rawLines) {
+            if (!splitHorizontalUrls) {
+                // 保持原样 — 不拆分横版链接
+                lines.push(rawLine);
+                continue;
+            }
+            // If line has tabs, expand rows with multiple media hyperlinks into independent entries.
+            if (rawLine.includes('\t')) {
+                lines.push(...expandInfoUrlCells(rawLine.split('\t')));
+                continue;
+            }
+            // If line has formula (=IMAGE, =HYPERLINK), keep as-is
+            if (/^\s*=\s*(IMAGE|HYPERLINK)\s*\(/i.test(rawLine)) {
+                lines.push(rawLine);
+                continue;
+            }
+            const extractedUrls = extractUrlCandidatesFromText(rawLine);
+            if (extractedUrls.length > 1) {
+                extractedUrls.forEach(url => lines.push(url));
+                continue;
+            }
+            // Try to find multiple URLs separated by spaces on the same line
+            const urlMatches = rawLine.match(/https?:\/\/[^\s<>"']+/gi);
+            if (urlMatches && urlMatches.length > 1) {
+                // Multiple URLs on one line — split each as its own entry
+                for (const url of urlMatches) {
+                    lines.push(url.trim());
+                }
+            } else {
+                lines.push(rawLine);
+            }
+        }
 
         return lines.map((rawLine, i) => {
             const parsedLine = parseInfoUrlLine(rawLine);
@@ -940,7 +1205,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             return {
                 id: `img-${i}`,
                 originalUrl: url,
-                originalPasted: (parsedLine?.rawUrlCell || rawLine || url).trim(),
+                originalPasted: rawLine,
                 imageUrl,
                 previewUrl,
                 previewUrls,
@@ -953,7 +1218,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 infoText,
             };
         });
-    }, [inputText, imageMode, customImageHeight, customImageWidth]);
+    }, [inputText, imageMode, customImageHeight, customImageWidth, splitHorizontalUrls]);
 
     // ── Fetch real thumbnail URLs from Drive API ──
     const [driveThumbnails, setDriveThumbnails] = useState<Record<string, string>>({});
@@ -1075,7 +1340,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     const generateTsvData = useCallback(() => {
         if (parsedImages.length === 0) return '';
 
-        const separator = addEmptyRow ? '\n\n' : '\n';
+        const separator = '\n'.repeat(emptyRowCount + 1);
 
         if (layoutMode === 'horizontal') {
             // 横版：一行链接 + 一行公式，按 itemsPerRow 分组
@@ -1090,14 +1355,13 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             // 纵版：每列一组（链接 + 公式），横向排列
             const blocks: string[] = [];
             for (const row of imageRows) {
-                // Each image takes 2 columns (URL, Formula)
                 const urlRow = row.map(img => img.originalUrl).join('\t');
                 const formulaRow = row.map(img => img.formula).join('\t');
                 blocks.push(`${urlRow}\n${formulaRow}`);
             }
             return blocks.join(separator);
         }
-    }, [parsedImages, imageRows, layoutMode, addEmptyRow]);
+    }, [parsedImages, imageRows, layoutMode, emptyRowCount]);
 
     // Copy to clipboard as TSV (Tab-separated values for Google Sheets)
     const handleCopy = useCallback(async () => {
@@ -1109,7 +1373,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             const htmlRows: string[] = [];
             for (let ri = 0; ri < imageRows.length; ri++) {
                 const row = imageRows[ri];
-                // URL row
+                // URL row (use clean originalUrl, not originalPasted which may contain folder path)
                 htmlRows.push('<tr>' + row.map(img =>
                     `<td>${img.originalUrl}</td>`
                 ).join('') + '</tr>');
@@ -1118,8 +1382,10 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                     `<td>${img.formula}</td>`
                 ).join('') + '</tr>');
                 // 组间空行
-                if (addEmptyRow && ri < imageRows.length - 1) {
-                    htmlRows.push('<tr>' + row.map(() => '<td></td>').join('') + '</tr>');
+                if (emptyRowCount > 0 && ri < imageRows.length - 1) {
+                    for (let i = 0; i < emptyRowCount; i++) {
+                        htmlRows.push('<tr>' + row.map(() => '<td></td>').join('') + '</tr>');
+                    }
                 }
             }
             const html = `<table>${htmlRows.join('')}</table>`;
@@ -1142,35 +1408,52 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 console.error('Copy failed:', e);
             }
         }
-    }, [generateTsvData, imageRows, addEmptyRow]);
+    }, [generateTsvData, imageRows, emptyRowCount]);
 
-    // Copy only URLs
-    // Copy only URLs
+    // Copy only original data (with grouping and empty rows applied)
     const handleCopyUrls = useCallback(async () => {
-        const urlsText = parsedImages.map(img => img.originalUrl).join('\n');
-        if (!urlsText) return;
-        try {
-            const htmlRows = parsedImages.map(img => `<tr><td>${img.originalUrl}</td></tr>`);
-            const html = `<table>${htmlRows.join('')}</table>`;
+        if (parsedImages.length === 0) return;
 
+        const separator = '\n'.repeat(emptyRowCount + 1);
+        const blocks: string[] = [];
+        const htmlRows: string[] = [];
+
+        for (let ri = 0; ri < imageRows.length; ri++) {
+            const row = imageRows[ri];
+            const urlRow = row.map(img => img.originalUrl).join('\t');
+            blocks.push(urlRow);
+
+            htmlRows.push('<tr>' + row.map(img => `<td>${img.originalUrl}</td>`).join('') + '</tr>');
+            
+            if (emptyRowCount > 0 && ri < imageRows.length - 1) {
+                for (let i = 0; i < emptyRowCount; i++) {
+                    htmlRows.push('<tr>' + row.map(() => '<td></td>').join('') + '</tr>');
+                }
+            }
+        }
+
+        const tsv = blocks.join(separator);
+        const html = `<table>${htmlRows.join('')}</table>`;
+
+        try {
             await navigator.clipboard.write([
                 new ClipboardItem({
                     'text/html': new Blob([html], { type: 'text/html' }),
-                    'text/plain': new Blob([urlsText], { type: 'text/plain' }),
+                    'text/plain': new Blob([tsv], { type: 'text/plain' }),
                 })
             ]);
             setCopyUrlStatus('copied');
             setTimeout(() => setCopyUrlStatus('idle'), 2000);
         } catch {
             try {
-                await navigator.clipboard.writeText(urlsText);
+                await navigator.clipboard.writeText(tsv);
                 setCopyUrlStatus('copied');
                 setTimeout(() => setCopyUrlStatus('idle'), 2000);
             } catch (e) {
                 console.error('Copy failed:', e);
             }
         }
-    }, [parsedImages]);
+    }, [parsedImages, imageRows, emptyRowCount]);
 
     // Copy only Formulas in original order
     const handleCopyFormulasOnly = useCallback(async () => {
@@ -1198,6 +1481,97 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             }
         }
     }, [parsedImages]);
+
+    /**
+     * Copy grouped: supports two modes.
+     *
+     * Horizontal (并排): each category → 3-col group side-by-side
+     *  | 分类A名 | url_a1 | =IMAGE() | 分类B名 | url_b1 | =IMAGE() |
+     *  |         | url_a2 | =IMAGE() |         | url_b2 | =IMAGE() |
+     *
+     * Vertical (竖版): fixed 3 columns, category name repeats
+     *  | 分类A名 | url_a1 | =IMAGE() |
+     *  | 分类A名 | url_a2 | =IMAGE() |
+     *  | 分类B名 | url_b1 | =IMAGE() |
+     */
+    const handleCopyGrouped = useCallback(async () => {
+        const valid = parsedImages.filter(img => img.isValid);
+        if (valid.length === 0) return;
+
+        // Group by infoText (folder path), preserving insertion order
+        const groupOrder: string[] = [];
+        const groupMap = new Map<string, ParsedImage[]>();
+        for (const img of valid) {
+            const key = img.infoText?.trim() || '';
+            if (!groupMap.has(key)) {
+                groupMap.set(key, []);
+                groupOrder.push(key);
+            }
+            groupMap.get(key)!.push(img);
+        }
+
+        const groups = groupOrder.map(key => ({
+            name: key,
+            files: groupMap.get(key)!,
+        }));
+
+        const textLines: string[] = [];
+        const htmlRows: string[] = [];
+
+        if (groupedCopyMode === 'vertical') {
+            // ── Vertical: fixed 3 columns ──
+            for (const group of groups) {
+                for (const img of group.files) {
+                    const cells = [group.name, img.originalUrl, img.formula];
+                    textLines.push(cells.join('\t'));
+                    htmlRows.push(`<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`);
+                }
+            }
+        } else {
+            // ── Horizontal: N groups side-by-side ──
+            const maxRows = Math.max(...groups.map(g => g.files.length));
+            for (let row = 0; row < maxRows; row++) {
+                const tsvCells: string[] = [];
+                const htmlCells: string[] = [];
+                for (const group of groups) {
+                    const img = group.files[row];
+                    const catCell = row === 0 ? group.name : '';
+                    const linkCell = img ? img.originalUrl : '';
+                    const formulaCell = img ? img.formula : '';
+                    tsvCells.push(catCell, linkCell, formulaCell);
+                    htmlCells.push(
+                        `<td>${catCell}</td>`,
+                        `<td>${linkCell}</td>`,
+                        `<td>${formulaCell}</td>`,
+                    );
+                }
+                textLines.push(tsvCells.join('\t'));
+                htmlRows.push(`<tr>${htmlCells.join('')}</tr>`);
+            }
+        }
+
+        const tsv = textLines.join('\n');
+        const html = `<table>${htmlRows.join('')}</table>`;
+
+        try {
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                    'text/plain': new Blob([tsv], { type: 'text/plain' }),
+                })
+            ]);
+            setCopyGroupedStatus('copied');
+            setTimeout(() => setCopyGroupedStatus('idle'), 2000);
+        } catch {
+            try {
+                await navigator.clipboard.writeText(tsv);
+                setCopyGroupedStatus('copied');
+                setTimeout(() => setCopyGroupedStatus('idle'), 2000);
+            } catch (e) {
+                console.error('Copy failed:', e);
+            }
+        }
+    }, [parsedImages, groupedCopyMode]);
 
     // Clear all
     const handleClear = () => {
@@ -1238,13 +1612,36 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                             const cellValue = extractUrlFromHtmlCellValue(cell);
                             rawParts.push(cellValue);
                         });
-                        const rawRow = rawParts.join('\t').trim();
-                        if (rawRow) outputLines.push(rawRow);
+                        const expandedRows = expandInfoUrlCells(rawParts);
+                        if (expandedRows.length > 1) {
+                            outputLines.push(...expandedRows);
+                            return;
+                        }
+                        // Check if ALL cells are URLs (horizontal link paste) and split mode is on
+                        const allUrls = splitHorizontalUrls && rawParts.every(p => {
+                            const extracted = extractUrlFromFormulaOrText(p);
+                            return !!extracted;
+                        });
+                        if (allUrls && rawParts.length > 1) {
+                            // 横版粘贴：每个单元格都是链接，拆分为独立行
+                            rawParts.forEach(p => {
+                                const trimmed = p.trim();
+                                if (trimmed) outputLines.push(trimmed);
+                            });
+                        } else {
+                            const rawRow = rawParts.join('\t').trim();
+                            if (rawRow) outputLines.push(rawRow);
+                        }
                     } else {
                         // Single column
                         const cell = cells[0];
                         const value = extractUrlFromHtmlCellValue(cell);
-                        if (value.trim()) outputLines.push(value.trim());
+                        const urls = extractUrlCandidatesFromCell(`${value}\n${(cell as HTMLElement).outerHTML || ''}`);
+                        if (urls.length > 1) {
+                            urls.forEach(item => outputLines.push(item.url));
+                        } else if (value.trim()) {
+                            outputLines.push(value.trim());
+                        }
                     }
                 });
 
@@ -1280,7 +1677,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             }
         }
         // Default: let the textarea handle it normally
-    }, []);
+    }, [splitHorizontalUrls]);
 
     const handleAppendLinksFromCanvas = useCallback((links: string[]) => {
         if (!links || links.length === 0) return;
@@ -1290,11 +1687,15 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 .map(s => s.trim())
                 .filter(Boolean);
 
-            const urlToIndex = new Map<string, number>();
+            // Use canonical dedup key (Drive file ID aware) to prevent duplicates from different URL formats
+            const dedupKeyToIndex = new Map<string, number>();
             existing.forEach((line, idx) => {
                 const parsed = parseInfoUrlLine(line);
-                if (parsed && !urlToIndex.has(parsed.url)) {
-                    urlToIndex.set(parsed.url, idx);
+                if (parsed) {
+                    const key = getMediaUrlDedupKey(parsed.url);
+                    if (!dedupKeyToIndex.has(key)) {
+                        dedupKeyToIndex.set(key, idx);
+                    }
                 }
             });
 
@@ -1303,10 +1704,11 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 const parsedNew = parseInfoUrlLine(raw);
                 if (!parsedNew) continue;
 
-                const existingIdx = urlToIndex.get(parsedNew.url);
+                const key = getMediaUrlDedupKey(parsedNew.url);
+                const existingIdx = dedupKeyToIndex.get(key);
                 if (existingIdx === undefined) {
                     existing.push(parsedNew.normalized);
-                    urlToIndex.set(parsedNew.url, existing.length - 1);
+                    dedupKeyToIndex.set(key, existing.length - 1);
                     changed = true;
                     continue;
                 }
@@ -1386,9 +1788,11 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
             }
             const imageCount = allFiles.filter(f => IMAGE_MIME_TYPES.has(f.mimeType)).length;
             const videoCount = allFiles.filter(f => VIDEO_MIME_TYPES.has(f.mimeType)).length;
+            const uniqueSubfolders = new Set(allFiles.map(f => f.folderPath || '').filter(Boolean));
+            const subfolderInfo = uniqueSubfolders.size > 0 ? `，${uniqueSubfolders.size} 个子文件夹` : '';
             setScanResult(allFiles);
             setScanStatus('done');
-            setScanProgress(`扫描完成：${folderEntries.length} 个文件夹，共找到 ${allFiles.length} 个媒体文件（${imageCount} 图片 + ${videoCount} 视频）`);
+            setScanProgress(`扫描完成：${folderEntries.length} 个根文件夹${subfolderInfo}，共找到 ${allFiles.length} 个媒体文件（${imageCount} 图片 + ${videoCount} 视频）`);
         } catch (e: unknown) {
             if ((e as Error).name === 'AbortError') return;
             setScanError((e as Error).message || '扫描失败，请检查 API Key 和文件夹权限');
@@ -1402,12 +1806,40 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         setScanProgress('');
     }, []);
 
-    /** Append scanned media files into the input textarea */
+    /** Append scanned media files into the input textarea.
+     *  When groupByFolder is on, files are grouped by subfolder with the folder
+     *  path prepended as a tab-separated info column (parseable as infoText). */
     const handleAppendScannedVideos = useCallback(() => {
         if (scanResult.length === 0) return;
-        const urls = scanResult
-            .map(f => `https://drive.google.com/file/d/${f.id}/view`)
-            .join('\n');
+
+        let urls: string;
+        if (groupByFolder) {
+            // Group files by folderPath
+            const groups = new Map<string, DriveFile[]>();
+            for (const f of scanResult) {
+                const key = f.folderPath || '';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key)!.push(f);
+            }
+            const lines: string[] = [];
+            for (const [folderPath, files] of groups) {
+                for (const f of files) {
+                    const driveUrl = `https://drive.google.com/file/d/${f.id}/view`;
+                    if (folderPath) {
+                        // Tab-separated: folderPath \t URL — this will be parsed as infoText + URL
+                        lines.push(`${folderPath}\t${driveUrl}`);
+                    } else {
+                        lines.push(driveUrl);
+                    }
+                }
+            }
+            urls = lines.join('\n');
+        } else {
+            urls = scanResult
+                .map(f => `https://drive.google.com/file/d/${f.id}/view`)
+                .join('\n');
+        }
+
         setInputText(prev => {
             const existing = prev.trim();
             return existing ? existing + '\n' + urls : urls;
@@ -1417,7 +1849,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         setScanStatus('idle');
         setScanResult([]);
         setScanProgress('');
-    }, [scanResult]);
+    }, [scanResult, groupByFolder]);
 
     // ── Feedback: save annotation by explicit image id (APPEND to screenshots[]) ──
     const persistAnnotation = useCallback(async (
@@ -1534,6 +1966,17 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         });
     }, []);
 
+    // ── Feedback: change severity (高 中 低) ──
+    const handleFeedbackSeverityChange = useCallback((imgId: string, severity: 'high' | 'medium' | 'low' | null) => {
+        setFeedbackMap(prev => {
+            const existing = ensureFeedbackItem(prev[imgId] as any);
+            return {
+                ...prev,
+                [imgId]: { ...existing, severity },
+            };
+        });
+    }, []);
+
     // ── Feedback: batch select + bulk status apply ──
     const toggleBatchSelectImage = useCallback((imgId: string) => {
         setSelectedImageIds(prev => {
@@ -1586,8 +2029,15 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     }, [feedbackColumns]);
 
     const activeFeedbackColumnOrder = useMemo(
-        () => feedbackColumnOrder.filter(isFeedbackColumnEnabled),
-        [feedbackColumnOrder, isFeedbackColumnEnabled]
+        () => {
+            const base = feedbackColumnOrder.filter(isFeedbackColumnEnabled);
+            // When "含缩略图" is enabled, ensure sourceImage column is included (as the first column for easy visual verification)
+            if (includeThumbnailInCopy && !base.includes('sourceImage')) {
+                return ['sourceImage' as FeedbackColumnKey, ...base];
+            }
+            return base;
+        },
+        [feedbackColumnOrder, isFeedbackColumnEnabled, includeThumbnailInCopy]
     );
 
     const moveFeedbackColumn = useCallback((key: FeedbackColumnKey, direction: -1 | 1) => {
@@ -1603,6 +2053,150 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     }, []);
 
     // ── Feedback: copy all as TSV with dynamic column selection ──
+    const getFeedbackExportDataRows = useCallback((updatedMap: Record<string, any>) => {
+        const statusLabels: Record<string, string> = { approved: '可以使用', 'needs-edit': '需要修改', rejected: '不可使用' };
+        const toSingleLine = (value: string) => (value || '').replace(/\r?\n+/g, ' / ').trim();
+        const normalizeRawPastedForExport = (raw: string, fallbackUrl?: string) => {
+            const text = (raw || '').trim();
+            const fallback = (fallbackUrl || '').trim();
+            if (!text) {
+                if (/^https?:\/\//i.test(fallback)) {
+                    const safe = fallback.replace(/"/g, '""');
+                    return `=HYPERLINK("${safe}","${safe}")`;
+                }
+                return '';
+            }
+            const hyperlink = text.match(/^\s*=?\s*HYPERLINK\s*\(\s*["']([^"']+)["'](?:\s*[,;]\s*["']([^"']*)["'])?\s*\)\s*$/i);
+            if (hyperlink?.[1]) return text.startsWith('=') ? text : `=${text}`;
+            if (/^https?:\/\//i.test(text)) {
+                const safe = text.replace(/"/g, '""');
+                return `=HYPERLINK("${safe}","${safe}")`;
+            }
+            if (/^https?:\/\//i.test(fallback)) {
+                const safeUrl = fallback.replace(/"/g, '""');
+                const safeLabel = text.replace(/"/g, '""');
+                return `=HYPERLINK("${safeUrl}","${safeLabel}")`;
+            }
+            return text;
+        };
+        const sourceImageFormula = (img: ParsedImage) => (img.formula || (img.imageUrl ? `=IMAGE("${img.imageUrl}")` : ''));
+        const resolveStatusText = (img: ParsedImage, status?: FeedbackStatus) => {
+            if (!img.isValid) return '没有权限';
+            return status ? (statusLabels[status] || '') : '';
+        };
+        const screenshotUrls = (screenshots: FeedbackScreenshot[]) => screenshots.filter(s => s.gyazoUrl).map(s => s.gyazoUrl!);
+
+        return parsedImages.map(img => {
+            const fb = updatedMap[img.id];
+            const screenshots = normalizeFeedbackScreenshots(fb as any);
+            return activeFeedbackColumnOrder.map((col): string => {
+                switch (col) {
+                    case 'infoText':
+                        return img.infoText || '';
+                    case 'linkColumn':
+                        return img.originalUrl || '';
+                    case 'rawPasted':
+                        return normalizeRawPastedForExport(img.originalPasted || '', img.originalUrl);
+                    case 'sourceImage':
+                        return sourceImageFormula(img);
+                    case 'reviewer':
+                        return reviewerName.trim();
+                    case 'status':
+                        return resolveStatusText(img, fb?.status);
+                    case 'severity': {
+                        const sev = fb?.severity;
+                        return sev === 'high' ? '高' : sev === 'medium' ? '中' : sev === 'low' ? '低' : '';
+                    }
+                    case 'annotatedImage': {
+                        const urls = screenshotUrls(screenshots);
+                        return urls.join(' | ') || '';
+                    }
+                    case 'annotationLink': {
+                        const urls = screenshotUrls(screenshots);
+                        return urls.join(' | ') || '';
+                    }
+                    case 'annotationFormula': {
+                        const formulas = screenshotUrls(screenshots).map(url => `=IMAGE("${url}")`);
+                        return formulas[0] || '';
+                    }
+                    case 'feedbackText':
+                        return toSingleLine(fb?.text || '');
+                    default:
+                        return '';
+                }
+            });
+        });
+    }, [parsedImages, activeFeedbackColumnOrder, reviewerName]);
+
+    const handlePreviewFeedback = useCallback(async () => {
+        try {
+            if (!gyazoToken.trim()) {
+                const hasAnnotations = parsedImages.some(img => {
+                    const fb = ensureFeedbackItem(feedbackMap[img.id] as any);
+                    return fb.screenshots.length > 0;
+                });
+                if (hasAnnotations) {
+                    alert('你有截图标注但未配置 Gyazo Token，复制的反馈不会包含图片链接。请在设置中配置 Token。');
+                }
+            }
+
+            setCopyFeedbackStatus('uploading');
+
+            // Batch upload any missing Gyazo URLs (iterate all screenshots)
+            const updatedMap = { ...feedbackMap };
+            let hasNewUploads = false;
+            
+            for (const img of parsedImages) {
+                const fb = updatedMap[img.id];
+                if (!fb) continue;
+                const screenshots = normalizeFeedbackScreenshots(fb as any);
+                let updatedScreenshots = [...screenshots];
+                for (let i = 0; i < updatedScreenshots.length; i++) {
+                    const ss = updatedScreenshots[i];
+                    if (ss.dataUrl && !ss.gyazoUrl && gyazoToken.trim()) {
+                        try {
+                            const result = await uploadToGyazo(ss.dataUrl, gyazoToken.trim());
+                            updatedScreenshots[i] = { ...ss, gyazoUrl: result.url, gyazoPermalink: result.permalinkUrl, uploading: false };
+                            hasNewUploads = true;
+                        } catch (e) {
+                            console.error('Gyazo bulk upload failed for', img.id, e);
+                        }
+                    }
+                }
+                if (hasNewUploads) {
+                    const latestWithUrl = updatedScreenshots.filter(s => s.gyazoUrl).pop();
+                    updatedMap[img.id] = {
+                        ...fb,
+                        screenshots: updatedScreenshots,
+                        annotatedDataUrl: updatedScreenshots[updatedScreenshots.length - 1]?.dataUrl || null,
+                        gyazoUrl: latestWithUrl?.gyazoUrl || null,
+                        gyazoPermalink: latestWithUrl?.gyazoPermalink || null,
+                        uploading: false,
+                    } as any;
+                }
+            }
+
+            if (hasNewUploads) {
+                setFeedbackMap(updatedMap);
+            }
+
+            const header = activeFeedbackColumnOrder.map(col => FEEDBACK_COLUMN_META[col].label);
+            const rowArrays = getFeedbackExportDataRows(updatedMap);
+            const rows = rowArrays.map((cells, idx) => ({
+                cells,
+                previewUrl: parsedImages[idx]?.previewUrl || parsedImages[idx]?.originalUrl || ''
+            }));
+            
+            setPreviewData({ header, rows });
+            setShowFeedbackPreview(true);
+            setCopyFeedbackStatus('idle');
+        } catch (err) {
+            console.error('Preview error:', err);
+            alert('预览数据生成失败: ' + String(err));
+            setCopyFeedbackStatus('idle');
+        }
+    }, [parsedImages, feedbackMap, gyazoToken, activeFeedbackColumnOrder, getFeedbackExportDataRows]);
+
     const handleCopyFeedback = useCallback(async () => {
         if (!gyazoToken.trim()) {
             const hasAnnotations = parsedImages.some(img => {
@@ -1660,92 +2254,23 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         }
 
         // Build dynamic columns based on feedbackColumns
-        const statusLabels: Record<string, string> = { approved: '可以使用', 'needs-edit': '需要修改', rejected: '不可使用' };
-        const toSingleLine = (value: string) => (value || '').replace(/\r?\n+/g, ' / ').trim();
-        const escapeHtml = (value: string) => (value || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-        const normalizeRawPastedForExport = (raw: string, fallbackUrl?: string) => {
-            const text = (raw || '').trim();
-            const fallback = (fallbackUrl || '').trim();
-            if (!text) {
-                if (/^https?:\/\//i.test(fallback)) {
-                    const safe = fallback.replace(/"/g, '""');
-                    return `=HYPERLINK("${safe}","${safe}")`;
-                }
-                return '';
-            }
-            const hyperlink = text.match(/^\s*=?\s*HYPERLINK\s*\(\s*["']([^"']+)["'](?:\s*[,;]\s*["']([^"']*)["'])?\s*\)\s*$/i);
-            if (hyperlink?.[1]) return text.startsWith('=') ? text : `=${text}`;
-            if (/^https?:\/\//i.test(text)) {
-                const safe = text.replace(/"/g, '""');
-                return `=HYPERLINK("${safe}","${safe}")`;
-            }
-            if (/^https?:\/\//i.test(fallback)) {
-                const safeUrl = fallback.replace(/"/g, '""');
-                const safeLabel = text.replace(/"/g, '""');
-                return `=HYPERLINK("${safeUrl}","${safeLabel}")`;
-            }
-            return text;
-        };
-        // Use the same formula shown in the source preview to keep copy result consistent.
-        const sourceImageFormula = (img: ParsedImage) => (img.formula || (img.imageUrl ? `=IMAGE("${img.imageUrl}")` : ''));
-        const resolveStatusText = (img: ParsedImage, status?: FeedbackStatus) => {
-            if (!img.isValid) return '没有权限';
-            return status ? (statusLabels[status] || '') : '';
-        };
-        const screenshotUrls = (screenshots: FeedbackScreenshot[]) => screenshots.filter(s => s.gyazoUrl).map(s => s.gyazoUrl!);
-
-        const buildRow = (img: ParsedImage) => {
-            const fb = updatedMap[img.id];
-            const screenshots = normalizeFeedbackScreenshots(fb as any);
-            const cols = activeFeedbackColumnOrder.map((col): string => {
-                switch (col) {
-                    case 'infoText':
-                        return img.infoText || '';
-                    case 'linkColumn':
-                        return img.originalUrl || '';
-                    case 'rawPasted':
-                        return normalizeRawPastedForExport(img.originalPasted || '', img.originalUrl);
-                    case 'sourceImage':
-                        return sourceImageFormula(img);
-                    case 'reviewer':
-                        return reviewerName.trim();
-                    case 'status':
-                        return resolveStatusText(img, fb?.status);
-                    case 'annotatedImage': {
-                        const urls = screenshotUrls(screenshots);
-                        return urls.join(' | ') || '';
-                    }
-                    case 'annotationLink': {
-                        const urls = screenshotUrls(screenshots);
-                        return urls.join(' | ') || '';
-                    }
-                    case 'annotationFormula': {
-                        const formulas = screenshotUrls(screenshots).map(url => `=IMAGE("${url}")`);
-                        return formulas[0] || '';
-                    }
-                    case 'feedbackText':
-                        return toSingleLine(fb?.text || '');
-                    default:
-                        return '';
-                }
-            });
-            return cols.join('\t');
-        };
-
         const buildHeader = () => activeFeedbackColumnOrder.map(col => FEEDBACK_COLUMN_META[col].label);
 
-        const rows = parsedImages.map(buildRow);
+        const rowArrays = getFeedbackExportDataRows(updatedMap);
+        const rows = rowArrays.map(row => row.join('\t'));
         const header = buildHeader();
         const tsv = includeFeedbackHeader
             ? [header.join('\t'), ...rows].join('\n')
             : rows.join('\n');
 
         // Build HTML with embedded images for annotatedImage column
+        const escapeHtml = (value: string) => (value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        
         const buildHtmlRow = (img: ParsedImage) => {
             const fb = updatedMap[img.id];
             const screenshots = normalizeFeedbackScreenshots(fb as any);
@@ -1905,18 +2430,16 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     }, [tryReadImageFromClipboard]);
 
     // ── Feedback modal: save ──
-    const handleFeedbackModalSave = useCallback(async (data: { text: string; annotatedDataUrl: string | null }) => {
+    const handleFeedbackModalSave = useCallback(async (data: { text: string; severity: 'high' | 'medium' | 'low' | null; annotatedDataUrl: string | null }) => {
         const img = feedbackModalImg;
         if (!img) return;
         const imgId = img.id;
 
-        // Update text
-        if (data.text !== undefined) {
-            setFeedbackMap(prev => {
-                const existing = ensureFeedbackItem(prev[imgId] as any);
-                return { ...prev, [imgId]: { ...existing, text: data.text } };
-            });
-        }
+        // Update text and severity
+        setFeedbackMap(prev => {
+            const existing = ensureFeedbackItem(prev[imgId] as any);
+            return { ...prev, [imgId]: { ...existing, text: data.text !== undefined ? data.text : existing.text, severity: data.severity !== undefined ? data.severity : existing.severity } };
+        });
 
         // If there's a new annotation, append it via persistAnnotation
         if (data.annotatedDataUrl) {
@@ -1993,6 +2516,47 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                             {canvasViewMode ? '画布视图 ✓' : '画布视图'}
                         </button>
                     )}
+                    {Object.values(feedbackMap).filter(f => f.status).length > 0 && (<>
+                        <button
+                            onClick={handlePreviewFeedback}
+                            className={`
+                                flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium text-[11px] shadow-sm transition-all
+                                ${copyFeedbackStatus === 'uploading' 
+                                    ? 'bg-slate-100 text-slate-400 cursor-wait' 
+                                    : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 hover:border-indigo-300'
+                                }
+                            `}
+                            disabled={copyFeedbackStatus === 'uploading'}
+                            title="预览即将复制的反馈数据表格"
+                        >
+                            {copyFeedbackStatus === 'uploading' ? (
+                                <><Loader2 size={12} className="animate-spin" /> 上传中</>
+                            ) : (
+                                <><Eye size={12} /> 预览结果</>
+                            )}
+                        </button>
+                        <button
+                            onClick={handleCopyFeedback}
+                            className={`
+                                flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-medium text-[11px] shadow-sm transition-all
+                                ${copyFeedbackStatus === 'copied' 
+                                    ? 'bg-emerald-500 text-white shadow-emerald-500/20' 
+                                    : copyFeedbackStatus === 'uploading'
+                                        ? 'bg-slate-100 text-slate-400 cursor-wait'
+                                        : 'bg-gradient-to-r from-rose-500 to-rose-600 text-white hover:from-rose-600 hover:to-rose-700 shadow-rose-500/20'
+                                }
+                            `}
+                            disabled={copyFeedbackStatus === 'uploading'}
+                        >
+                            {copyFeedbackStatus === 'copied' ? (
+                                <><Check size={12} /> 已复制</>
+                            ) : copyFeedbackStatus === 'uploading' ? (
+                                <><Loader2 size={12} className="animate-spin" /> 上传中</>
+                            ) : (
+                                <><Clipboard size={12} /> 复制反馈 ({Object.values(feedbackMap).filter(f => f.status).length})</>
+                            )}
+                        </button>
+                    </>)}
                     <button
                         onClick={() => setShowSettings(!showSettings)}
                         className={`p-1.5 rounded-lg transition-colors ${showSettings
@@ -2114,16 +2678,37 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                         </button>
 
                         {/* Empty row toggle */}
-                        <button
-                            onClick={() => setAddEmptyRow(!addEmptyRow)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${addEmptyRow
+                        <div
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${emptyRowCount > 0
                                 ? 'bg-amber-100 text-amber-700'
                                 : 'bg-slate-100 text-slate-500'
                                 }`}
-                            title="复制时在每组（链接行+公式行）之间插入一行空行"
+                            title="复制时在每组（链接行+公式行）之间插入几行空行"
                         >
                             <Rows size={12} />
-                            {addEmptyRow ? '组间空行 ✓' : '组间空行'}
+                            <label htmlFor="emptyRowCount" className="cursor-pointer">组间空行:</label>
+                            <input
+                                id="emptyRowCount"
+                                type="number"
+                                min="0"
+                                max="20"
+                                value={emptyRowCount}
+                                onChange={(e) => setEmptyRowCount(Math.max(0, parseInt(e.target.value) || 0))}
+                                className={`w-8 bg-transparent text-center outline-none border-b focus:border-amber-400 ${emptyRowCount > 0 ? 'border-amber-300/50' : 'border-slate-300'}`}
+                            />
+                        </div>
+
+                        {/* Split horizontal URLs toggle */}
+                        <button
+                            onClick={() => setSplitHorizontalUrls(!splitHorizontalUrls)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition-colors ${splitHorizontalUrls
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-slate-100 text-slate-500'
+                                }`}
+                            title="开启后，横版粘贴的多个链接会拆分为独立行；关闭则保持原样横版排列"
+                        >
+                            <Columns size={12} />
+                            {splitHorizontalUrls ? '拆分横版 ✓' : '保持横版'}
                         </button>
 
                     </div>
@@ -2338,7 +2923,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                             onClick={handleAppendScannedVideos}
                                             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors shadow-sm"
                                         >
-                                            <Plus size={13} /> 导入 {scanResult.length} 个视频
+                                            <Plus size={13} /> 导入 {scanResult.length} 个文件{groupByFolder ? ' (按文件夹分组)' : ''}
                                         </button>
                                     )}
                                 </div>
@@ -2352,21 +2937,75 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                 )}
                                 {scanStatus === 'done' && scanResult.length === 0 && (
                                     <div className="text-[11px] text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-lg">
-                                        ⚠️ 文件夹中未找到视频文件（包含所有子文件夹）
+                                        ⚠️ 文件夹中未找到媒体文件（包含所有子文件夹）
                                     </div>
                                 )}
                                 {scanStatus === 'done' && scanResult.length > 0 && (
-                                    <div className="bg-white border border-green-200 rounded-lg p-2 max-h-28 overflow-y-auto space-y-1">
-                                        <p className="text-[10px] font-semibold text-green-700 mb-1">
-                                            ✅ 找到 {scanResult.length} 个视频：
-                                        </p>
-                                        {scanResult.map(f => (
-                                            <div key={f.id} className="flex items-center gap-1.5 text-[10px] text-slate-600">
-                                                <Film size={10} className="text-violet-400 shrink-0" />
-                                                <span className="truncate" title={f.name}>{f.name}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    <>
+                                        {/* Group by folder toggle */}
+                                        {(() => {
+                                            const uniqueFolders = new Set(scanResult.map(f => f.folderPath || '').filter(Boolean));
+                                            return uniqueFolders.size > 0 ? (
+                                                <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer select-none py-0.5">
+                                                    <button
+                                                        onClick={() => setGroupByFolder(!groupByFolder)}
+                                                        className={`relative w-7 h-3.5 rounded-full transition-colors ${groupByFolder ? 'bg-violet-500' : 'bg-slate-300'}`}
+                                                    >
+                                                        <span className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full shadow transition-all ${groupByFolder ? 'left-[14px]' : 'left-0.5'}`} />
+                                                    </button>
+                                                    <span>按子文件夹分组导入 <span className="text-violet-500 font-medium">({uniqueFolders.size} 个子文件夹)</span></span>
+                                                </label>
+                                            ) : null;
+                                        })()}
+                                        <div className="bg-white border border-green-200 rounded-lg p-2 max-h-36 overflow-y-auto space-y-1">
+                                            <p className="text-[10px] font-semibold text-green-700 mb-1">
+                                                ✅ 找到 {scanResult.length} 个媒体文件：
+                                            </p>
+                                            {groupByFolder ? (
+                                                // Grouped display
+                                                (() => {
+                                                    const groups = new Map<string, DriveFile[]>();
+                                                    for (const f of scanResult) {
+                                                        const key = f.folderPath || '(根目录)';
+                                                        if (!groups.has(key)) groups.set(key, []);
+                                                        groups.get(key)!.push(f);
+                                                    }
+                                                    return Array.from(groups.entries()).map(([folder, files]) => (
+                                                        <div key={folder} className="mb-1.5">
+                                                            <div className="flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded mb-0.5">
+                                                                <FolderOpen size={10} className="shrink-0" />
+                                                                <span className="truncate" title={folder}>{folder}</span>
+                                                                <span className="ml-auto text-violet-400 shrink-0">({files.length})</span>
+                                                            </div>
+                                                            {files.map(f => (
+                                                                <div key={f.id} className="flex items-center gap-1.5 text-[10px] text-slate-600 pl-3">
+                                                                    {VIDEO_MIME_TYPES.has(f.mimeType)
+                                                                        ? <Film size={9} className="text-violet-400 shrink-0" />
+                                                                        : <Image size={9} className="text-sky-400 shrink-0" />
+                                                                    }
+                                                                    <span className="truncate" title={f.name}>{f.name}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ));
+                                                })()
+                                            ) : (
+                                                // Flat display
+                                                scanResult.map(f => (
+                                                    <div key={f.id} className="flex items-center gap-1.5 text-[10px] text-slate-600">
+                                                        {VIDEO_MIME_TYPES.has(f.mimeType)
+                                                            ? <Film size={10} className="text-violet-400 shrink-0" />
+                                                            : <Image size={10} className="text-sky-400 shrink-0" />
+                                                        }
+                                                        <span className="truncate" title={f.name}>
+                                                            {f.folderPath ? <span className="text-slate-400">{f.folderPath}/</span> : null}
+                                                            {f.name}
+                                                        </span>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </>
                                 )}
                                 {scanStatus === 'error' && (
                                     <div className="text-[11px] text-red-600 bg-red-50 border border-red-200 px-2.5 py-1.5 rounded-lg">
@@ -2450,6 +3089,49 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                 <Trash2 size={12} /> 清空
                             </button>
                         </div>
+                        {/* Grouped copy — only show when there are folder-grouped files */}
+                        {parsedImages.some(img => img.infoText?.trim()) && (
+                            <div className="space-y-1.5">
+                                {/* Mode toggle */}
+                                <div className="flex items-center gap-1 justify-center">
+                                    <span className="text-[10px] text-slate-400 mr-1">分组模式:</span>
+                                    <button
+                                        onClick={() => setGroupedCopyMode('horizontal')}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all border ${groupedCopyMode === 'horizontal'
+                                            ? 'bg-violet-100 text-violet-700 border-violet-300'
+                                            : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'
+                                        }`}
+                                    >
+                                        并排
+                                    </button>
+                                    <button
+                                        onClick={() => setGroupedCopyMode('vertical')}
+                                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all border ${groupedCopyMode === 'vertical'
+                                            ? 'bg-violet-100 text-violet-700 border-violet-300'
+                                            : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'
+                                        }`}
+                                    >
+                                        竖版
+                                    </button>
+                                </div>
+                                <button
+                                    onClick={handleCopyGrouped}
+                                    disabled={parsedImages.length === 0}
+                                    className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all border disabled:opacity-40 disabled:cursor-not-allowed ${copyGroupedStatus === 'copied'
+                                        ? 'bg-green-50 text-green-600 border-green-200'
+                                        : 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 hover:border-violet-300'
+                                        }`}
+                                >
+                                    {copyGroupedStatus === 'copied' ? (
+                                        <><Check size={14} /> 已复制！粘贴到 Sheets 即可</>
+                                    ) : groupedCopyMode === 'horizontal' ? (
+                                        <><Columns size={14} /> 分组复制：分类|链接|公式 × N组并排</>
+                                    ) : (
+                                        <><Rows size={14} /> 分组复制：分类|链接|公式（竖版3列）</>
+                                    )}
+                                </button>
+                            </div>
+                        )}
                         <p className="text-[10px] text-slate-400 text-center">
                             ⌘+Enter 快捷复制 • 复制后直接 Ctrl+V 到 Google Sheets
                         </p>
@@ -2550,7 +3232,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                             </span>
                                             <span className="text-[10px] text-slate-400">
                                                 {(() => {
-                                                    const rowsPerGroup = addEmptyRow ? 3 : 2;
+                                                    const rowsPerGroup = 2 + emptyRowCount;
                                                     const startRow = rowIdx * rowsPerGroup + 1;
                                                     return `行 ${startRow}-${startRow + 1}`;
                                                 })()}
@@ -2860,7 +3542,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                                     )}
 
                                                     {/* 组间空行预览 */}
-                                                    {addEmptyRow && rowIdx < imageRows.length - 1 && (
+                                                    {emptyRowCount > 0 && rowIdx < imageRows.length - 1 && (
                                                         <tr className="bg-amber-50/40">
                                                             <td className="px-2 py-1 border-r border-b border-slate-200 bg-amber-50/60 text-[10px] text-amber-400 font-medium w-8 text-center whitespace-nowrap">
                                                                 空
@@ -2889,7 +3571,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                         <span className="text-slate-300">|</span>
                                         <span>每行 <strong className="text-slate-700">{itemsPerRow}</strong> 个</span>
                                         <span className="text-slate-300">|</span>
-                                        <span>共 <strong className="text-slate-700">{addEmptyRow ? imageRows.length * 3 - 1 : imageRows.length * 2}</strong> 行{addEmptyRow && <span className="text-amber-500 ml-0.5">(含空行)</span>}</span>
+                                        <span>共 <strong className="text-slate-700">{imageRows.length * 2 + Math.max(0, imageRows.length - 1) * emptyRowCount}</strong> 行{emptyRowCount > 0 && <span className="text-amber-500 ml-0.5">(含空行)</span>}</span>
                                     </div>
                                 </div>
                             </div>
@@ -2945,16 +3627,30 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                             </div>
                             {Object.values(feedbackMap).filter(f => f.status).length > 0 && (<>
                                 <button
-                                    onClick={handleCopyFeedback}
+                                    onClick={handlePreviewFeedback}
+                                    disabled={copyFeedbackStatus === 'uploading'}
                                     style={{
-                                        background: copyFeedbackStatus === 'copied' ? '#22c55e' : 'linear-gradient(135deg, #e11d48, #be123c)',
-                                        border: 'none', borderRadius: 6,
-                                        color: '#fff', cursor: 'pointer', padding: '4px 12px',
+                                        background: 'rgba(99,102,241,0.2)',
+                                        border: '1px solid rgba(99,102,241,0.5)', borderRadius: 6,
+                                        color: '#a5b4fc', cursor: copyFeedbackStatus === 'uploading' ? 'wait' : 'pointer', padding: '4px 12px',
                                         fontSize: 11, fontWeight: 600,
                                         display: 'flex', alignItems: 'center', gap: 4,
                                     }}
                                 >
-                                    {copyFeedbackStatus === 'copied' ? '✓ 已复制' : `📋 复制反馈 (${Object.values(feedbackMap).filter(f => f.status).length})`}
+                                    {copyFeedbackStatus === 'uploading' ? '上传中...' : '👁️ 预览结果'}
+                                </button>
+                                <button
+                                    onClick={handleCopyFeedback}
+                                    disabled={copyFeedbackStatus === 'uploading'}
+                                    style={{
+                                        background: copyFeedbackStatus === 'copied' ? '#22c55e' : copyFeedbackStatus === 'uploading' ? '#475569' : 'linear-gradient(135deg, #e11d48, #be123c)',
+                                        border: 'none', borderRadius: 6,
+                                        color: '#fff', cursor: copyFeedbackStatus === 'uploading' ? 'wait' : 'pointer', padding: '4px 12px',
+                                        fontSize: 11, fontWeight: 600,
+                                        display: 'flex', alignItems: 'center', gap: 4,
+                                    }}
+                                >
+                                    {copyFeedbackStatus === 'copied' ? '✓ 已复制' : copyFeedbackStatus === 'uploading' ? '上传中...' : `📋 复制反馈 (${Object.values(feedbackMap).filter(f => f.status).length})`}
                                 </button>
                                 <button
                                     onClick={() => setShowFeedbackColumnPicker(v => !v)}
@@ -2969,6 +3665,21 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                     title="选择复制反馈时包含的列"
                                 >
                                     <Settings size={10} /> 列选项
+                                </button>
+                                <button
+                                    onClick={() => setIncludeThumbnailInCopy(v => !v)}
+                                    style={{
+                                        background: includeThumbnailInCopy ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.1)',
+                                        border: includeThumbnailInCopy ? '1px solid rgba(52,211,153,0.5)' : '1px solid transparent',
+                                        borderRadius: 6,
+                                        color: includeThumbnailInCopy ? '#6ee7b7' : '#94a3b8',
+                                        cursor: 'pointer', padding: '4px 8px',
+                                        fontSize: 10, display: 'flex', alignItems: 'center', gap: 3,
+                                        transition: 'all 0.15s',
+                                    }}
+                                    title="复制反馈时附带原图缩略图（=IMAGE公式），方便核对顺序"
+                                >
+                                    🌅 含缩略图 {includeThumbnailInCopy && '✓'}
                                 </button>
                             </>)}
                             <button
@@ -3101,7 +3812,8 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                 setAnnotatingPreviewUrls([dataUrl]);
                             }}
                             onAppendLinks={handleAppendLinksFromCanvas}
-                            columns={itemsPerRow}
+                            columns={canvasColumns}
+                            onColumnsChange={setCanvasColumns}
                             onClear={() => { setInputText(''); setFeedbackMap({}); }}
                             onBatchFeedback={(status) => {
                                 setFeedbackMap(prev => {
@@ -3117,7 +3829,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                 setFeedbackMap(prev => {
                                     const newMap = { ...prev };
                                     if (newMap[imgId]) {
-                                        newMap[imgId] = { ...newMap[imgId], text: '', screenshots: [], annotatedDataUrl: null };
+                                        newMap[imgId] = { ...newMap[imgId], text: '', screenshots: [] };
                                     }
                                     return newMap;
                                 });
@@ -3424,6 +4136,32 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                             >{label}</button>
                                         );
                                     })}
+                                    
+                                    <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
+
+                                    <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.03)', padding: 3, borderRadius: 6 }}>
+                                        {(['high', 'medium', 'low'] as const).map(sev => {
+                                            const labels = { high: '高', medium: '中', low: '低' };
+                                            const colors = { high: '#ef4444', medium: '#eab308', low: '#3b82f6' };
+                                            const isActive = fb?.severity === sev;
+                                            return (
+                                                <button
+                                                    key={sev}
+                                                    onClick={() => handleFeedbackSeverityChange(img.id, isActive ? null : sev)}
+                                                    style={{
+                                                        background: isActive ? `${colors[sev]}22` : 'transparent',
+                                                        border: `1px solid ${isActive ? colors[sev] : 'transparent'}`,
+                                                        borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
+                                                        color: isActive ? colors[sev] : '#94a3b8',
+                                                        fontSize: 10, fontWeight: isActive ? 600 : 400,
+                                                        transition: 'all 0.15s',
+                                                    }}
+                                                    title={`严重程度: ${labels[sev]}`}
+                                                >{labels[sev]}</button>
+                                            );
+                                        })}
+                                    </div>
+
                                     <button
                                         onClick={() => { void startPasteAnnotation(img.id); }}
                                         style={{
@@ -3630,10 +4368,11 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                     imageUrl={feedbackModalImg.previewUrl}
                     previewUrls={feedbackModalImg.previewUrls}
                     feedbackText={feedbackMap[feedbackModalImg.id]?.text || ''}
+                    severity={feedbackMap[feedbackModalImg.id]?.severity || null}
                     annotatedDataUrl={normalizeFeedbackScreenshots(feedbackMap[feedbackModalImg.id] as any).pop()?.dataUrl || null}
-                    gyazoUrl={feedbackMap[feedbackModalImg.id]?.gyazoUrl || null}
-                    gyazoPermalink={feedbackMap[feedbackModalImg.id]?.gyazoPermalink || null}
-                    uploading={feedbackMap[feedbackModalImg.id]?.uploading || false}
+                    gyazoUrl={(feedbackMap[feedbackModalImg.id] as any)?.gyazoUrl || null}
+                    gyazoPermalink={(feedbackMap[feedbackModalImg.id] as any)?.gyazoPermalink || null}
+                    uploading={(feedbackMap[feedbackModalImg.id] as any)?.uploading || false}
                     onSave={handleFeedbackModalSave}
                     onCancel={() => setFeedbackModalImg(null)}
                 />,
@@ -3671,7 +4410,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                                         const newMap = { ...prev };
                                         Object.keys(newMap).forEach(key => {
                                             if (newMap[key]) {
-                                                newMap[key] = { ...newMap[key], text: '', screenshots: [], annotatedDataUrl: null };
+                                                newMap[key] = { ...newMap[key], text: '', screenshots: [] };
                                             }
                                         });
                                         return newMap;
@@ -3686,6 +4425,20 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </div>,
+                document.body
+            )}
+            {showFeedbackPreview && createPortal(
+                <FeedbackPreviewModal 
+                    isOpen={showFeedbackPreview}
+                    header={previewData?.header || []}
+                    rows={previewData?.rows || []}
+                    includeHeader={includeFeedbackHeader}
+                    onClose={() => setShowFeedbackPreview(false)}
+                    onCopy={() => {
+                        handleCopyFeedback();
+                        setShowFeedbackPreview(false);
+                    }}
+                />,
                 document.body
             )}
         </div>

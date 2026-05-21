@@ -215,27 +215,28 @@ const TOOL_CONFIG: { key: ToolType; icon: React.ReactNode; label: string }[] = [
 
 interface AnnotationEditorProps {
     imageUrl: string;
-    /** Multiple preview URLs to try (fallback chain) */
     previewUrls?: string[];
-    onSave: (dataUrl: string, feedbackText?: string, meta?: { hasVisualChanges: boolean }) => void;
-    onCancel: () => void;
-    /** Optional: show feedback text input */
+    appendedImageUrls?: string[]; // Used for continuous preview
     feedbackText?: string;
+    severity?: 'high' | 'medium' | 'low' | null;
     onFeedbackTextChange?: (text: string) => void;
-    isInline?: boolean;
-    /** For multi-image feedback: additional screenshots to stitch to the bottom */
-    appendedImageUrls?: string[];
+    onSeverityChange?: (severity: 'high' | 'medium' | 'low' | null) => void;
+    onSave: (dataUrl: string, text?: string, meta?: { hasVisualChanges?: boolean }) => void;
+    onCancel: () => void;
+    isInline?: boolean; // When true, uses standard document flow instead of fixed overlay
 }
 
 const AnnotationEditor: React.FC<AnnotationEditorProps> = ({
     imageUrl,
     previewUrls,
+    appendedImageUrls = [],
+    feedbackText: initialFeedbackText,
+    severity,
+    onFeedbackTextChange,
+    onSeverityChange,
     onSave,
     onCancel,
-    feedbackText: initialFeedbackText,
-    onFeedbackTextChange,
     isInline = false,
-    appendedImageUrls = [],
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -533,8 +534,6 @@ const AnnotationEditor: React.FC<AnnotationEditorProps> = ({
             setCurrentShape({ type: 'rect', color, lineWidth, start: pos, end: pos });
         } else if (tool === 'ellipse') {
             setCurrentShape({ type: 'ellipse', color, lineWidth, start: pos, end: pos });
-        } else if (tool === 'callout' && currentShape?.type === 'callout') {
-            setCurrentShape({ ...currentShape, end: pos });
         }
     };
 
@@ -1291,8 +1290,34 @@ const AnnotationEditor: React.FC<AnnotationEditorProps> = ({
                     marginTop: 10, width: canvasSize.w || 600,
                     maxWidth: '85vw',
                 }}>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        💬 文字建议
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            💬 文字建议
+                        </div>
+                        {onSeverityChange && (
+                            <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.03)', padding: 3, borderRadius: 6 }}>
+                                {(['high', 'medium', 'low'] as const).map(sev => {
+                                    const labels = { high: '高', medium: '中', low: '低' };
+                                    const colors = { high: '#ef4444', medium: '#eab308', low: '#3b82f6' };
+                                    const isActive = severity === sev;
+                                    return (
+                                        <button
+                                            key={sev}
+                                            onClick={() => onSeverityChange(isActive ? null : sev)}
+                                            style={{
+                                                background: isActive ? `${colors[sev]}22` : 'transparent',
+                                                border: `1px solid ${isActive ? colors[sev] : 'transparent'}`,
+                                                borderRadius: 4, padding: '2px 10px', cursor: 'pointer',
+                                                color: isActive ? colors[sev] : '#94a3b8',
+                                                fontSize: 11, fontWeight: isActive ? 600 : 400,
+                                                transition: 'all 0.15s',
+                                            }}
+                                            title={`严重程度: ${labels[sev]}`}
+                                        >{labels[sev]}</button>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                     <textarea
                         value={initialFeedbackText || ''}

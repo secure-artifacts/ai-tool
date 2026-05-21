@@ -1351,6 +1351,8 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
     const effectiveTextGrouping = isUsingSharedConfig ? sharedConfig!.textGrouping : false;
     const effectiveTextGroupBins = isUsingSharedConfig ? sharedConfig!.textGroupBins : [];
     const effectiveFuzzyRuleText = isUsingSharedConfig ? (sharedConfig!.fuzzyRuleText || '') : fuzzyRuleText;
+    const effectiveDateBinning = isUsingSharedConfig ? sharedConfig!.dateBinning : false;
+    const effectiveDateBins = isUsingSharedConfig ? sharedConfig!.dateBins : [];
     // highlightRules only exists in sharedConfig (TransposePanel doesn't have local highlight)
 
     // Parse and process data
@@ -1775,6 +1777,22 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                 return { key: matched ? matched : '未分组', type: 'text' };
             }
 
+            // 1.5 Date binning on groupColumn
+            if (effectiveDateBinning && effectiveDateBins.length > 0) {
+                const dateVal = parseDateValue(val);
+                if (dateVal) {
+                    const dateTime = dateVal.getTime();
+                    for (const bin of effectiveDateBins) {
+                        const startTime = new Date(bin.startDate).getTime();
+                        const endTime = new Date(bin.endDate).getTime() + 86400000 - 1;
+                        if (dateTime >= startTime && dateTime <= endTime) {
+                            return { key: bin.label, type: 'text' };
+                        }
+                    }
+                    return { key: '其他日期', type: 'text' };
+                }
+            }
+
             // 2. Fuzzy rules (keyword merge) - use effectiveFuzzyRuleText
             return getGroupKey(val, fuzzyRulesToUse);
         };
@@ -2134,7 +2152,7 @@ const TransposePanel: React.FC<TransposePanelProps> = ({ data, sharedConfig }) =
                 type: predominantType,
             }
         };
-    }, [activeData, config, fuzzyRuleText, effectiveGroupColumn, effectiveGroupColumns, effectiveGroupLevels, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveDataColumns, effectiveCustomFilters, effectiveSortRules, effectiveNumFilters, effectiveTextGrouping, effectiveTextGroupBins, effectiveFuzzyRuleText]);
+    }, [activeData, config, fuzzyRuleText, effectiveGroupColumn, effectiveGroupColumns, effectiveGroupLevels, effectiveDateColumn, effectiveDateStart, effectiveDateEnd, effectiveDataColumns, effectiveCustomFilters, effectiveSortRules, effectiveNumFilters, effectiveTextGrouping, effectiveTextGroupBins, effectiveFuzzyRuleText, effectiveDateBinning, effectiveDateBins]);
 
     // Escape a cell value for TSV: if it contains tabs, newlines, or double quotes,
     // wrap it in double quotes and escape internal double quotes.

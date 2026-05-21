@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Database, Plus, Trash2, ExternalLink, RefreshCw, Check, X, FileSpreadsheet, Cloud, Upload, Link as LinkIcon, Clipboard, Loader2, Info, Settings2, CheckSquare, Square, CloudUpload, HardDrive, Download } from 'lucide-react';
 import { getGoogleAccessToken, signInWithGoogle, signInWithGoogleAdvanced } from '@/services/authService';
-import { readWorkbookFromFile, fetchWorkbookFromUrl, readWorkbookFromString, readWorkbookFromHtml, fetchWorkbookWithAuth, fetchGoogleSpreadsheetMetadata, fetchGoogleSpreadsheetInfo, filterWorkbook, SheetMetadata, parseMultipleSheetsAsync } from '../utils/parser';
+import { readWorkbookFromFile, fetchWorkbookFromUrl, readWorkbookFromString, readWorkbookFromHtml, fetchWorkbookWithAuth, fetchGoogleSpreadsheetMetadata, fetchGoogleSpreadsheetInfo, fetchGoogleSpreadsheetInfoWithApiKey, filterWorkbook, SheetMetadata, parseMultipleSheetsAsync } from '../utils/parser';
 import { saveDataSourcesToCloud, loadDataSourcesFromCloud, mergeDataSources, isUserLoggedIn, overwriteGoogleSheetData } from '../services/firebaseService';
 import { loadWorkbookCache } from '../services/smartCacheService';
 import { useAuth } from '@/contexts/AuthContext';
@@ -161,6 +161,7 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
     const [backupProgress, setBackupProgress] = useState<{ written: number; total: number } | null>(null);
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [sourceTab, setSourceTab] = useState<'sheets' | 'local'>('sheets');
+    const [refreshingSourceId, setRefreshingSourceId] = useState<string | null>(null);
 
     // File upload states (same as FileUpload component)
     const [url, setUrl] = useState('');
@@ -637,11 +638,18 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                     setLoadProgress(msg);
                 });
 
-                // For public mode, we can't get the spreadsheet title via API
-                // Use a descriptive name based on the URL or "Google Sheet (公开)"
                 const urlIdMatch = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
                 const shortId = urlIdMatch ? urlIdMatch[1].substring(0, 8) : '';
-                setPendingSpreadsheetTitle(`Google Sheet${shortId ? ` (${shortId}...)` : ''}`);
+                let spreadsheetTitle = `Google Sheet${shortId ? ` (${shortId}...)` : ''}`;
+                if (urlIdMatch?.[1]) {
+                    try {
+                        const spreadsheetInfo = await fetchGoogleSpreadsheetInfoWithApiKey(urlIdMatch[1]);
+                        spreadsheetTitle = spreadsheetInfo.title;
+                    } catch (metadataErr) {
+                        console.warn('[DataSourceManager] Failed to fetch public spreadsheet title:', metadataErr);
+                    }
+                }
+                setPendingSpreadsheetTitle(spreadsheetTitle);
 
                 setPendingWorkbook(wb);
                 setSheetCandidates(wb.SheetNames);
@@ -692,8 +700,17 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                 setLoadProgress('正在读取表格...');
                 const wb = await fetchWorkbookFromUrl(source.url, (msg) => setLoadProgress(msg));
 
-                // Keep existing name or use fallback
-                setPendingSpreadsheetTitle(source.name || 'Google Sheet');
+                let spreadsheetTitle = source.name || 'Google Sheet';
+                const matches = source.url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                if (matches?.[1]) {
+                    try {
+                        const spreadsheetInfo = await fetchGoogleSpreadsheetInfoWithApiKey(matches[1]);
+                        spreadsheetTitle = spreadsheetInfo.title;
+                    } catch (metadataErr) {
+                        console.warn('[DataSourceManager] Failed to fetch public spreadsheet title:', metadataErr);
+                    }
+                }
+                setPendingSpreadsheetTitle(spreadsheetTitle);
                 setPendingWorkbook(wb);
                 setSheetCandidates(wb.SheetNames);
                 setSelectedSheetNames(source.selectedSheets && source.selectedSheets.length > 0
@@ -905,14 +922,11 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
         void syncFeedbackAfterMutation(nextSources, '批量删除');
     };
 
-    // Refresh the name of an existing data source from Google API
-    const handleRefreshSourceName = async (source: DataSource) => {
+    // Refresh data source: update name from Google API + reload data if active
+    const handleRefreshSource = async (source: DataSource) => {
         const accessToken = getGoogleAccessToken();
-        if (!accessToken) {
-            setError('需要登录 Google 才能刷新表格名称');
-            return;
-        }
 
+        setRefreshingSourceId(source.id);
         try {
             const matches = source.url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
             if (!matches || !matches[1]) {
@@ -920,20 +934,50 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                 return;
             }
 
-            const spreadsheetInfo = await fetchGoogleSpreadsheetInfo(matches[1], accessToken);
+            // 1. Fetch latest spreadsheet info (name + available sheets)
+            let spreadsheetInfo;
+            try {
+                spreadsheetInfo = await fetchGoogleSpreadsheetInfoWithApiKey(matches[1]);
+            } catch (apiKeyErr) {
+                if (!accessToken) {
+                    setError('公开读取失败，需要登录 Google 才能刷新私有表格');
+                    return;
+                }
+                console.warn('[DataSourceManager] API Key metadata refresh failed, falling back to OAuth:', apiKeyErr);
+                spreadsheetInfo = await fetchGoogleSpreadsheetInfo(matches[1], accessToken);
+            }
+            const availableSheetNames = spreadsheetInfo.sheets.map(s => s.title);
 
-            // Update source name
-            updateDataSource(source.id, { name: spreadsheetInfo.title });
+            // 2. 刷新时自动加载所有最新分页（重置旧的分页筛选）
+            const updatedSelectedSheets = availableSheetNames;
 
-            // Refresh the UI
+            // 3. Update source name + selectedSheets in storage
+            updateDataSource(source.id, {
+                name: spreadsheetInfo.title,
+                selectedSheets: updatedSelectedSheets,
+                lastRefreshedAt: Date.now(),
+            });
+
+            // 4. Refresh the UI list
             setSources(loadDataSources());
+
+            // 5. If this is the currently active source, reload data
+            const isActive = source.url === currentSourceUrl;
+            if (isActive && onRefreshSource) {
+                onRefreshSource();
+                onClose();
+            } else {
+                setSyncFeedback({ type: 'success', text: `✅ "${spreadsheetInfo.title}" 已刷新（${availableSheetNames.length} 个分页）` });
+            }
         } catch (err: unknown) {
-            console.error('Failed to refresh source name:', err);
+            console.error('Failed to refresh source:', err);
             if (err instanceof Error) {
                 setError(err.message);
             } else {
-                setError('刷新名称失败');
+                setError('刷新失败');
             }
+        } finally {
+            setRefreshingSourceId(null);
         }
     };
 
@@ -1366,11 +1410,29 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                     return (
                                         <div
                                             key={source.id}
-                                            className={`p-3 rounded-xl border transition-all ${isActive
+                                            className={`p-3 rounded-xl border transition-all relative ${isActive
                                                 ? 'border-emerald-400 bg-emerald-50 shadow-sm'
                                                 : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
-                                                }`}
+                                                } ${refreshingSourceId === source.id ? 'opacity-80' : ''}`}
                                         >
+                                            {/* 刷新加载中遮罩 */}
+                                            {refreshingSourceId === source.id && (
+                                                <div className="absolute inset-0 bg-white/60 rounded-xl z-10 flex items-center justify-center backdrop-blur-[1px]">
+                                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full shadow-sm">
+                                                        <Loader2 size={14} className="animate-spin text-green-600" />
+                                                        <span className="text-xs font-medium text-green-700">正在刷新...</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {/* 修改分页加载中遮罩 */}
+                                            {editingSourceId === source.id && isLoading && !selectingSheets && (
+                                                <div className="absolute inset-0 bg-white/60 rounded-xl z-10 flex items-center justify-center backdrop-blur-[1px]">
+                                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full shadow-sm">
+                                                        <Loader2 size={14} className="animate-spin text-blue-600" />
+                                                        <span className="text-xs font-medium text-blue-700">{loadProgress || '正在获取分页...'}</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="flex items-start gap-2 flex-1 min-w-0">
                                                     {isBatchSelectMode && (
@@ -1435,16 +1497,25 @@ const DataSourceManager: React.FC<DataSourceManagerProps> = ({
                                                     {source.type === 'google-sheets' && (
                                                         <>
                                                             <button
-                                                                onClick={() => handleRefreshSourceName(source)}
-                                                                className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md tooltip-bottom"
-                                                                data-tip="刷新表格名称"
+                                                                onClick={() => handleRefreshSource(source)}
+                                                                disabled={refreshingSourceId === source.id}
+                                                                className={`p-1.5 rounded-md tooltip-bottom transition-colors ${
+                                                                    refreshingSourceId === source.id
+                                                                        ? 'text-green-500 bg-green-50'
+                                                                        : 'text-slate-400 hover:text-green-600 hover:bg-green-50'
+                                                                }`}
+                                                                data-tip={source.url === currentSourceUrl ? '刷新数据（重新加载）' : '刷新表格信息'}
                                                             >
-                                                                <RefreshCw size={16} />
+                                                                {refreshingSourceId === source.id
+                                                                    ? <Loader2 size={16} className="animate-spin" />
+                                                                    : <RefreshCw size={16} />
+                                                                }
                                                             </button>
                                                             <button
                                                                 onClick={() => handleEditSheets(source)}
+                                                                disabled={refreshingSourceId === source.id}
                                                                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md tooltip-bottom"
-                                                                data-tip="修改导入的分页"
+                                                                data-tip={`修改分页${source.selectedSheets ? ` (已选 ${source.selectedSheets.length} 个)` : ''}`}
                                                             >
                                                                 <Settings2 size={16} />
                                                             </button>

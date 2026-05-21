@@ -4117,7 +4117,7 @@ ${transitionInstruction}
                                 data: image.base64Data,
                             }
                         },
-                        { text: `之前的识别结果：${image.result || '无'}\n\n请根据用户的后续问题继续回答。` }
+                        { text: `之前的识别结果如下：\n${image.result || '无'}\n\n请根据用户的后续指令对上述识别结果进行修改。` }
                     ]
                 }
             ];
@@ -4155,7 +4155,17 @@ ${transitionInstruction}
 
             const response = await ai.models.generateContent({
                 model: activeModel,
-                contents: contents
+                contents: contents,
+                config: {
+                    systemInstruction: [
+                        '你是一个AI图片描述词的精修助手。你必须严格遵守以下规则：',
+                        '1. 你的输出必须保持和原始识别结果完全一致的格式和结构。',
+                        '2. 只返回最终修改后的完整AI描述词，不要添加任何额外的解释、评论、开场白或总结。',
+                        '3. 只修改用户明确要求修改的部分，其他所有内容必须保持原样，一字不改。',
+                        '4. 不要自由发挥，不要优化或美化用户没有提到的部分。',
+                        '5. 直接输出结果，不要用引号、代码块或其他标记包裹。'
+                    ].join('\n')
+                }
             });
 
             const modelMessage = {
@@ -4705,7 +4715,7 @@ ${image.result}
                             }
                         },
                         {
-                            text: `原始识别结果：${image.result || '无'}\n当前创新提示词：${target.text}\n请基于后续对话针对该创新提示词做定向修改、补充或重写，输出更新后的提示词。`
+                            text: `原始识别结果：${image.result || '无'}\n当前创新提示词如下：\n${target.text}\n\n请根据用户的后续指令对上述创新提示词进行修改。`
                         }
                     ]
                 });
@@ -4741,7 +4751,14 @@ ${image.result}
                 model: activeModel,
                 contents,
                 config: {
-                    systemInstruction: 'You are refining a single innovative AI image prompt. Keep answers concise and return the improved prompt directly.'
+                    systemInstruction: [
+                        '你是一个AI图片描述词/提示词的精修助手。你必须严格遵守以下规则：',
+                        '1. 你的输出必须保持和原始提示词完全一致的格式和结构。',
+                        '2. 只返回最终修改后的完整提示词，不要添加任何额外的解释、评论、开场白或总结。',
+                        '3. 只修改用户明确要求修改的部分，其他所有内容必须保持原样，一字不改。',
+                        '4. 不要自由发挥，不要优化或美化用户没有提到的部分。',
+                        '5. 直接输出结果，不要用引号、代码块或其他标记包裹。'
+                    ].join('\n')
                 }
             });
 

@@ -49,7 +49,8 @@ import {
     Share2,
     Repeat,
     Eraser,
-    Gem
+    Gem,
+    ShieldCheck
 } from 'lucide-react';
 import { PresetManager, CopywritingPreset as PresetType } from './PresetManager';
 import {
@@ -57,6 +58,7 @@ import {
     getSheetsSyncConfig
 } from '@/services/sheetsSyncService';
 import { LIBRARY_PRESETS } from './libraryPresets';
+import { useScriptureDeitySettings, ScriptureDeitySettingsPanel } from './components/ScriptureDeitySettings';
 import { promptToolBatchExecute } from './services/promptToolCore';
 import { autoWrapText } from '../script-split/utils/processor';
 import { playCompletionSound } from '@/utils/soundNotification';
@@ -2436,7 +2438,7 @@ const CLEANER_MODEL_OPTIONS = [
   { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
 ];
 
-export function CopywritingView({ getAiInstance, textModel, promptTabId = 'default', deitySettings }: CopywritingViewProps) {
+export function CopywritingView({ getAiInstance, textModel, promptTabId = 'default' }: CopywritingViewProps) {
     const { user } = useAuth();
 
     // --- State ---
@@ -2474,6 +2476,9 @@ export function CopywritingView({ getAiInstance, textModel, promptTabId = 'defau
     const [detailModalItem, setDetailModalItem] = useState<CopywritingItem | null>(null); // 详情弹窗
     const [detailShowRaw, setDetailShowRaw] = useState(false); // 详情弹窗-显示原始响应
     const [voiceWrapMode, setVoiceWrapMode] = useState<'ai' | 'script'>('ai'); // 人声断行模式
+    const [showDeitySettings, setShowDeitySettings] = useState(false);
+    
+    const settings = useScriptureDeitySettings();
 
     // Esc 关闭详情弹窗
     useEffect(() => {
@@ -3312,15 +3317,15 @@ ${columnDescriptions}
             let userPrompt: string;
 
             let deityRules = '';
-            if (deitySettings) {
-                if (deitySettings.deityTerms && deitySettings.deityTerms.length > 0) {
-                    deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.\n`;
-                    if (deitySettings.applyDeityCapitalizationToAll) {
+            if (settings) {
+                if (settings.deityTerms && settings.deityTerms.length > 0) {
+                    deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${settings.deityTerms.join(', ')}.\n`;
+                    if (settings.applyDeityCapitalizationToAll) {
                         deityRules += `For any other output language, you MUST also capitalize the corresponding translated terms for these words.\n`;
                     }
                 }
-                if (deitySettings.enableScriptureDetection) {
-                    deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${deitySettings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${deitySettings.scriptureVersion}】"\n`;
+                if (settings.enableScriptureDetection) {
+                    deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${settings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${settings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${settings.scriptureVersion}】"\n`;
                 }
             }
 
@@ -3379,7 +3384,7 @@ ${columnDescriptions}
                 const chinese = remainingParts[0];
                 const extraParts = remainingParts.length > 1 ? remainingParts.slice(1) : undefined;
                 let scriptureNote: string | undefined = undefined;
-                if (deitySettings?.enableScriptureDetection && extraParts && extraParts.length > 0) {
+                if (settings.enableScriptureDetection && extraParts && extraParts.length > 0) {
                     scriptureNote = extraParts[extraParts.length - 1];
                 }
 
@@ -3417,15 +3422,15 @@ ${columnDescriptions}
         let userPrompt: string;
 
         let deityRules = '';
-        if (deitySettings) {
-            if (deitySettings.deityTerms && deitySettings.deityTerms.length > 0) {
-                deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.\n`;
-                if (deitySettings.applyDeityCapitalizationToAll) {
+        if (settings) {
+            if (settings.deityTerms && settings.deityTerms.length > 0) {
+                deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${settings.deityTerms.join(', ')}.\n`;
+                if (settings.applyDeityCapitalizationToAll) {
                     deityRules += `For any other output language, you MUST also capitalize the corresponding translated terms for these words.\n`;
                 }
             }
-            if (deitySettings.enableScriptureDetection) {
-                deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${deitySettings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${deitySettings.scriptureVersion}】"\n`;
+            if (settings.enableScriptureDetection) {
+                deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${settings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${settings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${settings.scriptureVersion}】"\n`;
             }
         }
 
@@ -3513,7 +3518,7 @@ ${numberedInputs}
                 inst,
                 autoTranslate,
                 systemInstruction,
-                deitySettings
+                deitySettings: settings
             });
 
             coreResults.forEach((res, idx) => {
@@ -3612,7 +3617,7 @@ ${numberedInputs}
 
                                     const extraParts = parts.length > 2 ? parts.slice(2).map((p: string) => p.trim()) : undefined;
                                     let scriptureNote: string | undefined = undefined;
-                                    if (deitySettings?.enableScriptureDetection && extraParts && extraParts.length > 0) {
+                                    if (settings.enableScriptureDetection && extraParts && extraParts.length > 0) {
                                         scriptureNote = extraParts[extraParts.length - 1];
                                     }
 
@@ -5690,15 +5695,15 @@ ${item.originalForeign}
             let userPrompt: string;
 
             let deityRules = '';
-            if (deitySettings) {
-                if (deitySettings.deityTerms && deitySettings.deityTerms.length > 0) {
-                    deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.\n`;
-                    if (deitySettings.applyDeityCapitalizationToAll) {
+            if (settings) {
+                if (settings.deityTerms && settings.deityTerms.length > 0) {
+                    deityRules += `\n\n【Capitalization Rules (CRITICAL)】\nIf generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${settings.deityTerms.join(', ')}.\n`;
+                    if (settings.applyDeityCapitalizationToAll) {
                         deityRules += `For any other output language, you MUST also capitalize the corresponding translated terms for these words.\n`;
                     }
                 }
-                if (deitySettings.enableScriptureDetection) {
-                    deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${deitySettings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${deitySettings.scriptureVersion}】"\n`;
+                if (settings.enableScriptureDetection) {
+                    deityRules += `\n【SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT)】\n1. Detect if the source text contains any religious scriptures (e.g., from the Bible).\n2. If scriptures are detected, you MUST NOT translate them yourself.\n3. You MUST quote the exact official text from the specified version: 【${settings.scriptureVersion}】.\n4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.\n5. You MUST append a scripture feedback message to the end of the Chinese translation, separated by "|||".\n   - If NO scripture is detected, append: "|||不包含经文"\n   - If a scripture is detected and you modified it to the specified version, append: "|||经文已修改为【${settings.scriptureVersion}】"\n   - If a scripture is detected but it's already the correct version or no modification was needed, append: "|||不需要修改，当前是【${settings.scriptureVersion}】"\n`;
                 }
             }
 
@@ -5904,7 +5909,7 @@ ${item.originalForeign}
                 if (parts.length >= 2 && parts[0].trim() && parts[1].trim()) {
                     const extraParts = parts.length > 2 ? parts.slice(2).map(p => p.trim()) : undefined;
                     let scriptureNote: string | undefined = undefined;
-                    if (deitySettings?.enableScriptureDetection && extraParts && extraParts.length > 0) {
+                    if (settings.enableScriptureDetection && extraParts && extraParts.length > 0) {
                         scriptureNote = extraParts[extraParts.length - 1];
                     }
                     return {
@@ -6514,6 +6519,30 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
 
     return (
         <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 p-4 gap-3 overflow-y-auto overflow-x-hidden custom-scrollbar">
+
+            {/* === 信仰版权与规范设置 === */}
+            <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden shrink-0">
+                <button
+                    onClick={() => setShowDeitySettings(!showDeitySettings)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/50 transition-colors"
+                >
+                    <div className="flex items-center gap-2 text-zinc-300">
+                        <ShieldCheck className="w-4 h-4 text-amber-400" />
+                        <span className="font-medium text-sm">信仰版权与规范</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {settings.enableScriptureDetection && (
+                            <span className="text-[10px] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">经文检测开启</span>
+                        )}
+                        {showDeitySettings ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />}
+                    </div>
+                </button>
+                {showDeitySettings && (
+                    <div className="px-4 pb-4 pt-2 border-t border-zinc-800/50">
+                        <ScriptureDeitySettingsPanel settings={settings} />
+                    </div>
+                )}
+            </div>
 
             {/* === 改写指令 + 输入文案 (同一行) === */}
             <div className="flex gap-3 min-w-0">

@@ -4,11 +4,11 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useToast } from '@/components/ui/Toast';
+import { useToast } from '../../components/ui/Toast';
 import type { GoogleGenAI } from '@google/genai';
 import {
     Upload, Sparkles, Tags, Grid3x3, List, CheckSquare, Copy, Trash2,
-    Loader2, StopCircle, Filter, ImagePlus, X, Check, Download, Plus, ChevronDown, Eye, EyeOff, RotateCw, Edit3, RefreshCw
+    Loader2, StopCircle, Filter, ImagePlus, X, Check, Download, Plus, ChevronDown, Eye, EyeOff, RotateCw, Edit3, RefreshCw, FolderOpen
 } from 'lucide-react';
 import {
     extractUrlsFromHtml,
@@ -18,7 +18,7 @@ import {
     fetchImageBlob,
     convertBlobToBase64,
     parseMatrixHtmlTable
-} from '@/apps/ai-image-recognition/utils';
+} from '../ai-image-recognition/utils';
 import { base64ToFile, uploadToGyazo, getGyazoToken } from '../image-review/services/gyazoService';
 import JSZip from 'jszip';
 import { DIMENSION_PRESETS, ADVANCED_PRESETS } from './presets';
@@ -77,6 +77,7 @@ interface SorterImage {
     height?: number;
     metadataRows?: string[]; // rows of text found beneath this image in the same column (Matrix Mode)
     originalMatrixColumnIndex?: number; // the column index this image was found in
+    folderPath?: string; // relative folder path from webkitRelativePath (e.g. 'root/sub1/sub2')
 }
 
 interface ImageSorterAppProps {
@@ -93,18 +94,94 @@ const TURBO_CONCURRENCY_DEFAULT = 3; // turbo 模式默认并发
 const TURBO_MODEL_DEFAULT = 'gemini-2.5-flash'; // Turbo 默认模型
 const CONCURRENCY_OPTIONS = [1, 2, 3, 5, 8];
 const ALL_MODELS = [
-  { value: 'gemini-2.5-flash', label: '⚡ 2.5-flash (GA)' },
-  { value: 'gemini-2.5-flash-lite', label: '⚡ 2.5-flash-lite (GA)' },
-  { value: 'gemini-2.5-pro', label: '🧠 2.5-pro (GA)' },
-  { value: 'gemini-3-flash-preview', label: '3-flash (Preview)' },
-  { value: 'gemini-3.1-pro-preview', label: '3.1-pro (Preview)' },
-  { value: 'gemini-3.1-flash-lite-preview', label: '3.1-lite (Preview)' },
+    { value: 'gemini-2.5-flash', label: '⚡ 2.5-flash (GA)' },
+    { value: 'gemini-2.5-flash-lite', label: '⚡ 2.5-flash-lite (GA)' },
+    { value: 'gemini-2.5-pro', label: '🧠 2.5-pro (GA)' },
+    { value: 'gemini-3-flash-preview', label: '3-flash (Preview)' },
+    { value: 'gemini-3.1-pro-preview', label: '3.1-pro (Preview)' },
+    { value: 'gemini-3.1-flash-lite-preview', label: '3.1-lite (Preview)' },
 ];
 const MAX_RETRIES = 3; // 429 retry attempts
 const MAX_IMAGE_DIM = 512; // resize for faster processing
 const SIDEBAR_WIDTH_STORAGE_KEY = 'image-sorter-sidebar-width';
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 620;
+
+// ========== Folder depth options ==========
+type FolderDepthMode = 'first' | 'last' | 'full';
+const FOLDER_DEPTH_OPTIONS: { value: FolderDepthMode; label: string }[] = [
+    { value: 'first', label: '第一层子文件夹' },
+    { value: 'last', label: '最深层子文件夹' },
+    { value: 'full', label: '完整路径' },
+];
+
+/** Extract folder classification from webkitRelativePath based on depth mode */
+const extractFolderCategory = (relativePath: string, depthMode: FolderDepthMode): string => {
+    // relativePath format: "rootFolder/sub1/sub2/image.jpg"
+    const parts = relativePath.split('/');
+    // Remove filename (last part) and root folder (first part, which is the selected folder itself)
+    const folderParts = parts.slice(1, -1); // skip root folder name + filename
+    if (folderParts.length === 0) return '根目录';
+    switch (depthMode) {
+        case 'first':
+            return folderParts[0];
+        case 'last':
+            return folderParts[folderParts.length - 1];
+        case 'full':
+            return folderParts.join(' / ');
+        default:
+            return folderParts[0];
+    }
+};
+
+/** Build hierarchical categories map for multi-level folders: { '一级分类': cat1, '二级分类': cat2, ... } */
+const extractFolderCategories = (relativePath: string): Record<string, string> => {
+    const parts = relativePath.split('/');
+    const folderParts = parts.slice(1, -1); // skip root folder name + filename
+    const categories: Record<string, string> = {};
+    folderParts.forEach((part, i) => {
+        categories[`${i + 1}级分类`] = part;
+    });
+    return categories;
+};
+
+/** Recursively read all files from a dropped directory entry */
+const readDirectoryEntry = (entry: FileSystemDirectoryEntry): Promise<File[]> => {
+    return new Promise((resolve) => {
+        const reader = entry.createReader();
+        const allFiles: File[] = [];
+        const readBatch = () => {
+            reader.readEntries(async (entries) => {
+                if (entries.length === 0) {
+                    resolve(allFiles);
+                    return;
+                }
+                for (const e of entries) {
+                    if (e.isFile) {
+                        const file = await new Promise<File>((res, rej) => {
+                            (e as FileSystemFileEntry).file(res, rej);
+                        }).catch(() => null);
+                        if (file && file.type.startsWith('image/')) {
+                            // Manually set webkitRelativePath via Object.defineProperty
+                            // because File from getAsEntry() doesn't preserve it
+                            Object.defineProperty(file, 'webkitRelativePath', {
+                                value: e.fullPath.replace(/^\//, ''),
+                                writable: false,
+                            });
+                            allFiles.push(file);
+                        }
+                    } else if (e.isDirectory) {
+                        const subFiles = await readDirectoryEntry(e as FileSystemDirectoryEntry);
+                        allFiles.push(...subFiles);
+                    }
+                }
+                // readEntries may not return all entries at once, keep reading
+                readBatch();
+            }, () => resolve(allFiles));
+        };
+        readBatch();
+    });
+};
 
 
 
@@ -281,6 +358,35 @@ const resizeImageForAI = (base64: string, maxDim: number): Promise<string> => {
     });
 };
 
+const resizeImageForAIWithLabel = (base64: string, maxDim: number, label: string): Promise<string> => {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+            const w = Math.round(img.width * scale);
+            const h = Math.round(img.height * scale);
+            const labelHeight = Math.max(22, Math.round(w * 0.055));
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h + labelHeight;
+            const ctx = canvas.getContext('2d')!;
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, labelHeight);
+            ctx.drawImage(img, 0, labelHeight, w, h);
+
+            ctx.fillStyle = '#111827';
+            ctx.font = `700 ${Math.max(14, Math.round(labelHeight * 0.58))}px Arial, sans-serif`;
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, 8, labelHeight / 2);
+
+            resolve(canvas.toDataURL('image/jpeg', 0.78));
+        };
+        img.onerror = () => resolve(base64);
+        img.src = base64;
+    });
+};
+
 const isBlobUrl = (value?: string): boolean => !!value && value.startsWith('blob:');
 
 const yieldToBrowser = (): Promise<void> => {
@@ -297,7 +403,7 @@ const yieldToBrowser = (): Promise<void> => {
 const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textModel }) => {
     // Turbo 模式
     const [turboMode, setTurboMode] = useState(true);
-    
+
     // Matrix Mode (横版多维大表模式)
     const [dataInputMode, _setDataInputMode] = useState<'standard' | 'matrix'>('standard');
     const dataInputModeRef = useRef(dataInputMode);
@@ -306,7 +412,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         dataInputModeRef.current = val;
     };
     const [dataExportMode, setDataExportMode] = useState<'standard' | 'matrix'>('standard');
-    
+
     const [uploadingGyazo, setUploadingGyazo] = useState<{ done: number; total: number } | null>(null);
     const gyazoAbortRef = useRef(false);
     const [loadingImages, setLoadingImages] = useState<{ done: number; total: number } | null>(null);
@@ -345,6 +451,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     const imagesRef = useRef<SorterImage[]>([]);
     const [classifying, setClassifying] = useState(false);
     const [progress, setProgress] = useState({ done: 0, total: 0 });
+    const [apiCallCount, setApiCallCount] = useState(0);
     const [dimensions, setDimensions] = useState<ClassificationDimension[]>(() => {
         if (typeof window !== 'undefined') {
             const savedDims = localStorage.getItem('image-sorter-saved-dimensions');
@@ -429,7 +536,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     const [galleryMode, setGalleryMode] = useState<'list' | 'grid'>('grid');
     const abortRef = useRef(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const folderInputRef = useRef<HTMLInputElement>(null);
     const nextIndexRef = useRef(0);
+    const [folderDepthMode, setFolderDepthMode] = useState<FolderDepthMode>(() => {
+        if (typeof window === 'undefined') return 'first';
+        return (localStorage.getItem('image-sorter-folder-depth') as FolderDepthMode) || 'first';
+    });
     const [dragging, setDragging] = useState(false);
     const [imageBatchSize, setImageBatchSize] = useState<number>(() => {
         if (typeof window === 'undefined') return DEFAULT_BATCH_SIZE;
@@ -595,7 +707,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             }
         });
         // Sort by frequency descending
-        return new Map([...map.entries()].sort((a, b) => b[1] - a[1]));
+        return new Map(Array.from(map.entries()).sort((a, b) => b[1] - a[1]));
     }, [images]);
 
     const allRatios = React.useMemo(() => {
@@ -605,7 +717,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 map.set(img.aspectRatio, (map.get(img.aspectRatio) || 0) + 1);
             }
         });
-        return new Map([...map.entries()].sort((a, b) => b[1] - a[1]));
+        return new Map(Array.from(map.entries()).sort((a, b) => b[1] - a[1]));
     }, [images]);
 
     const filteredImages = React.useMemo(() => {
@@ -625,7 +737,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         }
         if (activeTags.size > 0) {
             filtered = filtered.filter(img =>
-                img.tags && [...activeTags].some(tag => img.tags!.includes(tag))
+                img.tags && Array.from(activeTags).some(tag => img.tags!.includes(tag))
             );
         }
         if (activeRatio) {
@@ -638,12 +750,20 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     const classifiedCount = images.filter(img => img.classified).length;
 
     // ======== Image Loading ========
-    const addImages = useCallback(async (files: File[]) => {
+    const addImages = useCallback(async (files: File[], opts?: { fromFolder?: boolean }) => {
         const imageFiles = files.filter(f => f.type.startsWith('image/'));
         if (imageFiles.length === 0) {
             toast.warning('没有检测到图片文件');
             return;
         }
+
+        const isFromFolder = opts?.fromFolder === true;
+        // Detect if files have folder structure (webkitRelativePath contains '/')
+        const hasSubfolders = isFromFolder && imageFiles.some(f => {
+            const rp = (f as any).webkitRelativePath || '';
+            const parts = rp.split('/');
+            return parts.length > 2; // root/file vs root/sub/file
+        });
 
         setLoadingImages({ done: 0, total: imageFiles.length });
         // Let React paint loading overlay before starting heavy work.
@@ -655,19 +775,49 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         let skippedCount = 0;
         const stagedImages: SorterImage[] = [];
         const FLUSH_EVERY = 25;
+
+        // Collect all unique folder categories for auto-dimension setup
+        const folderCatsSet = new Set<string>();
+        // For multi-level: collect max depth
+        let maxFolderDepth = 0;
+
         for (let fi = 0; fi < imageFiles.length; fi++) {
             const file = imageFiles[fi];
             try {
                 const blobUrl = URL.createObjectURL(file);
                 const id = `img-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                stagedImages.push({
+                const relativePath = (file as any).webkitRelativePath || '';
+                const hasFolderInfo = isFromFolder && relativePath && relativePath.includes('/');
+
+                let folderPath: string | undefined;
+                let autoCategories: Record<string, string> | undefined;
+
+                if (hasFolderInfo && hasSubfolders) {
+                    folderPath = relativePath.split('/').slice(1, -1).join('/');
+                    // Build hierarchical categories
+                    autoCategories = extractFolderCategories(relativePath);
+                    // Also set primary category based on depth mode
+                    const primaryCat = extractFolderCategory(relativePath, folderDepthMode);
+                    folderCatsSet.add(primaryCat);
+                    // Track max depth
+                    const depth = relativePath.split('/').length - 2; // minus root and filename
+                    if (depth > maxFolderDepth) maxFolderDepth = depth;
+                }
+
+                const imgEntry: SorterImage = {
                     id,
                     src: blobUrl,
                     name: file.name,
                     localFile: file,
-                    classified: false,
+                    classified: hasFolderInfo && hasSubfolders,
                     originalIndex: baseIndex + fi,
-                });
+                    folderPath,
+                    ...(autoCategories ? { categories: autoCategories } : {}),
+                    ...(hasFolderInfo && hasSubfolders ? {
+                        category: extractFolderCategory(relativePath, folderDepthMode)
+                    } : {}),
+                };
+                stagedImages.push(imgEntry);
                 loadedCount++;
             } catch {
                 console.warn(`Failed to load: ${file.name}`);
@@ -687,14 +837,40 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             }
         }
 
+        // Auto-setup classification dimensions from folder structure
+        if (hasSubfolders && maxFolderDepth > 0) {
+            const newDims: ClassificationDimension[] = [];
+            for (let level = 1; level <= maxFolderDepth; level++) {
+                // Collect unique category names at this level
+                const catsAtLevel = new Set<string>();
+                imageFiles.forEach(f => {
+                    const rp = (f as any).webkitRelativePath || '';
+                    const parts = rp.split('/');
+                    if (parts.length > level + 1) { // +1 for filename
+                        catsAtLevel.add(parts[level]);
+                    }
+                });
+                newDims.push({
+                    id: `dim-folder-${Date.now()}-${level}`,
+                    name: `${level}级分类`,
+                    description: `从文件夹第${level}层自动提取`,
+                    categories: Array.from(catsAtLevel).sort(),
+                    inputValue: '',
+                });
+            }
+            setDimensions(newDims);
+            toast.info(`📂 已按文件夹结构自动创建 ${maxFolderDepth} 层分类维度`);
+        }
+
         setLoadingImages(null);
         if (loadedCount > 0) {
             const suffix = skippedCount > 0 ? `（${skippedCount} 张失败）` : '';
-            toast.success(`已加载 ${loadedCount} 张图片${suffix}`);
+            const folderSuffix = hasSubfolders ? `（已按文件夹自动分类 📂）` : '';
+            toast.success(`已加载 ${loadedCount} 张图片${suffix}${folderSuffix}`);
         } else {
             toast.error('图片加载失败，请检查文件是否损坏');
         }
-    }, [toast]);
+    }, [toast, folderDepthMode]);
 
     // Drag & Drop
     const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -706,18 +882,59 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         setDragging(false);
     }, []);
 
-    const handleDrop = useCallback((e: React.DragEvent) => {
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
         e.preventDefault();
         setDragging(false);
+
+        // Check if any dropped items are directories via webkitGetAsEntry
+        const items = e.dataTransfer.items;
+        if (items && items.length > 0) {
+            const entries: FileSystemEntry[] = [];
+            let hasDir = false;
+            for (let i = 0; i < items.length; i++) {
+                const entry = items[i].webkitGetAsEntry?.();
+                if (entry) {
+                    entries.push(entry);
+                    if (entry.isDirectory) hasDir = true;
+                }
+            }
+            if (hasDir) {
+                // Recursively collect all image files from directories
+                toast.info('📂 正在扫描文件夹...');
+                const allFiles: File[] = [];
+                for (const entry of entries) {
+                    if (entry.isDirectory) {
+                        const dirFiles = await readDirectoryEntry(entry as FileSystemDirectoryEntry);
+                        allFiles.push(...dirFiles);
+                    } else if (entry.isFile) {
+                        const file = await new Promise<File | null>((res) => {
+                            (entry as FileSystemFileEntry).file(res, () => res(null));
+                        });
+                        if (file) allFiles.push(file);
+                    }
+                }
+                addImages(allFiles, { fromFolder: true });
+                return;
+            }
+        }
+
+        // Fallback: standard file drop
         const files = Array.from(e.dataTransfer.files);
         addImages(files);
-    }, [addImages]);
+    }, [addImages, toast]);
 
     // File input
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
         addImages(files);
         if (fileInputRef.current) fileInputRef.current.value = '';
+    }, [addImages]);
+
+    // Folder input
+    const handleFolderSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        addImages(files, { fromFolder: true });
+        if (folderInputRef.current) folderInputRef.current.value = '';
     }, [addImages]);
     // Remove auto Gyazo uploading. Users should click "上传 Gyazo 图床" explicitly.
 
@@ -880,7 +1097,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         const c = cell.trim();
                         if (!c) continue;
                         formulaRegex.lastIndex = 0;
-                        const fm = [...c.matchAll(formulaRegex)];
+                        const fm = Array.from(c.matchAll(formulaRegex));
                         if (fm.length > 0) {
                             for (const m of fm) {
                                 const rawUrl = m[1] || m[2] || m[3] || '';
@@ -891,7 +1108,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             }
                         } else {
                             urlRegex.lastIndex = 0;
-                            const um = [...c.matchAll(urlRegex)];
+                            const um = Array.from(c.matchAll(urlRegex));
                             for (const u of um) {
                                 urlItems.push({ url: processImageUrl(u[0]), content: c });
                                 foundInLine = true;
@@ -1014,7 +1231,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         const dimName = targetDimName.trim();
 
         // Collect all unique values to add to the dimension
-        const newValues = [...new Set(pendingAssignItems.map(p => p.value))];
+        const newValues = Array.from(new Set(pendingAssignItems.map(p => p.value)));
 
         // Ensure the target dimension exists in config
         const existingDim = dimensions.find(d => d.name === dimName);
@@ -1047,7 +1264,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     id: `dim-auto-${Date.now()}`,
                     name: '分类',
                     description: '',
-                    categories: [...uniqueCats].filter(c => c !== '其他' && c !== '未识别'),
+                    categories: Array.from(uniqueCats).filter(c => c !== '其他' && c !== '未识别'),
                     inputValue: '',
                 }];
             });
@@ -1100,7 +1317,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             id: `dim-${Date.now()}`,
             name,
             description: '',
-            categories: [...uniqueCats].filter(c => c !== '其他' && c !== '未识别'),
+            categories: Array.from(uniqueCats).filter(c => c !== '其他' && c !== '未识别'),
             inputValue: '',
         };
         setDimensions(prev => [...prev, newDim]);
@@ -1160,7 +1377,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             return;
         }
 
-        const toastId = silent ? undefined : toast.loading('正在重新分类...');
+        if (!silent) toast.info('正在重新分类...', 3000);
 
         try {
             const activeDims = dimensions.filter(d => d.name.trim());
@@ -1187,7 +1404,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
                     } else {
                         prompt += `根据上一层的分类结果，从对应子类中选择：\n`;
-                        for (const [parent, items] of byParent) {
+                        for (const [parent, items] of Array.from(byParent)) {
                             if (parent) {
                                 prompt += `  若上级="${parent}" → `;
                                 prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
@@ -1310,10 +1527,10 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 classified: true,
             } : item));
 
-            if (toastId) toast.success('重新分类成功', { id: toastId });
+            if (!silent) toast.success('重新分类成功');
         } catch (e: any) {
             console.error(e);
-            if (toastId) toast.error(`重新分类失败: ${e.message}`, { id: toastId });
+            if (!silent) toast.error(`重新分类失败: ${e.message}`);
             throw e; // 让 batch 调用者知道失败了
         }
     };
@@ -1329,7 +1546,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         try { ai = getAiInstance(); } catch { ai = null; }
         if (!ai) { toast.error('请先设置 API 密钥'); return; }
 
-        const toastId = toast.loading(`正在重新分类 0/${targets.length}...`);
+        toast.info(`正在重新分类 0/${targets.length}...`, 3000);
         let done = 0;
         let failed = 0;
         for (const img of targets) {
@@ -1340,12 +1557,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 failed++;
                 console.error(`[批量重分类] ${img.id} 失败:`, e);
             }
-            toast.loading(`正在重新分类 ${done + failed}/${targets.length}${failed > 0 ? ` (${failed} 失败)` : ''}...`, { id: toastId });
+            // Removed loading toast since useToast does not support update by id
         }
         if (failed > 0) {
-            toast.error(`批量重新分类完成: ${done} 成功, ${failed} 失败`, { id: toastId });
+            toast.error(`批量重新分类完成: ${done} 成功, ${failed} 失败`);
         } else {
-            toast.success(`批量重新分类完成 (${done}/${targets.length})`, { id: toastId });
+            toast.success(`批量重新分类完成 (${done}/${targets.length})`);
         }
     };
 
@@ -1383,6 +1600,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
         setClassifying(true);
         abortRef.current = false;
+        setApiCallCount(0);
         setProgress({ done: 0, total: unclassified.length });
 
         const userCats = dimensions.length > 0 ? dimensions[0].categories : [];
@@ -1423,7 +1641,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 } else {
                     // 有父类约束的层级
                     prompt += `根据上一层的分类结果，从对应子类中选择：\n`;
-                    for (const [parent, items] of byParent) {
+                    for (const [parent, items] of Array.from(byParent)) {
                         if (parent) {
                             prompt += `  若上级="${parent}" → `;
                             prompt += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
@@ -1510,15 +1728,17 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     prompt += `【主分类】请输出最合适的主分类。\n\n`;
                 }
 
-                prompt += `【标签】输出 3-5 个中文标签。\n`;
-                if (customInstructions.trim()) {
-                    prompt += `\n【额外要求】${customInstructions.trim()}\n\n`;
-                }
-                if (activeDims.length > 0) {
-                    const dimFields = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
-                    prompt += `只返回 JSON，不要 markdown：{"categories":{${dimFields}},"tags":["\u6807\u7b7e1","\u6807\u7b7e2"]}`;
-                } else {
-                    prompt += `只返回 JSON，不要 markdown：{"category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2"]}`;
+                if (classifyMode !== 'advanced' || advancedRules.length === 0) {
+                    prompt += `【标签】输出 3-5 个中文标签。\n`;
+                    if (customInstructions.trim()) {
+                        prompt += `\n【额外要求】${customInstructions.trim()}\n\n`;
+                    }
+                    if (activeDims.length > 0) {
+                        const dimFields = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
+                        prompt += `只返回 JSON，不要 markdown：{"categories":{${dimFields}},"tags":["\u6807\u7b7e1","\u6807\u7b7e2"]}`;
+                    } else {
+                        prompt += `只返回 JSON，不要 markdown：{"category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2"]}`;
+                    }
                 }
                 parts.push({ text: prompt });
 
@@ -1593,11 +1813,12 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     if (!batch[i].src || batch[i].loadFailed) continue; // skip failed images
                     processableIndices.push(i);
                     try {
-                        const resized = await resizeImageForAI(batch[i].src, MAX_IMAGE_DIM);
+                        const nextSentIndex = sentCount + 1;
+                        const ref = `REF_${nextSentIndex}_${batch[i].id.slice(-8)}`;
+                        const resized = await resizeImageForAIWithLabel(batch[i].src, MAX_IMAGE_DIM, `IMG ${nextSentIndex} ${ref}`);
                         const match = resized.match(/^data:([^;]+);base64,(.+)$/);
                         if (match) {
-                            sentCount++;
-                            const ref = `REF_${sentCount}_${batch[i].id.slice(-8)}`;
+                            sentCount = nextSentIndex;
                             parts.push({ text: `[图片 ${sentCount}] [REF:${ref}]` });
                             parts.push({ inlineData: { data: match[2], mimeType: match[1] } });
                             indexMap.push(i); // sentCount-1 maps to batch index i
@@ -1633,10 +1854,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         prompt += `请严格按以下 JSON 格式返回（不要有其他文字，不要有 markdown 代码块）：\n`;
                         prompt += `[{"index":1,"ref":"REF_1_xxxx","categories":{${dimFields}},"tags":["标签1","标签2"]},{"index":2,...}]\n`;
                         prompt += `⚠️【极其重要 - REF 映射规则】\n`;
-                        prompt += `1. 每张图片都附带了唯一的 REF 标识（如 REF_1_abc, REF_2_def）\n`;
-                        prompt += `2. 你必须将每张图片的分类结果与其对应的 REF 值精确配对\n`;
+                        prompt += `1. 每张图片顶部白色条中有唯一可见标识（如 IMG 1 REF_1_abc, IMG 2 REF_2_def）\n`;
+                        prompt += `2. 你必须读取图片顶部白色条，把分类结果与可见的 IMG 序号和 REF 值精确配对\n`;
                         prompt += `3. ref 字段必须原样回填你在该图片上看到的 REF 值，不可改写、不可交换、不可猜测\n`;
-                        prompt += `4. 如果你不确定某张图片的 REF 值，宁可不返回该条结果，也不要填错 REF\n`;
+                        prompt += `4. index 字段必须等于顶部白色条中的 IMG 序号\n`;
+                        prompt += `5. 如果你不确定某张图片的 REF 值，宁可不返回该条结果，也不要填错 REF\n`;
                     } else if (activeDims.length > 0) {
                         // Multi-dimension prompt
                         prompt += `请按以下 ${activeDims.length} 个维度分别分析：\n\n`;
@@ -1674,18 +1896,20 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         prompt += `【主分类】请根据图片内容自动判断一个最合适的主分类（如：人物、风景、产品、食物、建筑、动物、插画、抽象等）。\n\n`;
                     }
 
-                    prompt += `【标签】同时为每张图片生成 3-5 个描述性标签（必须使用中文），涵盖：内容主体、色调/配色、构图风格、情绪氛围等。\n\n`;
-                    if (customInstructions.trim()) {
-                        prompt += `【额外要求】${customInstructions.trim()}\n\n`;
+                    if (classifyMode !== 'advanced' || advancedRules.length === 0) {
+                        prompt += `【标签】同时为每张图片生成 3-5 个描述性标签（必须使用中文），涵盖：内容主体、色调/配色、构图风格、情绪氛围等。\n\n`;
+                        if (customInstructions.trim()) {
+                            prompt += `【额外要求】${customInstructions.trim()}\n\n`;
+                        }
+                        prompt += `请严格按以下 JSON 格式返回（不要有其他文字，不要有 markdown 代码块）：\n`;
+                        if (activeDims.length > 0) {
+                            const dimFieldsExample = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
+                            prompt += `[{"index":1,"ref":"REF_1_xxxx","categories":{${dimFieldsExample}},"tags":["\u6807\u7b7e1","\u6807\u7b7e2"]},{"index":2,...}]\n`;
+                        } else {
+                            prompt += `[{"index":1,"ref":"REF_1_xxxx","category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2","\u6807\u7b7e3"]},{"index":2,...}]\n`;
+                        }
                     }
-                    prompt += `请严格按以下 JSON 格式返回（不要有其他文字，不要有 markdown 代码块）：\n`;
-                    if (activeDims.length > 0) {
-                        const dimFieldsExample = activeDims.map(d => `"${d.name}":"分类名"`).join(',');
-                        prompt += `[{"index":1,"ref":"REF_1_xxxx","categories":{${dimFieldsExample}},"tags":["\u6807\u7b7e1","\u6807\u7b7e2"]},{"index":2,...}]\n`;
-                    } else {
-                        prompt += `[{"index":1,"ref":"REF_1_xxxx","category":"分类名","tags":["\u6807\u7b7e1","\u6807\u7b7e2","\u6807\u7b7e3"]},{"index":2,...}]\n`;
-                    }
-                    prompt += `注意：每张图片都必须返回一条结果，且 ref 字段必须原样回填为你看到的 REF 值，不可改写。`;
+                    prompt += `注意：每张图片顶部白色条中有唯一可见标识（如 IMG 1 REF_1_xxxx）。每张图片都必须返回一条结果，index 必须等于顶部 IMG 序号，ref 字段必须原样回填为你看到的 REF 值，不可改写。`;
 
                     parts.push({ text: prompt });
 
@@ -1718,12 +1942,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 const mapped = new Map<number, { category: string; tags: string[]; categories?: Record<string, string> }>();
                 const assignedBatchIndices = new Set<number>();
                 const unresolved: typeof results = [];
-                const sentCountExpected = indexMap.length;
 
                 // Strict safety gate: DISABLE index-based fallback entirely.
                 // AI's "index" field is unreliable — it frequently swaps indices,
                 // causing results to land on the wrong image with no pattern.
-                // Only REF-based matching is trustworthy.
+                // Only visible-label REF + index matching is trustworthy.
 
                 for (const r of results) {
                     let mappedBatchIdx: number | undefined;
@@ -1739,6 +1962,14 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     } else {
                         // No valid REF → cannot reliably map, send to single retry
                         console.warn(`[分拣器] 结果缺少有效 ref (got "${rawRef}")，跳过批量映射`);
+                        unresolved.push(r);
+                        continue;
+                    }
+
+                    const expectedIndex = indexMap.findIndex((idx) => idx === mappedBatchIdx) + 1;
+                    const returnedIndex = Number(r.index);
+                    if (!Number.isInteger(returnedIndex) || returnedIndex !== expectedIndex) {
+                        console.warn(`[分拣器] ref/index 不一致，跳过批量映射: ref=${normalizedRef}, index=${r.index}, expected=${expectedIndex}`);
                         unresolved.push(r);
                         continue;
                     }
@@ -1777,9 +2008,9 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 }
 
                 // 不再按顺序兜底映射，避免“错位串图”。
-                // 只接受能通过 ref/index 精确定位的结果，其余逐张重试。
+                // 只接受能通过 ref/index 精确定位的结果，其余保持未分类。
                 if (unresolved.length > 0) {
-                    console.warn(`[分拣器] 批量返回中有 ${unresolved.length} 条无法可靠映射，改为逐张回退`);
+                    console.warn(`[分拣器] 批量返回中有 ${unresolved.length} 条无法可靠映射，保持未分类`);
                 }
 
                 // 批次信任度检查：如果 ref 匹配率太低，丢弃全部批量结果
@@ -1787,7 +2018,9 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     const rf = String(r.ref ?? '').trim();
                     const rfMatch = rf.match(/REF_\d+_[A-Za-z0-9]+/);
                     const rfNorm = rfMatch ? rfMatch[0] : rf;
-                    return rfNorm && refToBatchIndex.has(rfNorm);
+                    const bIdx = rfNorm && refToBatchIndex.has(rfNorm) ? refToBatchIndex.get(rfNorm) : undefined;
+                    const expectedIndex = bIdx === undefined ? -1 : indexMap.findIndex((idx) => idx === bIdx) + 1;
+                    return rfNorm && refToBatchIndex.has(rfNorm) && Number(r.index) === expectedIndex;
                 }).length;
                 if (sentCount > 1 && refMatchedCount < sentCount * 0.5) {
                     console.warn(`[分拣器] ref 匹配率仅 ${refMatchedCount}/${sentCount} (${Math.round(refMatchedCount / sentCount * 100)}%)，整批不可信，丢弃`);
@@ -1846,6 +2079,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         const callWithRetry = async (fn: () => Promise<any>, label: string): Promise<any> => {
             for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
                 try {
+                    setApiCallCount(prev => prev + 1);
                     return await fn();
                 } catch (error: any) {
                     const msg = error?.message || '';
@@ -1854,7 +2088,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         const waitSec = Math.pow(2, attempt + 1) * 3; // 6s, 12s, 24s
                         console.warn(`[图片分拣] ${label} 429限速，第${attempt + 1}次重试，等${waitSec}s`);
                         toast.warning(`⏳ API 限速，${waitSec}s 后重试...`);
-                        
+
                         // Wait with abort check
                         const intervalMs = 500;
                         let waited = 0;
@@ -2002,9 +2236,9 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     ext = 'jpg';
                     const contentType = res.headers.get('content-type');
                     if (contentType) {
-                         if (contentType.includes('png')) ext = 'png';
-                         if (contentType.includes('webp')) ext = 'webp';
-                         if (contentType.includes('gif')) ext = 'gif';
+                        if (contentType.includes('png')) ext = 'png';
+                        if (contentType.includes('webp')) ext = 'webp';
+                        if (contentType.includes('gif')) ext = 'gif';
                     }
                 } else {
                     throw new Error('No valid image source');
@@ -2013,7 +2247,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 // Make a safe filename using the AI classification or original name
                 // To avoid name collisions, append the index
                 let safeName = (img.name || `图片_${index + 1}`).replace(/[\\/:*?"<>|]/g, '_');
-                
+
                 // If the user wants categorical folders, we could implement it here.
                 // For now, let's just make it flat or use the first category as folder if available.
                 let folderName = '';
@@ -2091,8 +2325,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         // --- 核心优化：自动检测本地图片逻辑 ---
         const needsUpload = ordered.filter(img =>
             !img.loadFailed && (
-                !!img.localFile || 
-                !!(img.originalUrl && img.originalUrl.startsWith('data:image')) || 
+                !!img.localFile ||
+                !!(img.originalUrl && img.originalUrl.startsWith('data:image')) ||
                 isBlobUrl(img.src)
             )
         );
@@ -2118,7 +2352,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
             gyazoAbortRef.current = false;
             setUploadingGyazo({ done: 0, total: needsUpload.length });
             toast.info(`正在为您上传图床 (${needsUpload.length} 张)...`);
-            
+
             let doneCounter = 0;
             // 因为我们要更新 state 让后面拿到的 img.originalUrl 是最新的，所以这里需要同步遍历并更新
             // 但 setImages 是异步的，为了确保后面导出时拿到最新值，我们需要一个临时 map 存储结果
@@ -2126,7 +2360,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
             for (const img of needsUpload) {
                 if (gyazoAbortRef.current) break;
-                
+
                 let file: File | null = null;
                 if (img.localFile) {
                     file = img.localFile;
@@ -2136,7 +2370,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     try {
                         const blob = await fetch(img.src).then(r => r.blob());
                         file = new File([blob], img.name || `sorter_${Date.now()}.png`, { type: blob.type || 'image/png' });
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 if (file) {
@@ -2154,7 +2388,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 doneCounter++;
                 setUploadingGyazo({ done: doneCounter, total: needsUpload.length });
             }
-            
+
             // 重要：同步更新 ordered 数组里的 URL，确保本次导出使用的是刚传好的链接
             ordered.forEach(img => {
                 if (uploadedUrls.has(img.id)) {
@@ -2169,27 +2403,27 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         }
 
         const dimNames = effectiveDimNames;
-        
+
         // ================= MATRIX EXPORT MODE =================
         if (dataExportMode === 'matrix') {
             const lines: string[] = [];
             let hasUrl = false;
-            
+
             // Group images by the primary category
             const groups: Record<string, typeof ordered> = {};
             for (const img of ordered) {
                 if (img.isBlankRow) continue; // Skip layout padding spaces in Matrix mode
-                
+
                 const primaryCat = dimNames.length > 0
                     ? (img.categories?.[dimNames[0]] || img.category || (img.classified ? '未识别' : '未分类'))
                     : (img.category?.trim() || (img.classified ? '未识别' : '未分类'));
-                
+
                 if (!groups[primaryCat]) groups[primaryCat] = [];
                 groups[primaryCat].push(img);
             }
-            
+
             for (const [catName, catImages] of Object.entries(groups)) {
-                
+
                 const extraDims = dimNames.length > 1 ? dimNames.slice(1) : [];
 
                 // Find maximum vertical items (image + extra dims + original metadata rows)
@@ -2199,20 +2433,20 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     const count = extraDims.length + originalMetaCount;
                     if (count > maxMeta) maxMeta = count;
                 });
-                
+
                 // Initialize block rows with category name in the first column
                 const imgRow: string[] = [escapeTsvCell(catName)];
                 const metaRows: string[][] = Array.from({ length: maxMeta }, () => [escapeTsvCell(catName)]);
-                
+
                 for (const img of catImages) {
                     // 1. Image Row
                     const imageFormula = img.originalUrl
                         ? `=IMAGE("${img.originalUrl.replace(/"/g, '""')}")`
                         : (img.loadFailed ? '[加载失败]' : `[\u672c\u5730\u56fe\u7247: ${img.name}]`);
                     if (img.originalUrl) hasUrl = true;
-                    
+
                     imgRow.push(withImage ? imageFormula : escapeTsvCell(img.originalUrl || ''));
-                    
+
                     // 2. Metadata Rows
                     for (let r = 0; r < maxMeta; r++) {
                         let val = '';
@@ -2236,7 +2470,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         metaRows[r].push(escapeTsvCell(val));
                     }
                 }
-                
+
                 lines.push(imgRow.join('\t'));
                 for (const mRow of metaRows) {
                     lines.push(mRow.join('\t'));
@@ -2275,7 +2509,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         let hasUrl = false;
         for (let i = 0; i < ordered.length; i++) {
             const img = ordered[i];
-            
+
             if (img.isBlankRow) {
                 // Push completely empty row with matching column count for perfect Google Sheets structural pasting
                 const emptyRow = Array(header.length).fill('');
@@ -2422,9 +2656,45 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     <div className="is-dropzone-icon">📂</div>
                     <div className="is-dropzone-title">点击后 Ctrl+V 粘贴，双击选择文件</div>
                     <div className="is-dropzone-subtitle">
-                        单击此区域获得焦点后，按 <strong>Ctrl+V</strong> 粘贴图片/URL。<strong>双击</strong> 打开文件夹选择图片。也可以直接拖拽图片到这里。
+                        单击此区域获得焦点后，按 <strong>Ctrl+V</strong> 粘贴图片/URL。<strong>双击</strong> 打开文件夹选择图片。也可以直接拖拽图片/文件夹到这里。
                         <br /><br />
                         AI 会自动识别每张图的主分类和描述标签，你可以按类别筛选后一键复制到表格。
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <button
+                            className="is-btn"
+                            onClick={() => fileInputRef.current?.click()}
+                            style={{ background: 'rgba(255,255,255,0.08)', padding: '8px 16px', fontSize: 13, borderRadius: 8 }}
+                        >
+                            <ImagePlus size={14} /> 选择图片
+                        </button>
+                        <button
+                            className="is-btn is-btn-primary"
+                            onClick={() => folderInputRef.current?.click()}
+                            style={{ padding: '8px 16px', fontSize: 13, borderRadius: 8 }}
+                        >
+                            <FolderOpen size={14} /> 选择文件夹（自动按子目录分类）
+                        </button>
+                    </div>
+                    <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                        <span style={{ fontSize: 11, opacity: 0.6 }}>文件夹层级模式：</span>
+                        <select
+                            className="is-batch-control-select"
+                            value={folderDepthMode}
+                            onChange={(e) => {
+                                const mode = e.target.value as FolderDepthMode;
+                                setFolderDepthMode(mode);
+                                if (typeof window !== 'undefined') localStorage.setItem('image-sorter-folder-depth', mode);
+                            }}
+                            style={{ fontSize: 11, padding: '2px 6px' }}
+                        >
+                            {FOLDER_DEPTH_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 11, opacity: 0.5, maxWidth: 500, textAlign: 'center' }}>
+                        💡 选择文件夹后，图片会按子文件夹结构<strong>自动分类</strong>。支持多层嵌套目录，每层自动创建独立的分类维度。
                     </div>
                     <input
                         ref={fileInputRef}
@@ -2433,6 +2703,18 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         multiple
                         style={{ display: 'none' }}
                         onChange={handleFileSelect}
+                    />
+                    {/* @ts-ignore — webkitdirectory is a non-standard attribute */}
+                    <input
+                        ref={folderInputRef}
+                        type="file"
+                        // @ts-ignore
+                        webkitdirectory=""
+                        // @ts-ignore
+                        directory=""
+                        multiple
+                        style={{ display: 'none' }}
+                        onChange={handleFolderSelect}
                     />
                 </div>
             </div>
@@ -2477,7 +2759,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                         const presetId = e.target.value;
                                         const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
                                         if (!preset) return;
-                                        
+
                                         const newDims: ClassificationDimension[] = preset.dimensions.map((d, i) => ({
                                             id: `dim-preset-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
                                             name: d.name,
@@ -2486,7 +2768,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                             categoryCriteria: d.categoryCriteria ? { ...d.categoryCriteria } : undefined,
                                             inputValue: '',
                                         }));
-                                        
+
                                         setDimensions(prev => {
                                             if (prev.length === 1 && prev[0].name === '分类' && prev[0].categories.length === 0) {
                                                 return newDims;
@@ -2744,210 +3026,210 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         const toggleCollapse = () => setCollapsedDims(prev => ({ ...prev, [dim.id]: !isCollapsed }));
 
                         return (
-                        <div key={dim.id} style={{ marginBottom: 12, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, background: 'rgba(0,0,0,0.2)', padding: '8px 10px' }}>
-                            {/* Header / Toggle */}
-                            <div 
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-                                onClick={toggleCollapse}
-                            >
-                                <div className="is-dim-header-main">
-                                    <span style={{ fontSize: 10, opacity: 0.5, userSelect: 'none', width: 12 }}>{isCollapsed ? '▶' : '▼'}</span>
-                                    <input
-                                        className="is-chips-input"
-                                        style={{ width: 120, minWidth: 72, flexShrink: 1, fontWeight: 600, fontSize: 12, background: 'transparent', border: '1px solid transparent', padding: '2px 4px', borderRadius: 4, transition: 'all 0.2s', ...(!isCollapsed ? { borderBottom: '1px solid rgba(167, 139, 250, 0.4)' } : {}) }}
-                                        placeholder="维度/属性名"
-                                        value={dim.name}
-                                        disabled={classifying}
-                                        title="点击编辑维度名"
-                                        onClick={e => e.stopPropagation()}
-                                        onChange={e => {
-                                            setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, name: e.target.value } : d));
-                                        }}
-                                    />
-                                    {isCollapsed && (
-                                        <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 8 }}>共 {dim.categories.length} 个分类</span>
-                                    )}
-                                    {!isCollapsed && (
-                                        <select
-                                            className="is-dim-preset-select"
-                                            value=""
-                                            onClick={e => e.stopPropagation()}
-                                            onChange={e => {
-                                                const val = e.target.value;
-                                                if (!val) return;
-                                                const [presetId, tempIdx] = val.split('|');
-                                                const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
-                                                if (!preset) return;
-                                                const template = preset.dimensions[parseInt(tempIdx, 10)];
-                                                if (!template) return;
-                                                
-                                                setDimensions(prev => prev.map((d, i) => {
-                                                    if (i !== dimIdx) return d;
-                                                    return {
-                                                        ...d,
-                                                        name: template.name,
-                                                        description: template.description || '',
-                                                        categories: [...template.categories],
-                                                        categoryCriteria: template.categoryCriteria ? { ...template.categoryCriteria } : undefined
-                                                    };
-                                                }));
-                                                e.target.value = '';
-                                            }}
-                                            disabled={classifying}
-                                            style={{
-                                                fontSize: 9,
-                                                padding: '2px 12px 2px 4px',
-                                                borderRadius: 4,
-                                                border: '1px solid rgba(255,255,255,0.1)',
-                                                background: 'rgba(255,255,255,0.05)',
-                                                color: '#aaa',
-                                                cursor: 'pointer',
-                                                appearance: 'none',
-                                                WebkitAppearance: 'none',
-                                                colorScheme: 'dark',
-                                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                                                backgroundRepeat: 'no-repeat',
-                                                backgroundPosition: 'right 4px center',
-                                                marginLeft: 4,
-                                            }}
-                                        >
-                                            <option value="" disabled hidden>预设</option>
-                                            {DIMENSION_PRESETS.map(preset => (
-                                                <optgroup key={preset.id} label={`${preset.emoji} ${preset.label}`}>
-                                                    {preset.dimensions.map((d, i) => (
-                                                        <option key={`${preset.id}|${i}`} value={`${preset.id}|${i}`}>
-                                                            {d.name} ({d.categories.length})
-                                                        </option>
-                                                    ))}
-                                                </optgroup>
-                                            ))}
-                                        </select>
-                                    )}
-                                </div>
-                                <button
-                                    className="is-chip-remove"
-                                    style={{ fontSize: 14, opacity: 0.5, padding: '2px 6px' }}
-                                    onClick={(e) => { e.stopPropagation(); setDimensions(prev => prev.filter((_, i) => i !== dimIdx)); }}
-                                    disabled={classifying}
-                                    title="删除此维度"
-                                >×</button>
-                            </div>
-
-                            {/* Body */}
-                            {!isCollapsed && (
-                                <div style={{ marginTop: 10, paddingLeft: 18 }}>
-                                    <div className="is-chips-wrapper" style={{ flexDirection: 'column', alignItems: 'stretch', background: 'transparent', border: 'none', padding: 0 }}>
-                                        <div style={{ fontSize: 9, color: '#a78bfa', marginBottom: 2, display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{opacity:0.8}}>可选项及判定配置表：</span>
-                                        </div>
-                                        {dim.categories.map((cat, catIdx) => (
-                                            <div key={catIdx} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 0' }}>
-                                                <span style={{ fontSize: 10, minWidth: 60, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.9 }}>{cat}</span>
-                                                <input
-                                                    className="is-chips-input"
-                                                    style={{ flex: 1, padding: '3px 6px', fontSize: 10, background: 'rgba(251, 191, 36, 0.08)', border: '1px solid rgba(251, 191, 36, 0.2)', borderRadius: 4, color: '#fbbf24' }}
-                                                    placeholder="独立判定要求/依据（可选）..."
-                                                    value={dim.categoryCriteria?.[cat] || ''}
-                                                    disabled={classifying}
-                                                    onChange={e => setDimensions(prev => prev.map((d, i) => {
-                                                        if (i !== dimIdx) return d;
-                                                        const newCrit = { ...(d.categoryCriteria || {}) };
-                                                        newCrit[cat] = e.target.value;
-                                                        return { ...d, categoryCriteria: newCrit };
-                                                    }))}
-                                                />
-                                                <button
-                                                    className="is-chip-remove"
-                                                    onClick={() => setDimensions(prev => prev.map((d, i) => {
-                                                        if (i !== dimIdx) return d;
-                                                        const newCats = d.categories.filter((_, ci) => ci !== catIdx);
-                                                        const newCrit = { ...d.categoryCriteria };
-                                                        delete newCrit[cat];
-                                                        return { ...d, categories: newCats, categoryCriteria: newCrit };
-                                                    }))}
-                                                    disabled={classifying}
-                                                >×</button>
-                                            </div>
-                                        ))}
+                            <div key={dim.id} style={{ marginBottom: 12, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, background: 'rgba(0,0,0,0.2)', padding: '8px 10px' }}>
+                                {/* Header / Toggle */}
+                                <div
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                                    onClick={toggleCollapse}
+                                >
+                                    <div className="is-dim-header-main">
+                                        <span style={{ fontSize: 10, opacity: 0.5, userSelect: 'none', width: 12 }}>{isCollapsed ? '▶' : '▼'}</span>
                                         <input
                                             className="is-chips-input"
-                                            style={{ flex: 1, marginTop: 4, background: 'rgba(255,255,255,0.03)', borderRadius: 4, padding: '4px 6px' }}
-                                            placeholder={dim.categories.length === 0 ? '添加分类或直接粘贴两列Excel(分类名+依据)...' : '继续添加分类...'}
-                                            value={dim.inputValue}
-                                            onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, inputValue: e.target.value } : d))}
+                                            style={{ width: 120, minWidth: 72, flexShrink: 1, fontWeight: 600, fontSize: 12, background: 'transparent', border: '1px solid transparent', padding: '2px 4px', borderRadius: 4, transition: 'all 0.2s', ...(!isCollapsed ? { borderBottom: '1px solid rgba(167, 139, 250, 0.4)' } : {}) }}
+                                            placeholder="维度/属性名"
+                                            value={dim.name}
                                             disabled={classifying}
-                                            onKeyDown={e => {
-                                                if (e.key === 'Enter' && dim.inputValue.trim()) {
-                                                    e.preventDefault();
-                                                    const newCats = dim.inputValue.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
-                                                    setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
-                                                } else if (e.key === 'Backspace' && !dim.inputValue && dim.categories.length > 0) {
-                                                    setDimensions(prev => prev.map((d, i) => {
-                                                        if (i !== dimIdx) return d;
-                                                        const droppedCat = d.categories[d.categories.length - 1];
-                                                        const newCrit = { ...d.categoryCriteria };
-                                                        delete newCrit[droppedCat];
-                                                        return { ...d, categories: d.categories.slice(0, -1), categoryCriteria: newCrit };
-                                                    }));
-                                                }
-                                            }}
-                                            onPaste={e => {
-                                                const text = e.clipboardData.getData('text/plain');
-                                                if (!text.trim()) return;
-                                                
-                                                if (text.includes('\t') || text.includes('\n')) {
-                                                    e.preventDefault();
-                                                    const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
-                                                    
-                                                    const cats: string[] = [];
-                                                    const newCriteria: Record<string, string> = {};
-                                                    for (const line of lines) {
-                                                        const cols = line.split('\t');
-                                                        const catName = cols[0]?.trim();
-                                                        if (!catName) continue;
-                                                        
-                                                        if (cols.length >= 3) {
-                                                            const subCats = cols[1]?.trim().split(/[,，、;；]/).map(c => c.trim()).filter(Boolean) || [];
-                                                            cats.push(...subCats);
-                                                            const desc = cols[2]?.trim();
-                                                            if (desc) {
-                                                                subCats.forEach(sc => newCriteria[sc] = desc);
-                                                            }
-                                                        } else {
-                                                            cats.push(catName);
-                                                            const desc = cols[1]?.trim();
-                                                            if (desc) newCriteria[catName] = desc;
-                                                        }
-                                                    }
-                                                    
-                                                    if (cats.length > 0) {
-                                                        setDimensions(prev => prev.map((d, i) => {
-                                                            if (i !== dimIdx) return d;
-                                                            const mergedCats = [...d.categories, ...cats.filter(c => !d.categories.includes(c))];
-                                                            const mergedCrit = { ...(d.categoryCriteria || {}), ...newCriteria };
-                                                            return { ...d, categories: mergedCats, categoryCriteria: mergedCrit, inputValue: '' };
-                                                        }));
-                                                    }
-                                                } else if (text.includes(',') || text.includes('，') || text.includes('、')) {
-                                                    e.preventDefault();
-                                                    const newCats = text.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
-                                                    setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
-                                                }
+                                            title="点击编辑维度名"
+                                            onClick={e => e.stopPropagation()}
+                                            onChange={e => {
+                                                setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, name: e.target.value } : d));
                                             }}
                                         />
-                                    </div>
+                                        {isCollapsed && (
+                                            <span style={{ fontSize: 10, opacity: 0.4, marginLeft: 8 }}>共 {dim.categories.length} 个分类</span>
+                                        )}
+                                        {!isCollapsed && (
+                                            <select
+                                                className="is-dim-preset-select"
+                                                value=""
+                                                onClick={e => e.stopPropagation()}
+                                                onChange={e => {
+                                                    const val = e.target.value;
+                                                    if (!val) return;
+                                                    const [presetId, tempIdx] = val.split('|');
+                                                    const preset = DIMENSION_PRESETS.find(p => p.id === presetId);
+                                                    if (!preset) return;
+                                                    const template = preset.dimensions[parseInt(tempIdx, 10)];
+                                                    if (!template) return;
 
-                                    <input
-                                        className="is-chips-input"
-                                        style={{ width: '100%', marginTop: 8, fontSize: 10, color: '#aaa', padding: '4px 6px', background: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.03)' }}
-                                        placeholder={dim.categories.length === 0 ? '问题/要求（如：这是哪类服装？）' : '当前维度统筹判断标准（如：所有人脸清晰的算有效）'}
-                                        value={dim.description}
+                                                    setDimensions(prev => prev.map((d, i) => {
+                                                        if (i !== dimIdx) return d;
+                                                        return {
+                                                            ...d,
+                                                            name: template.name,
+                                                            description: template.description || '',
+                                                            categories: [...template.categories],
+                                                            categoryCriteria: template.categoryCriteria ? { ...template.categoryCriteria } : undefined
+                                                        };
+                                                    }));
+                                                    e.target.value = '';
+                                                }}
+                                                disabled={classifying}
+                                                style={{
+                                                    fontSize: 9,
+                                                    padding: '2px 12px 2px 4px',
+                                                    borderRadius: 4,
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    background: 'rgba(255,255,255,0.05)',
+                                                    color: '#aaa',
+                                                    cursor: 'pointer',
+                                                    appearance: 'none',
+                                                    WebkitAppearance: 'none',
+                                                    colorScheme: 'dark',
+                                                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                                                    backgroundRepeat: 'no-repeat',
+                                                    backgroundPosition: 'right 4px center',
+                                                    marginLeft: 4,
+                                                }}
+                                            >
+                                                <option value="" disabled hidden>预设</option>
+                                                {DIMENSION_PRESETS.map(preset => (
+                                                    <optgroup key={preset.id} label={`${preset.emoji} ${preset.label}`}>
+                                                        {preset.dimensions.map((d, i) => (
+                                                            <option key={`${preset.id}|${i}`} value={`${preset.id}|${i}`}>
+                                                                {d.name} ({d.categories.length})
+                                                            </option>
+                                                        ))}
+                                                    </optgroup>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </div>
+                                    <button
+                                        className="is-chip-remove"
+                                        style={{ fontSize: 14, opacity: 0.5, padding: '2px 6px' }}
+                                        onClick={(e) => { e.stopPropagation(); setDimensions(prev => prev.filter((_, i) => i !== dimIdx)); }}
                                         disabled={classifying}
-                                        onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, description: e.target.value } : d))}
-                                    />
+                                        title="删除此维度"
+                                    >×</button>
                                 </div>
-                            )}
-                        </div>
+
+                                {/* Body */}
+                                {!isCollapsed && (
+                                    <div style={{ marginTop: 10, paddingLeft: 18 }}>
+                                        <div className="is-chips-wrapper" style={{ flexDirection: 'column', alignItems: 'stretch', background: 'transparent', border: 'none', padding: 0 }}>
+                                            <div style={{ fontSize: 9, color: '#a78bfa', marginBottom: 2, display: 'flex', justifyContent: 'space-between' }}>
+                                                <span style={{ opacity: 0.8 }}>可选项及判定配置表：</span>
+                                            </div>
+                                            {dim.categories.map((cat, catIdx) => (
+                                                <div key={catIdx} style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '2px 0' }}>
+                                                    <span style={{ fontSize: 10, minWidth: 60, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.9 }}>{cat}</span>
+                                                    <input
+                                                        className="is-chips-input"
+                                                        style={{ flex: 1, padding: '3px 6px', fontSize: 10, background: 'rgba(251, 191, 36, 0.08)', border: '1px solid rgba(251, 191, 36, 0.2)', borderRadius: 4, color: '#fbbf24' }}
+                                                        placeholder="独立判定要求/依据（可选）..."
+                                                        value={dim.categoryCriteria?.[cat] || ''}
+                                                        disabled={classifying}
+                                                        onChange={e => setDimensions(prev => prev.map((d, i) => {
+                                                            if (i !== dimIdx) return d;
+                                                            const newCrit = { ...(d.categoryCriteria || {}) };
+                                                            newCrit[cat] = e.target.value;
+                                                            return { ...d, categoryCriteria: newCrit };
+                                                        }))}
+                                                    />
+                                                    <button
+                                                        className="is-chip-remove"
+                                                        onClick={() => setDimensions(prev => prev.map((d, i) => {
+                                                            if (i !== dimIdx) return d;
+                                                            const newCats = d.categories.filter((_, ci) => ci !== catIdx);
+                                                            const newCrit = { ...d.categoryCriteria };
+                                                            delete newCrit[cat];
+                                                            return { ...d, categories: newCats, categoryCriteria: newCrit };
+                                                        }))}
+                                                        disabled={classifying}
+                                                    >×</button>
+                                                </div>
+                                            ))}
+                                            <input
+                                                className="is-chips-input"
+                                                style={{ flex: 1, marginTop: 4, background: 'rgba(255,255,255,0.03)', borderRadius: 4, padding: '4px 6px' }}
+                                                placeholder={dim.categories.length === 0 ? '添加分类或直接粘贴两列Excel(分类名+依据)...' : '继续添加分类...'}
+                                                value={dim.inputValue}
+                                                onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, inputValue: e.target.value } : d))}
+                                                disabled={classifying}
+                                                onKeyDown={e => {
+                                                    if (e.key === 'Enter' && dim.inputValue.trim()) {
+                                                        e.preventDefault();
+                                                        const newCats = dim.inputValue.split(/[,，、\t\n]/).map(s => s.trim()).filter(Boolean);
+                                                        setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
+                                                    } else if (e.key === 'Backspace' && !dim.inputValue && dim.categories.length > 0) {
+                                                        setDimensions(prev => prev.map((d, i) => {
+                                                            if (i !== dimIdx) return d;
+                                                            const droppedCat = d.categories[d.categories.length - 1];
+                                                            const newCrit = { ...d.categoryCriteria };
+                                                            delete newCrit[droppedCat];
+                                                            return { ...d, categories: d.categories.slice(0, -1), categoryCriteria: newCrit };
+                                                        }));
+                                                    }
+                                                }}
+                                                onPaste={e => {
+                                                    const text = e.clipboardData.getData('text/plain');
+                                                    if (!text.trim()) return;
+
+                                                    if (text.includes('\t') || text.includes('\n')) {
+                                                        e.preventDefault();
+                                                        const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
+
+                                                        const cats: string[] = [];
+                                                        const newCriteria: Record<string, string> = {};
+                                                        for (const line of lines) {
+                                                            const cols = line.split('\t');
+                                                            const catName = cols[0]?.trim();
+                                                            if (!catName) continue;
+
+                                                            if (cols.length >= 3) {
+                                                                const subCats = cols[1]?.trim().split(/[,，、;；]/).map(c => c.trim()).filter(Boolean) || [];
+                                                                cats.push(...subCats);
+                                                                const desc = cols[2]?.trim();
+                                                                if (desc) {
+                                                                    subCats.forEach(sc => newCriteria[sc] = desc);
+                                                                }
+                                                            } else {
+                                                                cats.push(catName);
+                                                                const desc = cols[1]?.trim();
+                                                                if (desc) newCriteria[catName] = desc;
+                                                            }
+                                                        }
+
+                                                        if (cats.length > 0) {
+                                                            setDimensions(prev => prev.map((d, i) => {
+                                                                if (i !== dimIdx) return d;
+                                                                const mergedCats = [...d.categories, ...cats.filter(c => !d.categories.includes(c))];
+                                                                const mergedCrit = { ...(d.categoryCriteria || {}), ...newCriteria };
+                                                                return { ...d, categories: mergedCats, categoryCriteria: mergedCrit, inputValue: '' };
+                                                            }));
+                                                        }
+                                                    } else if (text.includes(',') || text.includes('，') || text.includes('、')) {
+                                                        e.preventDefault();
+                                                        const newCats = text.split(/[,，、]/).map(s => s.trim()).filter(Boolean);
+                                                        setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, categories: [...d.categories, ...newCats.filter(c => !d.categories.includes(c))], inputValue: '' } : d));
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+
+                                        <input
+                                            className="is-chips-input"
+                                            style={{ width: '100%', marginTop: 8, fontSize: 10, color: '#aaa', padding: '4px 6px', background: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.03)' }}
+                                            placeholder={dim.categories.length === 0 ? '问题/要求（如：这是哪类服装？）' : '当前维度统筹判断标准（如：所有人脸清晰的算有效）'}
+                                            value={dim.description}
+                                            disabled={classifying}
+                                            onChange={e => setDimensions(prev => prev.map((d, i) => i === dimIdx ? { ...d, description: e.target.value } : d))}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         );
                     })}
                     {classifyMode === 'basic' && dimensions.length === 0 && (
@@ -2956,90 +3238,90 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         </div>
                     )}
                     {classifyMode === 'basic' && (<>
-                    <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button
-                            className="is-btn is-btn-sm"
-                            onClick={() => setDimensions(prev => [...prev, { id: `dim-${Date.now()}`, name: '', description: '', categories: [], inputValue: '' }])}
-                            disabled={classifying}
-                            style={{ fontSize: 11 }}
-                        >
-                            <Plus size={12} /> 添加分类维度
-                        </button>
-                    </div>
-                    {/* Batch paste: 1col=categories, 2col=category+desc, 3col=dim+categories+desc */}
-                    <div style={{ marginTop: 2 }}>
-                        <div style={{ fontSize: 10, color: '#666', marginBottom: 3 }}>📋 批量粘贴（1列=分类名 · 2列=分类+说明 · 3列=维度名+分类+说明）</div>
-                        <textarea
-                            className="is-chips-input is-batch-paste-input"
-                            style={{ width: '100%', minHeight: 28, maxHeight: 80, resize: 'vertical', fontSize: 10, lineHeight: 1.4, padding: '4px 6px' }}
-                            placeholder="粘贴分类名 / 分类[TAB]说明 / 维度名[TAB]分类1,分类2[TAB]说明"
-                            disabled={classifying}
-                            onPaste={e => {
-                                const text = e.clipboardData.getData('text/plain');
-                                if (!text.trim()) return;
-                                e.preventDefault();
+                        <div style={{ display: 'flex', justifyContent: 'flex-start', padding: '4px 0', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button
+                                className="is-btn is-btn-sm"
+                                onClick={() => setDimensions(prev => [...prev, { id: `dim-${Date.now()}`, name: '', description: '', categories: [], inputValue: '' }])}
+                                disabled={classifying}
+                                style={{ fontSize: 11 }}
+                            >
+                                <Plus size={12} /> 添加分类维度
+                            </button>
+                        </div>
+                        {/* Batch paste: 1col=categories, 2col=category+desc, 3col=dim+categories+desc */}
+                        <div style={{ marginTop: 2 }}>
+                            <div style={{ fontSize: 10, color: '#666', marginBottom: 3 }}>📋 批量粘贴（1列=分类名 · 2列=分类+说明 · 3列=维度名+分类+说明）</div>
+                            <textarea
+                                className="is-chips-input is-batch-paste-input"
+                                style={{ width: '100%', minHeight: 28, maxHeight: 80, resize: 'vertical', fontSize: 10, lineHeight: 1.4, padding: '4px 6px' }}
+                                placeholder="粘贴分类名 / 分类[TAB]说明 / 维度名[TAB]分类1,分类2[TAB]说明"
+                                disabled={classifying}
+                                onPaste={e => {
+                                    const text = e.clipboardData.getData('text/plain');
+                                    if (!text.trim()) return;
+                                    e.preventDefault();
 
-                                const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
-                                if (lines.length === 0) return;
+                                    const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
+                                    if (lines.length === 0) return;
 
-                                // Detect mode by max column count
-                                const maxCols = Math.max(...lines.map(l => l.split('\t').length));
+                                    // Detect mode by max column count
+                                    const maxCols = Math.max(...lines.map(l => l.split('\t').length));
 
-                                if (maxCols >= 3) {
-                                    // ===== 3 columns: each row = a new dimension =====
-                                    // col1=dimension name, col2=categories (comma-separated), col3=description
-                                    const newDims: ClassificationDimension[] = [];
-                                    for (const line of lines) {
-                                        const cols = line.split('\t');
-                                        const dimName = cols[0]?.trim();
-                                        if (!dimName) continue;
-                                        const catStr = cols[1]?.trim() || '';
-                                        const desc = cols[2]?.trim() || '';
-                                        const cats = catStr.split(/[,，、;；]/).map(c => c.trim()).filter(Boolean);
-                                        newDims.push({ id: `dim-${Date.now()}-${Math.random().toString(36).substr(2,5)}`, name: dimName, description: desc, categories: cats, inputValue: '' });
+                                    if (maxCols >= 3) {
+                                        // ===== 3 columns: each row = a new dimension =====
+                                        // col1=dimension name, col2=categories (comma-separated), col3=description
+                                        const newDims: ClassificationDimension[] = [];
+                                        for (const line of lines) {
+                                            const cols = line.split('\t');
+                                            const dimName = cols[0]?.trim();
+                                            if (!dimName) continue;
+                                            const catStr = cols[1]?.trim() || '';
+                                            const desc = cols[2]?.trim() || '';
+                                            const cats = catStr.split(/[,，、;；]/).map(c => c.trim()).filter(Boolean);
+                                            newDims.push({ id: `dim-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`, name: dimName, description: desc, categories: cats, inputValue: '' });
+                                        }
+                                        if (newDims.length > 0) {
+                                            setDimensions(prev => [...prev, ...newDims]);
+                                        }
+                                    } else {
+                                        // ===== 1 or 2 columns: all rows → categories of ONE dimension =====
+                                        // col1=category name, col2=description (optional)
+                                        const cats: string[] = [];
+                                        const newCriteria: Record<string, string> = {};
+                                        for (const line of lines) {
+                                            const cols = line.split('\t');
+                                            const catName = cols[0]?.trim();
+                                            if (!catName) continue;
+                                            cats.push(catName);
+                                            const desc = cols[1]?.trim();
+                                            if (desc) newCriteria[catName] = desc;
+                                        }
+                                        if (cats.length > 0) {
+                                            // Add to the last dimension, or create a new one
+                                            setDimensions(prev => {
+                                                if (prev.length === 0 || (prev[prev.length - 1].categories.length > 0 && prev[prev.length - 1].name)) {
+                                                    // Create a new dimension
+                                                    return [...prev, {
+                                                        id: `dim-${Date.now()}`,
+                                                        name: '',
+                                                        description: '',
+                                                        categories: cats,
+                                                        inputValue: '',
+                                                        categoryCriteria: newCriteria,
+                                                    }];
+                                                }
+                                                // Add to the last empty dimension
+                                                const last = prev[prev.length - 1];
+                                                const merged = [...last.categories, ...cats.filter(c => !last.categories.includes(c))];
+                                                const mergedCrit = { ...(last.categoryCriteria || {}), ...newCriteria };
+                                                return prev.map((d, i) => i === prev.length - 1 ? { ...d, categories: merged, categoryCriteria: mergedCrit } : d);
+                                            });
+                                        }
                                     }
-                                    if (newDims.length > 0) {
-                                        setDimensions(prev => [...prev, ...newDims]);
-                                    }
-                                } else {
-                                    // ===== 1 or 2 columns: all rows → categories of ONE dimension =====
-                                    // col1=category name, col2=description (optional)
-                                    const cats: string[] = [];
-                                    const newCriteria: Record<string, string> = {};
-                                    for (const line of lines) {
-                                        const cols = line.split('\t');
-                                        const catName = cols[0]?.trim();
-                                        if (!catName) continue;
-                                        cats.push(catName);
-                                        const desc = cols[1]?.trim();
-                                        if (desc) newCriteria[catName] = desc;
-                                    }
-                                    if (cats.length > 0) {
-                                        // Add to the last dimension, or create a new one
-                                        setDimensions(prev => {
-                                            if (prev.length === 0 || (prev[prev.length - 1].categories.length > 0 && prev[prev.length - 1].name)) {
-                                                // Create a new dimension
-                                                return [...prev, {
-                                                    id: `dim-${Date.now()}`,
-                                                    name: '',
-                                                    description: '',
-                                                    categories: cats,
-                                                    inputValue: '',
-                                                    categoryCriteria: newCriteria,
-                                                }];
-                                            }
-                                            // Add to the last empty dimension
-                                            const last = prev[prev.length - 1];
-                                            const merged = [...last.categories, ...cats.filter(c => !last.categories.includes(c))];
-                                            const mergedCrit = { ...(last.categoryCriteria || {}), ...newCriteria };
-                                            return prev.map((d, i) => i === prev.length - 1 ? { ...d, categories: merged, categoryCriteria: mergedCrit } : d);
-                                        });
-                                    }
-                                }
-                                (e.target as HTMLTextAreaElement).value = '';
-                            }}
-                        />
-                    </div>
+                                    (e.target as HTMLTextAreaElement).value = '';
+                                }}
+                            />
+                        </div>
                     </>)}
                 </div>
 
@@ -3147,7 +3429,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                     preview += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
                                 } else {
                                     preview += `根据上一层的分类结果，从对应子类中选择：\n`;
-                                    for (const [parent, items] of byParent) {
+                                    for (const [parent, items] of Array.from(byParent)) {
                                         if (parent) {
                                             preview += `  若上级="${parent}" → `;
                                             preview += items.map(r => r.criteria ? `"${r.name}" (${r.criteria})` : `"${r.name}"`).join('、') + '\n';
@@ -3225,7 +3507,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     })()}
                 </div>
 
-                {[...allCategoriesByDim.entries()].map(([dimName, catMap]) => (
+                {Array.from(allCategoriesByDim.entries()).map(([dimName, catMap]) => (
                     <div key={dimName} className="is-filter-bar">
                         <span style={{ color: '#888', flexShrink: 0, fontSize: '11px', fontWeight: 600, marginRight: 2 }}>📁 {dimName}</span>
                         <div className="is-filter-tags-wrap">
@@ -3235,7 +3517,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             >
                                 全部 <span className="is-tab-count">({images.length})</span>
                             </button>
-                            {[...catMap.entries()].map(([cat, count]) => {
+                            {Array.from(catMap.entries()).map(([cat, count]) => {
                                 const isPending = pendingAssignItems.some(p => p.source === dimName && p.value === cat);
                                 return (
                                     <span key={cat} style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
@@ -3343,7 +3625,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             >
                                 全部
                             </button>
-                            {[...allRatios.entries()].map(([ratio, count]) => (
+                            {Array.from(allRatios.entries()).map(([ratio, count]) => (
                                 <button
                                     key={ratio}
                                     className={`is-filter-tab ${activeRatio === ratio ? 'active' : ''}`}
@@ -3360,7 +3642,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 {allTags.size > 0 && (
                     <div className="is-tag-cloud">
                         <span style={{ color: '#888', fontSize: '11px', fontWeight: 600, width: '100%', marginBottom: 4 }}>🏷️ 标签</span>
-                        {[...allTags.entries()].slice(0, 50).map(([tag, count]) => {
+                        {Array.from(allTags.entries()).slice(0, 50).map(([tag, count]) => {
                             const isPending = pendingAssignItems.some(p => p.source === '__tag__' && p.value === tag);
                             return (
                                 <span key={tag} style={{ display: 'inline-flex', alignItems: 'center', gap: 0 }}>
@@ -3404,6 +3686,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     <div className="is-toolbar-stats">
                         <span>📷 {images.length} 张</span>
                         {classifiedCount > 0 && <span>✅ {classifiedCount} 已分类</span>}
+                        {apiCallCount > 0 && <span style={{ marginLeft: 8, color: 'var(--color-primary, #7c3aed)', fontWeight: 600 }}>📡 {apiCallCount} 次 API 调用</span>}
                     </div>
 
                     <div className="is-toolbar-actions">
@@ -3541,20 +3824,28 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             <ImagePlus size={14} /> 添加图片
                         </button>
 
+                        <button
+                            className="is-btn"
+                            onClick={() => folderInputRef.current?.click()}
+                            title="选择文件夹 — 自动按子目录结构分类"
+                        >
+                            <FolderOpen size={14} /> 添加文件夹
+                        </button>
+
                         {!classifying ? (
                             <>
                                 {images.length - classifiedCount > 0 && (
-                                <button
-                                    className="is-btn is-btn-primary"
-                                    onClick={handleClassify}
-                                    disabled={images.length === 0}
-                                >
-                                    <Sparkles size={14} />
-                                    {classifiedCount > 0
-                                        ? `重试失败 (${images.length - classifiedCount} 张)`
-                                        : `开始 AI 分类 (${images.length} 张)`
-                                    }
-                                </button>
+                                    <button
+                                        className="is-btn is-btn-primary"
+                                        onClick={handleClassify}
+                                        disabled={images.length === 0}
+                                    >
+                                        <Sparkles size={14} />
+                                        {classifiedCount > 0
+                                            ? `重试失败 (${images.length - classifiedCount} 张)`
+                                            : `开始 AI 分类 (${images.length} 张)`
+                                        }
+                                    </button>
                                 )}
                                 {classifiedCount > 0 && (
                                     <button
@@ -3587,6 +3878,18 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             style={{ display: 'none' }}
                             onChange={handleFileSelect}
                         />
+                        {/* @ts-ignore — webkitdirectory is a non-standard attribute */}
+                        <input
+                            ref={folderInputRef}
+                            type="file"
+                            // @ts-ignore
+                            webkitdirectory=""
+                            // @ts-ignore
+                            directory=""
+                            multiple
+                            style={{ display: 'none' }}
+                            onChange={handleFolderSelect}
+                        />
                     </div>
                 </div>
 
@@ -3600,7 +3903,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             />
                         </div>
                         <div className="is-progress-text">
-                            <span><Loader2 size={12} className="animate-spin" style={{ display: 'inline', marginRight: 4 }} /> {classifying ? '正在分类...' : '正在加载图片...'}</span>
+                            <span><Loader2 size={12} className="animate-spin" style={{ display: 'inline', marginRight: 4 }} /> {classifying ? '正在分类...' : '正在加载图片...'} {apiCallCount > 0 && <span style={{ marginLeft: 8, color: '#f43f5e', fontWeight: 500, fontSize: '11px' }}>({apiCallCount} 次 API 调用)</span>}</span>
                             <span>{progress.done} / {progress.total}</span>
                         </div>
                     </div>
@@ -3642,21 +3945,36 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                         </span>
                                     )}
 
+                                    {img.folderPath && (
+                                        <span
+                                            style={{
+                                                position: 'absolute', top: 4, left: 4, zIndex: 3,
+                                                background: 'rgba(59,130,246,0.75)', color: '#fff',
+                                                padding: '1px 6px', borderRadius: 4, fontSize: '9px',
+                                                maxWidth: '80%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                backdropFilter: 'blur(4px)',
+                                            }}
+                                            title={`📂 ${img.folderPath}`}
+                                        >
+                                            📂 {img.folderPath}
+                                        </span>
+                                    )}
+
                                     <div className="is-gallery-check">
                                         {selectedIds.has(img.id) && <Check size={12} />}
                                     </div>
 
                                     <div className="is-gallery-actions">
-                                        <button 
-                                            className="is-gallery-action-btn" 
-                                            title="重新分类" 
+                                        <button
+                                            className="is-gallery-action-btn"
+                                            title="重新分类"
                                             onClick={(e) => { e.stopPropagation(); handleSingleReclassify(img.id); }}
                                         >
                                             <RefreshCw size={12} />
                                         </button>
-                                        <button 
-                                            className="is-gallery-action-btn" 
-                                            title="修改分类" 
+                                        <button
+                                            className="is-gallery-action-btn"
+                                            title="修改分类"
                                             onClick={(e) => { e.stopPropagation(); setEditingImage(img); }}
                                         >
                                             <Edit3 size={12} />
@@ -3823,7 +4141,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                     </div>
                 </div>
             )}
-            
+
             {/* Download Progress Modal */}
             {downloadProgress && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -3831,9 +4149,9 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         <Loader2 className="animate-spin" size={36} style={{ margin: '0 auto 16px', color: '#a78bfa' }} />
                         <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>{downloadProgress.status}</div>
                         <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', margin: '16px 0' }}>
-                            <div style={{ 
-                                height: '100%', 
-                                background: '#a78bfa', 
+                            <div style={{
+                                height: '100%',
+                                background: '#a78bfa',
                                 width: `${downloadProgress.total > 0 ? (downloadProgress.current / downloadProgress.total) * 100 : 0}%`,
                                 transition: 'width 0.2s ease-out'
                             }} />
@@ -3848,16 +4166,16 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
                     <div style={{ background: '#1e1e1e', padding: 24, borderRadius: 12, width: '100%', maxWidth: 500, color: '#eee', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
                         <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>修改分类结果</h3>
-                        
+
                         <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
                             <img src={editingImage.src} alt="preview" style={{ width: 120, height: 120, objectFit: 'contain', background: '#000', borderRadius: 8 }} />
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                
+
                                 {classifyMode === 'advanced' && advancedLevels.length > 0 ? (
                                     advancedLevels.map(lvl => (
                                         <div key={lvl}>
                                             <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{lvl}</div>
-                                            <input 
+                                            <input
                                                 className="is-input"
                                                 style={{ width: '100%', padding: '6px 10px' }}
                                                 defaultValue={editingImage.categories?.[lvl] || ''}
@@ -3865,11 +4183,11 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                             />
                                         </div>
                                     ))
-                                ) : activeDims.filter(d => d.name.trim()).length > 0 ? (
-                                    activeDims.filter(d => d.name.trim()).map(dim => (
+                                ) : dimensions.filter(d => d.name.trim()).length > 0 ? (
+                                    dimensions.filter(d => d.name.trim()).map(dim => (
                                         <div key={dim.name}>
                                             <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{dim.name}</div>
-                                            <input 
+                                            <input
                                                 className="is-input"
                                                 style={{ width: '100%', padding: '6px 10px' }}
                                                 defaultValue={editingImage.categories?.[dim.name] || ''}
@@ -3880,7 +4198,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 ) : (
                                     <div>
                                         <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>主分类</div>
-                                        <input 
+                                        <input
                                             className="is-input"
                                             style={{ width: '100%', padding: '6px 10px' }}
                                             defaultValue={editingImage.category || ''}
@@ -3891,7 +4209,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
 
                                 <div>
                                     <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>标签 (用逗号分隔)</div>
-                                    <input 
+                                    <input
                                         className="is-input"
                                         style={{ width: '100%', padding: '6px 10px' }}
                                         defaultValue={(editingImage.tags || []).join(', ')}
@@ -3906,8 +4224,8 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             <button className="is-btn is-btn-primary" onClick={() => {
                                 const newCategories: Record<string, string> = {};
                                 let primaryCat = editingImage.category || '';
-                                const adims = activeDims.filter(d => d.name.trim());
-                                
+                                const adims = dimensions.filter(d => d.name.trim());
+
                                 if (classifyMode === 'advanced' && advancedLevels.length > 0) {
                                     advancedLevels.forEach(lvl => {
                                         const val = (document.getElementById(`edit-cat-${lvl}`) as HTMLInputElement)?.value.trim();
@@ -3942,18 +4260,18 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                             <h3 style={{ margin: 0, fontSize: 16 }}>{enlargedInput.title}</h3>
                             <button className="is-btn" style={{ padding: '4px 8px' }} onClick={() => setEnlargedInput(null)}><X size={16} /></button>
                         </div>
-                        
+
                         <textarea
-                            style={{ 
-                                flex: 1, 
-                                width: '100%', 
-                                background: '#111', 
-                                border: '1px solid #333', 
-                                borderRadius: 8, 
-                                color: '#fff', 
-                                padding: 16, 
-                                fontSize: 13, 
-                                lineHeight: 1.6, 
+                            style={{
+                                flex: 1,
+                                width: '100%',
+                                background: '#111',
+                                border: '1px solid #333',
+                                borderRadius: 8,
+                                color: '#fff',
+                                padding: 16,
+                                fontSize: 13,
+                                lineHeight: 1.6,
                                 resize: 'none',
                                 fontFamily: 'monospace'
                             }}

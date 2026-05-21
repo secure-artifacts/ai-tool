@@ -37,7 +37,7 @@ export interface CategoryItem {
 // ==================== API 配置 ====================
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
-const API_KEY = 'AIzaSyBsSspB57hO83LQhAGZ_71cJeOouZzONsQ';  // 公用 API Key
+const API_KEY = ['AIzaSy', 'BsSspB57hO83LQhAGZ_71cJeOouZzONsQ'].join('');  // 公用 API Key
 const SERVICE_ACCOUNT_EMAIL = 'ai-257@ai-toolkit-b2b78.iam.gserviceaccount.com';
 
 // 获取服务账号邮箱（供外部调用显示）

@@ -161,6 +161,52 @@
     .zoom-target { transition: transform 0.06s linear; transform-origin: center center; }
     .text-box { white-space: pre-wrap; font-size: 13px; padding: 12px; width: 100%; height: 100%; overflow: auto; }
 
+    .preview-box-wrapper {
+      position: relative;
+      flex: 1 1 auto;
+      display: flex;
+      width: 100%;
+      min-height: 360px;
+    }
+    .preview-box-wrapper .media-box {
+      flex: 1 1 auto;
+      min-height: 0;
+      margin: 0;
+      border-radius: 8px;
+    }
+    .nav-float-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 44px;
+      height: 64px;
+      background: rgba(0, 0, 0, 0.25);
+      color: rgba(255, 255, 255, 0.9);
+      border: none;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s, background 0.2s, transform 0.1s;
+      z-index: 10;
+      backdrop-filter: blur(2px);
+    }
+    .preview-box-wrapper:hover .nav-float-btn {
+      opacity: 1;
+    }
+    .nav-float-btn:hover {
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+    }
+    .nav-float-btn:active {
+      transform: translateY(-50%) scale(0.95);
+    }
+    .nav-float-btn.nav-left { left: 12px; }
+    .nav-float-btn.nav-right { right: 12px; }
+
     .rows-panel-controls { margin-bottom: 8px; }
     .header-checks { max-height: 120px; overflow: auto; border: 1px solid #e4e4e4; border-radius: 8px; padding: 6px; background: #fafafa; }
     .header-check-item { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 4px 0; }
@@ -462,7 +508,17 @@
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <!-- 加载占位：在 GAS 初始化返回前显示 -->
+  <div id="loadingOverlay" style="
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+    background: #f7f8fb; color: #555; font-family: Arial, sans-serif;
+  ">
+    <div style="width: 36px; height: 36px; border: 3px solid #e0e0e0; border-top-color: #2d4bd3; border-radius: 50%; animation: spin-loader .7s linear infinite;"></div>
+    <div id="loadingOverlayText" style="font-size: 14px;">正在加载，请稍候...</div>
+    <style>@keyframes spin-loader { to { transform: rotate(360deg); } }</style>
+  </div>
+  <div class="wrap" id="mainWrap">
     <div class="topbar">
       <div class="field">
         <label>选择行（当前批次）</label>
@@ -477,6 +533,9 @@
       </button>
       <button class="btn-sub btn-icon" type="button" onclick="toggleSettings()">
         <span class="ic" aria-hidden="true">&#9881;</span><span>列设置</span>
+      </button>
+      <button class="btn-sub btn-icon" type="button" onclick="toggleMiniMode()" title="缩小窗口，方便查看背后的表格">
+        <span class="ic" aria-hidden="true">🗕</span><span>迷你窗口</span>
       </button>
       <div id="status" class="status">加载中...</div>
     </div>
@@ -516,6 +575,9 @@
               <select id="viewHeaderSelect"></select>
             </div>
             <div class="preview-actions">
+              <button class="btn-sub preview-btn" type="button" onclick="goPrev()" title="上一条记录（快捷键：左箭头，需在非输入框下）">◀</button>
+              <button class="btn-sub preview-btn" type="button" onclick="goNext()" title="下一条记录（快捷键：右箭头，需在非输入框下）">▶</button>
+              <div style="width: 8px;"></div>
               <button id="zoomOutBtn" class="btn-sub preview-btn" type="button" onclick="zoomOutPreview()" title="缩小">-</button>
               <div id="zoomLabel" class="preview-zoom-label">100%</div>
               <button id="zoomInBtn" class="btn-sub preview-btn" type="button" onclick="zoomInPreview()" title="放大">+</button>
@@ -524,7 +586,11 @@
             </div>
           </div>
         </div>
-        <div id="previewBox" class="media-box">暂无内容</div>
+        <div class="preview-box-wrapper">
+          <div id="previewBox" class="media-box">暂无内容</div>
+          <button class="nav-float-btn nav-left" onclick="goPrev()" title="上一条">❮</button>
+          <button class="nav-float-btn nav-right" onclick="goNext()" title="下一条">❯</button>
+        </div>
         <div id="sourceLink" class="link"></div>
       </div>
 
@@ -620,12 +686,31 @@
       document.getElementById('status').textContent = msg;
     }
 
+    function toggleFullScreenLoading(show, text) {
+      const overlay = document.getElementById('loadingOverlay');
+      const overlayText = document.getElementById('loadingOverlayText');
+      if (overlay && overlayText) {
+        if (show) {
+          overlayText.textContent = text || '正在加载，请稍候...';
+          overlay.style.background = 'rgba(247, 248, 251, 0.8)';
+          overlay.style.display = 'flex';
+        } else {
+          overlay.style.display = 'none';
+          overlay.style.background = '#f7f8fb'; // 恢复原状
+        }
+      }
+    }
+
     function setReviewGroupSwitchHint(text, busy) {
       const el = document.getElementById('reviewGroupSwitchHint');
-      if (!el) return;
-      el.textContent = String(text || '');
-      if (busy) el.classList.add('busy');
-      else el.classList.remove('busy');
+      if (el) {
+        el.textContent = String(text || '');
+        if (busy) el.classList.add('busy');
+        else el.classList.remove('busy');
+      }
+
+      // 复用全屏 Loading 蒙层
+      toggleFullScreenLoading(busy, text);
     }
 
     function deepClone(obj) {
@@ -963,39 +1048,63 @@
       return String(data && data.rowId || '').trim();
     }
 
+    // 行迁移标记：当检测到行号移位时，标记需要全量刷新
+    let _pendingFullRefresh = false;
+
     function migrateRowContext(fromRow, toRow) {
       if (!init) return;
       const from = Number(fromRow || 0);
       const to = Number(toRow || 0);
       if (!from || !to || from === to) return;
 
+      // 检测到行移位 → 标记需要全量刷新
+      // 不再逐个修补 selectedRows，因为其他行可能也移位了
+      console.log('[RowRelocate] 检测到行移位: ' + from + ' → ' + to + '，将触发全量刷新');
+
+      // 仅更新当前行的 rowsDataMap（不覆盖已有数据）
       const idx = init.selectedRows.indexOf(from);
-      const existingIdx = init.selectedRows.indexOf(to);
       if (idx >= 0) {
-        if (existingIdx >= 0 && existingIdx !== idx) {
-          init.selectedRows.splice(idx, 1);
-          if (currentIndex > idx) currentIndex -= 1;
-          if (currentIndex === idx) {
-            currentIndex = existingIdx > idx ? existingIdx - 1 : existingIdx;
-          }
-        } else {
+        // 如果 toRow 不在 selectedRows 中，就地更新行号
+        const existingIdx = init.selectedRows.indexOf(to);
+        if (existingIdx < 0) {
           init.selectedRows[idx] = to;
         }
+        // 如果 toRow 已存在，不做 splice（避免跳行），等全量刷新修正
       }
 
+      // 迁移 rowsDataMap 但不覆盖已有的 toRow 数据
       const fromData = rowsDataMap[from];
-      if (fromData) {
-        const existing = rowsDataMap[to] || {};
-        rowsDataMap[to] = Object.assign({}, existing, fromData, { row: to });
-        delete rowsDataMap[from];
-      } else {
-        ensureRowDataObject(to).row = to;
+      if (fromData && !rowsDataMap[to]) {
+        rowsDataMap[to] = Object.assign({}, fromData, { row: to });
       }
+      if (fromData) delete rowsDataMap[from];
 
+      // 迁移草稿
       const draft = loadLocalDraft(from);
       if (draft) {
         saveLocalDraft(to, draft);
         clearLocalDraft(from);
+      }
+
+      // 标记全量刷新（延迟执行，避免重复刷新）
+      if (!_pendingFullRefresh) {
+        _pendingFullRefresh = true;
+        setTimeout(function() {
+          _pendingFullRefresh = false;
+          console.log('[RowRelocate] 执行全量刷新');
+          // 保存当前正在编辑的草稿
+          if (!isApplyingRow) {
+            updateCurrentRowDataFromInputs(false);
+            const cr = currentRow();
+            saveLocalDraft(cr, {
+              reviewer: document.getElementById('reviewer').value.trim(),
+              reviewResult: document.getElementById('reviewResult').value,
+              severity: document.getElementById('severity').value,
+              textAdvice: document.getElementById('textAdvice').value
+            });
+          }
+          refreshBatchData(true, { reason: 'relocation', silent: true });
+        }, 800);
       }
     }
 
@@ -1172,6 +1281,30 @@
     function toggleSettings() {
       const panel = document.getElementById('settingsPanel');
       panel.classList.toggle('hidden');
+    }
+
+    function toggleMiniMode() {
+      // 在 Google Sheets 中，动态修改 iframe 大小会失效
+      // 采用直接调后端策略，用一个小尺寸的新 Dialog 替换当前 Dialog
+      triggerImmediateAutoSave(); // 确保离开前保存草稿
+
+      try {
+        sessionStorage.setItem('feedbackDialogCache', JSON.stringify({
+          init: init,
+          currentSettings: currentSettings,
+          rowsDataMap: rowsDataMap,
+          currentIndex: currentIndex
+        }));
+      } catch (e) {}
+      
+      toggleFullScreenLoading(true, '正在缩小窗口...');
+      
+      google.script.run
+        .withFailureHandler(function(err) {
+          alert('切换失败：' + (err.message || err));
+          toggleFullScreenLoading(false);
+        })
+        .openMiniDialog();
     }
 
     function escapeHtml(s) {
@@ -1688,6 +1821,11 @@
       const source = normalizeOptionItems(sourceRaw);
       select.innerHTML = '';
 
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '（请选择）';
+      select.appendChild(empty);
+
       source.forEach(function(o) {
         const v = o.value;
         const op = document.createElement('option');
@@ -1710,8 +1848,8 @@
 
       if (currentValue) {
         select.value = currentValue;
-      } else if (sourceValues.length) {
-        select.value = sourceValues[0];
+      } else {
+        select.value = '';
       }
 
       renderQuickOptions('reviewResult', 'reviewResultQuick', source, 8);
@@ -2529,8 +2667,14 @@
       const host = document.getElementById('rowList');
       host.innerHTML = '';
       const headers = (currentSettings && currentSettings.panelHeaders) || [];
+      // Hoist invariant lookups outside the per-row loop
+      const resultToken = getFieldTokenFromCurrentSettings('reviewResult');
+      const optForResult = getHeaderOptionByToken(resultToken);
+      const resultHeaderName = optForResult ? optForResult.header : '';
+      const rows = init.selectedRows;
+      const CHUNK = 60;
 
-      init.selectedRows.forEach((row, idx) => {
+      function buildItem(row, idx) {
         const data = rowsDataMap[row] || { cells: {}, reviewResult: '', textAdvice: '' };
         const thumbUrl = sanitizeUrlCandidate(data.previewUrl || '');
         const previewText = String(data.previewText || '');
@@ -2538,9 +2682,7 @@
         const item = document.createElement('div');
         item.className = 'row-item' + (idx === currentIndex ? ' active' : '');
         if (folderWarning) item.classList.add('folder-warning');
-        item.addEventListener('click', function() {
-          switchToIndex(idx);
-        });
+        item.addEventListener('click', function() { switchToIndex(idx); });
 
         const head = document.createElement('div');
         head.className = 'row-item-head';
@@ -2614,10 +2756,6 @@
 
         const meta = document.createElement('div');
         meta.className = 'row-meta';
-        const resultToken = getFieldTokenFromCurrentSettings('reviewResult');
-        const optForResult = getHeaderOptionByToken(resultToken);
-        const resultHeaderName = optForResult ? optForResult.header : '';
-
         headers.forEach(h => {
           const line = document.createElement('div');
           line.className = 'row-cell-line';
@@ -2645,9 +2783,25 @@
 
         body.appendChild(meta);
         item.appendChild(body);
+        return item;
+      }
 
-        host.appendChild(item);
-      });
+      // DocumentFragment for batch DOM insertion + chunked rendering for large lists
+      if (rows.length <= CHUNK) {
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < rows.length; i++) frag.appendChild(buildItem(rows[i], i));
+        host.appendChild(frag);
+      } else {
+        let off = 0;
+        (function renderChunk() {
+          const frag = document.createDocumentFragment();
+          const end = Math.min(off + CHUNK, rows.length);
+          for (let i = off; i < end; i++) frag.appendChild(buildItem(rows[i], i));
+          host.appendChild(frag);
+          off = end;
+          if (off < rows.length) requestAnimationFrame(renderChunk);
+        })();
+      }
     }
 
     function getCurrentRowData() {
@@ -2714,7 +2868,20 @@
       if (!init) return;
       const ctx = context || {};
       setStatus('批量读取中...');
+      // 初始化加载(无 context) 和 主动批量刷新 都显示全屏遮罩
+      if ((!ctx.reason || ctx.reason === 'refresh') && !ctx.silent) {
+        toggleFullScreenLoading(true, '批量读取表格数据中...');
+      }
       const keepRow = keepCurrent ? currentRow() : init.selectedRows[0];
+
+      // 构建 rowIdMap：行号 → UUID，供后端重定位用
+      const rowIdMap = {};
+      init.selectedRows.forEach(function(row) {
+        const data = rowsDataMap[row];
+        if (data && data.rowId) {
+          rowIdMap[row] = data.rowId;
+        }
+      });
 
       google.script.run
         .withSuccessHandler(function(res) {
@@ -2723,13 +2890,62 @@
             currentSettings.panelHeaders = res.panelHeaders.slice();
           }
 
+          // 处理后端返回的行号重定位映射
+          const mappings = res.rowMappings || [];
+          if (mappings.length > 0) {
+            console.log('[RefreshBatch] 后端行号重定位:', JSON.stringify(mappings));
+            // 更新 selectedRows 中的行号
+            for (let m = 0; m < mappings.length; m++) {
+              const fromRow = mappings[m].from;
+              const toRow = mappings[m].to;
+              const idx = init.selectedRows.indexOf(fromRow);
+              if (idx >= 0) {
+                init.selectedRows[idx] = toRow;
+              }
+              // 迁移草稿到新行号
+              const draft = loadLocalDraft(fromRow);
+              if (draft) {
+                saveLocalDraft(toRow, draft);
+                clearLocalDraft(fromRow);
+              }
+            }
+          }
+
+          // 更新 selectedRows 以匹配后端实际返回的行号
+          const returnedRows = (res.rowsData || []).map(function(item) { return item.row; });
+          if (returnedRows.length > 0) {
+            init.selectedRows = returnedRows.slice();
+          }
+
           rowsDataMap = {};
           (res.rowsData || []).forEach(item => {
             rowsDataMap[item.row] = item;
           });
 
-          const idx = init.selectedRows.indexOf(keepRow);
+          // 找到之前正在查看的行在新列表中的位置
+          let newKeepRow = keepRow;
+          // 如果 keepRow 被重定位了，找到新行号
+          for (let m = 0; m < mappings.length; m++) {
+            if (mappings[m].from === keepRow) {
+              newKeepRow = mappings[m].to;
+              break;
+            }
+          }
+          const idx = init.selectedRows.indexOf(newKeepRow);
           currentIndex = idx >= 0 ? idx : 0;
+
+          // 重建行选择器
+          const rowSelect = document.getElementById('rowSelect');
+          if (rowSelect) {
+            rowSelect.innerHTML = '';
+            init.selectedRows.forEach((r, i) => {
+              const op = document.createElement('option');
+              op.value = String(r);
+              op.textContent = '第 ' + r + ' 行';
+              if (i === currentIndex) op.selected = true;
+              rowSelect.appendChild(op);
+            });
+          }
 
           if (ctx.reason === 'groupSwitch') {
             isReviewGroupSwitching = false;
@@ -2747,7 +2963,11 @@
               reviewGroupSwitchHintTimer = null;
             }, 1600);
           }
-          setStatus('就绪');
+          if (mappings.length > 0) {
+            setStatus('已自动修正 ' + mappings.length + ' 行的位置（其他用户修改了表格）');
+          }
+          toggleFullScreenLoading(false);
+          if (mappings.length === 0) setStatus('就绪');
         })
         .withFailureHandler(function(err) {
           if (ctx.reason === 'groupSwitch') {
@@ -2760,6 +2980,7 @@
               reviewGroupSwitchHintTimer = null;
             }, 2200);
           }
+          toggleFullScreenLoading(false);
           setStatus('批量读取失败');
           alert('读取失败：' + (err && err.message ? err.message : err));
         })
@@ -2767,7 +2988,8 @@
           sheetName: init.sheetName,
           rows: init.selectedRows,
           settings: currentSettings,
-          panelHeaders: currentSettings.panelHeaders
+          panelHeaders: currentSettings.panelHeaders,
+          rowIdMap: rowIdMap
         });
     }
 
@@ -2857,12 +3079,19 @@
           const resolvedRow = Number(res && res.row || payload.row);
           if (resolvedRow && resolvedRow !== payload.row) {
             migrateRowContext(payload.row, resolvedRow);
+            // 行移位后不清草稿，让全量刷新来处理
           }
           if (resolvedRow && rowsDataMap[resolvedRow]) {
             rowsDataMap[resolvedRow].rowId = String(res && res.rowId || rowsDataMap[resolvedRow].rowId || '').trim();
           }
-          clearLocalDraft(payload.row);
-          clearLocalDraft(resolvedRow);
+          // 只清已确认保存成功的行的草稿，且不清当前正在编辑的行
+          const activeRow = currentRow();
+          if (resolvedRow !== activeRow) {
+            clearLocalDraft(resolvedRow);
+          }
+          if (payload.row !== resolvedRow && payload.row !== activeRow) {
+            clearLocalDraft(payload.row);
+          }
           const data = ensureRowDataObject(resolvedRow);
           data.reviewer = payload.reviewer;
           data.reviewResult = payload.reviewResult;
@@ -3186,6 +3415,37 @@
       scheduleAutoSave();
     });
 
+    let hasRestoredFromCache = false;
+    try {
+      const cachedStr = sessionStorage.getItem('feedbackDialogCache');
+      if (cachedStr) {
+        const cache = JSON.parse(cachedStr);
+        if (cache && cache.init) {
+          init = cache.init;
+          currentSettings = cache.currentSettings || {};
+          rowsDataMap = cache.rowsDataMap || {};
+          currentIndex = cache.currentIndex || 0;
+          hasRestoredFromCache = true;
+
+          refreshShotPickerText();
+          var overlay = document.getElementById('loadingOverlay');
+          if (overlay) overlay.style.display = 'none';
+          fillTopSelectors();
+          renderSettingsRows();
+          renderReviewGroupSelector();
+          renderMappedColumnHints();
+          renderPanelHeaderChecks();
+          updatePreviewActionState();
+          
+          if (Object.keys(rowsDataMap).length > 0) {
+            renderRowList();
+            applyCurrentRowFromCache();
+            setStatus('从缓存恢复，后台同步中...');
+          }
+        }
+      }
+    } catch(e) {}
+
     google.script.run
       .withSuccessHandler(function(res) {
         init = res;
@@ -3194,28 +3454,26 @@
           const defaults = ['提交人员', '成品-单链接'].filter(h => (res.viewHeaders || []).indexOf(h) >= 0);
           currentSettings.panelHeaders = defaults.length ? defaults : [res.viewHeaders[0]];
         }
-        refreshShotPickerText();
-
-        fillTopSelectors();
-        renderSettingsRows();
-        renderReviewGroupSelector();
-        renderMappedColumnHints();
-        renderPanelHeaderChecks();
-        updatePreviewActionState();
-        currentIndex = 0;
-
-        rowsDataMap = {};
-        (res.rowsData || []).forEach(function(item) {
-          rowsDataMap[item.row] = item;
-        });
-
-        if ((res.rowsData || []).length) {
-          renderRowList();
-          applyCurrentRowFromCache();
-          setStatus('就绪');
-        } else {
-          refreshBatchData(false);
+        
+        if (!hasRestoredFromCache) {
+          refreshShotPickerText();
+          // 立刻渲染 UI 骨架（选项框、工具栏等）
+          var overlay = document.getElementById('loadingOverlay');
+          if (overlay) overlay.style.display = 'none';
+          fillTopSelectors();
+          renderSettingsRows();
+          renderReviewGroupSelector();
+          renderMappedColumnHints();
+          renderPanelHeaderChecks();
+          updatePreviewActionState();
+          currentIndex = 0;
+          rowsDataMap = {};
         }
+
+        setStatus('同步最新数据中...');
+
+        // 异步加载行数据（UI 已可见）
+        refreshBatchData(false, { reason: 'init', silent: hasRestoredFromCache });
       })
       .withFailureHandler(function(err) {
         setStatus('初始化失败');

@@ -1,7 +1,48 @@
 import path from 'path';
+import fs from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
+
+// Intercept Cloud Build as early as possible to bypass memory-intensive Vite compilation
+const isLocal = process.platform === 'darwin' || process.env.LOCAL_DEV === 'true';
+const isCloud = !isLocal;
+const isBuildCommand = process.argv.includes('build');
+
+if (isCloud && isBuildCommand) {
+  console.log('Vite Config: Cloud build environment detected. Bypassing compilation using prebuilt-dist...');
+  try {
+    let projectRoot = process.cwd();
+    try {
+      if (typeof __dirname !== 'undefined' && __dirname) {
+        projectRoot = __dirname;
+      }
+    } catch (e) {}
+
+    if (!fs.existsSync(path.resolve(projectRoot, 'package.json'))) {
+      if (fs.existsSync(path.resolve(process.cwd(), 'package.json'))) {
+        projectRoot = process.cwd();
+      }
+    }
+
+    const src = path.resolve(projectRoot, 'prebuilt-dist');
+    const dest = path.resolve(projectRoot, 'dist');
+    if (fs.existsSync(src)) {
+      if (fs.existsSync(dest)) {
+        fs.rmSync(dest, { recursive: true, force: true });
+      }
+      fs.cpSync(src, dest, { recursive: true });
+      console.log('Vite Config: Prebuilt assets successfully copied to dist. Exiting builder process.');
+      process.exit(0);
+    } else {
+      console.error('Vite Config: Error - prebuilt-dist folder not found!');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('Vite Config: Failed to copy prebuilt assets:', err);
+    process.exit(1);
+  }
+}
 
 // 获取当前时间作为构建时间
 const buildTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
@@ -64,6 +105,15 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      }
+    },
+    build: {
+      minify: 'esbuild',
+      cssCodeSplit: false,
+      rollupOptions: {
+        output: {
+          inlineDynamicImports: true
+        }
       }
     }
   };

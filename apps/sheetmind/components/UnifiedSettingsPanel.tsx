@@ -1422,6 +1422,86 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                                 )}
                             </div>
 
+                            {/* 日期范围分组 - 当分组列是日期列时显示 */}
+                            <div className="p-2 bg-sky-50 rounded-lg border border-sky-200">
+                                <label className="flex items-center gap-2 text-[11px] font-medium text-slate-700">
+                                    <input
+                                        type="checkbox"
+                                        checked={config.dateBinning}
+                                        onChange={e => updateConfig({ dateBinning: e.target.checked })}
+                                        className="rounded w-3.5 h-3.5"
+                                    />
+                                    <Calendar size={12} className="inline text-sky-500" />
+                                    按日期范围分组
+                                </label>
+                                {config.dateBinning && (
+                                    <div className="mt-2 space-y-1">
+                                        {config.dateBins.map((bin, idx) => (
+                                            <div key={bin.id} className="flex items-center gap-1">
+                                                <DebouncedInput
+                                                    type="text"
+                                                    value={bin.label}
+                                                    onChange={(nextValue) => {
+                                                        const newBins = [...config.dateBins];
+                                                        newBins[idx] = { ...bin, label: nextValue };
+                                                        updateConfig({ dateBins: newBins });
+                                                    }}
+                                                    placeholder="标签"
+                                                    className="w-20 px-1.5 py-1 text-[10px] border border-slate-200 rounded"
+                                                    debounceMs={120}
+                                                />
+                                                <input
+                                                    type="date"
+                                                    value={bin.startDate}
+                                                    onChange={e => {
+                                                        const newBins = [...config.dateBins];
+                                                        newBins[idx] = { ...bin, startDate: e.target.value };
+                                                        updateConfig({ dateBins: newBins });
+                                                    }}
+                                                    className="px-1 py-1 text-[10px] border border-slate-200 rounded"
+                                                />
+                                                <span className="text-slate-400 text-[10px]">~</span>
+                                                <input
+                                                    type="date"
+                                                    value={bin.endDate}
+                                                    onChange={e => {
+                                                        const newBins = [...config.dateBins];
+                                                        newBins[idx] = { ...bin, endDate: e.target.value };
+                                                        updateConfig({ dateBins: newBins });
+                                                    }}
+                                                    className="px-1 py-1 text-[10px] border border-slate-200 rounded"
+                                                />
+                                                <button
+                                                    onClick={() => updateConfig({
+                                                        dateBins: config.dateBins.filter(b => b.id !== bin.id)
+                                                    })}
+                                                    className="p-0.5 text-red-400 hover:text-red-600"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <button
+                                            onClick={() => {
+                                                const today = new Date();
+                                                const todayStr = today.toISOString().slice(0, 10);
+                                                updateConfig({
+                                                    dateBins: [...config.dateBins, {
+                                                        id: Date.now().toString(),
+                                                        label: `日期段${config.dateBins.length + 1}`,
+                                                        startDate: todayStr,
+                                                        endDate: todayStr
+                                                    }]
+                                                });
+                                            }}
+                                            className="text-[10px] text-sky-600 hover:text-sky-700 flex items-center gap-0.5"
+                                        >
+                                            <Plus size={10} /> 添加日期区间
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
                             {/* 文本分组 */}
                             <div className="p-2 bg-slate-50 rounded-lg border border-slate-200">
                                 <label className="flex items-center gap-2 text-xs font-medium text-slate-700">

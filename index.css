@@ -1257,6 +1257,10 @@ nav button.active {
   color: #fbbf24;
 }
 
+.collapsed-nav-btn .nav-icon-videoKeyframe {
+  color: #e11d48;
+}
+
 .collapsed-nav-btn.active .material-icons {
   color: inherit;
 }

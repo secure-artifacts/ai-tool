@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Loader2, Star, Tag, Check, Layers, ChevronLeft, ChevronRight, X, ListFilter, Copy, Play, MessageSquare } from 'lucide-react';
+import { Search, Loader2, Star, Tag, Check, Layers, ChevronLeft, ChevronRight, X, ListFilter, Copy, Play, MessageSquare, Image } from 'lucide-react';
 import { GalleryConfig, extractImageUrl, parseDate } from '../galleryUtils';
 
 export const GalleryToolbar = (props: any) => {
@@ -12,6 +12,7 @@ export const GalleryToolbar = (props: any) => {
         collapseAll,
         config,
         copyFeedback,
+        copySelectedImageFormulas,
         copySelectedThumbnailsData,
         customGroups,
         effectiveDateBinning,
@@ -49,7 +50,8 @@ export const GalleryToolbar = (props: any) => {
         showCategoryView,
         showFavorites,
         stats,
-        updateConfig
+        updateConfig,
+        collabPanel
     } = props;
 
     return (
@@ -132,6 +134,21 @@ export const GalleryToolbar = (props: any) => {
                                         <Layers size={10} />
                                         {classificationMode ? `分类 (${selectedForClassification.size})` : '分类'}
                                     </button>
+                                    {/* Select from multi-select - transfer selectedThumbnails to classification */}
+                                    {classificationMode && gallerySelectMode && selectedThumbnails.size > 0 && (
+                                        <button
+                                            onClick={() => {
+                                                setSelectedForClassification(new Set(selectedThumbnails));
+                                                setCopyFeedback(`✅ 已选入 ${selectedThumbnails.size} 项到分类`);
+                                                setTimeout(() => setCopyFeedback(null), 1500);
+                                            }}
+                                            className="px-2 py-0.5 text-[10px] rounded flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors tooltip-bottom"
+                                            data-tip="将多选的图片导入分类选中"
+                                        >
+                                            <Check size={10} />
+                                            选择选中项 ({selectedThumbnails.size})
+                                        </button>
+                                    )}
                                     {/* Clear selection button - shown when items are selected */}
                                     {classificationMode && selectedForClassification.size > 0 && (
                                         <button
@@ -145,6 +162,17 @@ export const GalleryToolbar = (props: any) => {
                                             data-tip="取消全选"
                                         >
                                             ✕ 取消选择
+                                        </button>
+                                    )}
+                                    {/* Copy image formulas in classification mode */}
+                                    {classificationMode && selectedForClassification.size > 0 && (
+                                        <button
+                                            onClick={() => copySelectedImageFormulas && copySelectedImageFormulas(processedRows, 'classification')}
+                                            className="px-2 py-0.5 text-[10px] rounded flex items-center gap-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 transition-colors tooltip-bottom"
+                                            data-tip="复制选中图片的 =IMAGE() 公式"
+                                        >
+                                            <Image size={10} />
+                                            复制图片公式
                                         </button>
                                     )}
                                 </>
@@ -209,6 +237,12 @@ export const GalleryToolbar = (props: any) => {
                                         <Copy size={10} /> 复制数据
                                     </button>
                                     <button
+                                        onClick={() => copySelectedImageFormulas && copySelectedImageFormulas(processedRows)}
+                                        className="px-2 py-0.5 text-xs bg-teal-500 text-white rounded hover:bg-teal-600 flex items-center gap-1"
+                                    >
+                                        <Image size={10} /> 复制图片公式
+                                    </button>
+                                    <button
                                         onClick={openBatchCategoryModal}
                                         className="px-2 py-0.5 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 flex items-center gap-1"
                                     >
@@ -239,6 +273,8 @@ export const GalleryToolbar = (props: any) => {
                         )}
 
                         <div className="flex items-center gap-1 ml-auto shrink-0">
+                            {/* Collab Panel */}
+                            {collabPanel}
                             {config.viewMode === 'timeline' && (
                                 <>
                                     <button onClick={expandAll} className="px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 rounded">全展开</button>

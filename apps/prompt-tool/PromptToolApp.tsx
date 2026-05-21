@@ -44,12 +44,16 @@ import {
     Download,
     FileText,
     MessageSquare,
-    Edit2
+    Edit2,
+    Settings,
+    ShieldCheck
 } from 'lucide-react';
 import { DirectChatView } from './DirectChatView';
 import { CopywritingView } from './CopywritingView';
 import { PrayerRewriteView } from './PrayerRewriteView';
 import { SuperRewriteView } from './SuperRewriteView';
+import { BgPromptView } from './BgPromptView';
+import { useScriptureDeitySettings, ScriptureDeitySettingsPanel } from './components/ScriptureDeitySettings';
 
 import {
     appendToSheet,
@@ -145,7 +149,7 @@ export interface DescState {
     viewLanguage: 'en' | 'zh';
     viewOverrides: Record<string, 'en' | 'zh'>;
     pendingAutoGenerate?: boolean;
-    activeTab?: 'innovator' | 'chat' | 'copywriting' | 'prayer' | 'super-rewrite';
+    activeTab?: 'innovator' | 'chat' | 'copywriting' | 'prayer' | 'super-rewrite' | 'bg-prompt';
     // 标签页系统
     promptTabs: PromptTab[];
     activePromptTabId: string;
@@ -285,6 +289,9 @@ export default function PromptToolApp({ getAiInstance, textModel, templateState,
     // 模型：跟随全局设置，全局切换时自动同步
     const [currentModel, setCurrentModel] = useState(textModel || 'gemini-3-flash-preview');
     useEffect(() => { setCurrentModel(textModel); }, [textModel]);
+    const deitySettings = useScriptureDeitySettings();
+    const [showSettingsModal, setShowSettingsModal] = useState(false);
+
     const [showPreviewModal, setShowPreviewModal] = useState(false);
     const [previewContent, setPreviewContent] = useState('');
     const [expandedEntryIds, setExpandedEntryIds] = useState<string[]>([]);
@@ -727,6 +734,18 @@ ${templateContent}
 
 **Specific Innovation Requirements:**
 ${requirement || 'Provide diverse and creative variations suitable for high-quality AI image generation.'}
+
+${deitySettings.deityTerms.length > 0 ? `**Capitalization Rules (CRITICAL):**
+If generating English, you MUST capitalize the first letter of these specific religious terms and pronouns: ${deitySettings.deityTerms.join(', ')}.
+${deitySettings.applyDeityCapitalizationToAll ? `For any other output language, you MUST also capitalize the corresponding translated terms for these words.` : ''}
+` : ''}
+
+${deitySettings.enableScriptureDetection ? `**SCRIPTURE QUOTATION RULES (CRITICAL FOR COPYRIGHT):**
+1. Detect if the source text contains any religious scriptures (e.g., from the Bible).
+2. If scriptures are detected, you MUST NOT translate them yourself.
+3. You MUST quote the exact official text from the specified version: 【${deitySettings.scriptureVersion}】.
+4. If the exact quote from the specified version cannot be found, keep the original language or add a note, but DO NOT create a new translation.
+` : ''}
 
 **Format Instructions (CRITICAL):**
 1. Generate exactly ${count} distinct variations.
@@ -1901,6 +1920,13 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     >
                                         🔥 超级改写
                                     </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'bg-prompt' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'bg-prompt' ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="背景提取 + 文案拼装"
+                                    >
+                                        🖼 背景拼装
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1969,13 +1995,20 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     >
                                         🔥 超级改写
                                     </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'bg-prompt' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'bg-prompt' ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="背景提取 + 文案拼装"
+                                    >
+                                        🖼 背景拼装
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <CopywritingView getAiInstance={getAiInstance} textModel={currentModel} promptTabId={state.activePromptTabId} />
+                <CopywritingView getAiInstance={getAiInstance} textModel={currentModel} promptTabId={state.activePromptTabId} deitySettings={deitySettings} />
             </div>
         );
     }
@@ -2035,6 +2068,13 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                         data-tip="超级文案改写 - 三指令并行生成标题/正文/结尾"
                                     >
                                         🔥 超级改写
+                                    </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'bg-prompt' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'bg-prompt' ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="背景提取 + 文案拼装"
+                                    >
+                                        🖼 背景拼装
                                     </button>
                                 </div>
                             </div>
@@ -2103,6 +2143,13 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     >
                                         🔥 超级改写
                                     </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'bg-prompt' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'bg-prompt' ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="背景提取 + 文案拼装"
+                                    >
+                                        🖼 背景拼装
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -2110,6 +2157,38 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                 </div>
 
                 <SuperRewriteView getAiInstance={getAiInstance} textModel={currentModel} />
+            </div>
+        );
+    }
+
+    // If Bg Prompt Tab is Active
+    if (getActiveTab() === 'bg-prompt') {
+        return (
+            <div className="flex flex-col h-full bg-zinc-950 text-zinc-100 font-sans">
+                <div className="sticky top-0 z-20 bg-zinc-950/95 backdrop-blur-sm border-b border-zinc-800">
+                    <div className="max-w-none mx-auto px-4 py-2">
+                        <div className="flex items-center gap-3 w-full">
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="bg-teal-500/20 p-1.5 rounded-lg">
+                                    <Zap className="text-teal-400 w-4 h-4" fill="currentColor" />
+                                </div>
+                                <h1 className="text-base font-bold tracking-tight text-white hidden xl:block">提示词工具</h1>
+                            </div>
+                            <div className="flex-1 min-w-0 px-1">{promptTabBar}</div>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg p-0.5">
+                                    <button onClick={() => setState(prev => ({ ...prev, activeTab: 'innovator' }))} className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'innovator' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`} data-tip="创新模式">创新模式</button>
+                                    <button onClick={() => setState(prev => ({ ...prev, activeTab: 'chat' }))} className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'chat' ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`} data-tip="普通模式">普通模式</button>
+                                    <button onClick={() => setState(prev => ({ ...prev, activeTab: 'copywriting' }))} className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'copywriting' ? 'bg-amber-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`} data-tip="文案改写">文案改写</button>
+                                    <button onClick={() => setState(prev => ({ ...prev, activeTab: 'prayer' }))} className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'prayer' ? 'bg-sky-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`} data-tip="祷告提炼">🙏 祷告提炼</button>
+                                    <button onClick={() => setState(prev => ({ ...prev, activeTab: 'super-rewrite' }))} className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'super-rewrite' ? 'bg-orange-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`} data-tip="超级改写">🔥 超级改写</button>
+                                    <button onClick={() => setState(prev => ({ ...prev, activeTab: 'bg-prompt' }))} className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'bg-prompt' ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`} data-tip="背景提取 + 文案拼装">🖼 背景拼装</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <BgPromptView getAiInstance={getAiInstance} textModel={currentModel} />
             </div>
         );
     }
@@ -2171,6 +2250,13 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                     >
                                         🔥 超级改写
                                     </button>
+                                    <button
+                                        onClick={() => setState(prev => ({ ...prev, activeTab: 'bg-prompt' }))}
+                                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${getActiveTab() === 'bg-prompt' ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-200'} tooltip-bottom`}
+                                        data-tip="背景提取 + 文案拼装"
+                                    >
+                                        🖼 背景拼装
+                                    </button>
                                 </div>
                                 {/* 项目管理按钮和当前项目名称 */}
                                 <div className="flex items-center gap-2">
@@ -2179,6 +2265,13 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                                             📁 {currentProject.name}
                                         </span>
                                     )}
+                                    <button
+                                        onClick={() => setShowSettingsModal(true)}
+                                        className="flex items-center justify-center w-7 h-7 rounded-md text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 transition-colors tooltip-bottom"
+                                        data-tip="全局设置"
+                                    >
+                                        <Settings size={16} />
+                                    </button>
                                     <button
                                         onClick={() => setShowProjectPanel(true)}
                                         className="flex items-center justify-center w-7 h-7 rounded-md text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 transition-colors tooltip-bottom"
@@ -3196,6 +3289,38 @@ ${state.enableTranslation ? 'Provide the output in English and Chinese formats l
                         </div>
                     </div>
                 </div>
+
+                {/* --- Settings Modal --- */}
+                {showSettingsModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+                        <div className="bg-zinc-950 border border-zinc-800 rounded-xl w-full max-w-2xl flex flex-col max-h-[90vh] shadow-2xl overflow-hidden">
+                            <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/50">
+                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                    <Settings size={18} className="text-purple-400" /> 全局设置
+                                </h3>
+                                <button onClick={() => setShowSettingsModal(false)} className="text-zinc-500 hover:text-white transition-colors">
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="p-6 overflow-y-auto custom-scrollbar flex flex-col gap-6">
+                                <div>
+                                    <h4 className="text-sm font-semibold text-zinc-300 mb-2 flex items-center gap-2">
+                                        <ShieldCheck size={16} className="text-amber-400" /> 信仰版权与规范
+                                    </h4>
+                                    <ScriptureDeitySettingsPanel settings={deitySettings} />
+                                </div>
+                            </div>
+                            <div className="p-4 border-t border-zinc-800 bg-zinc-900/50 flex justify-end">
+                                <button
+                                    className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium transition-colors"
+                                    onClick={() => setShowSettingsModal(false)}
+                                >
+                                    完成
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* --- Preview Modal --- */}
                 {showPreviewModal && (

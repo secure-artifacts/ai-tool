@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect } from 'react';
-import { Link as LinkIcon, FileUp, Upload, X, ImagePlus } from 'lucide-react';
+import { Link as LinkIcon, FileUp, Upload, X, ImagePlus, FolderOpen } from 'lucide-react';
 import { extractUrlsFromHtml } from '../utils';
 
 interface DropZoneProps {
@@ -45,12 +45,68 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
             e.stopPropagation();
         };
 
-        const handleDrop = (e: DragEvent) => {
+        // 递归遍历文件夹获取所有图片文件
+        const traverseFileTree = (entry: FileSystemEntry): Promise<File[]> => {
+            return new Promise((resolve) => {
+                if (entry.isFile) {
+                    (entry as FileSystemFileEntry).file((file) => {
+                        if (file.type.startsWith('image/')) {
+                            resolve([file]);
+                        } else {
+                            resolve([]);
+                        }
+                    }, () => resolve([]));
+                } else if (entry.isDirectory) {
+                    const dirReader = (entry as FileSystemDirectoryEntry).createReader();
+                    const allFiles: File[] = [];
+                    const readEntries = () => {
+                        dirReader.readEntries(async (entries) => {
+                            if (entries.length === 0) {
+                                resolve(allFiles);
+                            } else {
+                                for (const childEntry of entries) {
+                                    const files = await traverseFileTree(childEntry);
+                                    allFiles.push(...files);
+                                }
+                                readEntries(); // 继续读取（浏览器可能分批返回）
+                            }
+                        }, () => resolve(allFiles));
+                    };
+                    readEntries();
+                } else {
+                    resolve([]);
+                }
+            });
+        };
+
+        const handleDrop = async (e: DragEvent) => {
             e.preventDefault();
             e.stopPropagation();
             setIsDragging(false);
             setDragCounter(0);
 
+            // 优先使用 webkitGetAsEntry 以支持文件夹拖拽
+            const items = e.dataTransfer?.items;
+            if (items && items.length > 0) {
+                const allImageFiles: File[] = [];
+                const entries: FileSystemEntry[] = [];
+                for (let i = 0; i < items.length; i++) {
+                    const entry = items[i].webkitGetAsEntry?.();
+                    if (entry) entries.push(entry);
+                }
+                if (entries.length > 0) {
+                    for (const entry of entries) {
+                        const files = await traverseFileTree(entry);
+                        allImageFiles.push(...files);
+                    }
+                    if (allImageFiles.length > 0) {
+                        onFilesDropped(allImageFiles);
+                    }
+                    return;
+                }
+            }
+
+            // 回退：普通文件拖拽
             if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
                 const imageFiles = Array.from(e.dataTransfer.files).filter(file =>
                     file.type.startsWith('image/')
@@ -83,6 +139,25 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
         input.onchange = (e: any) => {
             if (e.target.files?.length) {
                 onFilesDropped(Array.from(e.target.files));
+            }
+        };
+        input.click();
+    };
+
+    const triggerFolderSelect = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        (input as any).webkitdirectory = true;
+        (input as any).directory = true;
+        input.multiple = true;
+        input.onchange = (e: any) => {
+            if (e.target.files?.length) {
+                const imageFiles = Array.from(e.target.files as FileList).filter((file: File) =>
+                    file.type.startsWith('image/')
+                );
+                if (imageFiles.length > 0) {
+                    onFilesDropped(imageFiles);
+                }
             }
         };
         input.click();
@@ -152,6 +227,12 @@ const DropZone: React.FC<DropZoneProps> = ({ onFilesDropped, onTextPasted, onHtm
                                 className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-lg text-xs font-medium transition-colors text-left"
                             >
                                 <Upload size={14} className="text-emerald-400" /> 上传本地图片
+                            </button>
+                            <button
+                                onClick={() => { setShowDropdown(false); triggerFolderSelect(); }}
+                                className="flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-lg text-xs font-medium transition-colors text-left"
+                            >
+                                <FolderOpen size={14} className="text-amber-400" /> 上传文件夹
                             </button>
                             <button
                                 onClick={() => { setShowDropdown(false); setShowLinkModal(true); }}

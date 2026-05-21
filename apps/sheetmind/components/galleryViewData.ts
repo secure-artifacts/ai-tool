@@ -127,11 +127,16 @@ export function sortDateKeys(keys: string[], sortRules: SortRule[], dateColumn: 
 
 export function computeProcessedRows(inputRows: DataRow[], searchKeyword: string, imageColumn: string, sortRules: SortRule[], dateColumn: string, dateStart: string, dateEnd: string, customFilters: any[], numFilters: any[]): DataRow[] {
 // Use inputRows for non-blocking computation on large datasets
-let rows = [...inputRows].map((row, originalIndex) => ({
-    ...row,
-    // Include originalIndex to ensure unique keys even for duplicate images
-    _rowId: `${extractImageUrl(row[imageColumn]) || ''}||${row._sourceSheet || ''}||${originalIndex}`
-}));
+let rows = [...inputRows].map((row, originalIndex) => {
+    // 使用物理行号作为稳定标识（_originalRowIndex 来自 xlsx 解析，__rowIndex 来自 GAS pullData）
+    // 这样即使数据经过排序/过滤，行身份依然与表格的真实位置绑定
+    const stableRowIdx = row._originalRowIndex || row.__rowIndex || (originalIndex + 2);
+    return {
+        ...row,
+        // Include stable row index to ensure correct binding even for duplicate images
+        _rowId: `${extractImageUrl(row[imageColumn]) || ''}||${row._sourceSheet || ''}||${stableRowIdx}`
+    };
+});
 
 // Global keyword search - search across all text columns
 if (searchKeyword && searchKeyword.trim()) {
@@ -984,7 +989,8 @@ export function generateViewLayoutText(
     effectiveGroupLevels: GroupLevel[],
     effectiveImageColumn: string,
     classificationOverrides: Record<string, string>,
-    customOrderByGroup: Record<string, string[]>
+    customOrderByGroup: Record<string, string[]>,
+    emptyRowsBetweenGroups: number = 0
 ): { text: string; groupCount: number; totalImages: number; error: string | null } {
 const primaryGroupColumn = effectiveGroupColumns[0];
 
@@ -1135,15 +1141,19 @@ if (layoutMode === 'columns') {
     });
 
     // How many columns per group?
-    const colsPerGroup = includeExtraData && selectedColumns.length > 0 ? 1 + selectedColumns.length : 1;
+    const effectiveCols = (includeExtraData && selectedColumns.length > 0) 
+        ? (selectedColumns.includes('__THUMBNAIL__') ? selectedColumns : [...selectedColumns, '__THUMBNAIL__']) 
+        : ['__THUMBNAIL__'];
+    const colsPerGroup = effectiveCols.length;
 
     orderedGroups.forEach(([groupKey]) => {
         headerRow.push(groupKey);
         for (let i = 1; i < colsPerGroup; i++) headerRow.push(groupKey); // Fill completely instead of empty padding for non-merged workflows
 
         if (includeExtraData && selectedColumns.length > 0) {
-            selectedColumns.forEach(col => subHeaderRow.push(col));
-            subHeaderRow.push('缩略图');
+            effectiveCols.forEach(col => {
+                subHeaderRow.push(col === '__THUMBNAIL__' ? '缩略图' : col);
+            });
         }
     });
 
@@ -1157,10 +1167,13 @@ if (layoutMode === 'columns') {
         groupData.forEach((items) => {
             if (r < items.length) {
                 if (includeExtraData && selectedColumns.length > 0) {
-                    selectedColumns.forEach(col => {
-                        dataRow.push(items[r].extraData[col] || '');
+                    effectiveCols.forEach(col => {
+                        if (col === '__THUMBNAIL__') {
+                            dataRow.push(items[r].formula);
+                        } else {
+                            dataRow.push(items[r].extraData[col] || '');
+                        }
                     });
-                    dataRow.push(items[r].formula);
                 } else {
                     dataRow.push(items[r].formula);
                 }
@@ -1191,16 +1204,18 @@ if (layoutMode === 'columns') {
         if (rowsWithImages.length === 0) return;
 
         if (layoutMode === 'vertical') {
+            const effectiveCols = selectedColumns.includes('__THUMBNAIL__') ? selectedColumns : [...selectedColumns, '__THUMBNAIL__'];
+            
             // Vertical mode: group header row + item rows below it
             outputRows.push(['分组', groupKey]);
             if (includeExtraData && selectedColumns.length > 0) {
-                outputRows.push(['序号', ...selectedColumns, '缩略图']);
+                outputRows.push(['序号', ...effectiveCols.map(c => c === '__THUMBNAIL__' ? '缩略图' : c)]);
                 rowsWithImages.forEach((item, idx) => {
-                    outputRows.push([
-                        String(idx + 1),
-                        ...selectedColumns.map(colName => item.extraData[colName] || ''),
-                        item.formula
-                    ]);
+                    const rowData = effectiveCols.map(colName => {
+                        if (colName === '__THUMBNAIL__') return item.formula;
+                        return item.extraData[colName] || '';
+                    });
+                    outputRows.push([String(idx + 1), ...rowData]);
                 });
             } else {
                 outputRows.push(['序号', '缩略图']);
@@ -1209,6 +1224,13 @@ if (layoutMode === 'columns') {
                 });
             }
             outputRows.push([]);
+            
+            // Add empty rows if configured
+            if (emptyRowsBetweenGroups > 0) {
+                for (let i = 0; i < emptyRowsBetweenGroups; i++) {
+                    outputRows.push([]);
+                }
+            }
             return;
         }
 
@@ -1217,27 +1239,24 @@ if (layoutMode === 'columns') {
             const chunk = rowsWithImages.slice(i, i + columnsPerRow);
 
             if (includeExtraData && selectedColumns.length > 0) {
-                // Add column name labels in first column, with groupKey prepended
-                selectedColumns.forEach(colName => {
-                    const dataRow = [groupKey, colName];
+                const effectiveCols = selectedColumns.includes('__THUMBNAIL__') ? selectedColumns : [...selectedColumns, '__THUMBNAIL__'];
+                
+                // Add rows in the order specified by effectiveCols
+                effectiveCols.forEach(colName => {
+                    const rowLabel = colName === '__THUMBNAIL__' ? '缩略图' : colName;
+                    const dataRow = [groupKey, rowLabel];
                     chunk.forEach(item => {
-                        dataRow.push(item.extraData[colName] || '');
+                        if (colName === '__THUMBNAIL__') {
+                            dataRow.push(item.formula);
+                        } else {
+                            dataRow.push(item.extraData[colName] || '');
+                        }
                     });
                     while (dataRow.length < columnsPerRow + 2) {
                         dataRow.push('');
                     }
                     outputRows.push(dataRow);
                 });
-
-                // Add image row with groupKey prepended
-                const imageRow = [groupKey, '缩略图'];
-                chunk.forEach(item => {
-                    imageRow.push(item.formula);
-                });
-                while (imageRow.length < columnsPerRow + 2) {
-                    imageRow.push('');
-                }
-                outputRows.push(imageRow);
             } else {
                 // Images only - prepend groupKey as first column
                 const rowImages = [groupKey];
@@ -1248,6 +1267,13 @@ if (layoutMode === 'columns') {
                     rowImages.push('');
                 }
                 outputRows.push(rowImages);
+            }
+        }
+
+        // Add empty rows if configured, between horizontal groups
+        if (emptyRowsBetweenGroups > 0) {
+            for (let i = 0; i < emptyRowsBetweenGroups; i++) {
+                outputRows.push([]);
             }
         }
     });

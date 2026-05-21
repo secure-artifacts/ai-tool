@@ -727,15 +727,46 @@ export const getDefaultConfig = (): GalleryConfig => ({
 export const normalizeGalleryConfig = (incoming?: Partial<GalleryConfig>): GalleryConfig => {
     const defaults = getDefaultConfig();
     const merged: GalleryConfig = { ...defaults, ...(incoming || {}) };
+    const safeArray = <T,>(value: unknown, fallback: T[]): T[] => Array.isArray(value) ? value as T[] : fallback;
+
+    merged.groupColumns = safeArray(merged.groupColumns, defaults.groupColumns);
+    merged.groupLevels = safeArray(merged.groupLevels, defaults.groupLevels);
+    merged.labelColumns = safeArray(merged.labelColumns, defaults.labelColumns);
+    merged.sortRules = safeArray(merged.sortRules, defaults.sortRules).map(rule => ({
+        column: rule?.column || '',
+        descending: rule?.descending !== false,
+    }));
+    merged.numFilters = safeArray(merged.numFilters, defaults.numFilters).map((filter, index) => ({
+        id: filter?.id || `num-${Date.now()}-${index}`,
+        column: filter?.column || '',
+        operator: filter?.operator || 'greaterThan',
+        value: filter?.value || '',
+        value2: filter?.value2 || '',
+    }));
+    merged.highlightRules = safeArray(merged.highlightRules, defaults.highlightRules).map((rule, index) => ({
+        id: rule?.id || `highlight-${Date.now()}-${index}`,
+        column: rule?.column || '',
+        operator: rule?.operator || 'contains',
+        value: rule?.value || '',
+        value2: rule?.value2 || '',
+        color: rule?.color || '#fbbf24',
+        borderWidth: rule?.borderWidth || 2,
+        enabled: rule?.enabled !== false,
+    }));
+    merged.groupBins = safeArray(merged.groupBins, defaults.groupBins);
+    merged.textGroupBins = safeArray(merged.textGroupBins, defaults.textGroupBins);
+    merged.dateBins = safeArray(merged.dateBins, defaults.dateBins);
+    merged.displayColumns = safeArray(merged.displayColumns, defaults.displayColumns || []);
+    merged.categoryOptions = safeArray(merged.categoryOptions, defaults.categoryOptions);
 
     if (Array.isArray(merged.customFilters)) {
-        merged.customFilters = (merged.customFilters as unknown as Record<string, unknown>[]).map((cf) => ({
-            id: (cf.id as string) || Date.now().toString(),
-            column: (cf.column as string) || '',
-            operator: (cf.operator as CustomFilter['operator']) || 'contains',
-            value: (cf.value as string) || '',
-            value2: (cf.value2 as string) || '',
-            selectedValues: (cf.selectedValues as string[]) || []
+        merged.customFilters = (merged.customFilters as unknown as Record<string, unknown>[]).map((cf, index) => ({
+            id: (cf && cf.id as string) || `${Date.now()}-${index}`,
+            column: (cf && cf.column as string) || '',
+            operator: (cf && cf.operator as CustomFilter['operator']) || 'contains',
+            value: (cf && cf.value as string) || '',
+            value2: (cf && cf.value2 as string) || '',
+            selectedValues: Array.isArray(cf && cf.selectedValues) ? cf.selectedValues as string[] : []
         })) as CustomFilter[];
     } else {
         merged.customFilters = [];
@@ -750,7 +781,7 @@ export const normalizeGalleryConfig = (incoming?: Partial<GalleryConfig>): Galle
 
     merged.categoryTargetColumn = CATEGORY_COLUMN;
 
-    if (!merged.categoryOptions || !Array.isArray(merged.categoryOptions) || merged.categoryOptions.length === 0) {
+    if (!merged.categoryOptions.length) {
         merged.categoryOptions = defaults.categoryOptions;
     }
 
@@ -761,4 +792,3 @@ export const normalizeGalleryConfig = (incoming?: Partial<GalleryConfig>): Galle
 
     return merged;
 };
-

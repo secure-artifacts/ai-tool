@@ -178,12 +178,14 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
         </div>
     );
 
-    // 单击显示提示 - 跟随鼠标位置
-    const [clickHint, setClickHint] = useState<{ show: boolean; x: number; y: number }>({ show: false, x: 0, y: 0 });
+    // 单击复制结果 - 跟随鼠标位置显示反馈
+    const [clickHint, setClickHint] = useState<{ show: boolean; x: number; y: number; text: string }>({ show: false, x: 0, y: 0, text: '' });
 
     const handleSingleClick = (e: React.MouseEvent) => {
-        setClickHint({ show: true, x: e.clientX, y: e.clientY });
-        setTimeout(() => setClickHint({ show: false, x: 0, y: 0 }), 1500);
+        if (!item.result) return;
+        navigator.clipboard.writeText(item.result);
+        setClickHint({ show: true, x: e.clientX, y: e.clientY, text: '✅ 已复制' });
+        setTimeout(() => setClickHint({ show: false, x: 0, y: 0, text: '' }), 1500);
     };
 
     return (
@@ -191,21 +193,21 @@ const StatusDisplay = ({ item, onRetry, onExpand }: { item: ImageItem; onRetry: 
             className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative tooltip-bottom"
             onClick={handleSingleClick}
             onDoubleClick={() => onExpand?.(item)}
-            data-tip="双击放大窗口查看结果"
+            data-tip="点击复制 · 双击放大"
         >
             {item.result}
-            {/* 单击提示气泡 - 显示在鼠标位置 */}
+            {/* 单击复制反馈气泡 - 显示在鼠标位置 */}
             {clickHint.show && (
                 <div
-                    className="fixed bg-emerald-600 text-white text-[0.5625rem] px-2 py-1 rounded shadow-lg whitespace-nowrap z-[9999] pointer-events-none"
+                    className="fixed bg-emerald-600 text-white text-[0.5625rem] px-2 py-1 rounded shadow-lg whitespace-nowrap z-[9999] pointer-events-none animate-fade-in"
                     style={{ left: clickHint.x + 10, top: clickHint.y - 30 }}
                 >
-                    👆 双击放大窗口查看结果
+                    {clickHint.text}
                 </div>
             )}
             {/* 悬浮时显示底部提示条 */}
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-zinc-900/90 to-transparent text-[0.625rem] text-zinc-400 text-center py-1 opacity-0 group-hover/result:opacity-100 transition-opacity pointer-events-none">
-                双击放大
+                点击复制 · 双击放大
             </div>
             {/* 放大提示图标 */}
             <button
@@ -1537,28 +1539,31 @@ const ChatPanel = ({ item, onToggleChat, onSendMessage, onUpdateChatInput, onCop
                                 </div>
                             )}
                             <div
-                                className={`tooltip-bottom whitespace-pre-wrap break-words text-xs leading-relaxed ${msg.role === 'user' ? 'text-zinc-400' : 'text-zinc-200 cursor-pointer hover:bg-zinc-700/30 rounded transition-colors relative'} ${isCompact ? 'line-clamp-2' : 'line-clamp-4'}`}
+                                className={`tooltip-bottom whitespace-pre-wrap break-words text-xs leading-relaxed ${msg.role === 'user' ? 'text-zinc-400 cursor-pointer hover:bg-zinc-800/80 rounded transition-colors' : 'text-zinc-200 cursor-pointer hover:bg-zinc-700/30 rounded transition-colors relative'} ${isCompact ? 'line-clamp-2' : 'line-clamp-4'}`}
                                 onClick={(e) => {
-                                    if (msg.role !== 'user') {
-                                        setClickHint({ show: true, x: e.clientX, y: e.clientY });
-                                        setTimeout(() => setClickHint({ show: false, x: 0, y: 0 }), 1500);
+                                    const text = (msg.text || '').trim();
+                                    if (text) {
+                                        navigator.clipboard.writeText(text).then(() => {
+                                            setClickHint({ show: true, x: e.clientX, y: e.clientY });
+                                            setTimeout(() => setClickHint({ show: false, x: 0, y: 0 }), 1500);
+                                        }).catch(() => {});
                                     }
                                 }}
                                 onDoubleClick={() => msg.role !== 'user' && setExpandedMessageText(msg.text)}
-                                data-tip={msg.role !== 'user' ? '双击放大窗口查看结果' : undefined}
+                                data-tip={msg.role !== 'user' ? '单击复制 · 双击放大' : '单击复制'}
                             >
                                 {msg.text}
                             </div>
                         </div>
                     ))
                 )}
-                {/* 单击提示气泡 - 显示在鼠标位置 */}
+                {/* 单击复制提示气泡 - 显示在鼠标位置 */}
                 {clickHint.show && (
                     <div
                         className="fixed bg-emerald-600 text-white text-[0.5625rem] px-2 py-1 rounded shadow-lg whitespace-nowrap z-[9999] pointer-events-none"
                         style={{ left: clickHint.x + 10, top: clickHint.y - 30 }}
                     >
-                        👆 双击放大窗口查看结果
+                        ✅ 已复制
                     </div>
                 )}
                 {item.isChatLoading && (
@@ -2761,7 +2766,26 @@ const InnovationChatBlock = ({
                                     ))}
                                 </div>
                             )}
-                            <div className="whitespace-pre-wrap break-words leading-relaxed">{msg.text}</div>
+                            <div
+                                className={`whitespace-pre-wrap break-words leading-relaxed cursor-pointer transition-colors rounded ${msg.role === 'user' ? 'hover:bg-cyan-800/40' : 'hover:bg-zinc-700/30'}`}
+                                onClick={(e) => {
+                                    const text = (msg.text || '').trim();
+                                    if (text) {
+                                        navigator.clipboard.writeText(text).then(() => {
+                                            const tip = document.createElement('div');
+                                            tip.textContent = '✅ 已复制';
+                                            tip.className = 'fixed bg-emerald-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[9999] pointer-events-none';
+                                            tip.style.left = `${e.clientX + 10}px`;
+                                            tip.style.top = `${e.clientY - 30}px`;
+                                            document.body.appendChild(tip);
+                                            setTimeout(() => tip.remove(), 1500);
+                                        }).catch(() => {});
+                                    }
+                                }}
+                                data-tip="单击复制"
+                            >
+                                {msg.text}
+                            </div>
                         </div>
                     ))
                 )}
@@ -4059,7 +4083,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                 {/* Result or Status Text */}
                                 <div className="flex-1 min-w-0">
                                     {item.status === 'success' ? (
-                                        <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.result}>
+                                        <div className="text-sm text-zinc-200 truncate tooltip-bottom cursor-pointer hover:text-emerald-300 transition-colors" data-tip="点击复制" onClick={(e) => { if (item.result) { navigator.clipboard.writeText(item.result); const el = document.createElement('div'); el.className = 'fixed bg-emerald-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[9999] pointer-events-none'; el.style.left = `${e.clientX + 10}px`; el.style.top = `${e.clientY - 30}px`; el.textContent = '✅ 已复制'; document.body.appendChild(el); setTimeout(() => el.remove(), 1500); } }}>
                                             {item.result}
                                         </div>
                                     ) : item.status === 'error' ? (
@@ -4323,7 +4347,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     {item.chatHistory[item.chatHistory.length - 1].text}
                                                 </div>
                                             ) : item.result ? (
-                                                <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.result}>
+                                                <div className="text-sm text-zinc-200 truncate tooltip-bottom cursor-pointer hover:text-emerald-300 transition-colors" data-tip="点击复制" onClick={(e) => { navigator.clipboard.writeText(item.result!); const el = document.createElement('div'); el.className = 'fixed bg-emerald-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[9999] pointer-events-none'; el.style.left = `${e.clientX + 10}px`; el.style.top = `${e.clientY - 30}px`; el.textContent = '✅ 已复制'; document.body.appendChild(el); setTimeout(() => el.remove(), 1500); }}>
                                                     {item.result}
                                                 </div>
                                             ) : (
@@ -5041,7 +5065,7 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                 {item.chatHistory[item.chatHistory.length - 1].text}
                                             </div>
                                         ) : item.result ? (
-                                            <div className="text-sm text-zinc-200 truncate tooltip-bottom" data-tip={item.result}>
+                                            <div className="text-sm text-zinc-200 truncate tooltip-bottom cursor-pointer hover:text-emerald-300 transition-colors" data-tip="点击复制" onClick={(e) => { navigator.clipboard.writeText(item.result!); const el = document.createElement('div'); el.className = 'fixed bg-emerald-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[9999] pointer-events-none'; el.style.left = `${e.clientX + 10}px`; el.style.top = `${e.clientY - 30}px`; el.textContent = '✅ 已复制'; document.body.appendChild(el); setTimeout(() => el.remove(), 1500); }}>
                                                 {item.result}
                                             </div>
                                         ) : (
@@ -5355,17 +5379,33 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                     <MemoizedSplitResultDisplay item={item} splitElements={splitElements || []} />
                                                 ) : (
                                                     item.status === 'success' ? (
+                                                        (() => {
+                                                            const textToCopy = item.chatHistory.length > 0
+                                                                ? item.chatHistory[item.chatHistory.length - 1].text
+                                                                : item.result;
+                                                            return (
                                                         <div
                                                             className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed px-1 cursor-pointer hover:bg-zinc-800/30 rounded-md transition-colors group/result relative tooltip-bottom"
+                                                            onClick={(e) => {
+                                                                if (textToCopy) {
+                                                                    navigator.clipboard.writeText(textToCopy);
+                                                                    // 使用简易 toast 反馈
+                                                                    const el = document.createElement('div');
+                                                                    el.className = 'fixed bg-emerald-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[9999] pointer-events-none';
+                                                                    el.style.left = `${e.clientX + 10}px`;
+                                                                    el.style.top = `${e.clientY - 30}px`;
+                                                                    el.textContent = '✅ 已复制';
+                                                                    document.body.appendChild(el);
+                                                                    setTimeout(() => el.remove(), 1500);
+                                                                }
+                                                            }}
                                                             onDoubleClick={() => setExpandedResultItem(item)}
-                                                            data-tip="双击放大窗口查看结果"
+                                                            data-tip="点击复制 · 双击放大"
                                                         >
-                                                            {item.chatHistory.length > 0
-                                                                ? item.chatHistory[item.chatHistory.length - 1].text
-                                                                : item.result}
+                                                            {textToCopy}
                                                             {/* 悬浮时显示底部提示条 */}
                                                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-zinc-900/90 to-transparent text-[0.625rem] text-zinc-400 text-center py-1 opacity-0 group-hover/result:opacity-100 transition-opacity pointer-events-none">
-                                                                双击放大
+                                                                点击复制 · 双击放大
                                                             </div>
                                                             {/* 放大提示图标 */}
                                                             <button
@@ -5376,6 +5416,8 @@ const ResultsGrid: React.FC<ResultsGridProps> = ({
                                                                 <Maximize2 size={12} />
                                                             </button>
                                                         </div>
+                                                            );
+                                                        })()
                                                     ) : (
                                                         <MemoizedStatusDisplay item={item} onRetry={onRetry} onExpand={setExpandedResultItem} />
                                                     )

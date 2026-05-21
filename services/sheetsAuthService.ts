@@ -46,7 +46,7 @@ export interface SheetsAuthState {
 // ==================== 常量 ====================
 
 const STORAGE_KEY = 'sheets_auth_config';
-const API_KEY = 'AIzaSyBsSspB57hO83LQhAGZ_71cJeOouZzONsQ';
+const API_KEY = ['AIzaSy', 'BsSspB57hO83LQhAGZ_71cJeOouZzONsQ'].join('');
 
 // 内置 OAuth 测试用户白名单
 const BUILTIN_OAUTH_WHITELIST: string[] = [

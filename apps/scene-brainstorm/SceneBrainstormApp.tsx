@@ -11,6 +11,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import './SceneBrainstormApp.css';
 import { playCompletionSound } from '@/utils/soundNotification';
+import { SCENE_BRAINSTORM_SKILL_DOC } from './sceneBrainstormSkill';
 
 // ========== Types ==========
 
@@ -42,20 +43,48 @@ interface PromptPreset {
   id: string;
   name: string;
   prompt: string;
+  group?: string;
 }
 
 const BUILT_IN_PRESETS: PromptPreset[] = [
-  { id: 'builtin_1', name: '默认扩展', prompt: '基于选中的画面描述，扩展生成不同的变体。保持核心元素，但从不同角度（光线、时间、情绪、构图、季节、天气等）进行变化，每个变体都要合理、有细节、有画面感。' },
-  { id: 'builtin_2', name: '角度变化', prompt: '基于选中画面，从不同拍摄角度生成变体：俯拍、仰拍、特写、远景、广角、微距、时间推移等。每个变体明确指出角度并结合场景特点。' },
-  { id: 'builtin_3', name: '情绪氛围', prompt: '基于选中画面，从不同情绪氛围生成变体：平静温马、紧张悬疑、快乐可爱、古典优雅、未来科幻、奇幻梦境等。每个变体的色调、光影、右面细节都要匹配情绪。' },
-  { id: 'builtin_4', name: '季节天气', prompt: '基于选中画面，生成不同季节和天气条件下的变体：春花、夏日、秋叶、冬雪、雨天、雾气、暴风雨、彩虹、月光等。每个变体都应显示季节感。' },
-  { id: 'builtin_5', name: '只输出提示词', prompt: '基于选中画面，转化为 AI 图片生成提示词格式。每条用英文输出，包含：场景描述、主体、光照、风格、相机参数。例如："A golden retriever sitting in sunlit meadow, soft bokeh background, warm afternoon light, Fujifilm, 85mm lens"' },
+  { id: 'builtin_1', group: '通用扩展', name: '默认扩展', prompt: '基于选中的画面描述，扩展生成不同的变体。保持核心元素，但从不同角度（光线、时间、情绪、构图、季节、天气等）进行变化，每个变体都要合理、有细节、有画面感。' },
+  { id: 'builtin_6', group: '通用扩展', name: '专业堪景/背景扩展 (骨灰级)', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请严格遵循注入的完整版技能文档（包含硬性约束、画面描述模式公式、8线索×5圈层规则）。多写空间关系和可见物理细节，绝对禁止抽象情绪词！' },
+  { id: 'builtin_2', group: '通用扩展', name: '角度变化', prompt: '基于选中画面，从不同拍摄角度生成变体：俯拍、仰拍、特写、远景、广角、微距、时间推移等。每个变体明确指出角度并结合场景特点。' },
+  { id: 'builtin_3', group: '通用扩展', name: '情绪氛围', prompt: '基于选中画面，从不同情绪氛围生成变体：平静温马、紧张悬疑、快乐可爱、古典优雅、未来科幻、奇幻梦境等。每个变体的色调、光影、右面细节都要匹配情绪。' },
+  { id: 'builtin_4', group: '通用扩展', name: '季节天气', prompt: '基于选中画面，生成不同季节和天气条件下的变体：春花、夏日、秋叶、冬雪、雨天、雾气、暴风雨、彩虹、月光等。每个变体都应显示季节感。' },
+  { id: 'builtin_5', group: '通用扩展', name: '只输出提示词', prompt: '基于选中画面，转化为 AI 图片生成提示词格式。每条用英文输出，包含：场景描述、主体、光照、风格、相机参数。例如："A golden retriever sitting in sunlit meadow, soft bokeh background, warm afternoon light, Fujifilm, 85mm lens"' },
+
+  { id: 'clue_1', group: '八线索精准扩展', name: '① 空间基底/地面结构', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第①条线索【空间基底/地面结构】进行穷举（人可以站在哪些不同的地面区域、中心、边缘、交界处）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_2', group: '八线索精准扩展', name: '② 固定结构物', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第②条线索【固定结构物】进行穷举（建筑、家具、墙体、栏杆的各个侧面、下方、旁边）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_3', group: '八线索精准扩展', name: '③ 功能区域', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第③条线索【功能区域】进行穷举（人们在此经过、停留、工作的具体活动区域）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_4', group: '八线索精准扩展', name: '④ 边界交界', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第④条线索【边界交界】进行穷举（当前空间与其他空间的过渡和连接处）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_5', group: '八线索精准扩展', name: '⑤ 高度站位/楼层', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第⑤条线索【高度站位/楼层视角】进行穷举（台阶、坡道、二层、低处、高处平台）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_6', group: '八线索精准扩展', name: '⑥ 通道/路径', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第⑥条线索【通道/路径】进行穷举（入口、中段、转角、分叉口）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_7', group: '八线索精准扩展', name: '⑦ 载具/大型设备', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第⑦条线索【载具/大型设备/可移动物】进行穷举（可作为前景或背景的大件物品旁）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'clue_8', group: '八线索精准扩展', name: '⑧ 特殊空间状态', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只针对第⑧条线索【特殊空间状态】进行穷举（施工中、整理中、清空后、临时搭建等物理状态）。直接输出具体画面描述，禁止抽象词。' },
+
+  { id: 'circle_1', group: '五圈层精准扩展', name: '第一圈：内部换位', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只在【第一圈：原场景内部换位置】的范围内扩展。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'circle_2', group: '五圈层精准扩展', name: '第二圈：同场所换区', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只在【第二圈：同一场所内换区域】的范围内进行扩展（仍在同一个大空间里，换到其他功能区）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'circle_3', group: '五圈层精准扩展', name: '第三圈：相邻空间', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只在【第三圈：相邻空间扩展】的范围内进行扩展（紧挨着原场景的空间）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'circle_4', group: '五圈层精准扩展', name: '第四圈：同类场所', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只在【第四圈：同类场所替换】的范围内进行扩展（替换到同类型的场所，但场景逻辑一致）。直接输出具体画面描述，禁止抽象词。' },
+  { id: 'circle_5', group: '五圈层精准扩展', name: '第五圈：同用途替换', prompt: '作为骨灰级堪景师，执行【可拍摄背景场景扩展技能】。请只在【第五圈：同用途场景替换】的范围内进行扩展（替换到同样适合口播/展示/相关叙事的其他场景）。直接输出具体画面描述，禁止抽象词。' }
 ];
 
 interface SceneBrainstormProps {
   getAiInstance: () => any;
   textModel?: string;
 }
+
+const renderPresetOptions = (presets: PromptPreset[]) => {
+  const groups = Array.from(new Set(presets.map(p => p.group || '自定义预设')));
+  return groups.map(groupName => (
+    <optgroup key={groupName} label={groupName}>
+      {presets.filter(p => (p.group || '自定义预设') === groupName).map(p => (
+        <option key={p.id} value={p.prompt}>{p.name}</option>
+      ))}
+    </optgroup>
+  ));
+};
 
 // ========== Constants ==========
 
@@ -431,7 +460,7 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
     return text
       .split('\n')
       .map((l: string) => l.replace(/^\d+[\.\)、：:]\s*/, '').replace(/^[-•*]\s*/, '').trim())
-      .filter((l: string) => l.length > 5);
+      .filter((l: string) => l.length > 5 && !l.startsWith('#') && !l.startsWith('【') && !l.startsWith('步骤'));
   }, []);
 
   // Generate items for a column using AI (with batch support for large counts)
@@ -479,7 +508,21 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
 3. 每条画面描述控制在1-3句话，要具体、有画面感、要合理
 4. 总共生成约${batchCount}条不同的画面
 5. 直接输出画面描述，不要有多余的说明文字
-6. 不要重复已有画面，要有创造性的变化`;
+6. 不要重复已有画面，要有创造性的变化
+
+${col.prompt.includes('可拍摄背景场景扩展技能') ? `
+=============================================
+【核心技能文档注入：可拍摄背景场景扩展技能】
+以下是作为“骨灰级堪景师”必须严格遵循的技能知识库。
+
+【❗️特别输出覆盖规则】：
+1. 列表格式适配：请**忽略原文档中要求输出 "## ① 空间基底" 或 "### 第一圈" 等 Markdown 标题**的要求！只需在脑海中按 8 条线索和 5 个圈层穷举，**直接输出每一条画面描述（独占一行），绝对不要输出分类标题、步骤说明或空行！**
+2. 📷 强制口播视角约束：所有生成的画面必须作为**人物口播视频的背景**。主角必须是露半身或全身出镜，**绝对禁止生成局部特写**（如“只拍脚”、“脚踏在...”、手部特写等）。画面描述必须是**人物站在某处时，身后的真实物理空间背景**！
+3. 🚫 严禁镜头与摄影术语：你的任务是描述“客观存在的物理空间”，而不是“摄影师怎么拍”。**绝对不要在生成的句子中出现：“镜头”、“特写”、“中景”、“全景”、“远景”、“俯拍”、“仰拍”、“推拉摇移”、“机位”、“视角”等任何与拍摄、摄像相关的词汇！**只允许客观描述：人在哪个确切位置，身后有什么，身旁有什么。
+
+${SCENE_BRAINSTORM_SKILL_DOC}
+=============================================
+` : ''}`;
 
         let userPrompt: string;
         const existingContext = allLines.length > 0 ? `\n\n注意：以下画面已经生成过，请不要重复：\n${allLines.slice(-20).join('\n')}` : '';
@@ -1405,7 +1448,7 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
                             }}
                           >
                             <option value="">选择预设指令...</option>
-                            {allPresets.map(p => <option key={p.id} value={p.prompt}>{p.name}</option>)}
+                            {renderPresetOptions(allPresets)}
                           </select>
                           {quickSaveKey === 'col0-image' ? (
                             <span style={{ display: 'inline-flex', gap: '2px' }}>
@@ -1535,7 +1578,7 @@ const SceneBrainstormApp: React.FC<SceneBrainstormProps> = ({ getAiInstance, tex
                           }}
                         >
                           <option value="">选择预设指令...</option>
-                          {allPresets.map(p => <option key={p.id} value={p.prompt}>{p.name}</option>)}
+                          {renderPresetOptions(allPresets)}
                         </select>
                         {quickSaveKey === `col-${colIndex}` ? (
                           <span style={{ display: 'inline-flex', gap: '2px' }}>

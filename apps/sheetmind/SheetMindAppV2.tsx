@@ -62,16 +62,42 @@ interface DataSourceTab {
 const normalizeSharedConfig = (config?: SharedConfig | null): SharedConfig => {
     const defaults = getDefaultSharedConfig();
     const merged = { ...defaults, ...(config || {}) } as SharedConfig;
-    merged.groupColumns = (config?.groupColumns ?? defaults.groupColumns) || [];
-    merged.groupLevels = (config?.groupLevels ?? defaults.groupLevels) || [];
-    merged.groupBins = (config?.groupBins ?? defaults.groupBins) || [];
-    merged.textGroupBins = (config?.textGroupBins ?? defaults.textGroupBins) || [];
-    merged.dateBins = (config?.dateBins ?? defaults.dateBins) || [];
-    merged.displayColumns = (config?.displayColumns ?? defaults.displayColumns) || [];
-    merged.customFilters = (config?.customFilters ?? defaults.customFilters) || [];
-    merged.numFilters = (config?.numFilters ?? defaults.numFilters) || [];
-    merged.sortRules = (config?.sortRules ?? defaults.sortRules) || [];
-    merged.highlightRules = (config?.highlightRules ?? defaults.highlightRules) || [];
+    const safeArray = <T,>(value: unknown, fallback: T[]): T[] => Array.isArray(value) ? value as T[] : fallback;
+    merged.groupColumns = safeArray(config?.groupColumns, defaults.groupColumns);
+    merged.groupLevels = safeArray(config?.groupLevels, defaults.groupLevels);
+    merged.groupBins = safeArray(config?.groupBins, defaults.groupBins);
+    merged.textGroupBins = safeArray(config?.textGroupBins, defaults.textGroupBins);
+    merged.dateBins = safeArray(config?.dateBins, defaults.dateBins);
+    merged.displayColumns = safeArray(config?.displayColumns, defaults.displayColumns);
+    merged.customFilters = safeArray(config?.customFilters, defaults.customFilters).map((filter, index) => ({
+        id: filter?.id || `filter-${Date.now()}-${index}`,
+        column: filter?.column || '',
+        operator: filter?.operator || 'contains',
+        value: filter?.value || '',
+        value2: filter?.value2 || '',
+        selectedValues: Array.isArray(filter?.selectedValues) ? filter.selectedValues : [],
+    }));
+    merged.numFilters = safeArray(config?.numFilters, defaults.numFilters).map((filter, index) => ({
+        id: filter?.id || `num-${Date.now()}-${index}`,
+        column: filter?.column || '',
+        operator: filter?.operator || 'greaterThan',
+        value: filter?.value || '',
+        value2: filter?.value2 || '',
+    }));
+    merged.sortRules = safeArray(config?.sortRules, defaults.sortRules).map(rule => ({
+        column: rule?.column || '',
+        descending: rule?.descending !== false,
+    }));
+    merged.highlightRules = safeArray(config?.highlightRules, defaults.highlightRules).map((rule, index) => ({
+        id: rule?.id || `highlight-${Date.now()}-${index}`,
+        column: rule?.column || '',
+        operator: rule?.operator || 'contains',
+        value: rule?.value || '',
+        value2: rule?.value2 || '',
+        color: rule?.color || '#fbbf24',
+        borderWidth: rule?.borderWidth || 2,
+        enabled: rule?.enabled !== false,
+    }));
     if (merged.filtersEnabled === undefined) merged.filtersEnabled = true;
     if (merged.sortEnabled === undefined) merged.sortEnabled = true;
     if (merged.highlightEnabled === undefined) merged.highlightEnabled = true;
@@ -211,6 +237,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     const lastMediaViewRef = useRef<'grid' | 'dashboard' | 'transpose' | 'gallery'>('grid');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadProgress, setLoadProgress] = useState<string | null>(null); // Progress message for large file loading
+    const [loadError, setLoadError] = useState<string | null>(null); // Non-blocking inline error message
     const [needsReload, setNeedsReload] = useState(false); // Flag for large data that needs reload
     const [isParsingData, setIsParsingData] = useState(false);
     const loadRequestIdRef = useRef(0);
@@ -1180,7 +1207,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
     const handleRefresh = async () => {
         if (!sourceUrl) return;
         if (sourceUrl.startsWith('local://')) {
-            alert('本地数据无需刷新');
+            setLoadError('ℹ️ 本地数据无需刷新'); setTimeout(() => setLoadError(null), 3000);
             return;
         }
         setIsRefreshing(true);
@@ -1212,7 +1239,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         } catch (e) {
             setLoadProgress(null);
             const errorMsg = e instanceof Error ? e.message : '刷新失败';
-            alert(errorMsg);
+            setLoadError(`⚠️ 刷新失败：${errorMsg}`);
         } finally {
             setIsRefreshing(false);
         }
@@ -1289,7 +1316,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             const parsedData = await parseSheetAsync(wb, sheetName, '追加数据', { chunkSize: 1000 });
 
             if (!parsedData || parsedData.rows.length === 0) {
-                alert('没有解析到有效数据');
+                setLoadError('⚠️ 没有解析到有效数据'); setTimeout(() => setLoadError(null), 4000);
                 return;
             }
 
@@ -1331,10 +1358,10 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             const newColInfo = newColumns.length > 0
                 ? `，新增 ${newColumns.length} 列`
                 : '';
-            alert(`✅ 成功追加 ${newRows.length} 行数据！（${matchInfo}${newColInfo}）`);
+            setLoadError(`✅ 成功追加 ${newRows.length} 行数据！（${matchInfo}${newColInfo}）`); setTimeout(() => setLoadError(null), 4000);
         } catch (err) {
             console.error('Append data error:', err);
-            alert('解析数据失败，请确保是从表格复制的数据');
+            setLoadError('⚠️ 解析数据失败，请确保是从表格复制的数据'); setTimeout(() => setLoadError(null), 4000);
         } finally {
             setAppendLoading(false);
             setAppendHtmlContent(null);
@@ -1444,7 +1471,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
                 setLoadProgress(null);
                 setIsRefreshing(false);
-                alert('未找到本地缓存，请重新导入该数据源。');
+                setLoadError('⚠️ 未找到本地缓存，请重新导入该数据源'); setTimeout(() => setLoadError(null), 5000);
                 return;
             }
 
@@ -1527,7 +1554,9 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                 errorMsg.includes('UNAUTHENTICATED');
 
             // Always suggest re-login first as token expiry is the most common cause
-            alert(`⚠️ 加载数据源失败\n\n最常见原因：Google 登录已过期（token 每1小时会自动失效）\n\n👉 请先尝试：点击右上角登录按钮重新登录 Google 账号\n\n如果重新登录后仍然失败，请检查：\n1. 网络连接是否正常\n2. 表格权限是否为「知道链接的任何人可查看」\n\n错误详情: ${errorMsg}`);
+            setLoadError(isAuthError
+                ? `⚠️ 加载失败：Google 登录已过期，请点击右上角重新登录（错误: ${errorMsg}）`
+                : `⚠️ 加载数据源失败：${errorMsg}（请检查网络连接和表格权限）`);
 
             // Keep the previous state (no need to rollback since we didn't change it yet)
             setIsRefreshing(false); // 只在出错时关闭
@@ -2114,6 +2143,27 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {/* Inline Error/Info Banner (replaces alert dialogs) */}
+                    {loadError && (
+                        <div className="fixed top-14 left-1/2 transform -translate-x-1/2 z-[9999] max-w-lg w-[90vw] animate-in fade-in slide-in-from-top-2">
+                            <div className={`px-4 py-3 rounded-xl shadow-xl border backdrop-blur-sm flex items-start gap-3 ${
+                                loadError.startsWith('✅') 
+                                    ? 'bg-emerald-50/95 border-emerald-200 text-emerald-800'
+                                    : loadError.startsWith('ℹ️')
+                                        ? 'bg-blue-50/95 border-blue-200 text-blue-800' 
+                                        : 'bg-red-50/95 border-red-200 text-red-800'
+                            }`}>
+                                <div className="flex-1 text-sm leading-relaxed whitespace-pre-wrap">{loadError}</div>
+                                <button 
+                                    onClick={() => setLoadError(null)}
+                                    className="shrink-0 p-1 rounded-full hover:bg-black/10 transition-colors text-current opacity-60 hover:opacity-100"
+                                >
+                                    <X size={14} />
+                                </button>
+                            </div>
                         </div>
                     )}
                 </main>

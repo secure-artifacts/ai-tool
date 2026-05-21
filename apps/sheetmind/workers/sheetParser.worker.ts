@@ -161,9 +161,14 @@ const parseSheetFromWorkSheet = (
         }
     }
 
-    const rawData = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    const rawData = XLSX.utils.sheet_to_json(sheet, { defval: "" }) as (Record<string, unknown> & { __rowNum__?: number })[];
 
-    if (rawData.length === 0) {
+    const rowsWithIndex = rawData.map((row, idx) => ({
+        ...row,
+        _originalRowIndex: typeof row.__rowNum__ === 'number' ? row.__rowNum__ + 1 : idx + 2
+    }));
+
+    if (rowsWithIndex.length === 0) {
         return {
             fileName,
             sheetName,
@@ -173,9 +178,9 @@ const parseSheetFromWorkSheet = (
         };
     }
 
-    const firstRow = rawData[0] as Record<string, unknown>;
-    const columns = Object.keys(firstRow);
-    const rows = rawData as Record<string, unknown>[];
+    const firstRow = rowsWithIndex[0];
+    const columns = Object.keys(firstRow).filter(k => k !== '__rowNum__');
+    const rows = rowsWithIndex;
 
     return {
         fileName,

@@ -1,11 +1,20 @@
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Upload, FileSpreadsheet, Link as LinkIcon, Loader2, Clipboard, AlertCircle, Info, LogIn, Check, X, Database, Cloud, ChevronRight, HardDrive, Download } from 'lucide-react';
-import { readWorkbookFromFile, fetchWorkbookFromUrl, readWorkbookFromString, readWorkbookFromHtml, fetchWorkbookWithAuth, fetchGoogleSpreadsheetMetadata, filterWorkbook, parseMultipleSheetsAsync, fetchWorkbookSmart } from '../utils/parser';
+import { readWorkbookFromFile, fetchWorkbookFromUrl, readWorkbookFromString, readWorkbookFromHtml, fetchWorkbookWithAuth, fetchGoogleSpreadsheetMetadata, filterWorkbook, parseMultipleSheetsAsync, fetchWorkbookSmart, fetchGoogleSpreadsheetInfoWithApiKey } from '../utils/parser';
 import { getGoogleAccessToken, signInWithGoogle } from '@/services/authService';
-import { addDataSource, addLocalDataSource, loadDataSources, DataSource } from './DataSourceManager';
+import { addDataSource, addLocalDataSource, loadDataSources, saveDataSources, DataSource } from './DataSourceManager';
 import { loadDataSourcesFromCloud, mergeDataSources, isUserLoggedIn } from '../services/firebaseService';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Workbook = any;
+
+const extractSpreadsheetId = (url: string): string | null => {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    return match?.[1] || null;
+};
+
+const isGenericGoogleSheetName = (name: string): boolean => {
+    return /^Google Sheet(?:\s*\([^)]+\))?$/.test(name.trim());
+};
 
 interface FileUploadProps {
     onWorkbookLoaded: (workbook: Workbook, fileName: string, sourceUrl?: string) => void;
@@ -28,6 +37,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
     const [selectedSheetNames, setSelectedSheetNames] = useState<string[]>([]);
     const [pendingWorkbook, setPendingWorkbook] = useState<Workbook | null>(null);
     const [pendingUrl, setPendingUrl] = useState<string>('');
+    const [pendingSpreadsheetTitle, setPendingSpreadsheetTitle] = useState<string>('Google Sheet');
     const [isAuthMode, setIsAuthMode] = useState(false);
 
     // Recent data sources (loaded from local + cloud)
@@ -45,22 +55,46 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
 
     // Load recent sources on mount
     useEffect(() => {
+        const hydrateGenericGoogleSheetNames = async (sources: DataSource[]): Promise<DataSource[]> => {
+            const hydrated = await Promise.all(sources.map(async source => {
+                if (source.type !== 'google-sheets' || !isGenericGoogleSheetName(source.name)) return source;
+
+                const spreadsheetId = extractSpreadsheetId(source.url);
+                if (!spreadsheetId) return source;
+
+                try {
+                    const info = await fetchGoogleSpreadsheetInfoWithApiKey(spreadsheetId);
+                    return { ...source, name: info.title };
+                } catch (err) {
+                    console.warn('[FileUpload] Failed to hydrate spreadsheet title:', err);
+                    return source;
+                }
+            }));
+
+            const changed = hydrated.some((source, index) => source.name !== sources[index]?.name);
+            if (changed) {
+                saveDataSources(hydrated);
+            }
+            return hydrated;
+        };
+
         const loadSources = async () => {
             setLoadingSources(true);
             const local = loadDataSources();
+            let sourcesToShow = local;
 
             if (isUserLoggedIn()) {
                 try {
                     const cloud = await loadDataSourcesFromCloud();
                     const merged = mergeDataSources(local, cloud);
-                    setRecentSources(merged); // Show all sources
+                    sourcesToShow = merged as DataSource[];
                 } catch (err) {
                     console.error('[FileUpload] Cloud load failed:', err);
-                    setRecentSources(local);
                 }
-            } else {
-                setRecentSources(local);
             }
+
+            const hydratedSources = await hydrateGenericGoogleSheetNames(sourcesToShow);
+            setRecentSources(hydratedSources);
             setLoadingSources(false);
 
             // 检查哪些数据源已经被缓存（仅Electron环境）
@@ -192,6 +226,18 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
                 setLoadProgress(msg);
             });
 
+            let spreadsheetTitle = 'Google Sheet';
+            const spreadsheetId = extractSpreadsheetId(url);
+            if (spreadsheetId) {
+                try {
+                    const info = await fetchGoogleSpreadsheetInfoWithApiKey(spreadsheetId);
+                    spreadsheetTitle = info.title;
+                } catch (metadataErr) {
+                    console.warn('[FileUpload] Failed to fetch spreadsheet title:', metadataErr);
+                }
+            }
+
+            setPendingSpreadsheetTitle(spreadsheetTitle);
             setPendingWorkbook(wb);
             setSheetCandidates(wb.SheetNames);
             setSelectedSheetNames(wb.SheetNames);
@@ -224,18 +270,20 @@ const FileUpload: React.FC<FileUploadProps> = ({ onWorkbookLoaded, isLoading: pa
             const finalWorkbook = filterWorkbook(pendingWorkbook, selectedSheetNames);
 
             // Save data source with sheet selection
-            addDataSource({
-                name: "Google Sheet",
+            const dataSource = addDataSource({
+                name: pendingSpreadsheetTitle,
                 url: pendingUrl,
                 type: 'google-sheets',
                 selectedSheets: selectedSheetNames
             });
 
-            onWorkbookLoaded(finalWorkbook, "Google Sheet", pendingUrl);
+            onWorkbookLoaded(finalWorkbook, pendingSpreadsheetTitle, pendingUrl);
+            setRecentSources(prev => [dataSource, ...prev.filter(source => source.id !== dataSource.id)]);
 
             setUrl('');
             setSelectingSheets(false);
             setPendingWorkbook(null);
+            setPendingSpreadsheetTitle('Google Sheet');
             setLoadProgress(null);
         } catch (err: unknown) {
             let errorMessage = "加载失败。";

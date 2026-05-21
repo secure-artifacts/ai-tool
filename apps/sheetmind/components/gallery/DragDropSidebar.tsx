@@ -15,6 +15,10 @@ export interface DragDropSidebarProps {
     onDragOverTarget: (target: string | null) => void;
     onDropToFolder: (e: React.DragEvent, folderId: string) => void;
     onDropToCategory: (e: React.DragEvent, category: string) => void;
+    onClickFolder?: (folderId: string) => void;
+    onClickCategory?: (category: string) => void;
+    isDraggingMode?: boolean;
+    selectedCount?: number;
     getFavoritesCount: (folderId: string) => number;
 }
 
@@ -26,6 +30,10 @@ export const DragDropSidebar = memo(function DragDropSidebar({
     onDragOverTarget,
     onDropToFolder,
     onDropToCategory,
+    onClickFolder,
+    onClickCategory,
+    isDraggingMode = true,
+    selectedCount = 0,
     getFavoritesCount,
 }: DragDropSidebarProps) {
     if (!isVisible) return null;
@@ -36,7 +44,7 @@ export const DragDropSidebar = memo(function DragDropSidebar({
         <div className="fixed left-4 bottom-4 z-50 animate-in slide-in-from-left duration-300">
             <div className="bg-white backdrop-blur-sm rounded-2xl shadow-2xl border border-slate-200 p-4 w-64 text-slate-700">
                 <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-3">
-                    📌 拖拽到目标位置
+                    {isDraggingMode ? '📌 拖拽到目标位置' : `📌 选定了 ${selectedCount} 项，点击分类放入`}
                 </div>
 
                 {/* 收藏夹列表 */}
@@ -55,9 +63,10 @@ export const DragDropSidebar = memo(function DragDropSidebar({
                                 }}
                                 onDragLeave={() => onDragOverTarget(null)}
                                 onDrop={(e) => onDropToFolder(e, folder.id)}
+                                onClick={() => onClickFolder && onClickFolder(folder.id)}
                                 className={`px-3 py-2 rounded-lg border transition-all cursor-pointer flex items-center gap-2 ${dragOverTarget === `folder-${folder.id}`
                                     ? 'bg-green-100 border-green-400 ring-2 ring-green-300'
-                                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                                    : 'bg-slate-50 border-slate-200 hover:bg-green-50'
                                     }`}
                             >
                                 <span>{folder.emoji || '📁'}</span>
@@ -85,9 +94,10 @@ export const DragDropSidebar = memo(function DragDropSidebar({
                                     }}
                                     onDragLeave={() => onDragOverTarget(null)}
                                     onDrop={(e) => onDropToCategory(e, category)}
+                                    onClick={() => onClickCategory && onClickCategory(category)}
                                     className={`px-3 py-2 rounded-lg border transition-all cursor-pointer flex items-center gap-2 ${dragOverTarget === `category-${category}`
                                         ? 'bg-purple-100 border-purple-400 ring-2 ring-purple-300'
-                                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                                        : 'bg-slate-50 border-slate-200 hover:bg-purple-50'
                                         }`}
                                 >
                                     <Tag size={14} className="text-purple-500" />
@@ -99,7 +109,7 @@ export const DragDropSidebar = memo(function DragDropSidebar({
                 )}
 
                 <div className="mt-3 pt-3 border-t border-slate-200 text-[10px] text-slate-500 text-center">
-                    ✨ 释放鼠标即可添加
+                    {isDraggingMode ? '✨ 释放鼠标即可添加' : '✨ 快捷分类面板'}
                 </div>
             </div>
         </div>

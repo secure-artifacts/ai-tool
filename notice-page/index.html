@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>版本更新通知 — AI 创作工具包</title>
+  <meta name="description" content="AI 创作工具包版本更新通知，提供最新访问链接和备用方案。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #f4f6fb;
+      --card-bg: #ffffff;
+      --text-primary: #1a1d2e;
+      --text-secondary: #5a6178;
+      --text-muted: #8b90a0;
+      --border: #e8ecf4;
+      --accent-blue: #4361ee;
+      --accent-green: #10b981;
+      --accent-orange: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #7c3aed;
+      --warning-bg: #fff8ed;
+      --warning-border: #fed7aa;
+      --warning-text: #92400e;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04);
+      --shadow-lg: 0 10px 40px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --radius-xs: 6px;
+    }
+
+    body {
+      font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      line-height: 1.7;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Top Accent Bar ── */
+    .top-bar {
+      height: 5px;
+      background: linear-gradient(90deg, #4361ee 0%, #7c3aed 30%, #ec4899 60%, #f59e0b 100%);
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+    }
+
+    /* ── Animated Background Blobs ── */
+    .bg-blobs {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .bg-blobs .blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.15;
+      animation: float 20s ease-in-out infinite;
+    }
+    .bg-blobs .blob:nth-child(1) {
+      width: 500px; height: 500px;
+      background: #4361ee;
+      top: -10%; left: -5%;
+      animation-delay: 0s;
+    }
+    .bg-blobs .blob:nth-child(2) {
+      width: 400px; height: 400px;
+      background: #10b981;
+      top: 50%; right: -10%;
+      animation-delay: -7s;
+      animation-duration: 25s;
+    }
+    .bg-blobs .blob:nth-child(3) {
+      width: 350px; height: 350px;
+      background: #f59e0b;
+      bottom: -5%; left: 30%;
+      animation-delay: -14s;
+      animation-duration: 22s;
+    }
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(30px, -40px) scale(1.05); }
+      50% { transform: translate(-20px, 20px) scale(0.95); }
+      75% { transform: translate(15px, 30px) scale(1.02); }
+    }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 60px 20px 80px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .header .logo-icon {
+      width: 56px; height: 56px;
+      background: linear-gradient(135deg, #4361ee, #7c3aed);
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px rgba(67, 97, 238, 0.25);
+      animation: pulse-glow 3s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 8px 24px rgba(67, 97, 238, 0.25); }
+      50% { box-shadow: 0 8px 32px rgba(67, 97, 238, 0.4); }
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+    .header .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Warning Banner ── */
+    .warning-banner {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border: 1px solid var(--warning-border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 28px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      box-shadow: var(--shadow-sm);
+      animation: slideDown 0.5s ease-out;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .warning-banner .warn-icon {
+      width: 40px; height: 40px;
+      background: rgba(245, 158, 11, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .warning-banner .warn-content h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #78350f;
+      margin-bottom: 4px;
+    }
+    .warning-banner .warn-content p {
+      font-size: 13.5px;
+      color: #92400e;
+      line-height: 1.65;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 28px 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-md);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      animation: fadeUp 0.6s ease-out backwards;
+    }
+    .card:nth-child(2) { animation-delay: 0.1s; }
+    .card:nth-child(3) { animation-delay: 0.2s; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    /* Card Header */
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .card-header .title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-header .icon-wrap {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .card-header .icon-wrap.blue {
+      background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+    }
+    .card-header .icon-wrap.purple {
+      background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+    }
+    .card-header h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    /* Badge */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      letter-spacing: 0.01em;
+    }
+    .badge.green {
+      background: #ecfdf5;
+      color: #059669;
+      border: 1px solid #a7f3d0;
+    }
+    .badge.orange {
+      background: #fffbeb;
+      color: #d97706;
+      border: 1px solid #fde68a;
+    }
+    .badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .badge.green .dot { background: #10b981; animation: blink 1.5s ease-in-out infinite; }
+    .badge.orange .dot { background: #f59e0b; }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* Description */
+    .card-desc {
+      font-size: 13.5px;
+      color: var(--text-secondary);
+      line-height: 1.75;
+      margin-bottom: 18px;
+    }
+    .card-desc .highlight {
+      display: inline;
+      background: linear-gradient(135deg, #fef3c7, #fde68a);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      color: #92400e;
+      font-size: 12.5px;
+    }
+
+    /* Link Box */
+    .link-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: var(--radius-sm);
+      padding: 4px 4px 4px 16px;
+      margin-bottom: 14px;
+    }
+    .link-box .url-text {
+      flex: 1;
+      font-size: 13px;
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: all;
+      min-width: 0;
+    }
+    .link-box .btn-icon {
+      width: 40px; height: 40px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      color: var(--text-secondary);
+      font-size: 16px;
+    }
+    .link-box .btn-icon:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+    .link-box .btn-icon:active {
+      transform: scale(0.95);
+    }
+    .link-box .btn-icon.copied {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+      color: #059669;
+    }
+    .link-box .btn-go {
+      padding: 0 18px;
+      height: 40px;
+      background: var(--text-primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+    }
+    .link-box .btn-go:hover {
+      background: #2d3348;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(26, 29, 46, 0.2);
+    }
+    .link-box .btn-go:active {
+      transform: scale(0.97) translateY(0);
+    }
+
+    /* Note */
+    .note {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .note .note-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent-orange);
+      flex-shrink: 0;
+      margin-top: 7px;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      text-align: center;
+      padding-top: 32px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .footer a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+    .footer a:hover { text-decoration: underline; }
+
+    /* ── Tooltip ── */
+    .tooltip {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1a1d2e;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s ease;
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tooltip.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .container { padding: 48px 14px 60px; }
+      .card { padding: 22px 18px 20px; }
+      .warning-banner { padding: 16px 16px; gap: 12px; }
+      .link-box { flex-wrap: wrap; padding: 12px; gap: 8px; }
+      .link-box .url-text { width: 100%; flex: unset; font-size: 12px; }
+      .link-box .actions-row { display: flex; gap: 8px; width: 100%; }
+      .link-box .btn-go { flex: 1; justify-content: center; }
+      .card-header { flex-wrap: wrap; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="top-bar"></div>
+
+  <div class="bg-blobs">
+    <div class="blob"></div>
+    <div class="blob"></div>
+    <div class="blob"></div>
+  </div>
+
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo-icon">🪄</div>
+      <h1>AI 创作工具包</h1>
+      <p class="subtitle">版本更新通知</p>
+    </div>
+
+    <!-- Warning -->
+    <div class="warning-banner">
+      <div class="warn-icon">⚠️</div>
+      <div class="warn-content">
+        <h2>当前链接更新新版本有问题</h2>
+        <p>由于官方 AI Studio 升级调整，原共享链接容易出现访问受限或连接中断。建议您通过以下方式进行访问。</p>
+      </div>
+    </div>
+
+    <!-- Card 1: Web Version -->
+    <div class="card">
+      <div class="card-header">
+        <div class="title-group">
+          <div class="icon-wrap blue">🌐</div>
+          <h3>推荐方案：固定保存网站 Web 版本</h3>
+        </div>
+        <span class="badge green"><span class="dot"></span> 实时更新</span>
+      </div>
+      <p class="card-desc">
+        该独立版本部署于专用托管服务器，运行状态相对稳定。使用时<span class="highlight">需自行配置 API Key（免费或付费均可）</span>，并且该网页端中附带了获取最新 AI Studio 版链接的快捷入口。
+      </p>
+      <div class="link-box">
+        <span class="url-text" id="url-web">https://ai-toolkit-b2b78.web.app/</span>
+        <button class="btn-icon" onclick="copyURL('url-web', this)" title="复制链接">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button class="btn-go" onclick="goURL('url-web')">
+          立即跳转
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Card 2: AI Studio Version -->
+    <div class="card">
+      <div class="card-header">
+        <div class="title-group">
+          <div class="icon-wrap purple">✨</div>
+          <h3>最新 AI Studio 版本 <span style="font-weight:500;color:var(--text-muted);font-size:13px;">(更新日期 20260519)</span></h3>
+        </div>
+        <span class="badge orange"><span class="dot"></span> 不定期更换链接</span>
+      </div>
+      <p class="card-desc">
+        此版本可在 AI Studio 环境内直接运行使用，免去手动配置 Key。若该链接因官方平台调整失效，您可通过上述 Web 网页版获取最新可用的 AI Studio 版链接。
+      </p>
+      <div class="link-box">
+        <span class="url-text" id="url-studio">https://aistudio.google.com/apps/aa776b81-ff71-4fb4-ab90-de8bfa66b9d4?fullscreenApplet=true</span>
+        <button class="btn-icon" onclick="copyURL('url-studio', this)" title="复制链接">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button class="btn-go" onclick="goURL('url-studio')">
+          立即跳转
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
+        </button>
+      </div>
+      <div class="note">
+        <span class="note-dot"></span>
+        <span>备用链接初次使用加载会慢一些，由于云端冷启动，请耐心等待几分钟或换个 Chrome 浏览器尝试。</span>
+      </div>
+    </div>
+
+    <!-- Card 3: Old Version -->
+    <div class="card" style="border-color: #e2e8f0; background: #fafbfc;">
+      <div class="card-header">
+        <div class="title-group">
+          <div class="icon-wrap" style="background: linear-gradient(135deg, #f1f5f9, #e2e8f0);">📦</div>
+          <h3 style="color: var(--text-secondary);">老版本链接 <span style="font-weight:500;color:var(--text-muted);font-size:13px;">(旧版本稳定可用)</span></h3>
+        </div>
+        <span class="badge" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;"><span class="dot" style="background:#94a3b8;"></span> 旧版本</span>
+      </div>
+      <p class="card-desc">
+        如果以上链接均无法访问，可尝试使用此旧版本。功能可能不是最新，但运行稳定。
+      </p>
+      <div class="link-box">
+        <span class="url-text" id="url-old">https://ai.studio/apps/bebce1c6-d7d2-4d7d-8a88-51b2a82ff4e9?fullscreenApplet=true</span>
+        <button class="btn-icon" onclick="copyURL('url-old', this)" title="复制链接">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button class="btn-go" onclick="goURL('url-old')" style="background:#64748b;">
+          立即跳转
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>AI 创作工具包 &copy; 2026 · 如有问题请联系开发者</p>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="tooltip" id="toast"></div>
+
+  <script>
+    function copyURL(id, btn) {
+      const text = document.getElementById(id).textContent.trim();
+      navigator.clipboard.writeText(text).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+        showToast('✅ 链接已复制到剪贴板');
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        }, 2000);
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('✅ 链接已复制到剪贴板');
+      });
+    }
+
+    function goURL(id) {
+      const url = document.getElementById(id).textContent.trim();
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    let toastTimer;
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+    }
+  </script>
+</body>
+</html>

@@ -1806,7 +1806,7 @@ If no matches: []`;
     const copyQueryResults = useCallback((queryId: string) => {
         const { headers, rows } = table;
         const query = queries.find(q => q.id === queryId);
-        const queryLabel = query?.label || '未命名搜索';
+        const queryLabel = query ? getQueryLabel(query) : '未命名搜索';
         const qColor = query?.color || '#fbbf24';
 
         // 筛选出该搜索项命中的行
@@ -1901,7 +1901,8 @@ If no matches: []`;
                 const matchedQueryIds = new Set<string>();
                 row.forEach(c => c.highlights.forEach(h => matchedQueryIds.add(h.queryId)));
                 matchedQueryIds.forEach(id => {
-                    const qLabel = queries.find(q => q.id === id)?.label;
+                    const q = queries.find(q => q.id === id);
+                    const qLabel = q ? getQueryLabel(q) : undefined;
                     if (qLabel) marks.push(qLabel);
                 });
                 const groupVal = marks.join(' | ');
@@ -1933,7 +1934,8 @@ If no matches: []`;
                 const matchedQueryIds = new Set<string>();
                 row.forEach(c => c.highlights.forEach(h => matchedQueryIds.add(h.queryId)));
                 matchedQueryIds.forEach(id => {
-                    const qLabel = queries.find(q => q.id === id)?.label;
+                    const q = queries.find(q => q.id === id);
+                    const qLabel = q ? getQueryLabel(q) : undefined;
                     if (qLabel) marks.push(qLabel);
                 });
                 tsvBody += marks.join(' | ') + '\t';

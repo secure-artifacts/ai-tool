@@ -10,33 +10,36 @@ import { shouldUseAiStudioMode, isRunningInAiStudio } from './utils/aiStudioDete
 import { wrapWithGroqProxy, GROQ_GLOBAL_MODELS } from './utils/groqProxy';
 import { FixedTooltipProvider } from '@/components/FixedTooltip';
 import { ToastProvider } from '@/components/ui/Toast';
-import ScriptToolApp from '@/apps/script-split/ScriptToolApp';
-import { AIToolsDirectoryApp } from '@/apps/ai-tools';
-import AIImageEditorApp from '@/apps/ai-image-editor/AIImageEditorApp';
 import { Layer, Tool as MagicTool } from './apps/ai-image-editor/types';
-import PromptToolApp from '@/apps/prompt-tool/PromptToolApp';
-import SheetMindAppV2 from '@/apps/sheetmind/SheetMindAppV2';
-import SheetMindAppV1 from '@/apps/sheetmind/SheetMindApp';
-import AICopyDeduplicatorApp from '@/apps/ai-copy-deduplicator/AICopyDeduplicatorApp';
-import ProDedupApp from '@/apps/ai-copy-deduplicator/ProDedupApp';
-import CopywritingLibraryApp from '@/apps/copywriting-library/CopywritingLibraryApp';
-import CopySearchApp from '@/apps/copy-search/CopySearchApp';
-import { MindMapApp } from '@/apps/ai-mind-map';
-import ApiImageGenApp from '@/apps/api-image-gen/ApiImageGenApp';
-import SkillGeneratorApp from '@/apps/skill-generator/SkillGeneratorApp';
-import ImageSorterApp from '@/apps/image-sorter/ImageSorterApp';
-import RegionClassifierApp from '@/apps/region-classifier/RegionClassifierApp';
-import WorkflowEditorApp from '@/apps/workflow-editor/WorkflowEditorApp';
-import ImageTextExtractorApp from '@/apps/image-text-extractor/ImageTextExtractorApp';
-import TutorialHubApp from '@/apps/tutorial-hub/TutorialHubApp';
-import GeminiChatApp from '@/apps/gemini-chat/GeminiChatApp';
-import SceneBrainstormApp from '@/apps/scene-brainstorm/SceneBrainstormApp';
-import HookScriptApp from '@/apps/hook-script/HookScriptApp';
-import DataPipelinePanel from '@/apps/sheetmind/components/DataPipelinePanel';
 import { SheetMindState, initialSheetMindState } from '@/apps/sheetmind/types';
 
+const ScriptToolApp = React.lazy(() => import('@/apps/script-split/ScriptToolApp'));
+const AIToolsDirectoryApp = React.lazy(() => import('@/apps/ai-tools').then(m => ({ default: m.AIToolsDirectoryApp })));
+const AIImageEditorApp = React.lazy(() => import('@/apps/ai-image-editor/AIImageEditorApp'));
+const PromptToolApp = React.lazy(() => import('@/apps/prompt-tool/PromptToolApp'));
+const SheetMindAppV2 = React.lazy(() => import('@/apps/sheetmind/SheetMindAppV2'));
+const SheetMindAppV1 = React.lazy(() => import('@/apps/sheetmind/SheetMindApp'));
+const AICopyDeduplicatorApp = React.lazy(() => import('@/apps/ai-copy-deduplicator/AICopyDeduplicatorApp'));
+const ProDedupApp = React.lazy(() => import('@/apps/ai-copy-deduplicator/ProDedupApp'));
+const CopywritingLibraryApp = React.lazy(() => import('@/apps/copywriting-library/CopywritingLibraryApp'));
+const CopySearchApp = React.lazy(() => import('@/apps/copy-search/CopySearchApp'));
+const MindMapApp = React.lazy(() => import('@/apps/ai-mind-map').then(m => ({ default: m.MindMapApp })));
+const ApiImageGenApp = React.lazy(() => import('@/apps/api-image-gen/ApiImageGenApp'));
+const SkillGeneratorApp = React.lazy(() => import('@/apps/skill-generator/SkillGeneratorApp'));
+const ImageSorterApp = React.lazy(() => import('@/apps/image-sorter/ImageSorterApp'));
+const RegionClassifierApp = React.lazy(() => import('@/apps/region-classifier/RegionClassifierApp'));
+const WorkflowEditorApp = React.lazy(() => import('@/apps/workflow-editor/WorkflowEditorApp'));
+const ImageTextExtractorApp = React.lazy(() => import('@/apps/image-text-extractor/ImageTextExtractorApp'));
+const TutorialHubApp = React.lazy(() => import('@/apps/tutorial-hub/TutorialHubApp'));
+const GeminiChatApp = React.lazy(() => import('@/apps/gemini-chat/GeminiChatApp'));
+const SceneBrainstormApp = React.lazy(() => import('@/apps/scene-brainstorm/SceneBrainstormApp'));
+const HookScriptApp = React.lazy(() => import('@/apps/hook-script/HookScriptApp'));
+const DriveOrganizerApp = React.lazy(() => import('@/apps/drive-organizer/DriveOrganizerApp'));
+const VideoKeyframeApp = React.lazy(() => import('@/apps/video-keyframe/VideoKeyframeApp'));
+const DataPipelinePanel = React.lazy(() => import('@/apps/sheetmind/components/DataPipelinePanel'));
+
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
-import { ImageToPromptApp } from '@/apps/image-to-prompt';
+const ImageToPromptApp = React.lazy(() => import('@/apps/image-to-prompt').then(m => ({ default: m.ImageToPromptApp })));
 
 // 表格同步服务
 import {
@@ -79,10 +82,30 @@ const initialMagicCanvasState: MagicCanvasState = {
   chatHistory: [],
   chatInput: '',
 };
-import ImageRecognitionApp, { DescState, DescEntry } from '@/apps/ai-image-recognition/ImageRecognitionApp';
-import ImageReviewApp from '@/apps/image-review/ImageReviewApp';
+
+const initialSmartTranslateState: SmartTranslateState = {
+  mode: 'instant',
+  items: [],
+  inputText: '',
+  targetLanguage: (() => { try { return localStorage.getItem('smart_translate_target_lang') || 'smart_auto'; } catch { return 'smart_auto'; } })(),
+  batchTargetLanguages: (() => { try { const v = localStorage.getItem('smart_translate_batch_langs'); return v ? JSON.parse(v) : ['en']; } catch { return ['en']; } })(),
+  batchOnlyChinese: (() => { try { const v = localStorage.getItem('smart_translate_batch_only_chinese'); return v ? JSON.parse(v) === true : false; } catch { return false; } })(),
+  batchCleanupMode: (() => { try { const v = localStorage.getItem('smart_translate_batch_cleanup'); return v ? JSON.parse(v) === true : false; } catch { return false; } })(),
+  customInstruction: (() => { try { return localStorage.getItem('smart_translate_custom_instruction') || ''; } catch { return ''; } })(),
+  enableScriptureDetection: (() => { try { const v = localStorage.getItem('smart_translate_enable_scripture'); return v ? JSON.parse(v) === true : false; } catch { return false; } })(),
+  scriptureVersion: (() => { try { return localStorage.getItem('smart_translate_scripture_version') || 'CUNPTS'; } catch { return 'CUNPTS'; } })(),
+  deityTerms: (() => { try { const v = localStorage.getItem('smart_translate_deity_terms'); return v ? JSON.parse(v) : ['God', 'Lord']; } catch { return ['God', 'Lord']; } })(),
+  applyDeityCapitalizationToAll: (() => { try { const v = localStorage.getItem('smart_translate_apply_deity_all'); return v ? JSON.parse(v) === true : false; } catch { return false; } })(),
+  isProcessing: false,
+};
+
+import type { DescState, DescEntry } from '@/apps/ai-image-recognition/ImageRecognitionApp';
 import { ImageRecognitionState, initialImageRecognitionState } from '@/apps/ai-image-recognition/types';
-import SmartTranslateApp, { SmartTranslateState, initialSmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
+import type { SmartTranslateState } from '@/apps/smart-translate/SmartTranslateApp';
+
+const ImageRecognitionApp = React.lazy(() => import('@/apps/ai-image-recognition/ImageRecognitionApp'));
+const ImageReviewApp = React.lazy(() => import('@/apps/image-review/ImageReviewApp'));
+const SmartTranslateApp = React.lazy(() => import('@/apps/smart-translate/SmartTranslateApp'));
 import ConfirmDialog from '@/components/ConfirmDialog';
 import SubEmailGenerator from '@/apps/sub-email/SubEmailGenerator';
 import { Clock, Loader2, Check, X, Image as ImageIcon, Palette, Lightbulb, ClipboardList, Sparkles, AlertCircle, Key, HelpCircle, RefreshCw, Settings, AlertTriangle, Globe, Bot, Package, BookOpen, Edit, PlusCircle, Search, RotateCcw, Volume2, VolumeX } from 'lucide-react';
@@ -203,6 +226,8 @@ const translations = {
     navSkillBuilder: "Skill Builder",
     navOpalBatch: "Opal Batch Image",
     navWorkflowEditor: "Node Workflow",
+    navDriveOrganizer: "Drive File Organizer",
+    navVideoKeyframe: "Video Keyframe",
     // Prompt Tool
     promptTitle: "Image to Prompt",
     promptDescription: "Batch upload images and use multi-turn chat to refine prompts for each image independently.",
@@ -467,6 +492,8 @@ const translations = {
     navSkillBuilder: "Skill 训练器",
     navOpalBatch: "Opal 批量生图",
     navWorkflowEditor: "节点工作流",
+    navDriveOrganizer: "云端文件分拣",
+    navVideoKeyframe: "视频关键帧",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
     promptDescription: "支持批量上传图片，对每张图的提示词进行独立的多轮对话修改",
@@ -1407,7 +1434,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript' | 'dataPipeline';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript' | 'dataPipeline' | 'driveOrganizer' | 'videoKeyframe';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7801,6 +7828,8 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   workflowEditor: 'account_tree',
   sceneBrainstorm: 'movie_filter',
   hookScript: 'slow_motion_video',
+  driveOrganizer: 'folder_special',
+  videoKeyframe: 'burst_mode',
 };
 
 const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: string }[] = [
@@ -7821,9 +7850,11 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: s
   { tool: 'sheetMind', labelKey: 'navSheetMind' },
   { tool: 'dataPipeline', labelKey: 'navDataPipeline' },
   { tool: 'imageSorter', labelKey: 'navImageSorter' },
+  // { tool: 'driveOrganizer', labelKey: 'navDriveOrganizer' },
   { tool: 'geminiChat', labelKey: 'navGeminiChat' },
   { tool: 'sceneBrainstorm', labelKey: 'navSceneBrainstorm' },
   { tool: 'hookScript', labelKey: 'navHookScript' },
+  { tool: 'videoKeyframe', labelKey: 'navVideoKeyframe' },
   { tool: 'workflowEditor', labelKey: 'navWorkflowEditor' },
   { tool: 'imageTextExtractor', labelKey: 'navImageTextExtractor' },
   { tool: 'regionClassifier', labelKey: 'navRegionClassifier' },
@@ -7902,7 +7933,9 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '3.8.5', date: '2026-04-06', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '5.0.1', date: '2026-05-19', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '5.0.0', date: '2026-04-29', url: 'https://ai-toolkit-b2b78--v5-0-0.web.app', isCurrent: false },
+  { version: '4.0.0', date: '2026-04-06', url: 'https://ai-toolkit-b2b78--v4-0-0-9a0wbmra.web.app', isCurrent: false },
   { version: '3.8.4', date: '2026-04-03', url: 'https://ai-toolkit-b2b78--v3-8-4.web.app', isCurrent: false },
   { version: '3.8.3', date: '2026-04-02', url: 'https://ai-toolkit-b2b78--v3-8-3-myedt8f0.web.app', isCurrent: false },
   { version: '3.8.2', date: '2026-03-31', url: 'https://ai-toolkit-b2b78--v3-8-2.web.app', isCurrent: false },
@@ -8124,7 +8157,7 @@ const App = () => {
   }, []);
 
   // 版本切换：网站版 vs AI Studio 版 - 自动检测当前环境
-  const [appEdition, setAppEdition] = useState<'website' | 'aistudio'>(() => {
+  const [appEdition, setAppEdition] = useState<'website' | 'aistudio' | 'aistudio-backup'>(() => {
     if (typeof window === 'undefined') return 'website';
 
     // 根据多种条件检测是否在 AI Studio 环境
@@ -8133,7 +8166,7 @@ const App = () => {
     const referrer = document.referrer || '';
 
     // 1. 检查 hostname 是否包含 AI Studio 相关域名
-    if (hostname.includes('aistudio') || hostname.includes('googleusercontent')) {
+    if (hostname.includes('aistudio') || hostname.includes('googleusercontent') || hostname.includes('idx.dev') || hostname.includes('cloudworkstations.dev')) {
       return 'aistudio';
     }
 
@@ -9336,7 +9369,7 @@ const App = () => {
               style={{
                 padding: '0.75rem',
                 borderRadius: '8px',
-                marginBottom: '0.75rem',
+                marginBottom: '0.5rem',
                 cursor: 'pointer',
                 backgroundColor: appEdition === 'aistudio' ? 'rgba(103, 126, 234, 0.1)' : 'var(--background-color)',
                 border: appEdition === 'aistudio' ? '2px solid #667eea' : '1px solid var(--border-color)'
@@ -9349,7 +9382,33 @@ const App = () => {
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                 ✓ <strong>AI 一键修图</strong>、AI 图片编辑<br />
-                ✗ 不支持 API 自动轮换
+                ✗ 不支持 API 自动轮换<br />
+                <span style={{ color: '#ff9800' }}>💡 如果此版本无法打开，请使用下方的备用版</span>
+              </div>
+            </div>
+
+            {/* AI Studio 备用版 */}
+            <div
+              onClick={() => {
+                setShowEditionTooltip(false);
+                // 如果当前不在备用版，则打开备用版
+                if (appEdition !== 'aistudio-backup') {
+                  window.open('https://aistudio.google.com/apps/aa776b81-ff71-4fb4-ab90-de8bfa66b9d4?fullscreenApplet=true&showPreview=true&showAssistant=true', '_blank');
+                }
+              }}
+              style={{
+                padding: '0.75rem',
+                borderRadius: '8px',
+                marginBottom: '0.75rem',
+                cursor: 'pointer',
+                backgroundColor: appEdition === 'aistudio-backup' ? 'rgba(103, 126, 234, 0.1)' : 'var(--background-color)',
+                border: appEdition === 'aistudio-backup' ? '2px solid #667eea' : '1px solid var(--border-color)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Bot size={16} className="text-purple-300" />
+                <span style={{ fontWeight: 600, color: 'var(--on-surface-color)' }}>AI Studio (备用版)</span>
+                {appEdition === 'aistudio-backup' && <span style={{ color: '#667eea', fontSize: '0.7rem' }}>当前</span>}
               </div>
             </div>
 
@@ -9888,12 +9947,60 @@ const App = () => {
                           fontSize: '0.8rem'
                         }}>
                           <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500 }}>
-                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v4.0.0
+                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v5.0.3
                           </div>
                           <div style={{ color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                             <div style={{ marginBottom: '0.25rem' }}>
                               {language === 'zh' ? '历史版本：' : 'History:'}
                             </div>
+                            <a
+                              href="https://ai-toolkit-b2b78--v5-0-2.web.app"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: '#4dabff',
+                                textDecoration: 'none',
+                                display: 'block',
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                backgroundColor: 'rgba(77, 171, 255, 0.1)'
+                              }}
+                            >
+                              <Package size={12} className="inline mr-1" /> v5.0.2 (05/20)
+                            </a>
+                            <a
+                              href="https://ai-toolkit-b2b78--v5-0-1.web.app"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: '#4dabff',
+                                textDecoration: 'none',
+                                display: 'block',
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                backgroundColor: 'rgba(77, 171, 255, 0.1)'
+                              }}
+                            >
+                              <Package size={12} className="inline mr-1" /> v5.0.1 (05/19)
+                            </a>
+                            <a
+                              href="https://ai-toolkit-b2b78--v5-0-0-a54nnd5r.web.app"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: '#4dabff',
+                                textDecoration: 'none',
+                                display: 'block',
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                backgroundColor: 'rgba(77, 171, 255, 0.1)'
+                              }}
+                            >
+                              <Package size={12} className="inline mr-1" /> v5.0.0 (05/06)
+                            </a>
                             <a
                               href="https://ai-toolkit-b2b78--v3-7-0-nei2zznk.web.app"
                               target="_blank"
@@ -10071,10 +10178,10 @@ const App = () => {
                     setShowEditionTooltip(!showEditionTooltip);
                   }}
                   className={`collapsed-settings-btn tooltip-bottom ${appEdition}`}
-                  data-tip={appEdition === 'website' ? '网站版' : 'AI Studio版'}
+                  data-tip={appEdition === 'website' ? '网站版' : (appEdition === 'aistudio' ? 'AI Studio版' : 'AI Studio备用版')}
                 >
                   {appEdition === 'website' ? <Globe size={14} /> : <Bot size={14} />}
-                  <span style={{ fontSize: '0.7rem' }}>{appEdition === 'website' ? 'Web' : 'AI'}</span>
+                  <span style={{ fontSize: '0.7rem' }}>{appEdition === 'website' ? 'Web' : (appEdition === 'aistudio' ? 'AI' : 'AI备')}</span>
                 </button>
               </div>
 
@@ -10288,19 +10395,19 @@ const App = () => {
                   setShowEditionTooltip(!showEditionTooltip);
                 }}
                 className={`secondary-btn edition-btn tooltip-bottom ${appEdition}`}
-                data-tip={appEdition === 'website' ? '网站版 - 点击切换' : 'AI Studio版 - 点击切换'}
+                data-tip={appEdition === 'website' ? '网站版 - 点击切换' : (appEdition === 'aistudio' ? 'AI Studio版 - 点击切换' : 'AI Studio备用版 - 点击切换')}
                 style={{
                   padding: '0.3rem 0.6rem',
                   fontSize: '0.75rem',
-                  background: appEdition === 'aistudio' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'var(--surface-color)',
-                  color: appEdition === 'aistudio' ? 'white' : 'var(--on-surface-color)',
+                  background: appEdition === 'website' ? 'var(--surface-color)' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: appEdition === 'website' ? 'var(--on-surface-color)' : 'white',
                   border: '1px solid var(--border-color)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.25rem'
                 }}
               >
-                {appEdition === 'website' ? <><Globe size={14} className="inline mr-1" /> Web</> : <><Bot size={14} className="inline mr-1" /> AI</>}
+                {appEdition === 'website' ? <><Globe size={14} className="inline mr-1" /> Web</> : (appEdition === 'aistudio' ? <><Bot size={14} className="inline mr-1" /> AI</> : <><Bot size={14} className="inline mr-1" /> AI备</>)}
               </button>
               <button onClick={toggleTheme} className="theme-toggle tooltip-bottom" aria-label="Toggle theme" data-tip={theme === 'dark' ? '切换到亮色模式' : theme === 'light' ? '切换到护眼模式' : '切换到暗色模式'}>
                 {theme === 'dark' ? '☀️' : theme === 'light' ? '🌿' : '🌙'}
@@ -10521,8 +10628,14 @@ const App = () => {
       </header >
       <DescChineseProvider entries={descState.entries} textModel={textModel}>
         <main>
-          {renderTool()}
-          {/* Image to Prompt stays mounted to preserve session state */}
+          <React.Suspense fallback={
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%', gap: '12px', color: 'var(--text-muted-color)' }}>
+              <Loader2 className="animate-spin" size={32} style={{ color: 'var(--primary-color, #7C3AED)' }} />
+              <span style={{ fontSize: '13px', fontWeight: 500 }}>正在加载模块...</span>
+            </div>
+          }>
+            {renderTool()}
+            {/* Image to Prompt stays mounted to preserve session state */}
           <div className={`image-to-prompt-page-wrapper ${activeTool === 'prompt' ? 'visible' : 'hidden'}`} style={{ overflow: 'auto', height: activeTool === 'prompt' ? '100%' : '0' }}>
             <ImageToPromptApp
               getAiInstance={getAiInstance}
@@ -10657,6 +10770,10 @@ const App = () => {
           <div className={`image-sorter-wrapper ${activeTool === 'imageSorter' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'imageSorter' ? '100%' : '0', display: activeTool === 'imageSorter' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
             <ImageSorterApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
+          {/* 云端文件分拣器 */}
+          <div className={`drive-organizer-wrapper ${activeTool === 'driveOrganizer' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'driveOrganizer' ? '100%' : '0', display: activeTool === 'driveOrganizer' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
+            <DriveOrganizerApp />
+          </div>
           {/* 地区分类工具 */}
           <div className={`region-classifier-wrapper ${activeTool === 'regionClassifier' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'regionClassifier' ? '100%' : '0', display: activeTool === 'regionClassifier' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
             <RegionClassifierApp getAiInstance={getAiInstance} />
@@ -10673,7 +10790,11 @@ const App = () => {
           <div className={`hook-script-wrapper ${activeTool === 'hookScript' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'hookScript' ? '100%' : '0', display: activeTool === 'hookScript' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
             <HookScriptApp getAiInstance={getAiInstance} textModel={textModel} />
           </div>
-
+            {/* 视频关键帧提取器 */}
+            <div className={`video-keyframe-wrapper ${activeTool === 'videoKeyframe' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'videoKeyframe' ? '100%' : '0', display: activeTool === 'videoKeyframe' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
+              <VideoKeyframeApp getAiInstance={getAiInstance} textModel={textModel} />
+            </div>
+          </React.Suspense>
         </main>
       </DescChineseProvider>
 

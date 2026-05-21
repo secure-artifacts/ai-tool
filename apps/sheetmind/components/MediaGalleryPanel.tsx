@@ -3119,6 +3119,14 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     // Get folder name for display
     const getFolderName = useCallback((folderId: string) => {
         const folder = favoriteFolders.find(f => f.id === folderId);
+    const formatTsvCell = (val: string): string => {
+        if (!val) return "";
+        if (val.includes("\t") || val.includes("\n") || val.includes("\r") || val.includes("\"")) {
+            return `"\${val.replace(/"/g, "\"\"")}\"`;
+        }
+        return val;
+    };
+
         return folder ? `${folder.emoji || '📁'} ${folder.name}` : '默认收藏夹';
     }, [favoriteFolders]);
 
@@ -3825,7 +3833,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const baseColumns = effectiveData.columns.length > 0 ? [...effectiveData.columns] : [];
             const extraKeys = Object.keys(rowData).filter(k => !baseColumns.includes(k));
             const headers = [...baseColumns, ...extraKeys];
-            const values = headers.map(h => String(rowData[h] ?? ''));
+            const values = headers.map(h => tsvEscapeCell(String(rowData[h] ?? '')));
 
             // Add note to A column if available
             let note = '';
@@ -3842,7 +3850,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             if (note) {
                 const noteIndex = headers.findIndex(h => h === NOTE_HEADER);
                 if (noteIndex >= 0) {
-                    values[noteIndex] = note;
+                    values[noteIndex] = tsvEscapeCell(note);
                 } else {
                     headers.unshift(NOTE_HEADER);
                     values.unshift(note);
@@ -3997,7 +4005,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const headers = [...baseColumns, ...Array.from(extraKeys)];
 
             const rows = selectedItems.map(item =>
-                headers.map(h => String(item.rowData[h] ?? '')).join('\t')
+                headers.map(h => tsvEscapeCell(String(item.rowData[h] ?? ''))).join('\t')
             );
             const text = headers.join('\t') + '\n' + rows.join('\n');
             await navigator.clipboard.writeText(text);
@@ -4028,7 +4036,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             const headers = [...baseColumns, ...Array.from(extraKeys)];
 
             const rows = favorites.map(item =>
-                headers.map(h => String(item.rowData[h] ?? '')).join('\t')
+                headers.map(h => tsvEscapeCell(String(item.rowData[h] ?? ''))).join('\t')
             );
             const text = headers.join('\t') + '\n' + rows.join('\n');
             await navigator.clipboard.writeText(text);
@@ -4156,7 +4164,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             // Exclude internal _rowId column from export
             const headers = Object.keys(selectedRows[0]).filter(h => h !== '_rowId');
             const rowsData = selectedRows.map(row =>
-                headers.map(h => String(row[h] || '')).join('\t')
+                headers.map(h => tsvEscapeCell(String(row[h] || ''))).join('\t')
             );
             const text = headers.join('\t') + '\n' + rowsData.join('\n');
             await navigator.clipboard.writeText(text);
@@ -4191,10 +4199,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         // Note column (A) - add note if available
                         const imageUrl = config.imageColumn ? extractImageUrl(row[config.imageColumn]) : null;
                         if (imageUrl) {
-                            return getNoteForImage(imageUrl) || String(row[h] || '');
+                            return tsvEscapeCell(getNoteForImage(imageUrl) || String(row[h] || ''));
                         }
                     }
-                    return String(row[h] || '');
+                    return tsvEscapeCell(String(row[h] || ''));
                 });
                 return values.join('\t');
             });
@@ -4321,7 +4329,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         effectiveData.rows.forEach((row, idx) => {
             const imageUrl = extractImageUrl(row[config.imageColumn]);
             if (imageUrl) {
-                imageUrlToRowIndex.set(imageUrl, idx + 2); // +2 because idx is 0-indexed and row 1 is header
+                // 使用物理行号（优先级：_originalRowIndex > __rowIndex > idx+2）
+                const rowIndex = row._originalRowIndex ? Number(row._originalRowIndex)
+                    : row.__rowIndex ? Number(row.__rowIndex)
+                    : idx + 2;
+                imageUrlToRowIndex.set(imageUrl, rowIndex);
             }
         });
 
@@ -4545,11 +4557,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const isProcessingRows = deferredRows !== effectiveData.rows;
     const processedRows = useMemo(() => {
         // Use deferredRows for non-blocking computation on large datasets
-        let rows = [...deferredRows].map((row, originalIndex) => ({
-            ...row,
-            // Include originalIndex to ensure unique keys even for duplicate images
-            _rowId: `${extractImageUrl(row[effectiveImageColumn]) || ''}||${row._sourceSheet || ''}||${originalIndex}`
-        }));
+        let rows = [...deferredRows].map((row, originalIndex) => {
+            // 使用物理行号作为稳定标识（_originalRowIndex 来自 xlsx 解析，__rowIndex 来自 GAS pullData）
+            const stableRowIdx = row._originalRowIndex || row.__rowIndex || (originalIndex + 2);
+            return {
+                ...row,
+                // Include stable row index to ensure correct binding even for duplicate images
+                _rowId: `${extractImageUrl(row[effectiveImageColumn]) || ''}||${row._sourceSheet || ''}||${stableRowIdx}`
+            };
+        });
 
         // Global keyword search - search across all text columns
         if (config.searchKeyword && config.searchKeyword.trim()) {

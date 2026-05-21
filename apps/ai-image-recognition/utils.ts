@@ -120,19 +120,19 @@ const collectUrlsFromString = (text: string): string[] => {
 
     // =IMAGE(HYPERLINK("url", ...), ...)
     const imageHyperlinkRegex = /=IMAGE\s*\(\s*HYPERLINK\s*\(\s*(?:"([^"]+)"|'([^']+)'|([^,\)\s]+))/gi;
-    for (const m of text.matchAll(imageHyperlinkRegex)) {
+    for (const m of Array.from(text.matchAll(imageHyperlinkRegex))) {
         addUrl(m[1] || m[2] || m[3] || '');
     }
 
     // =IMAGE("url", ...), =IMAGE('url', ...), =IMAGE(url, ...)
     const imageFormulaRegex = /=IMAGE\s*\(\s*(?:"([^"]+)"|'([^']+)'|([^,\)\s]+))/gi;
-    for (const m of text.matchAll(imageFormulaRegex)) {
+    for (const m of Array.from(text.matchAll(imageFormulaRegex))) {
         addUrl(m[1] || m[2] || m[3] || '');
     }
 
     // Plain URL in arbitrary text
     const urlRegex = /https?:\/\/[^\s"'<>\\]+/gi;
-    for (const m of text.matchAll(urlRegex)) {
+    for (const m of Array.from(text.matchAll(urlRegex))) {
         addUrl(m[0]);
     }
 
@@ -243,7 +243,7 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
 
             // Check for formula(s) first - use matchAll to catch multiple in one cell
             formulaRegex.lastIndex = 0;
-            const formulaMatches = [...trimmed.matchAll(formulaRegex)];
+            const formulaMatches = Array.from(trimmed.matchAll(formulaRegex));
             if (formulaMatches.length > 0) {
                 for (const match of formulaMatches) {
                     const rawUrl = decodeHtmlEntities(match[1] || match[2] || match[3] || '');
@@ -259,7 +259,7 @@ export const parsePasteInput = (text: string): { type: 'url' | 'formula'; conten
 
             // Check for URL(s)
             urlRegex.lastIndex = 0;
-            const urlMatches = [...trimmed.matchAll(urlRegex)];
+            const urlMatches = Array.from(trimmed.matchAll(urlRegex));
             for (const match of urlMatches) {
                 const rawUrl = decodeHtmlEntities(match[0]);
                 results.push({
@@ -379,7 +379,7 @@ export const extractUrlsFromHtmlGrouped = (html: string): { originalUrl: string;
         const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
 
         // Try table row structure first
-        const trMatches = [...html.matchAll(trRegex)];
+        const trMatches = Array.from(html.matchAll(trRegex));
         if (trMatches.length > 0) {
             const groups: { originalUrl: string; fetchUrl: string }[][] = [];
             for (const trMatch of trMatches) {
@@ -447,7 +447,7 @@ export const parsePasteInputGrouped = (text: string): PasteGroup[] => {
             }
         } else {
             // 单列：检查一行是否有多个 =IMAGE()
-            const allFormulas = [...trimmed.matchAll(formulaRegex)];
+            const allFormulas = Array.from(trimmed.matchAll(formulaRegex));
             if (allFormulas.length > 0) {
                 for (const fm of allFormulas) {
                     const rawUrl = decodeHtmlEntities(fm[1]);
@@ -455,7 +455,7 @@ export const parsePasteInputGrouped = (text: string): PasteGroup[] => {
                 }
             } else {
                 // 检查 URL
-                const allUrls = [...trimmed.matchAll(urlRegex)];
+                const allUrls = Array.from(trimmed.matchAll(urlRegex));
                 for (const um of allUrls) {
                     const rawUrl = decodeHtmlEntities(um[0]);
                     group.push({ type: 'url', content: um[0], url: processImageUrl(rawUrl) });

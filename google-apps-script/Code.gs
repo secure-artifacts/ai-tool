@@ -24,6 +24,7 @@ const SETTINGS_PROPERTY_PREFIX = 'feedback_canvas_settings_v1_';
 const PANEL_DEFAULT_HEADERS = ['提交人员', '成品-单链接'];
 const ROW_STALE_ERROR_MESSAGE = '未能定位到原始记录（可能已被删除或内容被整体替换），本次为保护数据未写入。';
 const UNIQUE_ID_COLUMN_LETTER = 'V';
+const UNIQUE_ID_HEADER_CANDIDATES = ['ID', 'Id', 'id', '唯一ID', '唯一Id', '唯一id', 'rowId', 'RowId', 'ROW_ID'];
 
 const COLUMN_FIELDS = [
   { key: 'preview', label: '预览来源列', defaultHeader: CONFIG.COL.defaultPreview },
@@ -49,7 +50,14 @@ function openFeedbackDialog() {
   const html = HtmlService.createHtmlOutputFromFile('feedback_dialog')
     .setWidth(1240)
     .setHeight(920);
-  SpreadsheetApp.getUi().showModalDialog(html, '\u200B');
+  SpreadsheetApp.getUi().showModelessDialog(html, '\u200B');
+}
+
+function openMiniDialog() {
+  const html = HtmlService.createHtmlOutput('<div style="display:flex;height:100%;align-items:center;justify-content:center;font-family:sans-serif;background:#f7f8fb;"><button onclick="google.script.run.openFeedbackDialog();" style="padding:10px 20px;background:#2d4bd3;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;box-shadow:0 2px 5px rgba(0,0,0,0.2);">🖥️ 恢复完整审核窗口</button></div>')
+    .setWidth(300)
+    .setHeight(100);
+  SpreadsheetApp.getUi().showModelessDialog(html, '迷你模式');
 }
 
 function normalizeHeaderRow_(value) {
@@ -91,8 +99,9 @@ function resolveRuntimeContext_(sheet, incomingSettings) {
   };
 }
 
-/** 初始化：读取当前选中的行 + 表头 + 用户设置 */
+/** 初始化：读取当前选中的行 + 表头 + 用户设置（快速骨架版，不含行数据） */
 function getDialogInit() {
+  var t0 = Date.now();
   const sheet = getTargetSheet_();
   const rawSettings = getSavedSettings_(sheet);
   const rawHeaderRow = getHeaderRowFromSettingsLike_(rawSettings);
@@ -115,12 +124,20 @@ function getDialogInit() {
     selectedRows = selectedRows.slice(0, MAX_INIT_ROWS);
     isTruncated = true;
   }
-  ensureUniqueIdsForRows_(sheet, selectedRows);
+  console.log('[Init] 准备阶段: ' + (Date.now() - t0) + 'ms, 选中 ' + selectedRows.length + ' 行');
 
+  var t1 = Date.now();
+  ensureUniqueIdsForRows_(sheet, selectedRows);
+  console.log('[Init] ensureUniqueIds: ' + (Date.now() - t1) + 'ms');
+
+  var t2 = Date.now();
   const map = getHeaderMap_(sheet, headerRow);
   const cols = resolveColumns_(sheet, map, settings);
   settings.panelHeaders = normalizePanelHeaders_(null, settings, headers, cols, map);
-  const batch = buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, cols, null);
+  console.log('[Init] resolveColumns: ' + (Date.now() - t2) + 'ms');
+
+  // 快速返回：跳过 buildRowsBatchPayload_，让前端异步加载行数据
+  console.log('[Init] 骨架返回（跳过行数据）, 总耗时: ' + (Date.now() - t0) + 'ms');
 
   return {
     sheetName: sheet.getName(),
@@ -133,8 +150,8 @@ function getDialogInit() {
     defaultReviewer: safeCurrentUserEmail_(),
     fieldDefs: COLUMN_FIELDS,
     settings: settings,
-    rowsData: batch.rowsData,
-    panelHeaders: batch.panelHeaders,
+    rowsData: [],
+    panelHeaders: settings.panelHeaders || [],
     panelHeaderCandidates: headers
   };
 }
@@ -182,7 +199,7 @@ function getRowsBatchData(payload) {
   const headers0 = getHeaders_(sheet, rawHeaderRow);
   const settings = getEffectiveSettings_(sheet, incoming, headers0, rawHeaderRow);
   const headers = getHeaders_(sheet, settings.headerRow);
-  const selectedRows = normalizeRows_(
+  var selectedRows = normalizeRows_(
     (payload && payload.rows) || getSelectedRows_(sheet, settings.dataStartRow),
     settings.dataStartRow
   );
@@ -190,6 +207,63 @@ function getRowsBatchData(payload) {
     throw new Error('没有可读取的行。');
   }
   ensureUniqueIdsForRows_(sheet, selectedRows);
+
+  // === UUID 行号重定位 ===
+  // 当前端传入 rowIdMap（行号→UUID 映射）时，验证每行的 UUID 是否仍然正确
+  // 如果有人插入/删除了行导致行号移位，自动定位到正确的行
+  var rowMappings = [];
+  var rowIdMap = payload && payload.rowIdMap;
+  if (rowIdMap && typeof rowIdMap === 'object') {
+    var idCol = getUniqueIdColumnIndex_(sheet, settings.headerRow);
+    var lastRow = sheet.getLastRow();
+    var allIds = null; // 延迟加载整列 UUID
+
+    var relocatedRows = [];
+    for (var ri = 0; ri < selectedRows.length; ri++) {
+      var requestedRow = selectedRows[ri];
+      var expectedId = String(rowIdMap[requestedRow] || '').trim();
+      if (!expectedId) {
+        relocatedRows.push(requestedRow);
+        continue;
+      }
+
+      // 检查当前行的 UUID 是否匹配
+      var currentId = '';
+      if (idCol && requestedRow >= 1 && requestedRow <= lastRow) {
+        currentId = String(sheet.getRange(requestedRow, idCol).getDisplayValue() || '').trim();
+      }
+
+      if (currentId === expectedId) {
+        relocatedRows.push(requestedRow);
+        continue;
+      }
+
+      // UUID 不匹配 → 搜索整列找到正确的行
+      if (!allIds && idCol && lastRow >= settings.dataStartRow) {
+        allIds = sheet.getRange(settings.dataStartRow, idCol, lastRow - settings.dataStartRow + 1, 1).getDisplayValues();
+      }
+
+      var found = 0;
+      if (allIds) {
+        for (var si = 0; si < allIds.length; si++) {
+          if (String(allIds[si][0] || '').trim() === expectedId) {
+            found = settings.dataStartRow + si;
+            break;
+          }
+        }
+      }
+
+      if (found && found !== requestedRow) {
+        console.log('[BatchData] 行 ' + requestedRow + ' UUID 移位到 ' + found);
+        relocatedRows.push(found);
+        rowMappings.push({ from: requestedRow, to: found });
+      } else {
+        relocatedRows.push(requestedRow);
+      }
+    }
+
+    selectedRows = normalizeRows_(relocatedRows, settings.dataStartRow);
+  }
 
   const map = getHeaderMap_(sheet, settings.headerRow);
   const cols = resolveColumns_(sheet, map, settings);
@@ -200,7 +274,8 @@ function getRowsBatchData(payload) {
     settings,
     map,
     cols,
-    payload && payload.panelHeaders
+    payload && payload.panelHeaders,
+    { skipDriveInfer: true }
   );
 
   return {
@@ -210,11 +285,13 @@ function getRowsBatchData(payload) {
     headerOptions: getHeaderOptions_(sheet, settings.headerRow),
     headerRow: settings.headerRow,
     dataStartRow: settings.dataStartRow,
-    settings: settings
+    settings: settings,
+    rowMappings: rowMappings
   };
 }
 
-function buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, cols, panelHeadersInput) {
+function buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, cols, panelHeadersInput, opts) {
+  var skipDriveInfer = !!(opts && opts.skipDriveInfer);
   const panelHeaders = normalizePanelHeaders_(
     panelHeadersInput,
     settings,
@@ -234,7 +311,7 @@ function buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, col
   const previewCol = cols.preview || 0;
   const optionMetaCache = {};
   const previewFileNameLookupCache = {};
-  const uniqueIdCol = getUniqueIdColumnIndex_();
+  const uniqueIdCol = getUniqueIdColumnIndex_(sheet, settings && settings.headerRow);
 
   // 性能优化：提前为整个所选范围获取一次 API 数据，避免在循环段中重复发起网络请求
   let batchPreviewApiHints = {};
@@ -242,8 +319,9 @@ function buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, col
     const minRow = selectedRows[0];
     const maxRow = selectedRows[selectedRows.length - 1];
     const totalSpan = maxRow - minRow + 1;
-    // 如果跨度在合理范围内（例如 1000 行），一次性取完
-    if (totalSpan <= 1000) {
+    // 降低阈值避免大范围 API 调用阻塞
+    if (totalSpan <= 300) {
+      var tApi = Date.now();
       try {
         const hints = getPreviewUrlsFromApiRange_(sheet, minRow, totalSpan, previewCol);
         for (var i = 0; i < (hints || []).length; i++) {
@@ -252,6 +330,9 @@ function buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, col
       } catch (e) {
         console.error('API 批量预取失败: ' + e);
       }
+      console.log('[Batch] API预取: ' + (Date.now() - tApi) + 'ms, span=' + totalSpan);
+    } else {
+      console.log('[Batch] 跳过API预取, span=' + totalSpan + ' 超过300');
     }
   }
 
@@ -309,7 +390,7 @@ function buildRowsBatchPayload_(sheet, headers, selectedRows, settings, map, col
         if (!previewUrl && batchPreviewApiHints[row]) {
           previewUrl = String(batchPreviewApiHints[row] || '');
         }
-        if (!previewUrl) {
+        if (!previewUrl && !skipDriveInfer) {
           previewUrl = inferDrivePreviewUrlFromFileName_(previewText, previewFileNameLookupCache);
         }
       }
@@ -355,7 +436,14 @@ function normalizeIdentityText_(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-function getUniqueIdColumnIndex_() {
+function getUniqueIdColumnIndex_(sheet, headerRow) {
+  if (sheet) {
+    const map = getHeaderMap_(sheet, headerRow || CONFIG.HEADER_ROW);
+    for (var i = 0; i < UNIQUE_ID_HEADER_CANDIDATES.length; i++) {
+      const col = findHeaderMapColumn_(map, UNIQUE_ID_HEADER_CANDIDATES[i]);
+      if (col) return col;
+    }
+  }
   return columnLetterToIndex_(UNIQUE_ID_COLUMN_LETTER);
 }
 
@@ -366,7 +454,7 @@ function generateUniqueRowId_() {
 function ensureUniqueIdsForRows_(sheet, rows) {
   const list = normalizeRows_(rows, 1);
   if (!list.length) return;
-  const idCol = getUniqueIdColumnIndex_();
+  const idCol = getUniqueIdColumnIndex_(sheet);
   if (!idCol) return;
 
   const segments = splitRowsToSegments_(list);
@@ -427,7 +515,7 @@ function getRowIdentityKey_(sheet, row, cols) {
 function findRowByUniqueId_(sheet, rowId, ctx, preferredRow, usedRows) {
   const id = String(rowId || '').trim();
   if (!id) return 0;
-  const idCol = getUniqueIdColumnIndex_();
+  const idCol = getUniqueIdColumnIndex_(sheet, ctx && ctx.settings && ctx.settings.headerRow);
   if (!idCol) return 0;
   const dataStartRow = Math.max(Number(ctx && ctx.dataStartRow || 1), 1);
   const lastRow = sheet.getLastRow();
@@ -456,7 +544,7 @@ function findRowByUniqueId_(sheet, rowId, ctx, preferredRow, usedRows) {
 function getUniqueRowId_(sheet, row) {
   const rowNum = Number(row || 0);
   if (!rowNum || rowNum < 1) return '';
-  const idCol = getUniqueIdColumnIndex_();
+  const idCol = getUniqueIdColumnIndex_(sheet);
   if (!idCol) return '';
   return String(sheet.getRange(rowNum, idCol).getDisplayValue() || '').trim();
 }
@@ -553,6 +641,9 @@ function autoSaveFeedbackDraft(payload) {
 
   const resolvedRow = withDocumentLock_(function() {
     const targetRow = resolvePayloadRow_(sheet, row, payload.rowId, payload.rowKey, ctx);
+    if (!shouldApplyClientWrite_(sheet, payload, targetRow)) {
+      return targetRow;
+    }
     writeFeedbackTextOnly_(sheet, targetRow, cols, reviewer, reviewResult, severity, textAdvice, {
       forceWrite: forceWrite,
       settings: ctx.settings
@@ -589,6 +680,9 @@ function submitFeedback(payload) {
 
   const resolvedRow = withDocumentLock_(function() {
     const targetRow = resolvePayloadRow_(sheet, row, payload.rowId, payload.rowKey, ctx);
+    if (!shouldApplyClientWrite_(sheet, payload, targetRow)) {
+      return targetRow;
+    }
     writeFeedbackTextOnly_(sheet, targetRow, cols, reviewer, reviewResult, severity, textAdvice, {
       forceWrite: !!(payload && payload.forceWrite),
       settings: ctx.settings
@@ -677,6 +771,18 @@ function batchSubmitFeedback(payload) {
 
       try {
         const targetRow = resolvePayloadRow_(sheet, row, item.rowId, item.rowKey, ctx, usedRows);
+        if (!shouldApplyClientWrite_(sheet, item, targetRow)) {
+          usedRows[targetRow] = true;
+          successRows.push(targetRow);
+          rowMappings.push({
+            requestedRow: row,
+            requestedRowId: String(item.rowId || '').trim(),
+            row: targetRow,
+            rowId: getUniqueRowId_(sheet, targetRow),
+            rowRelocated: targetRow !== row
+          });
+          continue;
+        }
         writeFeedbackTextOnly_(sheet, targetRow, cols, reviewer, reviewResult, severity, textAdvice, {
           forceWrite: forceWrite,
           settings: settings
@@ -874,7 +980,8 @@ function writeFeedbackTextOnly_(sheet, row, cols, reviewer, reviewResult, severi
       sheet.getRange(row, cols.reviewer),
       reviewer,
       forceWrite,
-      reviewerValidation
+      reviewerValidation,
+      optionMetaCache
     );
   }
   if (cols.reviewResult > 0) {
@@ -882,7 +989,8 @@ function writeFeedbackTextOnly_(sheet, row, cols, reviewer, reviewResult, severi
       sheet.getRange(row, cols.reviewResult),
       reviewResult,
       forceWrite,
-      reviewResultValidation
+      reviewResultValidation,
+      optionMetaCache
     );
   }
   if (cols.severity > 0) {
@@ -890,37 +998,30 @@ function writeFeedbackTextOnly_(sheet, row, cols, reviewer, reviewResult, severi
       sheet.getRange(row, cols.severity),
       severity || '',
       forceWrite,
-      severityValidation
+      severityValidation,
+      optionMetaCache
     );
   }
   if (cols.textAdvice > 0) sheet.getRange(row, cols.textAdvice).setValue(textAdvice);
+  SpreadsheetApp.flush();
 }
 
-function setCellValueWithValidationBypass_(cell, value, forceWrite, validationMeta) {
+function setCellValueWithValidationBypass_(cell, value, forceWrite, validationMeta, cache) {
   const text = String(value || '').trim();
-  const rule = cell.getDataValidation();
-  const validation = validationMeta || getValidationOptions_(cell);
-  const optionValues = getOptionValues_(validation.options);
-  const mismatch = optionValues.length > 0 && optionValues.indexOf(text) === -1;
+  const actualValidation = getValidationOptions_(cell, cache);
+  const validation = validationMeta || actualValidation;
   const style = findOptionStyleByValue_(validation.options, text);
 
-  if (!rule) {
-    cell.setValue(text);
-    applyOptionStyleToCell_(cell, style);
-    return;
+  // 用 App 配置的下拉选项覆盖单元格原有规则
+  const optionValues = getOptionValues_(validation.options);
+  if (optionValues.length > 0) {
+    const newRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(optionValues, true)
+      .setAllowInvalid(true)
+      .build();
+    cell.setDataValidation(newRule);
   }
-  
-  if (!mismatch || !forceWrite || rule.getAllowInvalid()) {
-    cell.setValue(text);
-    applyOptionStyleToCell_(cell, style);
-    return;
-  }
-
-  // 只有在【值不匹配】且【必须强行写入】时，才执行规则重置（这可能会重置 Chip 样式，但这是最后的手段）
-  const tempRule = rule.copy().setAllowInvalid(true).build();
-  cell.setDataValidation(tempRule);
   cell.setValue(text);
-  cell.setDataValidation(rule);
   applyOptionStyleToCell_(cell, style);
 }
 
@@ -1841,99 +1942,102 @@ function getQueryParamValue_(query, key) {
   return m && m[1] ? m[1] : '';
 }
 
-function getValidationOptions_(cell) {
-  const rule = cell.getDataValidation();
-  if (!rule) return { options: [], strict: false };
-
-  const type = rule.getCriteriaType();
-  const values = rule.getCriteriaValues() || [];
-  const rawOpts = [];
-
-  const typeName = String(type || '');
-  const isList = typeName.indexOf('VALUE_IN_LIST') >= 0;
-  const isRange = typeName.indexOf('VALUE_IN_RANGE') >= 0;
-
-  if (isList && values.length) {
-    const list = values[0];
-    if (Array.isArray(list)) {
-      for (var i = 0; i < list.length; i++) {
-        const v = String(list[i] || '').trim();
-        if (v) rawOpts.push(v);
-      }
-    }
-  }
-
-  // 开始辅助识别颜色
-  const sheet = cell.getSheet();
-  const col = cell.getColumn();
-  const currentRow = cell.getRow();
-  let colorMap = {};
-
-  // 策略 A：如果是“源于范围”，直接抓取源头颜色（这是最准的）
-  if (isRange && values.length && values[0]) {
-    const range = values[0];
-    const sourceVals = range.getValues();
-    // 同时也把值记录到 rawOpts
-    for (var rVal = 0; rVal < sourceVals.length; rVal++) {
-      for (var cVal = 0; cVal < sourceVals[rVal].length; cVal++) {
-        const vVal = String(sourceVals[rVal][cVal] || '').trim();
-        if (vVal) rawOpts.push(vVal);
-      }
-    }
-    const sourceBgs = range.getBackgrounds();
-    const sourceFgs = range.getFontColors();
-    for (var r1 = 0; r1 < sourceVals.length; r1++) {
-      for (var c1 = 0; c1 < sourceVals[r1].length; c1++) {
-        const v = String(sourceVals[r1][c1] || '').trim();
-        if (v && !colorMap[v]) {
-          colorMap[v] = { bg: sourceBgs[r1][c1], fg: sourceFgs[r1][c1] };
-        }
-      }
-    }
-  }
-
-  // 策略 B：视觉学习法。扫描当前行和前 100 行，提取“碎片（Chips）”样式
-  const samples = [currentRow]; // 优先看当前行
-  for (var s = 1; s <= 100; s++) samples.push(s); 
-  
-  // 批量获取采样数据
-  const scanRows = Math.min(sheet.getLastRow(), 100);
+/**
+ * Performance: cache the column-level color scan so it runs once per column,
+ * not once per cell. This eliminates ~150 redundant getBackgrounds/getFontColors calls.
+ */
+function getColumnColorMap_(sheet, col, cache) {
+  var cacheKey = 'colColor:' + col;
+  if (cache && cache[cacheKey]) return cache[cacheKey];
+  var colorMap = {};
+  var scanRows = Math.min(sheet.getLastRow(), 100);
   if (scanRows >= 1) {
-    const scanRange = sheet.getRange(1, col, scanRows, 1);
-    const vList = scanRange.getValues();
-    const bgList = scanRange.getBackgrounds();
-    const fgList = scanRange.getFontColors();
-    
-    // 补全当前行（如果当前行在 100 行以后）
-    let curV = '', curBg = '', curFg = '';
-    if (currentRow > 100) {
-      const curCell = sheet.getRange(currentRow, col);
-      curV = String(curCell.getValue() || '').trim();
-      curBg = curCell.getBackground();
-      curFg = curCell.getFontColor();
-    }
-
+    var scanRange = sheet.getRange(1, col, scanRows, 1);
+    var vList = scanRange.getValues();
+    var bgList = scanRange.getBackgrounds();
+    var fgList = scanRange.getFontColors();
     for (var k = 0; k < vList.length; k++) {
-      const v = String(vList[k][0] || '').trim();
+      var v = String(vList[k][0] || '').trim();
       if (v && !colorMap[v] && bgList[k][0] !== '#ffffff') {
         colorMap[v] = { bg: bgList[k][0], fg: fgList[k][0] };
       }
     }
-    if (curV && !colorMap[curV]) colorMap[curV] = { bg: curBg, fg: curFg };
+  }
+  if (cache) cache[cacheKey] = colorMap;
+  return colorMap;
+}
+
+function getValidationOptions_(cell, cache) {
+  var rule = cell.getDataValidation();
+  if (!rule) return { options: [], strict: false };
+
+  var type = rule.getCriteriaType();
+  var values = rule.getCriteriaValues() || [];
+  var rawOpts = [];
+
+  var typeName = String(type || '');
+  var isList = typeName.indexOf('VALUE_IN_LIST') >= 0;
+  var isRange = typeName.indexOf('VALUE_IN_RANGE') >= 0;
+
+  if (isList && values.length) {
+    var list = values[0];
+    if (Array.isArray(list)) {
+      for (var i = 0; i < list.length; i++) {
+        var vItem = String(list[i] || '').trim();
+        if (vItem) rawOpts.push(vItem);
+      }
+    }
   }
 
-  const result = [];
-  const seen = {};
+  var sheet = cell.getSheet();
+  var col = cell.getColumn();
+  // Use cached column-level color map instead of scanning per cell
+  var colorMap = getColumnColorMap_(sheet, col, cache);
+
+  // Strategy A: range-based validation source colors
+  if (isRange && values.length && values[0]) {
+    var rangeA1 = '';
+    try { rangeA1 = values[0].getA1Notation(); } catch(e) { rangeA1 = 'r' + col; }
+    var rangeCacheKey = 'rangeValidation:' + rangeA1;
+    if (cache && cache[rangeCacheKey]) {
+      var cached = cache[rangeCacheKey];
+      for (var rc = 0; rc < cached.rawOpts.length; rc++) rawOpts.push(cached.rawOpts[rc]);
+      colorMap = Object.assign({}, colorMap, cached.colorMap);
+    } else {
+      var range = values[0];
+      var sourceVals = range.getValues();
+      var rangeRawOpts = [];
+      var rangeColorMap = {};
+      for (var rVal = 0; rVal < sourceVals.length; rVal++) {
+        for (var cVal = 0; cVal < sourceVals[rVal].length; cVal++) {
+          var vVal = String(sourceVals[rVal][cVal] || '').trim();
+          if (vVal) rangeRawOpts.push(vVal);
+        }
+      }
+      for (var rc2 = 0; rc2 < rangeRawOpts.length; rc2++) rawOpts.push(rangeRawOpts[rc2]);
+      var sourceBgs = range.getBackgrounds();
+      var sourceFgs = range.getFontColors();
+      for (var r1 = 0; r1 < sourceVals.length; r1++) {
+        for (var c1 = 0; c1 < sourceVals[r1].length; c1++) {
+          var vr = String(sourceVals[r1][c1] || '').trim();
+          if (vr && !rangeColorMap[vr]) {
+            rangeColorMap[vr] = { bg: sourceBgs[r1][c1], fg: sourceFgs[r1][c1] };
+          }
+        }
+      }
+      colorMap = Object.assign({}, colorMap, rangeColorMap);
+      if (cache) cache[rangeCacheKey] = { rawOpts: rangeRawOpts, colorMap: rangeColorMap };
+    }
+  }
+
+  var result = [];
+  var seen = {};
   for (var j = 0; j < rawOpts.length; j++) {
-    const val = rawOpts[j];
+    var val = rawOpts[j];
     if (!seen[val]) {
       seen[val] = true;
-      const style = colorMap[val] || { bg: '', fg: '' };
-      result.push({
-        value: val,
-        bg: style.bg,
-        fg: style.fg
-      });
+      var style = colorMap[val] || { bg: '', fg: '' };
+      result.push({ value: val, bg: style.bg, fg: style.fg });
     }
   }
 
@@ -1946,6 +2050,17 @@ function getValidationOptions_(cell) {
 function getOptionMetaBySetting_(sheet, row, settings, cols, sourceKey, fallbackTargetKey, cache) {
   const cfg = settings && settings.columns ? (settings.columns[sourceKey] || {}) : {};
   const value = String(cfg.value || '').trim();
+  const targetCol = cols[fallbackTargetKey] || 0;
+
+  if (targetCol) {
+    const targetKey = 'target:' + row + ':' + targetCol;
+    let targetMeta = cache && cache[targetKey] ? cache[targetKey] : null;
+    if (!targetMeta) {
+      targetMeta = getValidationOptions_(sheet.getRange(row, targetCol));
+      if (cache) cache[targetKey] = targetMeta;
+    }
+    if (targetMeta.options && targetMeta.options.length) return targetMeta;
+  }
 
   // 选项来源仅按“范围”读取，不再从来源列推断。
   if (value) {
@@ -1963,9 +2078,35 @@ function getOptionMetaBySetting_(sheet, row, settings, cols, sourceKey, fallback
   }
 
   // 未配置范围或范围为空时，回退到目标列自身的数据验证。
-  const targetCol = cols[fallbackTargetKey] || 0;
   if (targetCol) return getValidationOptions_(sheet.getRange(row, targetCol));
   return { options: [], strict: false };
+}
+
+function getClientWriteToken_(payload) {
+  const n = Number(payload && payload.clientWriteToken || 0);
+  if (!n || !isFinite(n)) return 0;
+  return Math.floor(n);
+}
+
+function getClientWriteStateKey_(sheet, payload, row) {
+  const ssId = sheet.getParent().getId();
+  const sheetId = sheet.getSheetId();
+  const rowId = String(payload && payload.rowId || '').trim();
+  const rowKey = String(payload && payload.rowKey || '').trim();
+  if (rowId) return 'feedback_write_seq:' + ssId + ':' + sheetId + ':id:' + rowId;
+  if (rowKey) return 'feedback_write_seq:' + ssId + ':' + sheetId + ':key:' + rowKey;
+  return 'feedback_write_seq:' + ssId + ':' + sheetId + ':row:' + Number(row || 0);
+}
+
+function shouldApplyClientWrite_(sheet, payload, row) {
+  const token = getClientWriteToken_(payload);
+  if (!token) return true;
+  const key = getClientWriteStateKey_(sheet, payload, row);
+  const props = PropertiesService.getUserProperties();
+  const current = Number(props.getProperty(key) || 0);
+  if (current && current > token) return false;
+  props.setProperty(key, String(token));
+  return true;
 }
 
 function getOptionsFromRangeA1_(ss, a1Notation) {

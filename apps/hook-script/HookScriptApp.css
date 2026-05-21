@@ -839,3 +839,557 @@
   flex-shrink: 0;
 }
 
+/* ── Emotion Curve ── */
+.hs-emotion-curve {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 60px;
+  padding: 8px 0;
+}
+
+.hs-emotion-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  justify-content: flex-end;
+}
+
+.hs-emotion-bar {
+  width: 100%;
+  max-width: 32px;
+  background: linear-gradient(to top, #f59e0b44, #f59e0b);
+  border-radius: 3px 3px 0 0;
+  min-height: 4px;
+  transition: height 0.3s ease;
+}
+
+.hs-emotion-bar-wrap:hover .hs-emotion-bar {
+  background: linear-gradient(to top, #fbbf2466, #fbbf24);
+  box-shadow: 0 0 6px #f59e0b44;
+}
+
+.hs-emotion-label {
+  font-size: 0.55rem;
+  color: #52525b;
+}
+
+/* ── Shot Timeline ── */
+.hs-shot-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hs-shot-card {
+  background: #0f0f12;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  padding: 10px 10px 10px 14px;
+  transition: border-color 0.2s;
+  position: relative;
+}
+
+.hs-shot-card:hover {
+  border-color: #f59e0b44;
+}
+
+.hs-shot-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, #f59e0b, #d97706);
+  border-radius: 8px 0 0 8px;
+}
+
+.hs-shot-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.hs-shot-number {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #f59e0b;
+  min-width: 20px;
+}
+
+.hs-shot-type-badge {
+  padding: 1px 8px;
+  background: #f59e0b22;
+  color: #fbbf24;
+  font-size: 0.65rem;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid #f59e0b33;
+}
+
+.hs-shot-duration {
+  padding: 1px 6px;
+  background: #3b82f622;
+  color: #60a5fa;
+  font-size: 0.6rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #3b82f633;
+}
+
+.hs-shot-emotion {
+  font-size: 0.6rem;
+  margin-left: auto;
+}
+
+.hs-shot-meta {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.hs-shot-tag {
+  padding: 1px 6px;
+  background: #27272a;
+  color: #a1a1aa;
+  font-size: 0.6rem;
+  border-radius: 4px;
+  border: 1px solid #3f3f46;
+}
+
+.hs-shot-scene {
+  font-size: 0.7rem;
+  color: #d4d4d8;
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: #18181b;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  border-left: 2px solid #a78bfa;
+}
+
+.hs-shot-audio {
+  font-size: 0.65rem;
+  color: #34d399;
+  padding: 2px 0;
+}
+
+.hs-shot-text-overlay {
+  font-size: 0.65rem;
+  color: #f472b6;
+  padding: 2px 0;
+}
+
+.hs-shot-prompts {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #27272a;
+}
+
+/* ── Inline Editing Elements (ShotKraft-style creative control) ── */
+.hs-shot-inline-select {
+  padding: 1px 4px;
+  background: #f59e0b22;
+  color: #fbbf24;
+  font-size: 0.62rem;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid #f59e0b33;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: center;
+  min-width: 36px;
+}
+
+.hs-shot-inline-select.sm {
+  background: #27272a;
+  color: #a1a1aa;
+  border-color: #3f3f46;
+  font-weight: 500;
+}
+
+.hs-shot-inline-select:hover {
+  border-color: #f59e0b;
+}
+
+.hs-shot-inline-input.duration {
+  width: 40px;
+  padding: 1px 4px;
+  background: #3b82f622;
+  color: #60a5fa;
+  font-size: 0.6rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid #3b82f633;
+  outline: none;
+  text-align: center;
+}
+
+.hs-shot-inline-input.duration:focus {
+  border-color: #60a5fa;
+}
+
+.hs-shot-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+
+.hs-shot-card:hover .hs-shot-actions {
+  opacity: 1;
+}
+
+/* ContentEditable fields */
+.hs-shot-scene-edit {
+  font-size: 0.7rem;
+  color: #d4d4d8;
+  line-height: 1.5;
+  padding: 6px 8px;
+  background: #18181b;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  border-left: 2px solid #a78bfa;
+  outline: none;
+  min-height: 20px;
+  cursor: text;
+  transition: border-color 0.2s;
+}
+
+.hs-shot-scene-edit:focus {
+  border-left-color: #818cf8;
+  background: #1a1a20;
+}
+
+.hs-shot-scene-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #3f3f46;
+  font-style: italic;
+}
+
+.hs-shot-aux-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin: 2px 0;
+}
+
+.hs-shot-aux-label {
+  font-size: 0.6rem;
+  flex-shrink: 0;
+}
+
+.hs-shot-aux-edit {
+  font-size: 0.65rem;
+  color: #34d399;
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: none;
+  min-width: 60px;
+  flex: 1;
+  cursor: text;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.hs-shot-aux-edit:focus {
+  border-color: #27272a;
+  background: #18181b;
+}
+
+.hs-shot-aux-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #27272a;
+  font-style: italic;
+}
+
+.hs-shot-aux-label + .hs-shot-aux-edit + .hs-shot-aux-label {
+  margin-left: 8px;
+}
+
+.hs-shot-prompt-edit {
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: #e4e4e7;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: none;
+  cursor: text;
+  min-height: 20px;
+  word-break: break-word;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.hs-shot-prompt-edit:focus {
+  border-color: #f59e0b44;
+  background: #18181b;
+}
+
+.hs-shot-prompt-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #3f3f46;
+  font-style: italic;
+}
+
+.hs-shot-prompt-edit.en {
+  color: #a1a1aa;
+  font-size: 0.68rem;
+  font-style: italic;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed #27272a;
+}
+
+/* ── Motion Description Block (AI Animation Tools) ── */
+.hs-shot-motion-block {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #1e293b;
+  border-left: 2px solid #06b6d4;
+  padding-left: 8px;
+}
+
+.hs-shot-motion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #22d3ee;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+.hs-shot-motion-edit {
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: #67e8f9;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  outline: none;
+  cursor: text;
+  min-height: 18px;
+  word-break: break-word;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.hs-shot-motion-edit:focus {
+  border-color: #06b6d422;
+  background: #0c1524;
+}
+
+.hs-shot-motion-edit:empty::before {
+  content: attr(data-placeholder);
+  color: #1e3a5f;
+  font-style: italic;
+}
+
+.hs-shot-motion-edit.en {
+  color: #5eacc0;
+  font-size: 0.66rem;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+/* ── Structured Character/Scene Settings Panel ── */
+.hs-character-panel {
+  width: 100%;
+  background: #0f0f14;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hs-charpanel-section {
+  border-left: 3px solid #8b5cf6;
+  padding-left: 10px;
+}
+
+.hs-charpanel-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #c4b5fd;
+  margin-bottom: 8px;
+}
+
+.hs-charpanel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.hs-charpanel-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #71717a;
+  gap: 3px;
+}
+
+.hs-charpanel-grid select,
+.hs-charpanel-grid input {
+  font-size: 0.68rem;
+  padding: 4px 6px;
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.hs-charpanel-grid select:focus,
+.hs-charpanel-grid input:focus {
+  border-color: #8b5cf6;
+}
+
+.hs-charpanel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #1f1f28;
+}
+
+.hs-charpanel-preview {
+  font-size: 0.62rem;
+  color: #52525b;
+  flex: 1;
+  line-height: 1.4;
+  max-height: 40px;
+  overflow-y: auto;
+}
+
+.hs-btn-accent {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.hs-btn-accent:hover { opacity: 0.85; }
+.hs-btn-accent:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Refinement Chat Input ── */
+.hs-refine-block {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #27272a;
+}
+
+.hs-refine-header {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #a78bfa;
+  margin-bottom: 6px;
+}
+
+.hs-refine-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.hs-refine-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: #18181b;
+  color: #e4e4e7;
+  border: 1px solid #27272a;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.hs-refine-input:focus {
+  border-color: #8b5cf6;
+}
+
+.hs-refine-input::placeholder {
+  color: #3f3f46;
+}
+
+.hs-refine-input:disabled {
+  opacity: 0.5;
+}
+
+/* ── Per-shot Refinement Chat ── */
+.hs-shot-refine {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #1e1e28;
+}
+
+.hs-shot-refine-input {
+  flex: 1;
+  padding: 3px 8px;
+  background: #111118;
+  color: #d4d4d8;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.hs-shot-refine-input:focus {
+  border-color: #8b5cf6;
+}
+
+.hs-shot-refine-input::placeholder {
+  color: #3f3f46;
+}
+
+.hs-shot-refine-input:disabled {
+  opacity: 0.5;
+}
+
+.hs-shot-refine-btn {
+  padding: 3px 8px;
+  background: #27272a;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  font-size: 0.62rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.hs-shot-refine-btn:hover:not(:disabled) {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+}
+
+.hs-shot-refine-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

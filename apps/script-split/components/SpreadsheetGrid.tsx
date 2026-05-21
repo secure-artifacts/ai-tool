@@ -791,6 +791,7 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                       <textarea
                         ref={editorRef}
                         autoFocus
+                        onFocus={(e) => e.target.select()}
                         className="absolute left-0 top-0 resize-none p-2 text-sm text-slate-100 bg-slate-900 focus:outline-none z-50 border-2 border-cyan-400 shadow-xl rounded"
                         style={{
                           minWidth: Math.max(colWidths[c] || DEFAULT_COL_WIDTH, 300),
