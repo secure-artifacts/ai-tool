@@ -70,10 +70,7 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
     });
     const [showProjectModal, setShowProjectModal] = useState(false);
     // 更新说明弹窗（按版本号记忆是否已读）
-    const [showUpdateNotes, setShowUpdateNotes] = useState(() => {
-        const hasSeenUpdate = localStorage.getItem(IMAGE_REVIEW_UPDATE_STORAGE_KEY);
-        return !hasSeenUpdate;
-    });
+    const [showUpdateNotes, setShowUpdateNotes] = useState(false);
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [exportLanguage, setExportLanguage] = useState<'zh' | 'en'>('zh');
     const [showAdvancedExport, setShowAdvancedExport] = useState(false);
@@ -952,11 +949,23 @@ const ImageReviewApp: React.FC<ImageReviewAppProps> = ({ standalone = true }) =>
                     {/* 功能说明 */}
                     <button
                         onClick={() => setShowUpdateNotes(true)}
-                        className="flex items-center gap-1 px-2 py-1 text-[11px] text-emerald-400 hover:bg-emerald-900/30 rounded-lg transition-colors"
+                        className="relative flex items-center gap-1 px-2 py-1 text-[11px] text-emerald-400 hover:bg-emerald-900/30 rounded-lg transition-colors"
                         title="查看功能说明"
                     >
                         <Sparkles size={12} />
                         <span>功能说明</span>
+                        {typeof window !== 'undefined' && localStorage.getItem(IMAGE_REVIEW_UPDATE_STORAGE_KEY) !== 'true' && (
+                            <span style={{
+                                position: 'absolute',
+                                top: '-2px',
+                                right: '-2px',
+                                width: '6px',
+                                height: '6px',
+                                backgroundColor: '#ef4444',
+                                borderRadius: '50%',
+                                boxShadow: '0 0 0 1.5px rgba(16, 185, 129, 0.2)'
+                            }} className="animate-pulse" />
+                        )}
                     </button>
 
                     {/* 批量翻译 */}

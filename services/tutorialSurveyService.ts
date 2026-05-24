@@ -53,7 +53,7 @@ export const TUTORIAL_SURVEY_TOOLS: TutorialSurveyToolOption[] = [
     { id: 'skillGenerator', labelZh: '模版指令+随机库生成器', labelEn: 'Template & Library Generator', purposeZh: '生成基础指令与随机库，加速制作 Opal 工作流，减少复杂训练指令提取库过程', purposeEn: 'Generate base instructions and random libraries for Opal workflows' },
     { id: 'proDedup', labelZh: '专业文案查重', labelEn: 'Pro Dedup Search', purposeZh: '专业级批量查重、相似文案搜索与文案分类', purposeEn: 'Professional duplicate detection, similarity search, and copy classification' },
     { id: 'translate', labelZh: '智能翻译', labelEn: 'Smart Translate', purposeZh: 'OCR+多语翻译，批量翻译文案', purposeEn: 'OCR and multilingual batch translation' },
-    { id: 'script', labelZh: '文案拆分', labelEn: 'Script Split', purposeZh: '标题正文拆分、清洗（便于批量制作视频）', purposeEn: 'Split and clean title/body for batch video production' },
+    { id: 'script', labelZh: '文案加工站', labelEn: 'Copy Workshop', purposeZh: '标题正文拆分、清洗（便于批量制作视频）', purposeEn: 'Split and clean title/body for batch video production' },
     { id: 'sheetMind', labelZh: '表格数据分析', labelEn: 'SheetMind', purposeZh: '方便查看、总结、分类图片和数据统计', purposeEn: 'Data viewing, summarization, categorization, and statistics' },
     { id: 'mindMap', labelZh: 'AI 思维导图', labelEn: 'AI Mind Map', purposeZh: '多来源导图与结构化整理（测试版）', purposeEn: 'Multi-source mind map and structured organization (beta)' },
     { id: 'template', labelZh: '指令模版', labelEn: 'Instruction Template', purposeZh: '模块化模板与版本管理，类似 Opal 指令修改和编写', purposeEn: 'Modular instruction templates and version management' },

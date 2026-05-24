@@ -925,6 +925,44 @@ function parseInfoUrlLine(rawLine: string): { url: string; infoText: string; nor
     };
 }
 
+// ── Feedback Export Helpers ──
+const statusLabels: Record<string, string> = { approved: '可以使用', 'needs-edit': '需要修改', rejected: '不可使用' };
+
+const toSingleLine = (value: string) => (value || '').replace(/\r?\n+/g, ' / ').trim();
+
+const normalizeRawPastedForExport = (raw: string, fallbackUrl?: string) => {
+    const text = (raw || '').trim();
+    const fallback = (fallbackUrl || '').trim();
+    if (!text) {
+        if (/^https?:\/\//i.test(fallback)) {
+            const safe = fallback.replace(/"/g, '""');
+            return `=HYPERLINK("${safe}","${safe}")`;
+        }
+        return '';
+    }
+    const hyperlink = text.match(/^\s*=?\s*HYPERLINK\s*\(\s*["']([^"']+)["'](?:\s*[,;]\s*["']([^"']*)["'])?\s*\)\s*$/i);
+    if (hyperlink?.[1]) return text.startsWith('=') ? text : `=${text}`;
+    if (/^https?:\/\//i.test(text)) {
+        const safe = text.replace(/"/g, '""');
+        return `=HYPERLINK("${safe}","${safe}")`;
+    }
+    if (/^https?:\/\//i.test(fallback)) {
+        const safeUrl = fallback.replace(/"/g, '""');
+        const safeLabel = text.replace(/"/g, '""');
+        return `=HYPERLINK("${safeUrl}","${safeLabel}")`;
+    }
+    return text;
+};
+
+const sourceImageFormula = (img: ParsedImage) => (img.formula || (img.imageUrl ? `=IMAGE("${img.imageUrl}")` : ''));
+
+const resolveStatusText = (img: ParsedImage, status?: FeedbackStatus) => {
+    if (!img.isValid) return '没有权限';
+    return status ? (statusLabels[status] || '') : '';
+};
+
+const screenshotUrls = (screenshots: FeedbackScreenshot[]) => screenshots.filter(s => s.gyazoUrl).map(s => s.gyazoUrl!);
+
 const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
     // State
     const [inputText, setInputText] = useState('');
@@ -975,6 +1013,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
         sourceImage: false,
         annotatedImage: false,
         reviewer: true,
+        severity: true,
         annotationLink: true,
         annotationFormula: true,
         feedbackText: true,
@@ -1876,6 +1915,7 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
                 ...prev,
                 [imgId]: {
                     status: existing.status || 'needs-edit',
+                    severity: existing.severity || null,
                     text: options?.text !== undefined ? options.text : existing.text,
                     screenshots: [...existing.screenshots, newScreenshot],
                     // Legacy compat
@@ -2054,38 +2094,6 @@ const ImageFormulaPanel: React.FC<ImageFormulaProps> = ({ onBack }) => {
 
     // ── Feedback: copy all as TSV with dynamic column selection ──
     const getFeedbackExportDataRows = useCallback((updatedMap: Record<string, any>) => {
-        const statusLabels: Record<string, string> = { approved: '可以使用', 'needs-edit': '需要修改', rejected: '不可使用' };
-        const toSingleLine = (value: string) => (value || '').replace(/\r?\n+/g, ' / ').trim();
-        const normalizeRawPastedForExport = (raw: string, fallbackUrl?: string) => {
-            const text = (raw || '').trim();
-            const fallback = (fallbackUrl || '').trim();
-            if (!text) {
-                if (/^https?:\/\//i.test(fallback)) {
-                    const safe = fallback.replace(/"/g, '""');
-                    return `=HYPERLINK("${safe}","${safe}")`;
-                }
-                return '';
-            }
-            const hyperlink = text.match(/^\s*=?\s*HYPERLINK\s*\(\s*["']([^"']+)["'](?:\s*[,;]\s*["']([^"']*)["'])?\s*\)\s*$/i);
-            if (hyperlink?.[1]) return text.startsWith('=') ? text : `=${text}`;
-            if (/^https?:\/\//i.test(text)) {
-                const safe = text.replace(/"/g, '""');
-                return `=HYPERLINK("${safe}","${safe}")`;
-            }
-            if (/^https?:\/\//i.test(fallback)) {
-                const safeUrl = fallback.replace(/"/g, '""');
-                const safeLabel = text.replace(/"/g, '""');
-                return `=HYPERLINK("${safeUrl}","${safeLabel}")`;
-            }
-            return text;
-        };
-        const sourceImageFormula = (img: ParsedImage) => (img.formula || (img.imageUrl ? `=IMAGE("${img.imageUrl}")` : ''));
-        const resolveStatusText = (img: ParsedImage, status?: FeedbackStatus) => {
-            if (!img.isValid) return '没有权限';
-            return status ? (statusLabels[status] || '') : '';
-        };
-        const screenshotUrls = (screenshots: FeedbackScreenshot[]) => screenshots.filter(s => s.gyazoUrl).map(s => s.gyazoUrl!);
-
         return parsedImages.map(img => {
             const fb = updatedMap[img.id];
             const screenshots = normalizeFeedbackScreenshots(fb as any);

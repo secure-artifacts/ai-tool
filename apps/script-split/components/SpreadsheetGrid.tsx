@@ -15,6 +15,8 @@ interface SpreadsheetGridProps {
   cellStyles?: GridStyles;
   // Notify parent about style changes
   onStylesChange?: (styles: GridStyles) => void;
+  diffColumns?: Record<number, number>;
+  autoRowHeight?: boolean;
 }
 
 type ResizeState =
@@ -23,6 +25,152 @@ type ResizeState =
   | null;
 
 type ResizePreview = { type: 'col' | 'row'; position: number; size: number };
+
+const TOKEN_REGEX = /(\p{L}+|\p{N}+|[^\p{L}\p{N}\s]+|\s+)/gu;
+
+function tokenize(text: string): string[] {
+  if (!text) return [];
+  return text.match(TOKEN_REGEX) || [];
+}
+
+interface DiffResult {
+  type: 'common' | 'removed' | 'added' | 'case_change';
+  textOrig?: string;
+  textCorr?: string;
+}
+
+function diffTokens(tok1: string[], tok2: string[]): DiffResult[] {
+  const n = tok1.length;
+  const m = tok2.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  
+  for (let i = 1; i <= n; i++) {
+    for (let j = 1; j <= m; j++) {
+      if (tok1[i - 1].toLowerCase() === tok2[j - 1].toLowerCase()) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  let i = n, j = m;
+  const result: DiffResult[] = [];
+  
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && tok1[i - 1].toLowerCase() === tok2[j - 1].toLowerCase()) {
+      const t1 = tok1[i - 1];
+      const t2 = tok2[j - 1];
+      if (t1 === t2) {
+        result.unshift({ type: 'common', textOrig: t1, textCorr: t2 });
+      } else {
+        result.unshift({ type: 'case_change', textOrig: t1, textCorr: t2 });
+      }
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.unshift({ type: 'added', textCorr: tok2[j - 1] });
+      j--;
+    } else {
+      result.unshift({ type: 'removed', textOrig: tok1[i - 1] });
+      i--;
+    }
+  }
+  return result;
+}
+
+function renderDiffContent(val: string, isOriginal: boolean, compareVal?: string) {
+  if (!compareVal || compareVal === val) {
+    return val;
+  }
+  try {
+    const originalText = isOriginal ? val : compareVal;
+    const correctedText = isOriginal ? compareVal : val;
+    const tok1 = tokenize(originalText);
+    const tok2 = tokenize(correctedText);
+    const diff = diffTokens(tok1, tok2);
+
+    return (
+      <>
+        {diff.map((item, idx) => {
+          if (isOriginal) {
+            if (item.type === 'common') {
+              return <span key={idx}>{item.textOrig}</span>;
+            } else if (item.type === 'case_change') {
+              return (
+                <span
+                  key={idx}
+                  style={{
+                    backgroundColor: '#fee2e2', // light red for original text capitalization change (about to be replaced)
+                    color: '#991b1b',
+                    padding: '0 2px',
+                    borderRadius: '2px',
+                    textDecoration: 'line-through'
+                  }}
+                >
+                  {item.textOrig}
+                </span>
+              );
+            } else if (item.type === 'removed') {
+              return (
+                <span
+                  key={idx}
+                  style={{
+                    backgroundColor: '#fee2e2', // light red
+                    color: '#991b1b',
+                    textDecoration: 'line-through',
+                    padding: '0 2px',
+                    borderRadius: '2px',
+                  }}
+                >
+                  {item.textOrig}
+                </span>
+              );
+            }
+            return null; // Skip added
+          } else {
+            if (item.type === 'common') {
+              return <span key={idx}>{item.textCorr}</span>;
+            } else if (item.type === 'case_change') {
+              return (
+                <span
+                  key={idx}
+                  style={{
+                    backgroundColor: '#fef08a', // light yellow for capitalization changes
+                    color: '#854d0e',
+                    padding: '0 2px',
+                    borderRadius: '2px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {item.textCorr}
+                </span>
+              );
+            } else if (item.type === 'added') {
+              return (
+                <span
+                  key={idx}
+                  style={{
+                    backgroundColor: '#dcfce7', // light green
+                    color: '#166534',
+                    padding: '0 2px',
+                    borderRadius: '2px',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {item.textCorr}
+                </span>
+              );
+            }
+            return null; // Skip removed
+          }
+        })}
+      </>
+    );
+  } catch (e) {
+    return val;
+  }
+}
 
 const DEFAULT_COL_WIDTH = 140;
 const DEFAULT_ROW_HEIGHT = 36;
@@ -33,7 +181,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   onSelectionChange,
   externalSelection,
   cellStyles,
-  onStylesChange
+  onStylesChange,
+  diffColumns,
+  autoRowHeight
 }) => {
   // State
   const [selection, setSelection] = useState<GridSelection | null>(null);
@@ -60,10 +210,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const hiddenInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Derived dimensions
   const rowCount = Math.max(data.length, 50); // Ensure enough rows
-  const colCount = Math.max(data[0]?.length || 0, 20); // Ensure enough cols
+  const colCount = Math.max(20, data.reduce((max, row) => Math.max(max, row?.length || 0), 0)); // Ensure enough cols
 
   // Ensure widths/heights arrays have correct length
   useEffect(() => {
@@ -104,8 +255,10 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     };
     setSelection(newSelection);
 
-    // Focus container to capture keyboard events
-    containerRef.current?.focus();
+    // Focus hidden textarea to capture clipboard events directly
+    if (hiddenInputRef.current) {
+      hiddenInputRef.current.focus({ preventScroll: true });
+    }
   };
 
   const handleMouseEnter = (r: number, c: number) => {
@@ -333,7 +486,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         end: { row: rowCount - 1, col: colIndex }
       });
     }
-    containerRef.current?.focus();
+    if (hiddenInputRef.current) {
+      hiddenInputRef.current.focus({ preventScroll: true });
+    }
   };
 
   const handleRowHeaderClick = (rowIndex: number, e: React.MouseEvent) => {
@@ -349,7 +504,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         end: { row: rowIndex, col: colCount - 1 }
       });
     }
-    containerRef.current?.focus();
+    if (hiddenInputRef.current) {
+      hiddenInputRef.current.focus({ preventScroll: true });
+    }
   };
 
   // --- Keyboard & Action Logic ---
@@ -379,8 +536,11 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
 
     // Paste (Ctrl+V) - 直接在 keydown 中处理，解决 Electron 的 onPaste 事件问题
     if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-      e.preventDefault();
-      handlePasteFromKeyboard();
+      if ((window as any).electronAPI) {
+        e.preventDefault();
+        handlePasteFromKeyboard();
+      }
+      // 非 Electron 环境不 call preventDefault，允许浏览器原生 paste 事件触发 onPaste={handlePaste}
     }
 
     // Navigation
@@ -455,7 +615,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       start: { row: 0, col: 0 },
       end: { row: rowCount - 1, col: colCount - 1 }
     });
-    containerRef.current?.focus();
+    if (hiddenInputRef.current) {
+      hiddenInputRef.current.focus({ preventScroll: true });
+    }
   };
 
   const handleClearSelection = () => {
@@ -517,17 +679,9 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       }
     }
 
-    // 如果 Electron API 失败，尝试浏览器 API
+    // 如果 Electron API 失败，不再尝试浏览器 API，直接报错返回以依赖原生的 onPaste 事件
     if (!text) {
-      try {
-        text = await navigator.clipboard.readText();
-      } catch (err) {
-        console.warn('[SpreadsheetGrid] Browser clipboard failed:', err);
-      }
-    }
-
-    if (!text) {
-      console.warn('[SpreadsheetGrid] No text to paste');
+      console.warn('[SpreadsheetGrid] No Electron clipboard text available');
       return;
     }
 
@@ -660,7 +814,28 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       onMouseUp={handleMouseUp}
+      onFocus={(e) => {
+        if (e.target === containerRef.current && !editingCell) {
+          hiddenInputRef.current?.focus({ preventScroll: true });
+        }
+      }}
     >
+      <textarea
+        ref={hiddenInputRef}
+        onPaste={handlePaste}
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: '-9999px',
+          width: '100px',
+          height: '100px',
+          opacity: 0,
+          border: 'none',
+          padding: 0,
+          margin: 0,
+        }}
+        tabIndex={-1}
+      />
       {resizePreview && (
         <div className="pointer-events-none absolute inset-0 z-40">
           {resizePreview.type === 'col' ? (
@@ -731,7 +906,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
         {/* Grid Body */}
         <div className="relative">
           {Array.from({ length: rowCount }).map((_, r) => (
-            <div key={r} className="flex" style={{ height: rowHeights[r] || DEFAULT_ROW_HEIGHT, minHeight: 22 }}>
+            <div
+              key={r}
+              className="flex"
+              style={
+                autoRowHeight
+                  ? { minHeight: rowHeights[r] || DEFAULT_ROW_HEIGHT, height: 'auto' }
+                  : { height: rowHeights[r] || DEFAULT_ROW_HEIGHT, minHeight: 22 }
+              }
+            >
               {/* Row Header */}
               <div
                 className="w-10 flex-shrink-0 sticky left-0 z-10 bg-[#0f1b33] border-r border-b border-slate-700 flex items-center justify-center text-xs text-slate-300 font-medium select-none cursor-pointer"
@@ -769,6 +952,24 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                 const finalBgColor = bgColor || (selected ? '#1e3a5f' : '#0f172a');
                 const cellTextColor = bgColor ? '#111827' : '#e5e7eb';
 
+                // Determine if we should perform diff word highlighting
+                let compareVal: string | undefined = undefined;
+                let isOriginal = false;
+                if (diffColumns) {
+                  if (diffColumns[c] !== undefined) {
+                    const correctedCol = diffColumns[c];
+                    compareVal = data[r]?.[correctedCol];
+                    isOriginal = true;
+                  } else {
+                    const originalColStr = Object.keys(diffColumns).find(k => diffColumns[Number(k)] === c);
+                    if (originalColStr !== undefined) {
+                      const originalCol = Number(originalColStr);
+                      compareVal = data[r]?.[originalCol];
+                      isOriginal = false;
+                    }
+                  }
+                }
+
                 return (
                   <div
                     key={`${r}-${c}`}
@@ -776,13 +977,23 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                       flex-shrink-0 relative text-sm
                       ${borderClasses}
                     `}
-                    style={{
-                      width: colWidths[c] || DEFAULT_COL_WIDTH,
-                      minWidth: 60,
-                      height: rowHeights[r] || DEFAULT_ROW_HEIGHT,
-                      minHeight: 22,
-                      backgroundColor: finalBgColor
-                    }}
+                    style={
+                      autoRowHeight
+                        ? {
+                            width: colWidths[c] || DEFAULT_COL_WIDTH,
+                            minWidth: 60,
+                            minHeight: rowHeights[r] || DEFAULT_ROW_HEIGHT,
+                            height: 'auto',
+                            backgroundColor: finalBgColor
+                          }
+                        : {
+                            width: colWidths[c] || DEFAULT_COL_WIDTH,
+                            minWidth: 60,
+                            height: rowHeights[r] || DEFAULT_ROW_HEIGHT,
+                            minHeight: 22,
+                            backgroundColor: finalBgColor
+                          }
+                    }
                     onMouseDown={(e) => handleMouseDown(r, c, e)}
                     onMouseEnter={() => handleMouseEnter(r, c)}
                     onDoubleClick={() => handleDoubleClick(r, c)}
@@ -812,8 +1023,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
                         }}
                       />
                     ) : (
-                      <div className="w-full h-full px-2 py-1 overflow-hidden pointer-events-none" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: cellTextColor }}>
-                        {cellValue}
+                      <div
+                        className={
+                          autoRowHeight
+                            ? "w-full px-2 py-1 pointer-events-none"
+                            : "w-full h-full px-2 py-1 overflow-hidden pointer-events-none"
+                        }
+                        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: cellTextColor }}
+                      >
+                        {renderDiffContent(cellValue, isOriginal, compareVal)}
                       </div>
                     )}
                   </div>

@@ -8,6 +8,7 @@ export interface CopyViewModalState {
     selectedColumns: string[];
     applyClassificationOverrides: boolean;
     emptyRowsBetweenGroups: number;
+    includeExtraData: boolean;
 }
 
 export interface CopyViewModalProps {

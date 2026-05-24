@@ -44,7 +44,7 @@ const RESULTS_DATA: ResultRow[] = [
     { module: '智能翻译', recordingStatus: '筹备录制ing', note: '', usedCount: 6, needTutorialCount: 14, voteCount: 6 },
     { module: '专业文案查重', recordingStatus: '筹备录制ing', note: '', usedCount: 3, needTutorialCount: 6, voteCount: 3 },
     { module: '图片前景文字提取', recordingStatus: '筹备录制ing', note: '', usedCount: 5, needTutorialCount: 13, voteCount: 11 },
-    { module: '文案拆分', recordingStatus: '筹备录制ing', note: '', usedCount: 8, needTutorialCount: 9, voteCount: 13 },
+    { module: '文案加工站', recordingStatus: '筹备录制ing', note: '', usedCount: 8, needTutorialCount: 9, voteCount: 13 },
     { module: '生成子邮箱', recordingStatus: '筹备录制ing', note: '', usedCount: 11, needTutorialCount: 19, voteCount: 14 },
     { module: 'AI 一键修图', recordingStatus: '之前有教程录屏', note: '教程已删除，建议使用现在的 Opal 工作流代替（批量修改图片换背景、换风格）。', usedCount: 43, needTutorialCount: 41, voteCount: 40 },
     { module: 'AI 图片编辑器', recordingStatus: '之前有教程录屏', note: '教程链接', usedCount: 22, needTutorialCount: 33, voteCount: 33, hasLink: true, tutorialLink: 'https://drive.google.com/drive/folders/1wR5M0hLOIi307Hr6y9axExPG5Cxx-tQ2' },

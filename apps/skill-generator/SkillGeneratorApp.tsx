@@ -2125,14 +2125,7 @@ ${librariesInfo}
     // === History ===
     const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
     const [showHistory, setShowHistory] = useState(false);
-    const [showFeatureNotes, setShowFeatureNotes] = useState(() => {
-        try {
-            const hasSeen = localStorage.getItem(SKILL_GEN_FEATURE_NOTES_KEY);
-            return !hasSeen;
-        } catch {
-            return false;
-        }
-    });
+    const [showFeatureNotes, setShowFeatureNotes] = useState(false);
 
     const closeFeatureNotes = useCallback(() => {
         try {
@@ -6415,11 +6408,24 @@ ${historyText}
                 <div className="skill-gen-header-actions skill-gen-header-actions-inline">
                     <button
                         className="skill-gen-notes-btn"
+                        style={{ position: 'relative' }}
                         onClick={() => setShowFeatureNotes(true)}
                         title="查看功能说明"
                         aria-label="查看功能说明"
                     >
                         <Sparkles size={14} />
+                        {typeof window !== 'undefined' && localStorage.getItem(SKILL_GEN_FEATURE_NOTES_KEY) !== 'true' && (
+                            <span style={{
+                                position: 'absolute',
+                                top: '-2px',
+                                right: '-2px',
+                                width: '6px',
+                                height: '6px',
+                                backgroundColor: '#ef4444',
+                                borderRadius: '50%',
+                                boxShadow: '0 0 0 1.5px rgba(249, 115, 22, 0.2)'
+                            }} className="animate-pulse" />
+                        )}
                     </button>
                     <div style={{ position: 'relative' }}>
                         <button

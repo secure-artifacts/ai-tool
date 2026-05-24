@@ -754,11 +754,7 @@ const ImageRecognitionApp: React.FC<ImageRecognitionAppProps> = ({
         localStorage.setItem('ai-image-recognition-translations', JSON.stringify(translationCache));
     }, [translationCache]);
     // 更新说明弹窗状态
-    const [showUpdateNotes, setShowUpdateNotes] = useState(() => {
-        // 检查是否已经看过v3.0更新说明
-        const hasSeenUpdate = localStorage.getItem('ai-image-recognition-update-v3.0-seen');
-        return !hasSeenUpdate;
-    });
+    const [showUpdateNotes, setShowUpdateNotes] = useState(false);
 
     // 关闭更新说明时标记已读
     const closeUpdateNotes = useCallback(() => {
@@ -6716,11 +6712,23 @@ ${itemEffectiveInstruction}
                                     {/* 查看更新按钮 */}
                                     <button
                                         onClick={() => setShowUpdateNotes(true)}
-                                        className="flex items-center gap-1 px-2 py-1 text-[10px] text-emerald-400 hover:bg-emerald-900/30 rounded-lg transition-colors"
+                                        className="relative flex items-center gap-1 px-2 py-1 text-[10px] text-emerald-400 hover:bg-emerald-900/30 rounded-lg transition-colors"
                                         title="查看最新更新"
                                     >
                                         <Sparkles size={12} />
                                         <span className="hidden lg:inline">更新说明</span>
+                                        {typeof window !== 'undefined' && localStorage.getItem('ai-image-recognition-update-v3.0-seen') !== 'true' && (
+                                            <span style={{
+                                                position: 'absolute',
+                                                top: '-2px',
+                                                right: '-2px',
+                                                width: '6px',
+                                                height: '6px',
+                                                backgroundColor: '#ef4444',
+                                                borderRadius: '50%',
+                                                boxShadow: '0 0 0 1.5px rgba(16, 185, 129, 0.2)'
+                                            }} className="animate-pulse" />
+                                        )}
                                     </button>
                                 </div>
 

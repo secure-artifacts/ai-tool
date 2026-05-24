@@ -53,6 +53,7 @@ interface Props {
 const STORAGE_KEY = 'gemini_chat_conversations';
 
 const MODEL_OPTIONS = [
+    { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (GA·新)' },
     { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (默认)' },
     { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
     { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },

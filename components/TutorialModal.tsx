@@ -138,7 +138,7 @@ Select from the navigation bar at the top:
 • Innovation Instruction Template - Custom templates
 • Smart Translate - Translation with OCR support
 • Generate Sub-Email - Email utilities
-• 文案拆分 - Content splitting
+• 文案加工站 - Content splitting
 • AI Software Directory - Software catalog
 
 **Step 3: Start Creating**
@@ -163,7 +163,7 @@ Each tool has its own interface with helpful tooltips. Just follow the on-screen
 • 创新指令模板 - 自定义模板
 • 智能翻译 - 支持OCR的翻译
 • 生成子邮箱 - 邮箱工具
-• 文案拆分 - 内容分割
+• 文案加工站 - 内容分割
 • AI 软件目录 - 软件目录
 
 **第三步：开始创作**
@@ -742,7 +742,7 @@ Gmail将这些视为同一地址：
     {
         id: 'script',
         icon: '📝',
-        title: { en: '文案拆分', zh: '文案拆分' },
+        title: { en: '文案加工站', zh: '文案加工站' },
         content: {
             en: `Split and analyze text content for various purposes.
 

@@ -26,7 +26,7 @@ import {
   formatForClipboard,
   colToLetter
 } from './utils/processor';
-import { buildGoogleSheetsHtml, copyToClipboard } from './utils/clipboard';
+import { buildGoogleSheetsHtml, buildMergedCellsHtml, copyToClipboard } from './utils/clipboard';
 import { GridData, ToolType, GridSelection, ProcessOptions, GridStyles, cellKey } from './types';
 import { Button } from './components/UIComponents';
 import { SpreadsheetGrid } from './components/SpreadsheetGrid';
@@ -41,8 +41,64 @@ const LOCAL_MODEL_KEY = 'script_tool_local_model';
 const SCRIPT_TOOL_STATE_KEY = 'script_tool_state_v1';
 const INHERIT_VALUE = '__global__';
 
+// 信仰词汇大写保护 — 与智能翻译共享同一 localStorage key
+const DEITY_TERMS_KEY = 'smart_translate_deity_terms';
+const DEFAULT_DEITY_TERMS = [
+  'God', 'Lord', 'Jesus', 'Christ',
+  'the Lord', 'Yahweh', 'the Lord God',
+  'the Lord Jesus', 'Jesus Christ',
+  'the Christ of the last days', 'Almighty God',
+  'He', 'Heavenly Father', 'God the Father', 'Father',
+  'the Almighty God', 'the Creator', 'the Most High',
+  'King of kings', 'Lord of lords', 'Redeemer',
+  'the Son of God', 'the Lamb of God',
+  // Tagalog (Filipino) terms
+  'Diyos', 'Panginoon', 'Panginoong', 'Hesus', 'Kristo',
+  'Ama sa Langit', 'Diyos Ama', 'Ama', 'Tagalikha', 'Lumikha',
+  'Manunubos', 'Anak ng Diyos', 'Kordero ng Diyos',
+  'Espiritu Santo', 'Banal na Espiritu', 'Panginoong Hesus',
+  'Diyos na Makapangyarihan', 'Makapangyarihang Diyos',
+  'Siya', 'Kanya', 'Niya'
+];
+
+const loadDeityTerms = (): string[] => {
+  if (typeof localStorage === 'undefined') return DEFAULT_DEITY_TERMS;
+  try {
+    const raw = localStorage.getItem(DEITY_TERMS_KEY);
+    if (!raw) return DEFAULT_DEITY_TERMS;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : DEFAULT_DEITY_TERMS;
+  } catch {
+    return DEFAULT_DEITY_TERMS;
+  }
+};
+
+const saveDeityTerms = (terms: string[]) => {
+  try { localStorage.setItem(DEITY_TERMS_KEY, JSON.stringify(terms)); } catch {}
+};
+
+/** 对单个文本应用信仰词汇大写保护 */
+const applyDeityCapitalization = (text: string, terms: string[]): string => {
+  if (!text || terms.length === 0) return text;
+  let result = text;
+  // 按长度降序排列，确保长词优先匹配（如 "the Lord God" 先于 "God"）
+  const sorted = [...terms].sort((a, b) => b.length - a.length);
+  for (const term of sorted) {
+    // 创建正则：大小写不敏感匹配，单词边界
+    // 对于多词短语（如 "the Lord"），用 \b 包裹整个短语
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+    result = result.replace(regex, (match) => {
+      // 保持与目标 term 相同的大小写
+      return term;
+    });
+  }
+  return result;
+};
+
 const MODEL_OPTIONS = [
   { value: INHERIT_VALUE, label: '继承全局设置' },
+  { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·新)' },
   { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA)' },
   { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快)' },
   { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
@@ -62,6 +118,9 @@ interface PersistedScriptToolState {
   gridStyles: [string, { bgColor?: string }][];
   customPrefix: string;
   mergeCycle: number;
+  mergeCellSpan: number;
+  diffCols?: Record<number, number>;
+  autoRowHeight?: boolean;
 }
 
 const createEmptyGrid = (): GridData =>
@@ -170,6 +229,15 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
   const [lineWidth, setLineWidth] = useState<number>(18); // 断行宽度（默认18）
   const [showLinkVariantModal, setShowLinkVariantModal] = useState(false);
   const [linkVariantInput, setLinkVariantInput] = useState('');
+  const [showMergeCellModal, setShowMergeCellModal] = useState(false);
+  const [mergeCellSpan, setMergeCellSpan] = useState<number>(persistedState?.mergeCellSpan ?? 5);
+  const [showDeityModal, setShowDeityModal] = useState(false);
+  const [deityTerms, setDeityTerms] = useState<string[]>(() => loadDeityTerms());
+  const [deityNewTerm, setDeityNewTerm] = useState('');
+  const [enableAiSpellCheck, setEnableAiSpellCheck] = useState(true);
+  const [spellChecking, setSpellChecking] = useState(false);
+  const [diffCols, setDiffCols] = useState<Record<number, number>>(persistedState?.diffCols || {});
+  const [autoRowHeight, setAutoRowHeight] = useState<boolean>(persistedState?.autoRowHeight ?? false);
 
   // ===== 合并行内容：多列合并为一列（顿号分隔）=====
   const handleMergeRowContent = () => {
@@ -300,6 +368,318 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
     } catch (err: any) {
       setStatusMsg(err?.message || '链接枚举失败');
     }
+  };
+
+  // ===== 信仰词汇大写保护：纯脚本检查 =====
+  const handleOpenDeityModal = () => {
+    setDeityTerms(loadDeityTerms()); // 每次打开从 localStorage 刷新
+    setShowDeityModal(true);
+  };
+
+  const handleAddDeityTerm = () => {
+    const val = deityNewTerm.trim();
+    if (!val) return;
+    const newTerms = val.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+    const merged = Array.from(new Set([...deityTerms, ...newTerms]));
+    setDeityTerms(merged);
+    saveDeityTerms(merged);
+    setDeityNewTerm('');
+  };
+
+  const handleRemoveDeityTerm = (term: string) => {
+    const updated = deityTerms.filter(t => t !== term);
+    setDeityTerms(updated);
+    saveDeityTerms(updated);
+  };
+
+  const handleResetDeityTerms = () => {
+    setDeityTerms(DEFAULT_DEITY_TERMS);
+    saveDeityTerms(DEFAULT_DEITY_TERMS);
+  };
+
+  const doDeityCapitalizationCheck = async () => {
+    setShowDeityModal(false);
+    if (!selection) {
+      setStatusMsg('请先用鼠标框选要检查的单元格区域');
+      return;
+    }
+
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+
+    const W = maxC - minC + 1;
+    const resultColOffset = W;
+    const feedbackColOffset = W * 2;
+    const maxRequiredCol = maxC + feedbackColOffset;
+
+    setDiffCols(prev => {
+      const next = { ...prev };
+      for (let c = minC; c <= maxC; c++) {
+        next[c] = c + resultColOffset;
+      }
+      return next;
+    });
+
+    setAutoRowHeight(true);
+
+    const newGrid = gridData.map(row => [...row]);
+    const newStyles = new Map(gridStyles);
+    let fixedCount = 0;
+    let checkedCount = 0;
+
+    // 确保每行有足够的列
+    for (let r = 0; r < newGrid.length; r++) {
+      while (newGrid[r].length <= maxRequiredCol) {
+        newGrid[r].push('');
+      }
+    }
+
+    // Step 1: 纯脚本大写修正
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        const original = newGrid[r]?.[c] || '';
+        if (!original.trim()) {
+          newGrid[r][c + resultColOffset] = '';
+          newGrid[r][c + feedbackColOffset] = '';
+          continue;
+        }
+        checkedCount++;
+        const fixed = applyDeityCapitalization(original, deityTerms);
+        newGrid[r][c + resultColOffset] = fixed; // 写入旁边列作为修正后结果，不改变原始列
+        if (fixed !== original) {
+          fixedCount++;
+          newStyles.set(cellKey(r, c + resultColOffset), { bgColor: '#86efac' });
+          newGrid[r][c + feedbackColOffset] = '🔧 大写已修正';
+        } else {
+          newGrid[r][c + feedbackColOffset] = '✅';
+        }
+      }
+    }
+
+    setGridData(newGrid);
+    setGridStyles(newStyles);
+
+    const capMsg = fixedCount > 0
+      ? `大写修正 ${fixedCount}/${checkedCount} 个`
+      : `大写全部正确`;
+
+    // Step 2: AI 拼写检查（可选）
+    if (enableAiSpellCheck) {
+      if (!getAiInstance || !getAiInstance()) {
+        setStatusMsg(`✅ ${capMsg}。⚠️ AI 拼写检查未运行 (未配置 API Key)`);
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            if (newGrid[r]?.[c]?.trim()) {
+              newGrid[r][c + feedbackColOffset] = '⚠️ AI有问题需要重新执行或者关闭AI';
+            }
+          }
+        }
+        setGridData(newGrid);
+        return;
+      }
+      const ai = getAiInstance()!;
+
+      setSpellChecking(true);
+      setStatusMsg(`✅ ${capMsg}。🔍 AI 拼写检查中...`);
+
+      try {
+        // 收集需要检查的单元格（使用 Step 1 处理后的文本）
+        const cellsToCheck: { row: number; col: number; text: string }[] = [];
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            const val = newGrid[r]?.[c + resultColOffset] || '';
+            if (val.trim()) {
+              cellsToCheck.push({ row: r, col: c, text: val });
+            }
+          }
+        }
+
+        const BATCH_SIZE = 20;
+        let spellFixCount = 0;
+        const latestGrid = newGrid.map(row => [...row]);
+        const latestStyles = new Map(newStyles);
+
+        for (let batchStart = 0; batchStart < cellsToCheck.length; batchStart += BATCH_SIZE) {
+          const batch = cellsToCheck.slice(batchStart, batchStart + BATCH_SIZE);
+          setStatusMsg(`✅ ${capMsg}。🔍 AI 拼写检查中... (${batchStart}/${cellsToCheck.length})`);
+
+          try {
+            const textsJson = batch.map((c, i) => `[${i}] ${c.text}`).join('\n---\n');
+            const prompt = `You are a professional proofreader specializing in prayer/inspirational social media content in multiple languages (especially English and Tagalog/Filipino). For each numbered text below, fix ALL spelling, grammar, punctuation, and capitalization errors while preserving the original meaning, tone, and language of the text.
+
+FIX THESE ERROR TYPES across English and Tagalog:
+1. SPELLING & TYPOS: e.g., "Whoe" → "Whoever", "recieve" → "receive", Tagalog typos like "mahalin" / "pananampalataya" typos.
+2. RELIGIOUS PROPER NOUNS: e.g., "Our Lady of Lords" → "Our Lady of Lourdes", "Pslam" → "Psalm", Tagalog names like "Hesukristo", "Diyos".
+3. SPEECH-TO-TEXT ARTIFACTS: e.g., "our men" → "Amen", "nor Jesus" → "In Jesus' name" (reconstruct garbled phrases from voice transcription)
+4. MISSING PUNCTUATION: Add periods between run-on sentences. Add proper sentence capitalization.
+5. GRAMMAR & WORD CORRECTION: Fix verb tenses, subject-verb agreement, and word confusion.
+6. NUMBERING SEQUENCE: "First...Second...Second" → "First...Second...Third"
+7. BROKEN SENTENCES: Fix garbled sentence boundaries.
+8. PRONOUN CAPITALIZATION FOR DEITY: Capitalize pronouns referring to God/Lord/Jesus (He, Him, His, You, Your in English; Siya, Kanya, Niya in Tagalog).
+9. AMEN FORMATTING: Wrap standalone "Amen" in quotes (e.g. write "Amen", say "Amen") when referred to as something to type/say.
+10. LANGUAGE CONSISTENCY: Keep Tagalog text in Tagalog, English in English. Do NOT translate the text, only correct its errors in its source language.
+
+CRITICAL RULES:
+- Keep the language of each text exactly as it is (English stays English, Tagalog stays Tagalog). Do NOT translate between languages!
+- Fix ALL errors you find, not just spelling.
+- Keep the devotional/prayer tone intact.
+- Do NOT add or remove content beyond fixes.
+- If a text has no errors, return it EXACTLY as-is.
+- Return the COMPLETE corrected text for each entry.
+
+Texts:
+${textsJson}
+
+Return ONLY a JSON array of corrected strings: ["corrected1", "corrected2", ...]`;
+
+            const response = await ai.models.generateContent({
+              model: effectiveModel,
+              contents: prompt,
+            });
+
+            const resultText = (response as any).text || '';
+            const jsonMatch = resultText.match(/\[[\s\S]*\]/);
+            if (!jsonMatch) {
+              throw new Error('AI返回格式解析失败');
+            }
+
+            const corrected: string[] = JSON.parse(jsonMatch[0]);
+            for (let i = 0; i < batch.length && i < corrected.length; i++) {
+              const cell = batch[i];
+              const scriptCapitalized = latestGrid[cell.row][cell.col + resultColOffset];
+              const fixed = corrected[i];
+              if (fixed && fixed !== scriptCapitalized) {
+                latestGrid[cell.row][cell.col + resultColOffset] = fixed;
+                spellFixCount++;
+                // 拼写修正用浅紫色高亮显示结果单元格
+                latestStyles.set(cellKey(cell.row, cell.col + resultColOffset), { bgColor: '#c4b5fd' });
+                const prevFeedback = latestGrid[cell.row][cell.col + feedbackColOffset] || '';
+                latestGrid[cell.row][cell.col + feedbackColOffset] = prevFeedback.includes('修正')
+                  ? '🔧 大写+拼写已修正'
+                  : '🔤 拼写已修正';
+              }
+            }
+          } catch (batchErr) {
+            // 单个 batch 出错，在该 batch 所有单元格反馈中标注异常
+            for (const cell of batch) {
+              latestGrid[cell.row][cell.col + feedbackColOffset] = '⚠️ AI有问题需要重新执行或者关闭AI';
+            }
+          }
+        }
+
+        setGridData(latestGrid);
+        setGridStyles(latestStyles);
+        setStatusMsg(`✅ ${capMsg}，AI 拼写修正 ${spellFixCount} 个单元格（结果见 ${colToLetter(minC + resultColOffset)} 列，反馈见 ${colToLetter(minC + feedbackColOffset)} 列）`);
+      } catch (err: any) {
+        setStatusMsg(`✅ ${capMsg}。⚠️ AI 拼写检查失败: ${err.message || '未知错误'}`);
+        const failedGrid = newGrid.map(row => [...row]);
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            if (failedGrid[r]?.[c]?.trim()) {
+              failedGrid[r][c + feedbackColOffset] = '⚠️ AI有问题需要重新执行或者关闭AI';
+            }
+          }
+        }
+        setGridData(failedGrid);
+      } finally {
+        setSpellChecking(false);
+      }
+    } else {
+      setStatusMsg(`✅ ${capMsg}（结果见 ${colToLetter(minC + resultColOffset)} 列，反馈见 ${colToLetter(minC + feedbackColOffset)} 列）`);
+    }
+  };
+
+  // ===== 合并单元格：生成 colspan 格式并复制到剪贴板 =====
+  const handleOpenMergeCellModal = () => {
+    if (!selection) {
+      setStatusMsg('请先用鼠标框选要处理的单元格区域');
+      return;
+    }
+    setShowMergeCellModal(true);
+  };
+
+  const doMergeCellGenerate = async () => {
+    setShowMergeCellModal(false);
+    if (!selection) return;
+
+    const minR = Math.min(selection.start.row, selection.end.row);
+    const maxR = Math.max(selection.start.row, selection.end.row);
+    const minC = Math.min(selection.start.col, selection.end.col);
+    const maxC = Math.max(selection.start.col, selection.end.col);
+    const totalCols = maxC - minC + 1;
+    const totalRows = maxR - minR + 1;
+    const span = Math.max(1, mergeCellSpan);
+
+    // 收集选区数据
+    const sourceGrid: string[][] = [];
+    for (let r = minR; r <= maxR; r++) {
+      const row: string[] = [];
+      for (let c = minC; c <= maxC; c++) {
+        row.push(gridData[r]?.[c] || '');
+      }
+      sourceGrid.push(row);
+    }
+
+    // 写入表格：每个值占 span 列（第一个写值，后面填空）
+    const newGrid = gridData.map(row => [...row]);
+    const expandedCols = totalCols * span;
+    const targetStartCol = maxC + 1; // 写到选区右侧
+
+    // 确保每行有足够的列
+    for (let r = 0; r < newGrid.length; r++) {
+      while (newGrid[r].length < targetStartCol + expandedCols) {
+        newGrid[r].push('');
+      }
+    }
+    // 确保有足够的行
+    while (newGrid.length < minR + totalRows) {
+      newGrid.push(Array(targetStartCol + expandedCols).fill(''));
+    }
+
+    for (let r = 0; r < sourceGrid.length; r++) {
+      const targetRow = minR + r;
+      for (let c = 0; c < sourceGrid[r].length; c++) {
+        const targetCol = targetStartCol + c * span;
+        // 确保行有足够的列
+        while (newGrid[targetRow].length < targetCol + span) {
+          newGrid[targetRow].push('');
+        }
+        // 第一个单元格写值
+        newGrid[targetRow][targetCol] = sourceGrid[r][c];
+        // 后续单元格填空（模拟合并效果）
+        for (let s = 1; s < span; s++) {
+          newGrid[targetRow][targetCol + s] = '';
+        }
+      }
+    }
+
+    setGridData(newGrid);
+
+    // 更新选区到新生成的区域
+    const newSelection = {
+      start: { row: minR, col: targetStartCol },
+      end: { row: minR + totalRows - 1, col: targetStartCol + expandedCols - 1 }
+    };
+    setForceSelection(newSelection);
+    setSelection(newSelection);
+
+    // 生成 colspan HTML 并复制到剪贴板
+    const mergedHtml = buildMergedCellsHtml(sourceGrid, span);
+    const textLines = sourceGrid.map(row => {
+      return row.map(cell => {
+        // 纯文本：每个值后面跟 (span-1) 个 tab
+        const tabs = '\t'.repeat(span - 1);
+        return cell + tabs;
+      }).join('\t');
+    }).join('\n');
+
+    const result = await copyToClipboard(textLines, mergedHtml);
+    const copyMsg = result === 'rich' ? '（已复制到剪贴板，可直接粘贴到 Google Sheets）' 
+                  : result === 'text' ? '（已复制纯文本）' : '';
+
+    setStatusMsg(`✅ 已生成合并单元格格式：${totalRows} 行 × ${totalCols} 列，每值跨 ${span} 列 → 总宽 ${expandedCols} 列 ${copyMsg}`);
   };
 
   const doMergeColumns = () => {
@@ -548,7 +928,10 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
           clearSource,
           gridStyles: Array.from(gridStyles.entries()),
           customPrefix,
-          mergeCycle
+          mergeCycle,
+          mergeCellSpan,
+          diffCols,
+          autoRowHeight
         };
         memoryPersistedState = payload;
       } catch {
@@ -556,7 +939,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
       }
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [gridData, selection, clearSource, gridStyles, customPrefix, mergeCycle]);
+  }, [gridData, selection, clearSource, gridStyles, customPrefix, mergeCycle, mergeCellSpan, diffCols, autoRowHeight]);
 
   // 实际处理函数
   const doProcess = (tool: ToolType, prefix?: string) => {
@@ -838,6 +1221,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
         : createEmptyGrid();
     setGridData(nextGrid);
     setGridStyles(new Map());
+    setDiffCols({});
     setSelection(null);
     setForceSelection(null);
     setCopied(false);
@@ -868,7 +1252,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 <Grid3X3 className="w-5 h-5" />
               </div>
               <div>
-                <h1 className="text-sm font-medium text-slate-800 leading-tight">文案拆分表</h1>
+                <h1 className="text-sm font-medium text-slate-800 leading-tight">文案加工站</h1>
                 <p className="text-[10px] text-slate-500">类 Google Sheets 编辑器</p>
               </div>
               <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-white text-[11px] text-slate-600">
@@ -916,6 +1300,19 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 >
                   <span
                     className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${clearSource ? 'switch-on' : 'switch-off'}`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white">
+                <span className="text-xs text-slate-500">自动行高</span>
+                <button
+                  onClick={() => setAutoRowHeight(!autoRowHeight)}
+                  data-tip={autoRowHeight ? '点击关闭自动行高撑开' : '点击开启内容自动撑开行高'}
+                  className={`tooltip-bottom relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoRowHeight ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${autoRowHeight ? 'switch-on' : 'switch-off'}`}
                   />
                 </button>
               </div>
@@ -1028,6 +1425,20 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
               tooltip="枚举链接里小写 l 与大写 I 的所有可能组合，结果写入右侧一列"
               onClick={handleOpenLinkVariantModal}
             />
+            <ToolButton
+              icon={<span className="w-4 h-4 inline-flex items-center justify-center text-xs font-bold">⊞</span>}
+              label="合并单元格"
+              tooltip="将选区每列数据生成合并单元格格式（跨N列），结果写入右侧并自动复制到剪贴板"
+              onClick={handleOpenMergeCellModal}
+              disabled={!selection}
+            />
+            <ToolButton
+              icon={<span className="w-4 h-4 inline-flex items-center justify-center text-xs font-bold">✝</span>}
+              label="文案检查修正"
+              tooltip="检查信仰词汇大写与拼写错误，在右侧生成修正结果与反馈报告，可自定义大写词汇列表"
+              onClick={handleOpenDeityModal}
+              disabled={!selection}
+            />
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-200 bg-white">
               <span className="text-xs font-medium text-slate-600">AI模型:</span>
               <select
@@ -1071,6 +1482,8 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
           onSelectionChange={setSelection}
           externalSelection={forceSelection}
           cellStyles={gridStyles}
+          diffColumns={diffCols}
+          autoRowHeight={autoRowHeight}
         />
       </main>
 
@@ -1234,6 +1647,115 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
             <div className="prefix-modal-actions">
               <button onClick={() => setShowMergeModal(false)} className="prefix-modal-btn-cancel">取消</button>
               <button onClick={doMergeColumns} className="prefix-modal-btn-confirm">确定合并</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 合并单元格弹窗 */}
+      {showMergeCellModal && (
+        <div className="prefix-modal-overlay" onClick={() => setShowMergeCellModal(false)}>
+          <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="prefix-modal-title">合并单元格</h3>
+            <p className="prefix-modal-desc">
+              将选区每列数据生成 Google Sheets 合并单元格格式。
+              <br />• 每个值跨 <b>N</b> 列（合并单元格效果）
+              <br />• 结果写入选区右侧，同时自动复制到剪贴板
+              <br />• 粘贴到 Google Sheets 时会显示为真正的合并单元格
+              <br />
+              <br />选区共 <b>{selection ? Math.abs(selection.end.col - selection.start.col) + 1 : 0}</b> 列 × <b>{selection ? Math.abs(selection.end.row - selection.start.row) + 1 : 0}</b> 行，
+              合并后总宽 = <b>{selection ? (Math.abs(selection.end.col - selection.start.col) + 1) * Math.max(1, mergeCellSpan) : 0}</b> 列
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <span className="text-sm text-slate-600">每值跨列数：</span>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={mergeCellSpan}
+                onChange={(e) => setMergeCellSpan(Math.max(1, parseInt(e.target.value) || 1))}
+                className="prefix-modal-input"
+                style={{ width: '80px', textAlign: 'center' }}
+                onKeyDown={(e) => { if (e.key === 'Enter') doMergeCellGenerate(); }}
+                autoFocus
+              />
+              <span className="text-xs text-slate-400">列</span>
+            </div>
+            <div className="prefix-modal-actions">
+              <button onClick={() => setShowMergeCellModal(false)} className="prefix-modal-btn-cancel">取消</button>
+              <button onClick={doMergeCellGenerate} className="prefix-modal-btn-confirm">确定生成</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 信仰词汇大写保护弹窗 */}
+      {showDeityModal && (
+        <div className="prefix-modal-overlay" onClick={() => setShowDeityModal(false)}>
+          <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <h3 className="prefix-modal-title">✝️ 文案检查修正</h3>
+            <p className="prefix-modal-desc">
+              检查并修正选区内信仰词汇的大写与拼写，在右侧生成修正结果与反馈。
+              <br />点击词汇可删除，输入框回车可添加（支持逗号分隔批量添加）。
+            </p>
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: '6px',
+              padding: '10px', background: '#f8fafc',
+              border: '1px solid #e2e8f0', borderRadius: '8px',
+              maxHeight: '200px', overflowY: 'auto',
+              marginBottom: '10px'
+            }}>
+              {deityTerms.map(term => (
+                <div key={term} style={{
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                  padding: '3px 10px', background: '#e0f2fe',
+                  border: '1px solid #7dd3fc', borderRadius: '14px',
+                  fontSize: '12px', color: '#0c4a6e', cursor: 'pointer'
+                }}
+                  onClick={() => handleRemoveDeityTerm(term)}
+                  title="点击删除"
+                >
+                  <span>{term}</span>
+                  <span style={{ color: '#ef4444', fontWeight: 'bold', marginLeft: '2px' }}>×</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+              <input
+                type="text"
+                value={deityNewTerm}
+                onChange={(e) => setDeityNewTerm(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddDeityTerm(); }}
+                placeholder="输入新词汇（支持逗号分隔批量添加）..."
+                className="prefix-modal-input"
+                style={{ flex: 1 }}
+                autoFocus
+              />
+              <button onClick={handleAddDeityTerm} className="prefix-modal-btn-confirm" style={{ padding: '6px 12px' }}>添加</button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  onClick={handleResetDeityTerms}
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '11px', cursor: 'pointer' }}
+                >
+                  ↺ 恢复默认词汇
+                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={enableAiSpellCheck}
+                    onChange={(e) => setEnableAiSpellCheck(e.target.checked)}
+                  />
+                  <span>🤖 AI 拼写检查</span>
+                </label>
+              </div>
+              <div className="prefix-modal-actions">
+                <button onClick={() => setShowDeityModal(false)} className="prefix-modal-btn-cancel">取消</button>
+                <button onClick={doDeityCapitalizationCheck} className="prefix-modal-btn-confirm" disabled={spellChecking}>
+                  {spellChecking ? '检查中...' : '执行检查'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

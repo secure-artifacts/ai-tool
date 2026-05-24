@@ -78,6 +78,10 @@ export const shouldUseAiStudioMode = (apiKey?: string): boolean => {
     //    总是会触发 "API keys are not supported by this API" 错误。因此，所有客户端 API Key 的调用必须走
     //    Google AI Studio 模式（标准 Gemini 端点：generativelanguage.googleapis.com）。
     if (apiKey && apiKey.trim().length > 0) {
+        // 如果密钥以 AQ 开头，则是 Vertex AI 密钥，不应使用 AI Studio 模式，直接返回 false 走 Vertex 端点
+        if (apiKey.trim().startsWith('AQ')) {
+            return false;
+        }
         // 即使密钥不以 AIza 开头（如中转、代理密钥等），在浏览器宿主环境下也应默认使用标准 AI Studio 端点，
         // 除非显式设置环境变量了特定标记强制使用 Vertex AI
         try {

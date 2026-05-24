@@ -488,7 +488,9 @@ main::-webkit-scrollbar-thumb:hover {
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .language-selector {
@@ -541,30 +543,33 @@ main::-webkit-scrollbar-thumb:hover {
 
 /* 缩放控制 */
 .scale-control {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0 0.5rem;
-  background: var(--surface-color);
+  gap: 0.35rem;
+  padding: 0 0.4rem;
+  background-color: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  height: 36px;
+  border-radius: 6px;
+  height: 28px !important;
+  box-sizing: border-box;
 }
 
 .scale-control .scale-icon {
   font-size: 0.9rem;
   opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
 }
 
 .scale-control .scale-select {
-  padding: 2px 4px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: var(--control-bg-color);
+  padding: 0 2px;
+  border: none !important;
+  background: transparent !important;
   color: var(--text-color);
   font-size: 0.75rem;
   cursor: pointer;
-  min-width: 60px;
+  outline: none;
+  min-width: 50px;
 }
 
 .scale-control .scale-input {
@@ -1081,8 +1086,9 @@ nav button.active {
 .preset-inline-controls {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .preset-sheet-controls {
@@ -10884,3 +10890,295 @@ div:hover>.prompt-tab-actions {
   outline: none !important;
   box-shadow: none !important;
 }
+
+/* API Key 计费警告红点 */
+.api-billing-warning-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--background-color);
+  animation: pulse-warning-red 2s infinite;
+  z-index: 10;
+}
+
+@keyframes pulse-warning-red {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+/* 设置模型更新绿点 */
+.settings-update-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 6.5px;
+  height: 6.5px;
+  background-color: #22c55e;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--background-color);
+  animation: pulse-warning-green 2.2s infinite;
+  z-index: 10;
+}
+
+@keyframes pulse-warning-green {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
+/* === 方案二：头部现代 UI 优化 === */
+
+/* 1. 模型选择器毛玻璃/扁平化 */
+.model-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.model-selector:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.model-selector label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #aaa);
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.model-selector select {
+  background: transparent;
+  border: none;
+  color: var(--text-color, #fff);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  outline: none;
+  font-weight: 500;
+}
+
+.model-selector select option {
+  background-color: #1e1e1e;
+  color: #fff;
+}
+
+/* 2. 导航栏标签/分类重构 */
+.modern-dashboard-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  background-color: rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* 分类标签样式 */
+.nav-categories {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 0.4rem;
+}
+
+.category-tab {
+  background: transparent;
+  border: none !important;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 0.4rem 0.8rem 0.6rem !important;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  box-shadow: none !important;
+}
+
+.category-tab:hover {
+  color: #fff;
+  background: transparent !important;
+}
+
+.category-tab.active {
+  color: #10b981 !important; /* 翡翠绿文字 */
+  font-weight: 600;
+  background: transparent !important;
+}
+
+.category-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0.8rem;
+  right: 0.8rem;
+  height: 2.5px;
+  background-color: #10b981;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+/* 工具列表栅格 */
+.nav-tools-grid {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  gap: 0.4rem !important;
+  padding: 0.2rem !important;
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  width: 100% !important;
+}
+
+/* Vercel/Apple 风格菜单按钮 */
+.header-content nav button:not(.active) {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  border-radius: 8px !important;
+  padding: 0.4rem 0.8rem !important;
+  font-size: 0.8rem !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+  transform: none !important;
+  transition: all 0.2s ease !important;
+}
+
+.header-content nav button:not(.active):hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+}
+
+/* 激活态按钮：翡翠绿色渐变 + 柔和投影 */
+.header-content nav button.active {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  border: none !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+  padding: 0.4rem 0.8rem !important;
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25) !important;
+  transform: none !important;
+  transition: all 0.2s ease !important;
+}
+
+.header-content nav button.active:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.35) !important;
+}
+
+/* 3. 预设修改警告 Tooltip 图标 */
+.warning-tooltip-icon:hover {
+  background-color: rgba(251, 191, 36, 0.15) !important;
+  border-color: rgba(251, 191, 36, 0.4) !important;
+  color: #f59e0b !important;
+}
+
+/* 4. 优化后顶栏的精简与响应式排版样式 */
+.preset-inline-controls .compact-btn {
+  padding: 0.35rem 0.5rem !important;
+  font-size: 0.8rem !important;
+  height: 28px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.2rem !important;
+  white-space: nowrap !important;
+}
+
+/* 限制模型选项框宽度，超长文本用省略号 */
+.model-selector select {
+  max-width: 130px !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+}
+
+/* 响应式样式：在小尺寸屏幕下自动隐藏按钮内的纯文本以节省空间 */
+@media (max-width: 1440px) {
+  .header-controls {
+    gap: 0.35rem !important;
+  }
+  .preset-inline-controls {
+    gap: 0.35rem !important;
+  }
+}
+
+@media (max-width: 1300px) {
+  .feedback-btn .feedback-text,
+  .tutorial-btn .tutorial-text,
+  .model-selector label {
+    display: none !important;
+  }
+  .model-selector {
+    padding: 0.25rem !important;
+  }
+}
+
+/* 5. 顶栏所有元素高度、边框圆角、对齐样式归一化 */
+.header-controls .secondary-btn,
+.header-controls .model-selector,
+.header-controls .language-selector,
+.header-controls .theme-toggle,
+.header-controls .user-profile img {
+  height: 28px !important;
+  box-sizing: border-box !important;
+  border-radius: 6px !important;
+}
+
+.header-controls .secondary-btn,
+.header-controls .model-selector {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 0.8rem !important;
+  padding: 0 0.6rem !important;
+}
+
+.header-controls .language-selector button {
+  height: 26px !important;
+  padding: 0 0.5rem !important;
+  font-size: 0.75rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.header-controls .model-selector {
+  background-color: var(--surface-color) !important;
+  border: 1px solid var(--border-color) !important;
+}
+

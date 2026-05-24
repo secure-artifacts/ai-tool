@@ -162,6 +162,7 @@ const INNOVATOR_PRESETS_DOC = 'innovator_presets';
 
 // Gemini API 模型选项
 const MODEL_OPTIONS = [
+    { value: 'gemini-3.5-flash', label: 'gemini-3.5-flash (GA·新🚀)' },
     { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview' },
     { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview' },
     { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Lite⚡)' },

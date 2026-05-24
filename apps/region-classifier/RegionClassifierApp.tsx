@@ -16,6 +16,7 @@ const CONFIDENCE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 const MODEL_OPTIONS = [
+    { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·新)' },
     { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA·快速)' },
     { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
     { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },

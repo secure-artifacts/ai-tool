@@ -85,6 +85,49 @@ export const buildGoogleSheetsHtml = (
   return html;
 };
 
+/**
+ * 生成带合并单元格（colspan）的 Google Sheets 兼容 HTML。
+ * 每个单元格的值跨 `span` 列，粘贴到 Google Sheets 时会变成真正的合并单元格。
+ */
+export const buildMergedCellsHtml = (
+  grid: GridData,
+  span: number,
+  options: {
+    bgColor?: string;
+  } = {}
+): string => {
+  const { bgColor } = options;
+
+  let html = `<meta charset="utf-8"><google-sheets-html-origin><style type="text/css">
+    table { border-collapse: collapse; }
+    td { border: 1px solid #ccc; padding: 2px 4px; }
+  </style><table>`;
+
+  for (let r = 0; r < grid.length; r++) {
+    const row = grid[r] || [];
+    // 跳过完全空的行
+    const hasContent = row.some(cell => cell && cell.trim());
+    if (!hasContent) continue;
+
+    html += '<tr>';
+    for (let c = 0; c < row.length; c++) {
+      const cellValue = row[c] ?? '';
+      const styleAttr = bgColor ? ` style="background-color:${bgColor};"` : '';
+      const bgAttr = bgColor ? ` bgcolor="${bgColor}"` : '';
+      const colspanAttr = span > 1 ? ` colspan="${span}"` : '';
+      const dataValue = cellValue
+        ? ` data-sheets-value="${escapeHtmlAttribute(JSON.stringify({ 1: 2, 2: cellValue }))}"`
+        : '';
+
+      html += `<td${colspanAttr}${styleAttr}${bgAttr}${dataValue}>${escapeHtml(cellValue)}</td>`;
+    }
+    html += '</tr>';
+  }
+
+  html += '</table>';
+  return html;
+};
+
 const copyWithExecCommand = (text: string, html?: string) => {
   if (typeof document === 'undefined') return false;
 

@@ -15,9 +15,10 @@ import {
 } from '../prompts/promptPresets';
 
 // 可用的 Gemini 模型 (使用官方 API 正确名称)
-export type GeminiModelId = 'gemini-3-flash-preview' | 'gemini-3.1-pro-preview' | 'gemini-2.5-flash' | 'gemini-2.0-flash';
+export type GeminiModelId = 'gemini-3.5-flash' | 'gemini-3-flash-preview' | 'gemini-3.1-pro-preview' | 'gemini-2.5-flash' | 'gemini-2.0-flash';
 
 export const GEMINI_MODELS: { id: GeminiModelId; label: string; description: string }[] = [
+    { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', description: 'GA 正式版，1M上下文，强编码能力' },
     { id: 'gemini-3-flash-preview', label: 'Gemini 3.1 Flash Lite', description: '最新轻量模型，速度极快' },
     { id: 'gemini-3.1-pro-preview', label: 'Gemini 3 Pro', description: '最强模型，复杂任务首选' },
     { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: '稳定快速模型' },

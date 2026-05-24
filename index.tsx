@@ -468,7 +468,7 @@ const translations = {
     navStudio: "AI 一键修图",
     navDesc: "提示词工具",
     navTemplate: "指令模版",
-    navScriptTool: "文案拆分",
+    navScriptTool: "文案加工站",
     navMagicCanvas: "AI 图片编辑器",
     navSubEmail: "生成子邮箱",
     navImageRecognition: "AI 图片识别",
@@ -5987,7 +5987,11 @@ const ImageStudioTool: React.FC<{
 
 // --- Main App Component ---
 
-const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const ApiKeyModal: React.FC<{
+  onClose: () => void;
+  showApiKeyBillingWarning: boolean;
+  onOpenBillingWarningDialog: () => void;
+}> = ({ onClose, showApiKeyBillingWarning, onOpenBillingWarningDialog }) => {
   const { t } = useTranslation();
   const { apiKey, setApiKey, usePool, setUsePool, useSharedPool, setUseSharedPool, poolConfig, setPoolConfig, refreshApiPool, rotateApiKey, apiPoolStatus, getDetailedPoolStatus, poolError } = useApi();
   const { user } = useAuth();
@@ -6482,6 +6486,39 @@ const ApiKeyModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className="modal-content api-key-modal" onMouseDown={e => e.stopPropagation()}>
         <h3>{t('apiKeyTitle')}</h3>
+
+        {/* 计费警告常驻横幅 */}
+        <div
+          onClick={() => {
+            onOpenBillingWarningDialog();
+          }}
+          style={{
+            padding: '8px 12px',
+            marginBottom: '12px',
+            background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.06) 100%)',
+            border: '1px dashed rgba(239, 68, 68, 0.35)',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.6)'}
+          onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.35)'}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '15px' }}>🚨</span>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontWeight: 600, color: '#ff6b6b', fontSize: '12px' }}>付费 API Key 计费与用量安全警告</div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted-color, #888)', marginTop: '1px' }}>使用付费 Key 可能会产生扣费，请点击阅读完整规范与进行风险确认</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {showApiKeyBillingWarning && <span className="api-billing-warning-badge" style={{ position: 'relative', top: 0, right: 0 }} />}
+            <span style={{ fontSize: '10px', color: 'var(--text-muted-color, #888)' }}>详情 ▾</span>
+          </div>
+        </div>
 
         {/* 标签页切换 */}
         <div className="modal-tabs">
@@ -7832,25 +7869,19 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   videoKeyframe: 'burst_mode',
 };
 
-const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: string }[] = [
-  // === 修图相关 ===
-  { tool: 'studio', labelKey: 'navStudio', group: '修图相关' },
+const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
+  { tool: 'studio', labelKey: 'navStudio' },
   { tool: 'magicCanvas', labelKey: 'navMagicCanvas' },
-  // === 写描述词相关 ===
-  { tool: 'prompt', labelKey: 'navPrompt', group: '写描述词相关' },
+  { tool: 'prompt', labelKey: 'navPrompt' },
   { tool: 'imageRecognition', labelKey: 'navImageRecognition' },
-  // === 创新提示词+文案改写 ===
-  { tool: 'desc', labelKey: 'navDesc', group: '提示词 & 文案' },
-  // === 文案相关 ===
+  { tool: 'desc', labelKey: 'navDesc' },
   { tool: 'proDedup', labelKey: 'navProDedup' },
   { tool: 'script', labelKey: 'navScriptTool' },
   { tool: 'translate', labelKey: 'navTranslate' },
-  // === 新工具 ===
-  { tool: 'skillGenerator', labelKey: 'navSkillGenerator', group: '新工具' },
+  { tool: 'skillGenerator', labelKey: 'navSkillGenerator' },
   { tool: 'sheetMind', labelKey: 'navSheetMind' },
   { tool: 'dataPipeline', labelKey: 'navDataPipeline' },
   { tool: 'imageSorter', labelKey: 'navImageSorter' },
-  // { tool: 'driveOrganizer', labelKey: 'navDriveOrganizer' },
   { tool: 'geminiChat', labelKey: 'navGeminiChat' },
   { tool: 'sceneBrainstorm', labelKey: 'navSceneBrainstorm' },
   { tool: 'hookScript', labelKey: 'navHookScript' },
@@ -7860,19 +7891,59 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh; group?: s
   { tool: 'regionClassifier', labelKey: 'navRegionClassifier' },
   { tool: 'tutorialHub', labelKey: 'navTutorialHub' },
   { tool: 'imageReview', labelKey: 'navImageReview' },
-  // === 老工具 ===
-  { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory', group: '老工具' },
+  { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory' },
   { tool: 'subemail', labelKey: 'navSubEmail' },
   { tool: 'template', labelKey: 'navTemplate' },
-  // === 实验工具 ===
-  { tool: 'mindMap', labelKey: 'navMindMap', group: '实验工具' },
+  { tool: 'mindMap', labelKey: 'navMindMap' },
   { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
   { tool: 'copyDedup', labelKey: 'navCopyDedup' },
   { tool: 'copywritingLibrary', labelKey: 'navCopywritingLibrary' },
 ];
 
+const CATEGORY_MAP: Record<Tool, string> = {
+  studio: '📷 多媒体工具',
+  magicCanvas: '📷 多媒体工具',
+  prompt: '✍️ 提示词与文案创作',
+  imageRecognition: '✍️ 提示词与文案创作',
+  desc: '✍️ 提示词与文案创作',
+  proDedup: '✍️ 提示词与文案创作',
+  script: '✍️ 提示词与文案创作',
+  translate: '✍️ 提示词与文案创作',
+  imageTextExtractor: '✍️ 提示词与文案创作',
+  template: '✍️ 提示词与文案创作',
+  skillGenerator: '📊 数据与办公提效',
+  sheetMind: '📊 数据与办公提效',
+  dataPipeline: '📊 数据与办公提效',
+  imageSorter: '📊 数据与办公提效',
+  regionClassifier: '📊 数据与办公提效',
+  tutorialHub: '📊 数据与办公提效',
+  aiToolsDirectory: '📊 数据与办公提效',
+  subemail: '📊 数据与办公提效',
+  directory: '📊 数据与办公提效',
+  driveOrganizer: '📊 数据与办公提效',
+  geminiChat: '🧠 灵感与辅助工具',
+  sceneBrainstorm: '🧠 灵感与辅助工具',
+  videoKeyframe: '🧠 灵感与辅助工具',
+  hookScript: '🧪 实验性工具',
+  workflowEditor: '🧪 实验性工具',
+  imageReview: '🧪 实验性工具',
+  mindMap: '🧪 实验性工具',
+  apiImageGen: '🧪 实验性工具',
+  copyDedup: '🧪 实验性工具',
+  copywritingLibrary: '🧪 实验性工具',
+};
+
+const CATEGORIES = [
+  '📷 多媒体工具',
+  '✍️ 提示词与文案创作',
+  '📊 数据与办公提效',
+  '🧠 灵感与辅助工具',
+  '🧪 实验性工具',
+];
+
 const TEXT_MODEL_OPTIONS = [
   // === GA 正式版（配额高，稳定） ===
+  { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·最新旗舰)' },
   { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA·快速)' },
   { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
   { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
@@ -7933,7 +8004,11 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '5.0.1', date: '2026-05-19', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '5.0.5', date: '2026-05-24', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '5.0.4', date: '2026-05-24', url: 'https://ai-toolkit-b2b78--v5-0-4-tojj19fp.web.app', isCurrent: false },
+  { version: '5.0.3', date: '2026-05-20', url: 'https://ai-toolkit-b2b78--v5-0-3.web.app', isCurrent: false },
+  { version: '5.0.2', date: '2026-05-20', url: 'https://ai-toolkit-b2b78--v5-0-2.web.app', isCurrent: false },
+  { version: '5.0.1', date: '2026-05-19', url: 'https://ai-toolkit-b2b78--v5-0-1.web.app', isCurrent: false },
   { version: '5.0.0', date: '2026-04-29', url: 'https://ai-toolkit-b2b78--v5-0-0.web.app', isCurrent: false },
   { version: '4.0.0', date: '2026-04-06', url: 'https://ai-toolkit-b2b78--v4-0-0-9a0wbmra.web.app', isCurrent: false },
   { version: '3.8.4', date: '2026-04-03', url: 'https://ai-toolkit-b2b78--v3-8-4.web.app', isCurrent: false },
@@ -7950,7 +8025,17 @@ const VERSION_HISTORY = [
 
 
 // 版本选择器组件
-const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string; buildTime: string }) => {
+const VersionSelector = ({
+  currentVersion,
+  buildTime,
+  onShowUpdateNotice,
+  hasNewUpdate
+}: {
+  currentVersion: string;
+  buildTime: string;
+  onShowUpdateNotice?: () => void;
+  hasNewUpdate?: boolean;
+}) => {
   const [showMenu, setShowMenu] = useState(false);
 
   return (
@@ -7966,7 +8051,8 @@ const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string
           opacity: showMenu ? 1 : 0.6,
           padding: '4px 8px',
           borderRadius: '4px',
-          transition: 'all 0.2s'
+          transition: 'all 0.2s',
+          position: 'relative'
         }}
         onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
         onMouseLeave={(e) => e.currentTarget.style.opacity = showMenu ? '1' : '0.6'}
@@ -7976,6 +8062,7 @@ const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string
         v{currentVersion}
         {buildTime && <span style={{ marginLeft: '4px', opacity: 0.7 }}>({buildTime})</span>}
         <span style={{ marginLeft: '4px' }}>▾</span>
+        {hasNewUpdate && <span className="settings-update-badge" style={{ top: '-1px', right: '-1px' }} />}
       </button>
 
       {showMenu && (
@@ -8009,6 +8096,36 @@ const VersionSelector = ({ currentVersion, buildTime }: { currentVersion: string
             }}>
               版本历史
             </div>
+
+            {onShowUpdateNotice && (
+              <button
+                onClick={() => {
+                  onShowUpdateNotice();
+                  setShowMenu(false);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  width: '100%',
+                  padding: '8px 12px',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: '12px',
+                  color: '#22c55e',
+                  fontWeight: 500,
+                  transition: 'background 0.2s',
+                  boxSizing: 'border-box'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(34, 197, 94, 0.15)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(34, 197, 94, 0.08)'}
+              >
+                <span>🎉 查看更新日志</span>
+                {hasNewUpdate && <span className="settings-update-badge" style={{ position: 'relative', top: '0', right: '0', display: 'inline-block' }} />}
+              </button>
+            )}
 
             {VERSION_HISTORY.map((v) => (
               <button
@@ -8069,6 +8186,19 @@ const App = () => {
   const { isKeySet, getAiInstance, usePool, apiPoolStatus, apiKey, rotateApiKey } = useApi();
   const { user, signOut, loading: authLoading } = useAuth();
   const [activeTool, setActiveTool] = useState<Tool>('imageRecognition'); // 默认打开 AI 图片识别
+  const [activeCategory, setActiveCategory] = useState<string>(() => {
+    return CATEGORY_MAP[activeTool] || '✍️ 提示词与文案创作';
+  });
+
+  React.useEffect(() => {
+    if (activeTool) {
+      const cat = CATEGORY_MAP[activeTool];
+      if (cat) {
+        setActiveCategory(cat);
+      }
+    }
+  }, [activeTool]);
+
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -8082,6 +8212,7 @@ const App = () => {
   const [showTutorialSurveyModal, setShowTutorialSurveyModal] = useState(false);
   const [isTutorialSurveyDone, setIsTutorialSurveyDone] = useState(() => isTutorialSurveyCompleted(TUTORIAL_SURVEY_KEY));
   const [showUpdateNotice, setShowUpdateNotice] = useState(false);
+  const [showBillingWarningDialog, setShowBillingWarningDialog] = useState(false);
   const [showHelpCenter, setShowHelpCenter] = useState(false);
   const [showApiKeyBillingWarning, setShowApiKeyBillingWarning] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -8125,6 +8256,14 @@ const App = () => {
       setSheetsSyncTestError(result.error || '连接失败');
     }
   };
+
+  // 自动弹出新版本更新说明 (已禁用，仅支持手动在右下角/设置中查看)
+  // useEffect(() => {
+  //   if (typeof window !== 'undefined' && hasNewUpdate()) {
+  //     setShowUpdateNotice(true);
+  //   }
+  // }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -9266,7 +9405,16 @@ const App = () => {
 
   return (
     <>
-      {showApiKeyModal && <ApiKeyModal onClose={() => setShowApiKeyModal(false)} />}
+      {showApiKeyModal && (
+        <ApiKeyModal
+          onClose={() => setShowApiKeyModal(false)}
+          showApiKeyBillingWarning={showApiKeyBillingWarning}
+          onOpenBillingWarningDialog={() => {
+            setShowBillingWarningDialog(true);
+            setApiBillingWarningStep(1);
+          }}
+        />
+      )}
       {showFeedbackModal && (
         <FeedbackModal
           onClose={() => setShowFeedbackModal(false)}
@@ -9393,7 +9541,7 @@ const App = () => {
                 setShowEditionTooltip(false);
                 // 如果当前不在备用版，则打开备用版
                 if (appEdition !== 'aistudio-backup') {
-                  window.open('https://aistudio.google.com/apps/aa776b81-ff71-4fb4-ab90-de8bfa66b9d4?fullscreenApplet=true&showPreview=true&showAssistant=true', '_blank');
+                  window.open('https://ai.studio/apps/30a80d73-3704-43fe-a755-96568e59dbc3?fullscreenApplet=true&showPreview=true&showAssistant=true', '_blank');
                 }
               }}
               style={{
@@ -9469,13 +9617,16 @@ const App = () => {
       {/* 更新通知 */}
       {showUpdateNotice && (
         <UpdateNotice
-          onClose={() => setShowUpdateNotice(false)}
+          onClose={() => {
+            setShowUpdateNotice(false);
+            markUpdateAsSeen();
+          }}
           language={language}
         />
       )}
 
-      {/* API Key 计费警告 — 每次会话首次打开自动弹出 */}
-      {showApiKeyBillingWarning && (
+      {/* API Key 计费警告 — 通过常驻横幅点击打开 */}
+      {showBillingWarningDialog && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 99999,
           display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -9605,6 +9756,7 @@ const App = () => {
                   } else if (apiBillingWarningStep === 2) {
                     setApiBillingWarningStep(3);
                   } else {
+                    setShowBillingWarningDialog(false);
                     setShowApiKeyBillingWarning(false);
                     localStorage.setItem('api_billing_warning_last_date', new Date().toISOString().slice(0, 10));
                   }
@@ -9712,6 +9864,7 @@ const App = () => {
               <button
                 onClick={() => setShowApiKeyModal(true)}
                 className={`collapsed-api-btn tooltip-bottom ${isKeySet ? (usePool ? 'pool' : 'manual') : 'not-set'}`}
+                style={{ position: 'relative' }}
                 data-tip={
                   usePool && apiPoolStatus
                     ? `API池模式 (${apiPoolStatus.current}/${apiPoolStatus.total})`
@@ -9724,6 +9877,7 @@ const App = () => {
                 {usePool && apiPoolStatus && (
                   <span className="api-pool-count">{apiPoolStatus.current}/{apiPoolStatus.total}</span>
                 )}
+                {showApiKeyBillingWarning && <span className="api-billing-warning-badge" />}
               </button>
 
               {/* 设置按钮 - 弹出设置面板 */}
@@ -9749,8 +9903,10 @@ const App = () => {
                   }}
                   className="collapsed-settings-btn tooltip-bottom"
                   data-tip={language === 'zh' ? '设置 (模型/缩放)' : 'Settings (Model/Scale)'}
+                  style={{ position: 'relative' }}
                 >
                   <Settings size={16} />
+                  <span className="settings-update-badge" />
                 </button>
 
                 {/* 设置面板下拉菜单 - 使用 fixed 定位避免被裁切 */}
@@ -9776,9 +9932,48 @@ const App = () => {
                       maxHeight: `calc(100vh - ${settingsPanelPos.top + 20}px)`,
                       overflowY: 'auto'
                     }}>
+                      {/* 新模型更新提示 - 常驻显示 */}
+                      <div style={{
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        border: '1px solid rgba(34, 197, 94, 0.3)',
+                        borderRadius: '6px',
+                        padding: '8px 10px',
+                        marginBottom: '0.75rem',
+                        fontSize: '11px',
+                        color: '#22c55e',
+                        lineHeight: '1.4',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <Sparkles size={12} style={{ flexShrink: 0 }} />
+                        <span>
+                          {language === 'zh'
+                            ? '模型库已更新！已支持全新 Gemini 3.5 Flash，免费key每天有20次使用额度，换不同的邮箱可继续使用。'
+                            : 'New Gemini 3.5 Flash model available! Free keys get 20 uses/day — switch emails to continue.'}
+                        </span>
+                      </div>
+
                       <div style={{ marginBottom: '0.75rem' }}>
-                        <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-muted-color)' }}>
-                          {language === 'zh' ? '文本模型' : 'Text Model'}
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.85rem', color: 'var(--text-muted-color)' }}>
+                          <span>{language === 'zh' ? '文本模型' : 'Text Model'}</span>
+                          {true && (
+                            <span style={{ 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              gap: '2px', 
+                              padding: '1px 5px', 
+                              fontSize: '10px', 
+                              color: '#22c55e', 
+                              backgroundColor: 'rgba(34, 197, 94, 0.15)', 
+                              borderRadius: '4px', 
+                              border: '1px solid rgba(34, 197, 94, 0.3)', 
+                              fontWeight: 500 
+                            }}>
+                              <Sparkles size={10} />
+                              {language === 'zh' ? '新' : 'NEW'}
+                            </span>
+                          )}
                         </label>
                         <select
                           value={textModel}
@@ -9946,13 +10141,52 @@ const App = () => {
                           padding: '0.5rem',
                           fontSize: '0.8rem'
                         }}>
-                          <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500 }}>
-                            ✅ {language === 'zh' ? '当前版本' : 'Current'}: v5.0.3
+                          <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>✅ {language === 'zh' ? '当前版本' : 'Current'}: v5.0.5</span>
+                            <button
+                              onClick={() => {
+                                setShowUpdateNotice(true);
+                                markUpdateAsSeen();
+                              }}
+                              style={{
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border-color, rgba(255,255,255,0.15))',
+                                background: 'rgba(34, 197, 94, 0.15)',
+                                color: '#22c55e',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                height: '20px',
+                                lineHeight: '16px'
+                              }}
+                            >
+                              {language === 'zh' ? '更新日志' : 'Changelog'}
+                              {hasNewUpdate() && <span style={{ width: '6px', height: '6px', backgroundColor: '#22c55e', borderRadius: '50%', display: 'inline-block' }} />}
+                            </button>
                           </div>
                           <div style={{ color: 'var(--text-muted-color)', lineHeight: 1.6 }}>
                             <div style={{ marginBottom: '0.25rem' }}>
                               {language === 'zh' ? '历史版本：' : 'History:'}
                             </div>
+                            <a
+                              href="https://ai-toolkit-b2b78--v5-0-3.web.app"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: '#4dabff',
+                                textDecoration: 'none',
+                                display: 'block',
+                                padding: '0.25rem 0.5rem',
+                                borderRadius: '4px',
+                                marginBottom: '0.25rem',
+                                backgroundColor: 'rgba(77, 171, 255, 0.1)'
+                              }}
+                            >
+                              <Package size={12} className="inline mr-1" /> v5.0.3 (05/20)
+                            </a>
                             <a
                               href="https://ai-toolkit-b2b78--v5-0-2.web.app"
                               target="_blank"
@@ -10299,19 +10533,127 @@ const App = () => {
       <header className={isPresetControlsExpanded ? 'expanded' : 'collapsed'}>
         <div className="header-content">
           <div className="title-bar">
-            <h1>🪄 {t('appTitle')}</h1>
-            <div className="header-controls">
-              <button
-                onClick={() => setShowTutorialSurveyModal(true)}
-                className="secondary-btn tutorial-btn tooltip-bottom"
-                data-tip={language === 'zh' ? '查看教程投票结果（已结束）' : 'View tutorial survey results (closed)'}
-              >
-                <ClipboardList size={14} className="inline mr-1" /> {language === 'zh' ? '投票结果' : 'Results'}
+            {/* 左侧 Logo */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+              <h1 style={{ margin: 0, fontSize: '1.2rem', whiteSpace: 'nowrap' }}>🪄 {t('appTitle')}</h1>
+            </div>
+
+            {/* 中间：参数与预设控制区（已合并至首行） */}
+            <div className="preset-inline-controls">
+              {/* 缩放控制 */}
+              <div className="scale-control tooltip-bottom" data-tip={language === 'zh' ? '界面缩放' : 'UI Scale'}>
+                <Search size={14} className="scale-icon" />
+                <select
+                  value={UI_SCALE_OPTIONS.includes(uiScale) ? uiScale : 'custom'}
+                  onChange={(e) => {
+                    if (e.target.value !== 'custom') {
+                      setUiScale(parseInt(e.target.value, 10));
+                    }
+                  }}
+                  className="scale-select"
+                >
+                  {UI_SCALE_OPTIONS.map(v => (
+                    <option key={v} value={v}>{v}%</option>
+                  ))}
+                  {!UI_SCALE_OPTIONS.includes(uiScale) && (
+                    <option value="custom">{uiScale}%</option>
+                  )}
+                </select>
+                {uiScale !== 100 && (
+                  <button
+                    className="scale-reset tooltip-bottom"
+                    onClick={() => setUiScale(100)}
+                    data-tip={language === 'zh' ? '重置缩放' : 'Reset'}
+                  >
+                    ↺
+                  </button>
+                )}
+              </div>
+              {/* 文字大小控制 */}
+              <div className="scale-control tooltip-bottom" data-tip={language === 'zh' ? '文字大小' : 'Font Size'}>
+                <span className="scale-icon" style={{ fontSize: '0.8rem' }}>🔤</span>
+                <select
+                  value={FONT_SCALE_OPTIONS.includes(fontScale) ? fontScale : 'custom'}
+                  onChange={(e) => {
+                    if (e.target.value !== 'custom') {
+                      setFontScale(parseInt(e.target.value, 10));
+                    }
+                  }}
+                  className="scale-select"
+                >
+                  {FONT_SCALE_OPTIONS.map(v => (
+                    <option key={v} value={v}>{v}%</option>
+                  ))}
+                  {!FONT_SCALE_OPTIONS.includes(fontScale) && (
+                    <option value="custom">{fontScale}%</option>
+                  )}
+                </select>
+                {fontScale !== 100 && (
+                  <button
+                    className="scale-reset tooltip-bottom"
+                    onClick={() => setFontScale(100)}
+                    data-tip={language === 'zh' ? '重置文字大小' : 'Reset'}
+                  >
+                    ↺
+                  </button>
+                )}
+              </div>
+              {activeSaveLabel && (
+                <>
+                  <button
+                    className="secondary-btn compact-btn tooltip-bottom"
+                    onClick={triggerActivePresetSave}
+                    disabled={!canSaveCurrentPresets}
+                    data-tip={activeSaveLabel}
+                  >
+                    💾 {language === 'zh' ? '保存当前' : 'Save Current'}
+                  </button>
+                  {activeSaveStatus && (
+                    <span className={`preset-status ${activeSaveStatus.type}`}>
+                      {activeSaveStatus.message}
+                    </span>
+                  )}
+                </>
+              )}
+              <button className="secondary-btn compact-btn tooltip-bottom" onClick={() => presetImportRef.current?.click()} data-tip={t('presetGlobalImport')}>
+                📥 {language === 'zh' ? '导入' : 'Import'}
               </button>
+              <input type="file" ref={presetImportRef} style={{ display: 'none' }} accept=".json" onChange={handleGlobalImportPresets} />
+              <button className="secondary-btn compact-btn tooltip-bottom" onClick={handleGlobalExportPresets} data-tip={t('presetGlobalExport')}>
+                📤 {language === 'zh' ? '导出' : 'Export'}
+              </button>
+              <span
+                className="tooltip-bottom warning-tooltip-icon"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fbbf24',
+                  cursor: 'pointer',
+                  padding: '4px 6px',
+                  borderRadius: '4px',
+                  backgroundColor: 'rgba(251, 191, 36, 0.08)',
+                  border: '1px dashed rgba(251, 191, 36, 0.25)',
+                  verticalAlign: 'middle',
+                  height: '28px',
+                  width: '28px'
+                }}
+                data-tip={language === 'zh' ? '注意：如果修改了预设，关闭前一定要导出备份，或者登录邮箱同步，否则下次打开将恢复默认。' : 'Notice: If presets are modified, export to backup or log in to sync, otherwise they will reset next time.'}
+              >
+                <AlertTriangle size={14} />
+              </span>
+              {presetUser && !isValidPresetUser(presetUser) && <span className="preset-status error">{t('presetUserMustBeGmail')}</span>}
+
+              {presetNotice && <span className="preset-status success">{presetNotice}</span>}
+            </div>
+
+            {/* 右侧系统操作区 */}
+            <div className="header-controls">
               <button
                 onClick={() => setShowApiKeyModal(true)}
                 className="secondary-btn api-key-btn tooltip-bottom"
                 style={{
+                  position: 'relative',
                   background: isKeySet
                     ? (usePool && apiPoolStatus ? '#4caf5020' : '#4dabff20')
                     : '#ff000020',
@@ -10344,37 +10686,39 @@ const App = () => {
                 ) : (
                   <><Key size={14} className="inline mr-1" /> {t('apiKeyButtonLabel')}</>
                 )}
+                {showApiKeyBillingWarning && <span className="api-billing-warning-badge" />}
               </button>
               <button
                 onClick={() => setShowFeedbackModal(true)}
                 className="secondary-btn feedback-btn tooltip-bottom"
                 data-tip="帮助我们改进产品，您的意见将收集到我们的公开建议表中"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path>
                   <path d="M12 8v6"></path>
                   <path d="M9 11h6"></path>
                 </svg>
-                <span className="feedback-text">建议反馈</span>
+                <span className="feedback-text">{language === 'zh' ? '反馈' : 'Feedback'}</span>
               </button>
               <button
                 onClick={() => setShowHelpCenter(true)}
                 className="secondary-btn tutorial-btn tooltip-bottom"
                 data-tip={language === 'zh' ? '查看帮助文档' : 'View help documentation'}
               >
-                <HelpCircle size={14} className="inline mr-1" /> {language === 'zh' ? '帮助' : 'Help'}
+                <HelpCircle size={14} className="inline mr-1" />
+                <span className="tutorial-text">{language === 'zh' ? '帮助' : 'Help'}</span>
               </button>
-              <div className="language-selector model-selector">
-                <label style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>{language === 'zh' ? '文本模型' : 'Text Model'}</label>
-                <select value={textModel} onChange={(e) => setTextModel(e.target.value)} style={{ marginLeft: '8px' }}>
+              <div className="model-selector">
+                <label>🤖 {language === 'zh' ? '文本' : 'Text'}</label>
+                <select value={textModel} onChange={(e) => setTextModel(e.target.value)}>
                   {TEXT_MODEL_OPTIONS.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
               </div>
-              <div className="language-selector model-selector">
-                <label style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>{language === 'zh' ? '图片模型' : 'Image Model'}</label>
-                <select value={imageModel} onChange={(e) => setImageModel(e.target.value)} style={{ marginLeft: '8px' }}>
+              <div className="model-selector">
+                <label>📷 {language === 'zh' ? '图片' : 'Image'}</label>
+                <select value={imageModel} onChange={(e) => setImageModel(e.target.value)}>
                   {IMAGE_MODEL_OPTIONS.map(opt => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
@@ -10451,167 +10795,29 @@ const App = () => {
             </div>
           </div>
 
-          {/* 预设控制区 */}
-          <div className="preset-controls-section">
-            <div className="preset-inline-controls">
-              {/* 缩放控制 */}
-              <div className="scale-control tooltip-bottom" data-tip={language === 'zh' ? '界面缩放' : 'UI Scale'}>
-                <Search size={16} className="scale-icon" />
-                <select
-                  value={UI_SCALE_OPTIONS.includes(uiScale) ? uiScale : 'custom'}
-                  onChange={(e) => {
-                    if (e.target.value !== 'custom') {
-                      setUiScale(parseInt(e.target.value, 10));
-                    }
-                  }}
-                  className="scale-select"
-                >
-                  {UI_SCALE_OPTIONS.map(v => (
-                    <option key={v} value={v}>{v}%</option>
-                  ))}
-                  {!UI_SCALE_OPTIONS.includes(uiScale) && (
-                    <option value="custom">{uiScale}%</option>
-                  )}
-                </select>
+          {/* 导航区域 */}
+          <div className="modern-dashboard-nav">
+            {/* Category tabs */}
+            <div className="nav-categories">
+              {CATEGORIES.map(cat => (
                 <button
-                  className="scale-step-btn tooltip-bottom"
-                  onClick={() => setUiScale(Math.max(50, uiScale - 1))}
-                  data-tip="-1%"
+                  key={cat}
+                  className={`category-tab ${activeCategory === cat ? 'active' : ''}`}
+                  onClick={() => setActiveCategory(cat)}
                 >
-                  −
+                  {cat}
                 </button>
-                <button
-                  className="scale-step-btn tooltip-bottom"
-                  onClick={() => setUiScale(Math.min(400, uiScale + 1))}
-                  data-tip="+1%"
-                >
-                  +
-                </button>
-                <input
-                  type="number"
-                  min="50"
-                  max="400"
-                  value={uiScale}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val) && val >= 50 && val <= 400) {
-                      setUiScale(val);
-                    }
-                  }}
-                  className="scale-input tooltip-bottom"
-                  data-tip={language === 'zh' ? '手动输入缩放比例 (50-400)' : 'Manual input (50-400)'}
-                />
-                {uiScale !== 100 && (
-                  <button
-                    className="scale-reset tooltip-bottom"
-                    onClick={() => setUiScale(100)}
-                    data-tip={language === 'zh' ? '重置缩放' : 'Reset'}
-                  >
-                    ↺
-                  </button>
-                )}
-              </div>
-              {/* 文字大小控制 */}
-              <div className="scale-control tooltip-bottom" data-tip={language === 'zh' ? '文字大小' : 'Font Size'}>
-                <span className="scale-icon">🔤</span>
-                <select
-                  value={FONT_SCALE_OPTIONS.includes(fontScale) ? fontScale : 'custom'}
-                  onChange={(e) => {
-                    if (e.target.value !== 'custom') {
-                      setFontScale(parseInt(e.target.value, 10));
-                    }
-                  }}
-                  className="scale-select"
-                >
-                  {FONT_SCALE_OPTIONS.map(v => (
-                    <option key={v} value={v}>{v}%</option>
-                  ))}
-                  {!FONT_SCALE_OPTIONS.includes(fontScale) && (
-                    <option value="custom">{fontScale}%</option>
-                  )}
-                </select>
-                <button
-                  className="scale-step-btn tooltip-bottom"
-                  onClick={() => setFontScale(Math.max(50, fontScale - 1))}
-                  data-tip="-1%"
-                >
-                  −
-                </button>
-                <button
-                  className="scale-step-btn tooltip-bottom"
-                  onClick={() => setFontScale(Math.min(200, fontScale + 1))}
-                  data-tip="+1%"
-                >
-                  +
-                </button>
-                <input
-                  type="number"
-                  min="50"
-                  max="200"
-                  value={fontScale}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val) && val >= 50 && val <= 200) {
-                      setFontScale(val);
-                    }
-                  }}
-                  className="scale-input tooltip-bottom"
-                  data-tip={language === 'zh' ? '手动输入文字大小 (50-200)' : 'Manual input (50-200)'}
-                />
-                {fontScale !== 100 && (
-                  <button
-                    className="scale-reset tooltip-bottom"
-                    onClick={() => setFontScale(100)}
-                    data-tip={language === 'zh' ? '重置文字大小' : 'Reset'}
-                  >
-                    ↺
-                  </button>
-                )}
-              </div>
-              {activeSaveLabel && (
-                <>
-                  <button
-                    className="secondary-btn"
-                    onClick={triggerActivePresetSave}
-                    disabled={!canSaveCurrentPresets}
-                  >
-                    {activeSaveLabel}
-                  </button>
-                  {activeSaveStatus && (
-                    <span className={`preset-status ${activeSaveStatus.type}`}>
-                      {activeSaveStatus.message}
-                    </span>
-                  )}
-                </>
-              )}
-              <button className="secondary-btn" onClick={() => presetImportRef.current?.click()}>{t('presetGlobalImport')}</button>
-              <input type="file" ref={presetImportRef} style={{ display: 'none' }} accept=".json" onChange={handleGlobalImportPresets} />
-              <button className="secondary-btn" onClick={handleGlobalExportPresets}>{t('presetGlobalExport')}</button>
-              <span className="preset-warning-notice"><AlertTriangle size={14} className="inline mr-1" /> 注意：如果要添加预设或者编辑预设，关闭前或者编辑后一定要导出预设，或者填写邮箱账号实现云同步预设，否则下次打开将全部恢复默认。</span>
-              {presetUser && !isValidPresetUser(presetUser) && <span className="preset-status error">{t('presetUserMustBeGmail')}</span>}
-
-              {presetNotice && <span className="preset-status success">{presetNotice}</span>}
+              ))}
             </div>
-          </div>
 
-          <nav>
-            {NAV_ITEMS.map((item, idx) => (
-              <React.Fragment key={item.tool}>
-                {item.group && (
-                  <div className="nav-group-label" style={{
-                    fontSize: '0.625rem',
-                    color: 'var(--text-tertiary, #666)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    padding: '8px 12px 4px',
-                    marginTop: idx === 0 ? 0 : '4px',
-                    borderTop: idx === 0 ? 'none' : '1px solid var(--border-color, rgba(255,255,255,0.06))',
-                    userSelect: 'none',
-                  }}>
-                    {item.group}
-                  </div>
-                )}
+            {/* Tools list */}
+            <nav className="nav-tools-grid">
+              {NAV_ITEMS.filter(item => {
+                const itemCat = CATEGORY_MAP[item.tool] || '🧪 实验性工具';
+                return itemCat === activeCategory;
+              }).map(item => (
                 <button
+                  key={item.tool}
                   onClick={() => setActiveTool(item.tool)}
                   className={activeTool === item.tool ? 'active' : ''}
                   data-tool={item.tool}
@@ -10621,11 +10827,11 @@ const App = () => {
                   </span>
                   {t(item.labelKey)}
                 </button>
-              </React.Fragment>
-            ))}
-          </nav>
+              ))}
+            </nav>
+          </div>
         </div>
-      </header >
+      </header>
       <DescChineseProvider entries={descState.entries} textModel={textModel}>
         <main>
           <React.Suspense fallback={
@@ -10802,6 +11008,11 @@ const App = () => {
       <VersionSelector
         currentVersion={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '3.8.3'}
         buildTime={typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : ''}
+        onShowUpdateNotice={() => {
+          setShowUpdateNotice(true);
+          markUpdateAsSeen();
+        }}
+        hasNewUpdate={hasNewUpdate()}
       />
     </>
   );

@@ -16,6 +16,7 @@ interface InstantTranslateToolProps {
     setTargetLanguage?: (lang: string) => void;
     getAiInstance: () => GoogleGenAI;
     t: (key: string) => string;
+    model: string;
     onSwitchToBatch?: (files?: File[], urls?: string[]) => void;
     customInstruction?: string;
     enableScriptureDetection?: boolean;

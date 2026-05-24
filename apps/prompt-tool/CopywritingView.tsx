@@ -166,6 +166,7 @@ interface CopywritingViewProps {
     getAiInstance: () => GoogleGenAI;
     textModel: string;
     promptTabId?: string;
+    deitySettings?: any;
 }
 
 // --- 辅助函数：为表格单元格格式化文本 ---
@@ -537,6 +538,77 @@ function validateVoiceModeIntegrity(
         const pos = firstMismatchIndex(originalNorm, segmentedNorm);
         throw createVoiceIntegrityError('segmented', originalNorm, segmentedNorm, pos, originalText, segmentedText);
     }
+}
+
+// --- 智能分列响应解析器 ---
+function parseSmartColumnsResponse(responseText: string, totalItemsCount: number): {
+    columns: string[];
+    results: { index: number; parts: string[] }[];
+} {
+    const lines = responseText.split('\n');
+    let columns: string[] = [];
+    
+    // 寻找 COLUMNS: 行
+    let colLineIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        // 清理 markdown 块标记
+        const cleanedLine = line.replace(/^```[a-zA-Z]*|```$/g, '').trim();
+        if (cleanedLine.toUpperCase().startsWith('COLUMNS:')) {
+            const colContent = cleanedLine.slice(8).trim();
+            columns = colContent.split('|||').map(c => c.trim()).filter(Boolean);
+            colLineIdx = i;
+            break;
+        }
+    }
+    
+    // 如果没有找到显式的 COLUMNS 行，检查首行
+    if (columns.length === 0 && lines.length > 0) {
+        const firstLine = lines[0].trim().replace(/^```[a-zA-Z]*|```$/g, '').trim();
+        if (!firstLine.match(/^\[\d+\]/) && firstLine.includes('|||')) {
+            columns = firstLine.split('|||').map(c => c.trim()).filter(Boolean);
+            colLineIdx = 0;
+        }
+    }
+
+    // 提取带 [编号] 开头的数据项
+    const entryRegex = /\[(\d+)\]\s*/g;
+    const matchPositions: { num: number; start: number }[] = [];
+    let matchResult;
+    
+    const searchStartIndex = colLineIdx !== -1 ? responseText.indexOf(lines[colLineIdx]) + lines[colLineIdx].length : 0;
+    const searchString = responseText.slice(searchStartIndex);
+    const searchStringOffset = searchStartIndex;
+
+    while ((matchResult = entryRegex.exec(searchString)) !== null) {
+        matchPositions.push({
+            num: parseInt(matchResult[1], 10),
+            start: matchResult.index + matchResult[0].length + searchStringOffset
+        });
+    }
+
+    const results: { index: number; parts: string[] }[] = [];
+
+    if (matchPositions.length > 0) {
+        for (let i = 0; i < matchPositions.length; i++) {
+            const pos = matchPositions[i];
+            const end = i + 1 < matchPositions.length 
+                ? matchPositions[i + 1].start - `[${matchPositions[i + 1].num}]`.length - 1 
+                : responseText.length;
+            const content = responseText.slice(pos.start, end).trim();
+            const parts = content.split('|||').map(p => p.trim());
+            results.push({ index: pos.num - 1, parts });
+        }
+    } else {
+        // 兜底：如果没找到 [编号] 且总数为1，直接将首行之后的所有内容作为第一条结果
+        const remainingText = responseText.slice(searchStartIndex).trim().replace(/^```[a-zA-Z]*|```$/g, '').trim();
+        if (remainingText) {
+            const parts = remainingText.split('|||').map(p => p.trim());
+            results.push({ index: 0, parts });
+        }
+    }
+
+    return { columns, results };
 }
 
 // --- Constants ---
@@ -1701,12 +1773,13 @@ const DEFAULT_CLASSIFY_COLUMNS: ClassifyColumn[] = [
 ];
 
 // === 分类模式 ===
-type CopywritingMode = 'standard' | 'voice' | 'classify' | 'split' | 'library' | 'social-media' | 'parallel' | 'cleaner' | 'prayer' | 'freeform';
+type CopywritingMode = 'standard' | 'voice' | 'classify' | 'split' | 'library' | 'social-media' | 'parallel' | 'cleaner' | 'prayer' | 'freeform' | 'smart-columns';
 
 type CopywritingModeDraft = {
     instruction: string;
     instructions: string[];
     splitColumns?: SplitColumn[];
+    dynamicColumns?: SplitColumn[];
     libraryInstruction?: string;
 };
 
@@ -1729,6 +1802,7 @@ type CopywritingViewSnapshot = {
     socialMediaResultCount?: number;
     hiddenPresetIds?: string[];
     splitColumns: SplitColumn[];
+    dynamicColumns?: SplitColumn[];
     keywordFreqMap: Record<string, number>;
     keywordStatsColumnId: string | null;
     keywordStatsTotalItems: number;
@@ -1985,6 +2059,10 @@ const DEFAULT_SPLIT_COLUMNS: SplitColumn[] = [
     { id: 'body', name: '正文内容', description: '文案的主体内容部分，包括核心信息、故事、论述等' },
     { id: 'cta', name: '结尾互动语', description: '文案结尾的互动引导语，如 "Amen"、"分享"、"评论" 等呼吁行动的句子' },
     { id: 'keywords', name: '核心关键词', description: '提取3-5个核心主题关键词，用英文逗号分隔。关注：信仰主题词（faith/信心、grace/恩典、hope/盼望等）、情感属性词（love/爱、peace/平安、joy/喜乐等）、行动号召词（pray/祷告、trust/信靠、praise/赞美等）。忽略虚词和常见连接词，只提取有主题意义的实词' },
+];
+
+const DEFAULT_DYNAMIC_COLUMNS: SplitColumn[] = [
+    { id: 'dyn_col_0', name: '处理结果', description: '' }
 ];
 
 // 拆分模式预设方案
@@ -2357,6 +2435,11 @@ const createDefaultModeDrafts = (): CopywritingModeDrafts => ({
         instruction: '',
         instructions: [''],
     },
+    'smart-columns': {
+        instruction: '',
+        instructions: [''],
+        dynamicColumns: DEFAULT_DYNAMIC_COLUMNS.map(col => ({ ...col })),
+    },
 });
 
 const getCopywritingStorageKey = (promptTabId: string) => `${STORAGE_KEY}:${promptTabId}`;
@@ -2431,6 +2514,7 @@ const CLEANER_INHERIT = '__global__';
 
 const CLEANER_MODEL_OPTIONS = [
   { value: CLEANER_INHERIT, label: '继承全局设置' },
+  { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·新)' },
   { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA)' },
   { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快)' },
   { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
@@ -2500,6 +2584,8 @@ export function CopywritingView({ getAiInstance, textModel, promptTabId = 'defau
     const [socialMediaOutputSections, setSocialMediaOutputSections] = useState<SocialMediaOutputSection[]>(() => DEFAULT_SOCIAL_MEDIA_OUTPUT_SECTIONS.map(s => ({ ...s }))); // 自媒体输出分项
     const [socialMediaResultCount, setSocialMediaResultCount] = useState(1); // 自媒体每文案结果数（默认1个）
     const [splitColumns, setSplitColumns] = useState<SplitColumn[]>(DEFAULT_SPLIT_COLUMNS); // 拆分列定义
+    const [dynamicColumns, setDynamicColumns] = useState<SplitColumn[]>(DEFAULT_DYNAMIC_COLUMNS); // 智能分列定义的动态列
+    const [smartColumnsLastInstruction, setSmartColumnsLastInstruction] = useState(''); // 记录上次生成智能表头的指令，用于变动时自动重新分析
     const [keywordFreqMap, setKeywordFreqMap] = useState<Record<string, number>>({}); // 关键词全局频率表
     const [keywordStatsColumnId, setKeywordStatsColumnId] = useState<string | null>(null); // 统计关键词所用的列ID
     const [keywordStatsTotalItems, setKeywordStatsTotalItems] = useState(0); // 统计时的总条目数
@@ -2673,13 +2759,14 @@ ${columnDescriptions}
     const hasStats = useMemo(() => Object.keys(keywordFreqMap).length > 0, [keywordFreqMap]);
     const statsKeyCount = useMemo(() => Object.keys(keywordFreqMap).length, [keywordFreqMap]);
     const splitGridStyle = useMemo(() => {
-        const colCount = 1 + splitColumns.length + (hasStats ? 1 : 0);
+        const columnsToUse = mode === 'smart-columns' ? dynamicColumns : splitColumns;
+        const colCount = 1 + columnsToUse.length + (hasStats ? 1 : 0);
         if (colCount <= 4) {
             return `repeat(${colCount}, 1fr)`;
         } else {
-            return `minmax(280px, 1fr) repeat(${splitColumns.length}, minmax(250px, 1fr))${hasStats ? ' minmax(280px, 1fr)' : ''}`;
+            return `minmax(280px, 1fr) repeat(${columnsToUse.length}, minmax(250px, 1fr))${hasStats ? ' minmax(280px, 1fr)' : ''}`;
         }
-    }, [splitColumns.length, hasStats]);
+    }, [splitColumns.length, dynamicColumns.length, hasStats, mode]);
 
     // 保存到表格状态
     const [sheetSaveStatus, setSheetSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -2756,6 +2843,13 @@ ${columnDescriptions}
                 ...nextDrafts.split,
                 splitColumns: splitColumns.map(col => ({ ...col })),
             };
+        } else if (mode === 'smart-columns') {
+            nextDrafts['smart-columns'] = {
+                ...nextDrafts['smart-columns'],
+                dynamicColumns: dynamicColumns.map(col => ({ ...col })),
+                instruction: instructions.find(inst => inst.trim()) ?? instructions[0] ?? instruction,
+                instructions: [...instructions],
+            };
         } else if (mode === 'library') {
             nextDrafts.library = {
                 ...nextDrafts.library,
@@ -2778,6 +2872,13 @@ ${columnDescriptions}
 
         if (nextMode === 'split') {
             setSplitColumns((draft.splitColumns || defaults.split.splitColumns || DEFAULT_SPLIT_COLUMNS).map(col => ({ ...col })));
+        } else if (nextMode === 'smart-columns') {
+            setDynamicColumns((draft.dynamicColumns || defaults['smart-columns'].dynamicColumns || DEFAULT_DYNAMIC_COLUMNS).map(col => ({ ...col })));
+            const nextInstructions = draft.instructions !== undefined
+                ? [...draft.instructions]
+                : [...(defaults['smart-columns'].instructions || [''])];
+            setInstructions(nextInstructions);
+            setInstruction(draft.instruction ?? nextInstructions[0] ?? '');
         } else if (nextMode === 'library') {
             setLibraryInstruction(draft.libraryInstruction || defaults.library.libraryInstruction || DEFAULT_LIBRARY_INSTRUCTION);
         } else if (nextMode === 'cleaner') {
@@ -2817,6 +2918,7 @@ ${columnDescriptions}
         socialMediaModeSystemInstruction,
         socialMediaOutputSections: socialMediaOutputSections.map(s => ({ ...s })),
         splitColumns: splitColumns.map(col => ({ ...col })),
+        dynamicColumns: dynamicColumns.map(col => ({ ...col })),
         keywordFreqMap: { ...keywordFreqMap },
         keywordStatsColumnId,
         keywordStatsTotalItems,
@@ -2869,6 +2971,7 @@ ${columnDescriptions}
         setSocialMediaOutputSections((snapshot?.socialMediaOutputSections || DEFAULT_SOCIAL_MEDIA_OUTPUT_SECTIONS).map(s => ({ ...s })));
         setSocialMediaResultCount(snapshot?.socialMediaResultCount || 1);
         setSplitColumns((snapshot?.splitColumns || DEFAULT_SPLIT_COLUMNS).map(col => ({ ...col })));
+        setDynamicColumns((snapshot?.dynamicColumns || DEFAULT_DYNAMIC_COLUMNS).map(col => ({ ...col })));
         setKeywordFreqMap(snapshot?.keywordFreqMap || {});
         setKeywordStatsColumnId(snapshot?.keywordStatsColumnId || null);
         setKeywordStatsTotalItems(snapshot?.keywordStatsTotalItems || 0);
@@ -4339,6 +4442,92 @@ ${numberedInputs}
             return;
         }
 
+        // === 智能分列模式专用处理 ===
+        if (mode === 'smart-columns') {
+            setItems(prev => prev.map(item => item.status === 'idle' ? { ...item, status: 'processing' as const } : item));
+
+            let columnsToUse = dynamicColumns.map(c => c.name);
+            // 如果还没有分析过表头，或者首列不是“完整回复”，或者指令发生了变化，重新进行分析解锁
+            if (
+                columnsToUse.length === 0 ||
+                (columnsToUse.length === 1 && columnsToUse[0] === '处理结果') ||
+                (columnsToUse.length === 1 && columnsToUse[0] === '完整回复') ||
+                columnsToUse[0] !== '完整回复' ||
+                instruction !== smartColumnsLastInstruction
+            ) {
+                try {
+                    const sampleText = idleItems[0]?.originalForeign || '';
+                    columnsToUse = await analyzeSmartColumnsHeaders(instruction, sampleText);
+                    const dynamicCols = columnsToUse.map((colName, index) => ({
+                        id: `dyn_col_${index}`,
+                        name: colName,
+                        description: ''
+                    }));
+                    setDynamicColumns(dynamicCols);
+                    setSmartColumnsLastInstruction(instruction);
+                } catch (err) {
+                    console.error('Failed to resolve smart columns headers', err);
+                    columnsToUse = ['完整回复', '处理结果'];
+                }
+            }
+
+            if (batchSize > 1) {
+                const BATCH_CONCURRENT = 3;
+                const allBatches: CopywritingItem[][] = [];
+                for (let i = 0; i < idleItems.length; i += batchSize) allBatches.push(idleItems.slice(i, i + batchSize));
+                let batchIdx = 0;
+                const runNextBatch = async () => {
+                    while (batchIdx < allBatches.length && !stopRef.current) {
+                        const currentIdx = batchIdx++;
+                        const batchItems = allBatches[currentIdx];
+                        try {
+                            const { resultsMap } = await processSmartColumnsBatchWithFixedColumns(batchItems, columnsToUse);
+                            setItems(prev => prev.map(item => {
+                                const splitResult = resultsMap.get(item.id);
+                                return splitResult ? { ...item, status: 'success' as const, splitResults: splitResult } : item;
+                            }));
+                            const missingItems = batchItems.filter(item => !resultsMap.has(item.id));
+                            if (missingItems.length > 0) {
+                                setItems(prev => prev.map(item =>
+                                    missingItems.find(m => m.id === item.id) ? { ...item, status: 'error' as const, error: '批量处理中未返回结果' } : item
+                                ));
+                            }
+                        } catch (error: any) {
+                            setItems(prev => prev.map(item =>
+                                batchItems.find(b => b.id === item.id) ? { ...item, status: 'error' as const, error: error.message || '批量智能分列失败' } : item
+                            ));
+                        }
+                    }
+                };
+                const workers = Array(Math.min(BATCH_CONCURRENT, allBatches.length)).fill(null).map(() => runNextBatch());
+                await Promise.all(workers);
+            } else {
+                const SMART_CONCURRENT = 3;
+                let idx = 0;
+                const runNext = async (): Promise<void> => {
+                    while (idx < idleItems.length && !stopRef.current) {
+                        const currentIdx = idx++;
+                        const item = idleItems[currentIdx];
+                        if (stopRef.current) return;
+                        try {
+                            const result = await processSmartColumnsItemWithFixedColumns(item, columnsToUse);
+                            if (stopRef.current) return;
+                            if (result) {
+                                setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'success' as const, splitResults: result.splitResults } : i));
+                            }
+                        } catch (error: any) {
+                            if (stopRef.current) return;
+                            setItems(prev => prev.map(i => i.id === item.id ? { ...i, status: 'error' as const, error: error.message || '处理失败' } : i));
+                        }
+                    }
+                };
+                const workers = Array(Math.min(SMART_CONCURRENT, idleItems.length)).fill(null).map(() => runNext());
+                await Promise.all(workers);
+            }
+            setIsProcessing(false);
+            if (idleItems.length > 20) { setItems(prev => prev.map(i => ({ ...i, collapsed: true }))); setAllCollapsed(true); }
+            return;
+        }
         // === 拆分模式专用处理 ===
         if (mode === 'split') {
             if (splitColumns.length === 0) { showCopyToast('请至少添加一个拆分列'); setIsProcessing(false); return; }
@@ -5526,6 +5715,54 @@ ${item.originalForeign}
                 return;
             }
 
+            // === 拆分模式单条处理 ===
+            if (mode === 'split') {
+                const splitResult = await processSplitItem(item);
+                if (splitResult) {
+                    setItems(prev => prev.map(i =>
+                        i.id === item.id ? { ...i, status: 'success' as const, splitResults: splitResult } : i
+                    ));
+                } else {
+                    setItems(prev => prev.map(i =>
+                        i.id === item.id ? { ...i, status: 'error' as const, error: '拆分失败' } : i
+                    ));
+                }
+                return;
+            }
+
+            // === 智能分列模式单条处理 ===
+            if (mode === 'smart-columns') {
+                let columnsToUse = dynamicColumns.map(c => c.name);
+                if (
+                    columnsToUse.length === 0 ||
+                    (columnsToUse.length === 1 && columnsToUse[0] === '处理结果') ||
+                    (columnsToUse.length === 1 && columnsToUse[0] === '完整回复') ||
+                    columnsToUse[0] !== '完整回复' ||
+                    instruction !== smartColumnsLastInstruction
+                ) {
+                    const sampleText = item.originalForeign || '';
+                    columnsToUse = await analyzeSmartColumnsHeaders(instruction, sampleText);
+                    const dynamicCols = columnsToUse.map((colName, index) => ({
+                        id: `dyn_col_${index}`,
+                        name: colName,
+                        description: ''
+                    }));
+                    setDynamicColumns(dynamicCols);
+                    setSmartColumnsLastInstruction(instruction);
+                }
+                const result = await processSmartColumnsItemWithFixedColumns(item, columnsToUse);
+                if (result) {
+                    setItems(prev => prev.map(i =>
+                        i.id === item.id ? { ...i, status: 'success' as const, splitResults: result.splitResults } : i
+                    ));
+                } else {
+                    setItems(prev => prev.map(i =>
+                        i.id === item.id ? { ...i, status: 'error' as const, error: '分列失败' } : i
+                    ));
+                }
+                return;
+            }
+
             // === 库模式：复用批量处理的库匹配逻辑 ===
             if (mode === 'library') {
                 const enabledLibs = libraries.filter(l => l.enabled && l.items.length > 0);
@@ -6158,7 +6395,198 @@ ${batchInput}
         return resultsMap;
     };
 
-    // --- 拆分模式复制列 ---
+    const analyzeSmartColumnsHeaders = async (userInst: string, sampleText: string): Promise<string[]> => {
+        try {
+            const ai = getAiInstance();
+            const systemPrompt = `你是一个表格结构分析器。你需要根据用户提供的【处理指令】以及【样例数据】，分析出最适合用来分列呈现处理结果的列名（表头）。
+【重要规则】
+1. 第一列必须是固定名称："完整回复"，用于存放针对指令进行处理得到的完整修改后文案。
+2. 后续列是你根据处理指令动态生成的子项列名（如：中文译文、社交媒体文案、互动语等），一般总共 2-4 列即可。
+3. 必须返回 JSON 格式的字符串数组，如：["完整回复", "中文译文", "自媒体文案", "互动引导"]。不要包含任何 Markdown 代码块或多余解释。`;
+
+            const userPrompt = `【处理指令】
+${userInst}
+
+【样例数据】
+${sampleText}`;
+
+            const result = await ai.models.generateContent({
+                model: textModel,
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: 'application/json',
+                    temperature: 0.1
+                }
+            });
+
+            const text = result.text?.trim() || '';
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                const cleaned = parsed.map(c => String(c).trim()).filter(Boolean);
+                if (cleaned[0] !== '完整回复') {
+                    cleaned.unshift('完整回复');
+                }
+                return cleaned;
+            }
+            return ['完整回复', '处理结果'];
+        } catch (error) {
+            console.error('[CopywritingView] Failed to analyze smart columns headers:', error);
+            return ['完整回复', '处理结果'];
+        }
+    };
+
+    const processSmartColumnsItemWithFixedColumns = async (item: CopywritingItem, fixedColumns: string[]): Promise<{ columns: string[]; splitResults: Record<string, string> } | null> => {
+        try {
+            const ai = getAiInstance();
+            const inst = item.customInstruction?.trim() || instruction || DEFAULT_INSTRUCTION;
+
+            const systemPrompt = `你是一个智能表格处理器。你需要执行用户的【核心处理指令】，对文案进行处理。并将处理结果填充到指定的表格列中。
+
+【核心处理指令】
+${inst}
+
+【指定的表格列】
+${JSON.stringify(fixedColumns)}
+
+【输出交付格式】
+必须返回 JSON 格式的对象，其 key 必须与【指定的表格列】中的列名完全一致。
+示例格式：
+{
+  ${fixedColumns.map(col => `"${col}": "对应的处理结果"`).join(',\n  ')}
+}
+在 "完整回复" 字段中，必须填入针对指令处理/改写后的最通顺、最完整的全文。
+其他各个字段中，填入从完整回复中提炼或拆分出的对应内容。`;
+
+            const userPrompt = `请对以下文案执行【核心处理指令】，并按格式输出结果：
+
+${item.originalForeign}`;
+
+            const result = await ai.models.generateContent({
+                model: textModel,
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: 'application/json',
+                    temperature: 0.1
+                }
+            });
+
+            const responseText = result.text?.trim() || '';
+            const startIdx = responseText.indexOf('{');
+            const endIdx = responseText.lastIndexOf('}');
+            if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+                throw new Error('无法找到 JSON 块');
+            }
+            const jsonStr = responseText.substring(startIdx, endIdx + 1);
+            const parsed = JSON.parse(jsonStr);
+
+            const splitResults: Record<string, string> = {};
+            fixedColumns.forEach((colName, index) => {
+                let val = parsed[colName];
+                if (val === undefined) {
+                    const foundKey = Object.keys(parsed).find(k => k.trim().toLowerCase() === colName.toLowerCase());
+                    if (foundKey !== undefined) {
+                        val = parsed[foundKey];
+                    }
+                }
+                splitResults[`dyn_col_${index}`] = val !== undefined && val !== null ? String(val).trim() : '-';
+            });
+
+            return { columns: fixedColumns, splitResults };
+        } catch (error: any) {
+            console.error('[CopywritingView] Smart Columns single processing error:', error);
+            throw error;
+        }
+    };
+
+    const processSmartColumnsBatchWithFixedColumns = async (
+        batchItems: CopywritingItem[],
+        fixedColumns: string[]
+    ): Promise<{ columns: string[]; resultsMap: Map<string, Record<string, string>> }> => {
+        try {
+            const ai = getAiInstance();
+            const resultsMap = new Map<string, Record<string, string>>();
+
+            const batchInput = JSON.stringify(batchItems.map((item, idx) => ({
+                id: idx + 1,
+                text: item.originalForeign
+            })), null, 2);
+
+            const systemPrompt = `你是一个智能表格处理器。你需要执行用户的【核心处理指令】，对多条文案进行处理。并将处理后的内容填充到指定的表格列中。
+
+【核心处理指令】
+${instruction}
+
+【指定的表格列】
+${JSON.stringify(fixedColumns)}
+
+【输出交付格式】
+必须返回 JSON 格式的对象，包含 "results" 数组。数组中的每个对象代表一条文案的处理结果，必须包含 "id" (对应输入文案的 id) 和 "data" 对象 (包含指定的列和对应的值)。
+示例格式：
+{
+  "results": [
+    {
+      "id": 1,
+      "data": {
+        ${fixedColumns.map(col => `"${col}": "对应 id 1 的处理结果"`).join(',\n        ')}
+      }
+    }
+  ]
+}
+在 "完整回复" 字段中，必须填入针对指令处理/改写后的最通顺、最完整的全文。
+其他各个字段中，填入从完整回复中提炼或拆分出的对应内容。`;
+
+            const userPrompt = `请对以下文案列表分别执行【核心处理指令】，并按格式输出结果：
+
+${batchInput}`;
+
+            const result = await ai.models.generateContent({
+                model: textModel,
+                contents: { role: 'user', parts: [{ text: userPrompt }] },
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: 'application/json',
+                    temperature: 0.1
+                }
+            });
+
+            const responseText = result.text?.trim() || '';
+            const startIdx = responseText.indexOf('{');
+            const endIdx = responseText.lastIndexOf('}');
+            if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+                throw new Error('无法找到 JSON 块');
+            }
+            const jsonStr = responseText.substring(startIdx, endIdx + 1);
+            const parsed = JSON.parse(jsonStr);
+            const resultsList = Array.isArray(parsed.results) ? parsed.results : [];
+
+            batchItems.forEach((item, idx) => {
+                const targetId = idx + 1;
+                const entry = resultsList.find((r: any) => r && Number(r.id) === targetId);
+                const splitResults: Record<string, string> = {};
+                
+                const dataObj = entry?.data || {};
+                fixedColumns.forEach((colName, colIdx) => {
+                    let val = dataObj[colName];
+                    if (val === undefined) {
+                        const foundKey = Object.keys(dataObj).find(k => k.trim().toLowerCase() === colName.toLowerCase());
+                        if (foundKey !== undefined) {
+                            val = dataObj[foundKey];
+                        }
+                    }
+                    splitResults[`dyn_col_${colIdx}`] = val !== undefined && val !== null ? String(val).trim() : '-';
+                });
+                resultsMap.set(item.id, splitResults);
+            });
+
+            return { columns: fixedColumns, resultsMap };
+        } catch (error: any) {
+            console.error('[CopywritingView] Smart Columns batch processing error:', error);
+            throw error;
+        }
+    };
+
     const handleCopySplitColumn = (columnId: string) => {
         const successItems = items.filter(i => i.status === 'success' && i.splitResults);
         const col = splitColumns.find(c => c.id === columnId);
@@ -6550,9 +6978,9 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                 <div className="flex-[3.5] min-w-0 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
                     <div className="flex flex-wrap items-center justify-between mb-2 gap-1">
                         <div className="flex flex-wrap items-center gap-2">
-                            <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : mode === 'social-media' ? 'text-teal-400' : mode === 'parallel' ? 'text-rose-400' : mode === 'cleaner' ? 'text-lime-400' : mode === 'prayer' ? 'text-sky-400' : 'text-amber-400'} />
+                            <Settings2 size={14} className={mode === 'voice' ? 'text-purple-400' : mode === 'classify' ? 'text-cyan-400' : mode === 'split' ? 'text-orange-400' : mode === 'library' ? 'text-green-400' : mode === 'social-media' ? 'text-teal-400' : mode === 'parallel' ? 'text-rose-400' : mode === 'cleaner' ? 'text-lime-400' : mode === 'prayer' ? 'text-sky-400' : mode === 'smart-columns' ? 'text-indigo-400' : 'text-amber-400'} />
                             <span className="text-xs font-medium text-zinc-300">
-                                {mode === 'freeform' ? '生成指令' : mode === 'voice' ? '人声文案指令' : mode === 'classify' ? (classifySubMode === 'wordcount' ? '字数分类区间' : classifySubMode === 'advanced' ? '高级分类配置' : '分类规则') : mode === 'split' ? '拆分列定义' : mode === 'library' ? '文案库配置' : mode === 'social-media' ? '自媒体改写指令' : mode === 'parallel' ? '排比改写说明' : mode === 'cleaner' ? '文案清理指令' : mode === 'prayer' ? '祷告词提炼改写' : '改写指令'}
+                                {mode === 'freeform' ? '生成指令' : mode === 'voice' ? '人声文案指令' : mode === 'classify' ? (classifySubMode === 'wordcount' ? '字数分类区间' : classifySubMode === 'advanced' ? '高级分类配置' : '分类规则') : mode === 'split' ? '拆分列定义' : mode === 'library' ? '文案库配置' : mode === 'social-media' ? '自媒体改写指令' : mode === 'parallel' ? '排比改写说明' : mode === 'cleaner' ? '文案清理指令' : mode === 'prayer' ? '祷告词提炼改写' : mode === 'smart-columns' ? '智能分列指令' : '改写指令'}
                             </span>
                             {/* 模式切换按钮组 — 三组排列 */}
                             <div className="flex flex-wrap items-center gap-0.5">
@@ -6566,6 +6994,16 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                     data-tip="标准改写：根据指令对文案进行改写、分类、拆分等操作"
                                 >
                                     <FileEdit size={10} className="inline mr-0.5" /> 标准改写
+                                </button>
+                                <button
+                                    onClick={() => handleModeChange('smart-columns')}
+                                    className={`px-2 py-0.5 text-[10px] rounded-none transition-all border whitespace-nowrap ${mode === 'smart-columns'
+                                        ? 'bg-indigo-600 text-white border-indigo-500'
+                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700'
+                                        } tooltip-bottom`}
+                                    data-tip="智能分列：支持任意外部指令，自动分析并分列输出"
+                                >
+                                    <Columns size={10} className="inline mr-0.5" /> 智能分列
                                 </button>
                                 <button
                                     onClick={() => handleModeChange('freeform')}
@@ -7890,10 +8328,10 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                         ) : (
                             <button
                                 onClick={handleStartProcessing}
-                                disabled={stats.idle === 0 || (mode !== 'split' && mode !== 'library' && mode !== 'social-media' && mode !== 'parallel' && mode !== 'cleaner' && mode !== 'prayer' && !instructions.some(i => i.trim()))}
-                                className={`flex h-6 items-center gap-1 px-2.5 ${mode === 'split' ? 'bg-orange-600 hover:bg-orange-500' : mode === 'library' ? 'bg-green-600 hover:bg-green-500' : mode === 'social-media' ? 'bg-teal-600 hover:bg-teal-500' : mode === 'parallel' ? 'bg-rose-600 hover:bg-rose-500' : mode === 'cleaner' ? 'bg-lime-600 hover:bg-lime-500' : mode === 'prayer' ? 'bg-sky-600 hover:bg-sky-500' : 'bg-purple-600 hover:bg-purple-500'} text-white rounded text-[10px] font-medium disabled:opacity-50`}
+                                disabled={stats.idle === 0 || (mode !== 'split' && mode !== 'library' && mode !== 'social-media' && mode !== 'parallel' && mode !== 'cleaner' && mode !== 'prayer' && mode !== 'smart-columns' && !instructions.some(i => i.trim()))}
+                                className={`flex h-6 items-center gap-1 px-2.5 ${mode === 'split' ? 'bg-orange-600 hover:bg-orange-500' : mode === 'smart-columns' ? 'bg-indigo-600 hover:bg-indigo-500' : mode === 'library' ? 'bg-green-600 hover:bg-green-500' : mode === 'social-media' ? 'bg-teal-600 hover:bg-teal-500' : mode === 'parallel' ? 'bg-rose-600 hover:bg-rose-500' : mode === 'cleaner' ? 'bg-lime-600 hover:bg-lime-500' : mode === 'prayer' ? 'bg-sky-600 hover:bg-sky-500' : 'bg-purple-600 hover:bg-purple-500'} text-white rounded text-[10px] font-medium disabled:opacity-50`}
                             >
-                                <Play size={14} /> {mode === 'split' ? '开始拆分' : mode === 'library' ? '开始匹配改写' : mode === 'social-media' ? '开始改写' : mode === 'parallel' ? '开始排比改写' : mode === 'cleaner' ? '开始清理' : mode === 'prayer' ? '开始提炼改写' : '开始改写'}
+                                <Play size={14} /> {mode === 'split' ? '开始拆分' : mode === 'smart-columns' ? '开始智能分列' : mode === 'library' ? '开始匹配改写' : mode === 'social-media' ? '开始改写' : mode === 'parallel' ? '开始排比改写' : mode === 'cleaner' ? '开始清理' : mode === 'prayer' ? '开始提炼改写' : '开始改写'}
                             </button>
                         )}
                     </div>
@@ -8224,8 +8662,8 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                 {/* 折叠内容 */}
                                 {!item.collapsed && (
                                     <>
-                                        {/* === 拆分模式结果渲染 === */}
-                                        {(mode === 'split' || mode === 'parallel') && (
+                                        {/* === 拆分模式/智能分列模式结果渲染 === */}
+                                        {(mode === 'split' || mode === 'parallel' || mode === 'smart-columns') && (
                                             <div className="overflow-x-auto">
                                                 <div
                                                     className="grid gap-px bg-zinc-800"
@@ -8242,7 +8680,7 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                                     </div>
 
                                                     {/* 各拆分列 */}
-                                                    {splitColumns.map((col, colIdx) => {
+                                                    {(mode === 'smart-columns' ? dynamicColumns : splitColumns).map((col, colIdx) => {
                                                         const colorClasses = [
                                                             'border-orange-500/50 text-orange-400 text-orange-100',
                                                             'border-sky-500/50 text-sky-400 text-sky-100',
@@ -10167,6 +10605,31 @@ ${item.resultChinese ? `- 当前翻译结果：${item.resultChinese}` : ''}
                                         >复制</button>
                                     </div>
                                     <div className="text-sm text-zinc-400 whitespace-pre-wrap break-words leading-relaxed">{detailModalItem.originalChinese}</div>
+                                </div>
+                            )}
+
+                            {/* 拆分/智能分列模式结果渲染 */}
+                            {(mode === 'split' || mode === 'parallel' || mode === 'smart-columns') && detailModalItem.splitResults && (
+                                <div className="space-y-3">
+                                    <div className="text-xs text-zinc-400 font-medium">🔀 拆分列结果</div>
+                                    <div className="grid gap-2">
+                                        {(mode === 'smart-columns' ? dynamicColumns : splitColumns).map(col => {
+                                            const content = detailModalItem.splitResults?.[col.id];
+                                            if (!content) return null;
+                                            return (
+                                                <div key={col.id} className="bg-orange-950/20 rounded-xl p-4 border border-orange-800/30">
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-xs text-orange-400 font-medium">{col.name}</span>
+                                                        <button
+                                                            onClick={() => { navigator.clipboard.writeText(content); showCopyToast(`已复制「${col.name}」`); }}
+                                                            className="text-[10px] text-orange-500 hover:text-orange-300 px-2 py-0.5 rounded hover:bg-orange-900/30"
+                                                        >复制</button>
+                                                    </div>
+                                                    <div className="text-sm text-orange-100 whitespace-pre-wrap break-words leading-relaxed">{content}</div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             )}
 

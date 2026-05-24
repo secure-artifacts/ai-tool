@@ -29,11 +29,25 @@ interface UpdateNoticeProps {
 
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v5.0.5',
+        date: '2026-05-24',
+        description: 'v5.0.5 智能分列模式稳定性优化与完整回复列',
+        url: '#',
+        isCurrent: true
+    },
+    {
+        version: 'v5.0.4',
+        date: '2026-05-24',
+        description: 'v5.0.4 自动弹窗体验优化与微红点提示',
+        url: 'https://ai-toolkit-b2b78--v5-0-4-tojj19fp.web.app',
+        isCurrent: false
+    },
+    {
         version: 'v5.0.3',
         date: '2026-05-20',
         description: 'v5.0.3 AI Studio 影子部署与稳定性优化',
         url: '#',
-        isCurrent: true
+        isCurrent: false
     },
     {
         version: 'v5.0.2',
@@ -216,15 +230,35 @@ const versionHistory: VersionInfo[] = [
 
 
 const latestUpdate: UpdateInfo = {
-    version: 'v5.0.3',
-    date: '2026-05-20',
+    version: 'v5.0.5',
+    date: '2026-05-24',
     features: {
         en: [
-            'Optimized AI Studio deployment with shadow directory prebuilt restore',
-            'Added build-runner and dev-runner to bypass cloud OOM and dynamic port health checks'
+            'Optimized Smart Columns using structured JSON mode to isolate batch data and completely eliminate AI formatting randomness',
+            'Added a permanent "Complete Reply" column in Smart Columns mode to preserve the full raw text before segmentation',
+            'Fixed a UI layout bug where double rows were rendered in smart columns mode',
+            'Fixed single item retry and play action buttons to correctly run smart columns and split mode logic'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
+            '-',
+            '-',
+            '2026.05.24 v5.0.5',
+            '-',
+            '🚀 智能分列模式稳定性优化与完整回复列',
+            '• 锁定零随机度：API 调用显式设置 temperature: 0.1，消除生成过程中的偶发变化与不可预料结果，保证相同指令结果一致',
+            '• 物理数据隔离：批处理中放弃拼接长字符串，改用严格的结构化 JSON 隔离每条文案，保留段落换行，消除文案交叉污染',
+            '• 新增完整回复列：自动在分列表格第一列固定展示「完整回复」，便于查阅和复制未切分的完整文案，极大提升提取精确度',
+            '• 修复渲染两行：解决了智能分列及排比模式下结果卡片区域重复渲染出原版表格的 UI 布局问题',
+            '• 修复单条重试：修复了卡片上点击重试/单条处理时，智能分列与拆分模式会覆盖为普通改写状态的严重 Bug，现在可以完美复用锁定表头进行定向填充',
+            '-',
+            '-',
+            '2026.05.24 v5.0.4',
+            '-',
+            '🚀 自动弹窗体验优化与微红点提示',
+            '• 极速启动：关闭了 API 计费警告、图片识别更新说明、Skill生成器说明、Image Review说明在冷启动时的自动弹窗干扰',
+            '• 气泡呼吸红点：为工具头部及 API Key 按钮增加非阻塞式红色提醒点，未读时温和提示，阅读后自动熄灭',
+            '• 计费警告常驻横幅：在 API Key 设置弹窗内加入高对比度安全风险 Banner，点击可随时手动阅读并进行 3 步风险确认',
             '-',
             '-',
             '2026.05.20 v5.0.3',

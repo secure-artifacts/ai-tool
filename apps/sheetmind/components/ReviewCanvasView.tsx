@@ -536,7 +536,7 @@ const ReviewCanvasView: React.FC<ReviewCanvasViewProps> = ({
     // ── Image fallback state ──
     const [fallbackIndex, setFallbackIndex] = useState<Record<string, number>>({});
     const [failedThumbs, setFailedThumbs] = useState<Set<string>>(new Set());
-    const [videoTypeOverrides, setVideoTypeOverrides] = useState<Record<string, true>>({});
+    const [videoTypeOverrides, setVideoTypeOverrides] = useState<Record<string, boolean>>({});
     // ── Inline video player ──
     const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
     const [pastedImages, setPastedImages] = useState<ReviewImage[]>([]);

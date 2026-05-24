@@ -2611,6 +2611,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     updated[key] = parentPath;
                 }
             });
+            return updated;
         });
     }, []);
 
@@ -3312,7 +3313,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             setTimeout(() => setCopyFeedback(null), 2000);
                         } else {
                             console.error('[Collab] 分类同步失败:', result);
-                            setCopyFeedback(`⚠️ 同步失败: ${result?.error || JSON.stringify(result)}`);
+                            const errMsg = (result as any)?.error || result?.results?.find(r => r.error)?.error || JSON.stringify(result);
+                            setCopyFeedback(`⚠️ 同步失败: ${errMsg}`);
                             setTimeout(() => setCopyFeedback(null), 4000);
                         }
                     }).catch(err => {
@@ -3626,7 +3628,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     imageUrl: actualImageUrl,
                     rowData: rowData,
                     folderId: folderId,
-                    addedAt: new Date().toISOString()
+                    addedAt: Date.now()
                 });
                 addedCount++;
             });
