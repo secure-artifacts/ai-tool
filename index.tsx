@@ -7944,13 +7944,13 @@ const CATEGORIES = [
 const TEXT_MODEL_OPTIONS = [
   // === GA 正式版（配额高，稳定） ===
   { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·最新旗舰)' },
+  { value: 'gemini-3.1-flash-lite', label: '⚡ gemini-3.1-flash-lite (GA·Lite⚡·默认)' },
   { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA·快速)' },
   { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快最省)' },
   { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
   // === Preview 预览版（配额较低） ===
   { value: 'gemini-3-flash-preview', label: 'gemini-3-flash-preview (Preview)' },
   { value: 'gemini-3.1-pro-preview', label: 'gemini-3.1-pro-preview (Preview·最新)' },
-  { value: 'gemini-3.1-flash-lite-preview', label: 'gemini-3.1-flash-lite-preview (Preview·Lite⚡·默认)' },
   // === Gemma 4 开源模型（独立配额 30RPM） ===
   { value: 'gemma-4-31b-it', label: '🔷 Gemma 4 31B (Dense·256K·30RPM)' },
   { value: 'gemma-4-26b-a4b-it', label: '🔷 Gemma 4 26B MoE (256K·30RPM)' },
@@ -8381,6 +8381,7 @@ const App = () => {
       'gemini-pro': 'gemini-2.5-flash',
       'gemini-1.5-flash': 'gemini-2.5-flash',
       'gemini-1.5-pro': 'gemini-2.5-pro',
+      'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite',
     };
     const IMAGE_MIGRATION: Record<string, string> = {
       'gemini-3-pro-image-preview': 'gemini-2.5-flash-image',
@@ -8390,7 +8391,7 @@ const App = () => {
   };
 
   // 每次打开强制使用默认模型（3.1 Lite），用户可在会话中手动切换
-  const [textModel, setTextModel] = useState<string>('gemini-3.1-flash-lite-preview');
+  const [textModel, setTextModel] = useState<string>('gemini-3.1-flash-lite');
 
   const [imageModel, setImageModel] = useState<string>(() => {
     if (typeof window === 'undefined') return 'gemini-2.5-flash-image';

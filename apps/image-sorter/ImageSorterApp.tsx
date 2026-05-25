@@ -97,9 +97,9 @@ const ALL_MODELS = [
     { value: 'gemini-2.5-flash', label: '⚡ 2.5-flash (GA)' },
     { value: 'gemini-2.5-flash-lite', label: '⚡ 2.5-flash-lite (GA)' },
     { value: 'gemini-2.5-pro', label: '🧠 2.5-pro (GA)' },
+    { value: 'gemini-3.1-flash-lite', label: '⚡ 3.1-lite (GA)' },
     { value: 'gemini-3-flash-preview', label: '3-flash (Preview)' },
     { value: 'gemini-3.1-pro-preview', label: '3.1-pro (Preview)' },
-    { value: 'gemini-3.1-flash-lite-preview', label: '3.1-lite (Preview)' },
 ];
 const MAX_RETRIES = 3; // 429 retry attempts
 const MAX_IMAGE_DIM = 512; // resize for faster processing

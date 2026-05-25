@@ -7,7 +7,7 @@
  * 优先级：传入参数 > localStorage > 默认值
  */
 
-const DEFAULT_TEXT_MODEL = 'gemini-3.1-flash-lite-preview';
+const DEFAULT_TEXT_MODEL = 'gemini-3.1-flash-lite';
 const STORAGE_KEY = 'app_text_model';
 
 export function getGlobalTextModel(override?: string): string {
