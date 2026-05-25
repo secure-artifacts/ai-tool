@@ -66,43 +66,33 @@ find . -type f -size +2M \
 
 // turbo
 ```bash
-rm ~/Desktop/ai-toolkit-源码-v5.0.4.zip 2>/dev/null; \
+rm ~/Desktop/ai-toolkit-源码-v5.0.5.zip 2>/dev/null; \
 cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
-zip -r ~/Desktop/ai-toolkit-源码-v5.0.4.zip . \
+zip -r ~/Desktop/ai-toolkit-源码-v5.0.5.zip . \
     -x "node_modules/*" \
+    -x "**/node_modules/*" \
     -x ".git/*" \
-    -x "dist/*" \
+    -x ".gemini/*" \
+    -x ".firebase/*" \
+    -x ".agents/*" \
+    -x ".agent/*" \
     -x "dist-electron/*" \
-    -x "electron/*" \
-    -x "functions/*" \
+    -x "*.zip" \
+    -x "*.dmg" \
+    -x "*.blockmap" \
+    -x "*.log" \
     -x "*.backup*" \
     -x "**/*.backup*" \
     -x ".playwright-mcp/*" \
     -x ".vscode/*" \
     -x ".DS_Store" \
-    -x "package-lock.json" \
-    -x "*.log" \
-    -x "*.dmg" \
-    -x "*.blockmap" \
-    -x "*.zip" \
     -x "AI创作工具包-*/*" \
     -x "ai-toolkit-*/*" \
     -x "版本归档/*" \
     -x "未命名文件夹/*" \
     -x "backups/*" \
-    -x "docs/*" \
-    -x ".agents/*" \
-    -x ".gemini/*" \
-    -x ".github/*" \
-    -x ".agent/*" \
-    -x ".firebase/*" \
-    -x "google-apps-script/*" \
-    -x "scripts/*" \
-    -x "extensions/*" \
     -x "*.rej" \
-    -x "*.py" \
     -x "*.patch" \
-    -x "*.txt" \
     -x "test_*" \
     -x "test-*" \
     -x "temp_*" \
@@ -112,12 +102,11 @@ zip -r ~/Desktop/ai-toolkit-源码-v5.0.4.zip . \
     -x "_move_*" \
     -x "CopywritingView_diff*" \
     -x "copywriting_diff*" \
-    -x "*.orig" \
-    -x "*.png"
+    -x "*.orig"
 ```
 
 ### 输出位置
-- `~/Desktop/ai-toolkit-源码-v5.0.4.zip`
+- `~/Desktop/ai-toolkit-源码-v5.0.5.zip`
 
 ### 包含内容
 - ✅ 所有源代码（`apps/`, `services/`, `components/`）
