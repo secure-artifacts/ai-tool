@@ -29,11 +29,18 @@ interface UpdateNoticeProps {
 
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v5.0.6',
+        date: '2026-06-27',
+        description: 'v5.0.6 安全依赖项更新与依赖漏洞修复',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v5.0.5',
         date: '2026-05-24',
         description: 'v5.0.5 智能分列模式稳定性优化与完整回复列',
         url: '#',
-        isCurrent: true
+        isCurrent: false
     },
     {
         version: 'v5.0.4',
@@ -230,17 +237,22 @@ const versionHistory: VersionInfo[] = [
 
 
 const latestUpdate: UpdateInfo = {
-    version: 'v5.0.5',
-    date: '2026-05-24',
+    version: 'v5.0.6',
+    date: '2026-06-27',
     features: {
         en: [
-            'Optimized Smart Columns using structured JSON mode to isolate batch data and completely eliminate AI formatting randomness',
-            'Added a permanent "Complete Reply" column in Smart Columns mode to preserve the full raw text before segmentation',
-            'Fixed a UI layout bug where double rows were rendered in smart columns mode',
-            'Fixed single item retry and play action buttons to correctly run smart columns and split mode logic'
+            'Fixed 28 security vulnerabilities across dependencies',
+            'Updated packages like firebase, vite, react, jspdf, and uuid to safe versions'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
+            '-',
+            '-',
+            '2026.06.27 v5.0.6',
+            '-',
+            '🚀 安全依赖项更新与依赖漏洞修复',
+            '• 安全修复：修复了包括 ws、form-data、tmp、dompurify、postcss、uuid、@grpc/grpc-js 等包在内的 28 个高危/中危安全漏洞，提升系统整体安全性',
+            '• 稳定更新：在安全范围（semver）内更新了 React、Vite、Firebase、jsPDF、Zustand 等依赖包，保障应用稳定运行',
             '-',
             '-',
             '2026.05.24 v5.0.5',
