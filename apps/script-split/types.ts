@@ -14,6 +14,7 @@ export enum ToolType {
   CleanTails = 'CLEAN_TAILS',  // 清理尾部水印标签
   CleanEmojis = 'CLEAN_EMOJIS', // 清理表情符号
   AutoWrap = 'AUTO_WRAP',  // 自动断行（英文单词不断开）
+  ArrangeParallel = 'ARRANGE_PARALLEL', // 排比句排列式格式化
 }
 
 export interface Coordinate {

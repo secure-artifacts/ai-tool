@@ -1777,7 +1777,22 @@ const TranslateTool = ({
 
     // Google 引擎模型选择（覆盖 textModel）
     const [googleModel, setGoogleModel] = useState(() => {
-        try { return localStorage.getItem(GOOGLE_MODEL_KEY) || ''; } catch { return ''; }
+        try {
+            const saved = localStorage.getItem(GOOGLE_MODEL_KEY) || '';
+            const migrated = saved
+                ? (saved === 'gemini-3.1-lite-preview-06-24'
+                    ? 'gemini-3.1-flash-lite'
+                    : (saved === 'gemini-3.1-flash-preview-06-24'
+                        ? 'gemini-3.5-flash'
+                        : saved))
+                : '';
+            if (migrated !== saved) {
+                localStorage.setItem(GOOGLE_MODEL_KEY, migrated);
+            }
+            return migrated;
+        } catch {
+            return '';
+        }
     });
     const handleGoogleModelChange = (modelId: string) => {
         setGoogleModel(modelId);

@@ -7893,6 +7893,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'imageReview', labelKey: 'navImageReview' },
   { tool: 'aiToolsDirectory', labelKey: 'navAIToolsDirectory' },
   { tool: 'subemail', labelKey: 'navSubEmail' },
+  { tool: 'driveOrganizer', labelKey: 'navDriveOrganizer' },
   { tool: 'template', labelKey: 'navTemplate' },
   { tool: 'mindMap', labelKey: 'navMindMap' },
   { tool: 'apiImageGen', labelKey: 'navApiImageGen' },

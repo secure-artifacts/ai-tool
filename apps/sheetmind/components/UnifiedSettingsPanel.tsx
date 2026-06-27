@@ -9,7 +9,8 @@ import {
     ArrowUpDown, Sparkles, ChevronDown, ChevronUp, Plus, Trash2,
     Check, ArrowUp, ArrowDown, X, Eye, EyeOff, Copy, Maximize2, Minimize2,
     RefreshCw, Link, Save, ClipboardList, FileText, UserCheck, BarChart2,
-    CheckCircle, XCircle, AlertTriangle, FolderOpen, Hash, FolderTree, ThumbsUp, MessageSquare
+    CheckCircle, XCircle, AlertTriangle, FolderOpen, Hash, FolderTree, ThumbsUp, MessageSquare,
+    Columns, Merge
 } from 'lucide-react';
 import {
     SharedConfig,
@@ -611,6 +612,169 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                     </div>
                 </div>
 
+                {/* One-click Presets Card */}
+                <div className="border-b border-slate-200 bg-gradient-to-r from-indigo-50/80 to-purple-50/80 px-3 py-2.5">
+                    <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                        <Sparkles size={10} className="text-indigo-600 animate-pulse" /> 快捷分析预设 (Quick Presets)
+                    </span>
+                    <div className="flex flex-col gap-1.5">
+                        <button
+                            onClick={() => {
+                                // 1. Auto-detect unpivot settings (repeating columns like 推广1, 推广2 etc.)
+                                const colSuffixRegex = /(?:1|_\s*1|\.\s*1)$/;
+                                const group1Cols = data.columns.filter(col => col && colSuffixRegex.test(col) && !col.startsWith('_'));
+                                
+                                let useUnpivot = false;
+                                let groupSize = 2;
+                                let keyColCount = 1;
+                                let unpivotHeaders: string[] = [];
+                                
+                                if (group1Cols.length > 0) {
+                                    useUnpivot = true;
+                                    groupSize = group1Cols.length;
+                                    const firstRepeatingIndex = data.columns.findIndex(col => col && colSuffixRegex.test(col));
+                                    keyColCount = firstRepeatingIndex >= 0 ? firstRepeatingIndex : 0;
+                                    unpivotHeaders = group1Cols.map(col => col.replace(colSuffixRegex, '').trim());
+                                }
+
+                                // The active columns list after potential unpivot
+                                const anySuffixRegex = /(?:\d+|_\s*\d+|\.\s*\d+)$/;
+                                let maxSuffixIndex = -1;
+                                data.columns.forEach((col, idx) => {
+                                    if (col && anySuffixRegex.test(col)) {
+                                        maxSuffixIndex = idx;
+                                    }
+                                });
+                                let foldColCount = data.columns.length - keyColCount;
+                                if (maxSuffixIndex >= 0) {
+                                    const indexAfterLastRepeating = maxSuffixIndex + 1;
+                                    const computedFoldColCount = indexAfterLastRepeating - keyColCount;
+                                    const remainder = computedFoldColCount % groupSize;
+                                    foldColCount = remainder === 0 ? computedFoldColCount : computedFoldColCount + (groupSize - remainder);
+                                    foldColCount = Math.min(foldColCount, data.columns.length - keyColCount);
+                                }
+                                const trailingCols = useUnpivot ? data.columns.slice(keyColCount + foldColCount) : [];
+
+                                const activeCols = useUnpivot 
+                                    ? [...data.columns.slice(0, keyColCount), ...unpivotHeaders, ...trailingCols]
+                                    : data.columns;
+
+                                // 2. Find artist columns (containing '美工', '人员', '员工', '画师', '设计', '制作', '剪辑')
+                                const artistCols = activeCols.filter(col => col && (col.includes('美工') || col.includes('人员') || col.includes('员工') || col.includes('画师') || col.includes('设计') || col.includes('制作') || col.includes('剪辑')) && !col.includes('渲染') && !col.startsWith('_'));
+                                
+                                // 3. Find promotion columns (containing '推广', '主管', '运营', '运营', '组长')
+                                const promoCols = activeCols.filter(col => col && (col.includes('推广') || col.includes('主管') || col.includes('运营') || col.includes('组长')) && !col.startsWith('_'));
+                                
+                                // 4. Find task columns (containing '渲染', '任务', '数量', '专业', '专页', '工作')
+                                const taskCols = activeCols.filter(col => col && (col.includes('渲染') || col.includes('任务') || col.includes('数量') || col.includes('专业') || col.includes('专页') || col.includes('工作') || col.includes('需求') || col.includes('量')) && !col.startsWith('_'));
+
+                                if (artistCols.length === 0) {
+                                    alert('未在当前表格中找到包含“美工/人员/员工/制作/剪辑”等字样的列！');
+                                    return;
+                                }
+
+                                const explodeTargetName = '美工';
+                                const firstPromo = promoCols.length > 0 ? promoCols[0] : (activeCols.filter(c => !artistCols.includes(c))[0] || '');
+                                
+                                const valueCols = [];
+                                if (firstPromo) valueCols.push(firstPromo);
+                                taskCols.forEach(tc => {
+                                    if (tc && !valueCols.includes(tc)) valueCols.push(tc);
+                                });
+
+                                const sumTaskCols = taskCols.filter(col => col && (col.includes('数') || col.includes('量') || col.includes('额') || col.includes('值')) && !col.includes('人员') && !col.includes('姓名') && !col.includes('渲染'));
+                                const primarySumCol = sumTaskCols[0] || '';
+
+                                updateConfig({
+                                    unpivotEnabled: useUnpivot,
+                                    unpivotGroupSize: groupSize,
+                                    unpivotKeyColCount: keyColCount,
+                                    unpivotHeaderNames: unpivotHeaders,
+                                    
+                                    transposeData: false,
+                                    combineColumnsEnabled: false,
+                                    
+                                    // Set up explode settings
+                                    explodeEnabled: true,
+                                    explodeSourceColumns: artistCols,
+                                    explodeTargetColumnName: explodeTargetName,
+                                    
+                                    // Set up flatten settings
+                                    flattenEnabled: true,
+                                    flattenKeyColumn: explodeTargetName,
+                                    flattenValueColumns: valueCols,
+                                    flattenSumColumn: primarySumCol,
+                                    flattenSumColumns: sumTaskCols
+                                });
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 border border-indigo-200 hover:border-indigo-300 rounded-lg shadow-sm transition-all flex items-center justify-between"
+                        >
+                            <span className="flex items-center gap-1.5">
+                                👤 统计各美工任务与推广明细
+                            </span>
+                            <ChevronUp size={12} className="rotate-90 text-indigo-400" />
+                        </button>
+                        
+                        <button
+                            onClick={() => {
+                                // For render staff stats, we DO NOT unpivot the repeating artist columns
+                                const activeCols = data.columns;
+
+                                // 2. Find render columns (containing '渲染')
+                                const renderCols = activeCols.filter(col => col && col.includes('渲染人员') && !col.startsWith('_'));
+                                const primaryRenderCol = renderCols.length > 0 ? renderCols[0] : (activeCols.filter(c => c.includes('人员'))[0] || '渲染人员');
+                                
+                                // 3. Find promotion columns (containing '推广', '主管', '运营', '运营', '组长')
+                                const promoCols = activeCols.filter(col => col && (col.includes('推广') || col.includes('主管') || col.includes('运营') || col.includes('组长')) && !col.startsWith('_'));
+                                
+                                // 4. Find task columns (containing ONLY '渲染量')
+                                const taskCols = activeCols.filter(col => col && col.includes('渲染量') && !col.startsWith('_'));
+
+                                const firstPromo = promoCols.length > 0 ? promoCols[0] : '';
+                                const valueCols = [];
+                                if (firstPromo) valueCols.push(firstPromo);
+
+                                taskCols.forEach(tc => {
+                                    if (tc && tc !== primaryRenderCol && !valueCols.includes(tc)) valueCols.push(tc);
+                                });
+
+                                const sumTaskCols = taskCols.filter(col => col && (col.includes('数') || col.includes('量') || col.includes('额') || col.includes('值')) && !col.includes('人员') && !col.includes('姓名'));
+                                const primarySumCol = sumTaskCols[0] || '渲染量';
+
+                                updateConfig({
+                                    unpivotEnabled: false,
+                                    unpivotGroupSize: 2,
+                                    unpivotKeyColCount: 1,
+                                    unpivotHeaderNames: [],
+                                    
+                                    transposeData: false,
+                                    combineColumnsEnabled: false,
+                                    
+                                    explodeEnabled: true,
+                                    explodeSourceColumns: [primaryRenderCol],
+                                    explodeTargetColumnName: '渲染人员',
+                                    
+                                    flattenEnabled: true,
+                                    flattenKeyColumn: '渲染人员',
+                                    flattenValueColumns: valueCols,
+                                    flattenSumColumn: primarySumCol,
+                                    flattenSumColumns: sumTaskCols
+                                });
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 text-xs font-bold text-blue-700 bg-white hover:bg-blue-50 border border-blue-200 hover:border-blue-300 rounded-lg shadow-sm transition-all flex items-center justify-between"
+                        >
+                            <span className="flex items-center gap-1.5">
+                                ⚡ 统计各渲染人员任务明细
+                            </span>
+                            <ChevronUp size={12} className="rotate-90 text-blue-400" />
+                        </button>
+                        
+                        <p className="text-[9px] text-slate-500 leading-normal px-0.5">
+                            智能识别多组重复列进行“横向重复列合一”（支持推广1/2、渲染量1/2等）、将合作人员“拆分为独立行”，并以“成员明细与总计横向展开”呈现。
+                        </p>
+                    </div>
+                </div>
+
                 {/* Transpose Data Toggle - Important data format option */}
                 <div className="border-b border-purple-100 bg-purple-50/50 px-3 py-1.5">
                     <label className="flex items-center justify-between cursor-pointer">
@@ -684,6 +848,376 @@ const UnifiedSettingsPanel: React.FC<UnifiedSettingsPanelProps> = ({
                         <p className="text-[9px] text-emerald-600 mt-1">
                             <CheckCircle size={10} className="inline mr-1" /> 已启用：自动扫描所有单元格，提取所有图片URL并平铺显示
                         </p>
+                    )}
+                </div>
+
+                {/* Unpivot Repeating Columns Toggle */}
+                <div className="border-b border-blue-100 bg-blue-50/50 px-3 py-1.5">
+                    <label className="flex items-center justify-between cursor-pointer">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                            <Columns size={12} className="inline mr-1 text-blue-600" /> 横向重复列合一
+                            <span className="text-[9px] text-slate-500 font-normal">
+                                (将多组重复的列折叠成统一列)
+                            </span>
+                        </span>
+                        <button
+                            onClick={() => updateConfig({
+                                unpivotEnabled: !config.unpivotEnabled,
+                            })}
+                            className={`relative w-9 h-5 rounded-full transition-colors ${config.unpivotEnabled ? 'bg-blue-500' : 'bg-slate-300'}`}
+                        >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.unpivotEnabled ? 'left-4' : 'left-0.5'}`} />
+                        </button>
+                    </label>
+                    {config.unpivotEnabled && (
+                        <div className="mt-2 space-y-2 text-xs">
+                            <p className="text-[9px] text-blue-600">
+                                <CheckCircle size={10} className="inline mr-1" /> 已启用：将横向分栏的重复列合并对齐为单列
+                            </p>
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] text-slate-600">每组栏目包含的列数:</span>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={config.unpivotGroupSize || 2}
+                                    onChange={e => {
+                                        const size = Math.max(1, parseInt(e.target.value) || 2);
+                                        updateConfig({ unpivotGroupSize: size });
+                                    }}
+                                    className="w-16 px-1.5 py-0.5 text-[10px] text-slate-800 bg-white border border-slate-200 rounded text-center font-medium"
+                                />
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] text-slate-600">保留前几列不折叠 (如“推广”/“姓名”):</span>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={10}
+                                    value={config.unpivotKeyColCount !== undefined ? config.unpivotKeyColCount : 1}
+                                    onChange={e => {
+                                        const count = Math.max(0, parseInt(e.target.value) || 0);
+                                        updateConfig({ unpivotKeyColCount: count });
+                                    }}
+                                    className="w-16 px-1.5 py-0.5 text-[10px] text-slate-800 bg-white border border-slate-200 rounded text-center font-medium"
+                                />
+                            </div>
+                            
+                            {/* Option to specify custom header names */}
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block">合并后的新列名（用逗号隔开，可选）:</span>
+                                <input
+                                    type="text"
+                                    placeholder={(() => {
+                                        const startIdx = config.unpivotKeyColCount !== undefined ? config.unpivotKeyColCount : 1;
+                                        const endIdx = startIdx + (config.unpivotGroupSize || 2);
+                                        return data.columns.slice(startIdx, endIdx).map(c => c.replace(/\.\d+$/, '').replace(/_\d+$/, '')).join(', ');
+                                    })()}
+                                    value={config.unpivotHeaderNames?.join(', ') || ''}
+                                    onChange={e => {
+                                        const names = e.target.value.split(',').map(n => n.trim()).filter(Boolean);
+                                        updateConfig({ unpivotHeaderNames: names });
+                                    }}
+                                    className="w-full px-2 py-1 text-[10px] text-slate-800 bg-white border border-slate-200 rounded"
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Custom Column Combine Toggle */}
+                <div className="border-b border-indigo-100 bg-indigo-50/30 px-3 py-1.5">
+                    <label className="flex items-center justify-between cursor-pointer">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                            <Merge size={12} className="inline mr-1 text-indigo-600" /> 多列文本拼接
+                            <span className="text-[9px] text-slate-500 font-normal">
+                                (将选定列的内容拼接存入新列)
+                            </span>
+                        </span>
+                        <button
+                            onClick={() => updateConfig({
+                                combineColumnsEnabled: !config.combineColumnsEnabled,
+                            })}
+                            className={`relative w-9 h-5 rounded-full transition-colors ${config.combineColumnsEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                        >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.combineColumnsEnabled ? 'left-4' : 'left-0.5'}`} />
+                        </button>
+                    </label>
+                    {config.combineColumnsEnabled && (
+                        <div className="mt-2 space-y-2 text-xs">
+                            <p className="text-[9px] text-indigo-600">
+                                <CheckCircle size={10} className="inline mr-1" /> 已启用：自动拼接所选列的内容存入新列
+                            </p>
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">选择要合并的源列:</span>
+                                <div className="max-h-28 overflow-y-auto p-1.5 bg-white rounded border border-slate-200">
+                                    <div className="flex flex-wrap gap-1">
+                                        {data.columns
+                                            .filter(col => col && !col.startsWith('_'))
+                                            .map(col => {
+                                                const isSelected = (config.combineSourceColumns || []).includes(col);
+                                                return (
+                                                    <button
+                                                        key={col}
+                                                        onClick={() => {
+                                                            const currentSources = config.combineSourceColumns || [];
+                                                            if (currentSources.includes(col)) {
+                                                                updateConfig({ combineSourceColumns: currentSources.filter(c => c !== col) });
+                                                            } else {
+                                                                updateConfig({ combineSourceColumns: [...currentSources, col] });
+                                                            }
+                                                        }}
+                                                        className={`px-1.5 py-0.5 text-[9px] rounded-md transition-all font-medium whitespace-nowrap ${isSelected
+                                                            ? 'bg-indigo-600 text-white'
+                                                            : 'bg-slate-100 text-slate-600 hover:bg-indigo-100'
+                                                            }`}
+                                                    >
+                                                        {col}
+                                                    </button>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                                <div className="flex justify-between mt-1 text-[9px] text-slate-400">
+                                    <span>已选择 {(config.combineSourceColumns || []).length} 列</span>
+                                    <button
+                                        onClick={() => updateConfig({ combineSourceColumns: [] })}
+                                        className="text-red-500 hover:text-red-600 font-medium"
+                                    >清空选择</button>
+                                </div>
+                            </div>
+                            
+                            {/* Target Name Input */}
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">合并后的新列名:</span>
+                                <input
+                                    type="text"
+                                    value={config.combineTargetColumnName || '合并配搭'}
+                                    onChange={e => updateConfig({ combineTargetColumnName: e.target.value })}
+                                    className="w-full px-2 py-1 text-[10px] text-slate-800 bg-white border border-slate-200 rounded font-medium focus:outline-none focus:border-indigo-400"
+                                    placeholder="例如：合并配搭"
+                                />
+                            </div>
+
+                            {/* Sort Alphabetically Toggle */}
+                            <label className="flex items-center justify-between cursor-pointer pt-1.5 border-t border-slate-200">
+                                <span className="text-[10px] text-slate-600 font-medium">值按字母排序：</span>
+                                <button
+                                    onClick={() => updateConfig({
+                                        combineSortAlphabetically: config.combineSortAlphabetically === false ? true : false,
+                                    })}
+                                    className={`relative w-8 h-4 rounded-full transition-colors ${config.combineSortAlphabetically !== false ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                                >
+                                    <span className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${config.combineSortAlphabetically !== false ? 'left-4' : 'left-0.5'}`} />
+                                </button>
+                            </label>
+                        </div>
+                    )}
+                </div>
+
+                {/* Custom Column Explode Toggle */}
+                <div className="border-b border-indigo-100 bg-indigo-50/30 px-3 py-1.5">
+                    <label className="flex items-center justify-between cursor-pointer">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                            <Columns size={12} className="inline mr-1 text-indigo-600" /> 多人合作拆分为独立行
+                            <span className="text-[9px] text-slate-500 font-normal">
+                                (将共同参与的成员拆开，用于独立统计)
+                            </span>
+                        </span>
+                        <button
+                            onClick={() => updateConfig({
+                                explodeEnabled: !config.explodeEnabled,
+                            })}
+                            className={`relative w-9 h-5 rounded-full transition-colors ${config.explodeEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                        >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.explodeEnabled ? 'left-4' : 'left-0.5'}`} />
+                        </button>
+                    </label>
+                    {config.explodeEnabled && (
+                        <div className="mt-2 space-y-2 text-xs">
+                            <p className="text-[9px] text-indigo-600">
+                                <CheckCircle size={10} className="inline mr-1" /> 已启用：将多人合作项目的各成员拆分为独立的行，便于计算个人工作量
+                            </p>
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">选择要拆分的源列:</span>
+                                <div className="max-h-28 overflow-y-auto p-1.5 bg-white rounded border border-slate-200">
+                                    <div className="flex flex-wrap gap-1">
+                                        {data.columns
+                                            .filter(col => col && !col.startsWith('_'))
+                                            .map(col => {
+                                                const isSelected = (config.explodeSourceColumns || []).includes(col);
+                                                return (
+                                                    <button
+                                                        key={col}
+                                                        onClick={() => {
+                                                            const currentSources = config.explodeSourceColumns || [];
+                                                            if (currentSources.includes(col)) {
+                                                                updateConfig({ explodeSourceColumns: currentSources.filter(c => c !== col) });
+                                                            } else {
+                                                                updateConfig({ explodeSourceColumns: [...currentSources, col] });
+                                                            }
+                                                        }}
+                                                        className={`px-1.5 py-0.5 text-[9px] rounded-md transition-all font-medium whitespace-nowrap ${isSelected
+                                                            ? 'bg-indigo-600 text-white'
+                                                            : 'bg-slate-100 text-slate-600 hover:bg-indigo-100'
+                                                            }`}
+                                                    >
+                                                        {col}
+                                                    </button>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                                <div className="flex justify-between mt-1 text-[9px] text-slate-400">
+                                    <span>已选择 {(config.explodeSourceColumns || []).length} 列</span>
+                                    <button
+                                        onClick={() => updateConfig({ explodeSourceColumns: [] })}
+                                        className="text-red-500 hover:text-red-600 font-medium"
+                                    >清空选择</button>
+                                </div>
+                            </div>
+                            
+                            {/* Target Name Input */}
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">拆分后的新列名:</span>
+                                <input
+                                    type="text"
+                                    value={config.explodeTargetColumnName || '拆分美工'}
+                                    onChange={e => updateConfig({ explodeTargetColumnName: e.target.value })}
+                                    className="w-full px-2 py-1 text-[10px] text-slate-800 bg-white border border-slate-200 rounded font-medium focus:outline-none focus:border-indigo-400"
+                                    placeholder="例如：拆分美工"
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Group & Flatten Horizontally Toggle */}
+                <div className="border-b border-indigo-100 bg-indigo-50/30 px-3 py-1.5">
+                    <label className="flex items-center justify-between cursor-pointer">
+                        <span className="text-[11px] font-medium text-slate-700 flex items-center gap-1.5">
+                            <RefreshCw size={12} className="inline mr-1 text-indigo-600" /> 成员明细与总计横向展开
+                            <span className="text-[9px] text-slate-500 font-normal">
+                                (按人员汇总，将其任务与总和横向排列)
+                            </span>
+                        </span>
+                        <button
+                            onClick={() => updateConfig({
+                                flattenEnabled: !config.flattenEnabled,
+                            })}
+                            className={`relative w-9 h-5 rounded-full transition-colors ${config.flattenEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                        >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.flattenEnabled ? 'left-4' : 'left-0.5'}`} />
+                        </button>
+                    </label>
+                    {config.flattenEnabled && (
+                        <div className="mt-2 space-y-2 text-xs">
+                            <p className="text-[9px] text-indigo-600">
+                                <CheckCircle size={10} className="inline mr-1" /> 已启用：按所选成员缩聚数据，将其任务明细和求和横向展开展示
+                            </p>
+                            
+                            {/* Key Column Selector */}
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">合并依据列 (如美工):</span>
+                                <select
+                                    value={config.flattenKeyColumn || ''}
+                                    onChange={e => updateConfig({ flattenKeyColumn: e.target.value })}
+                                    className="w-full px-2 py-1 text-[10px] text-slate-800 bg-white border border-slate-200 rounded font-medium focus:outline-none focus:border-indigo-400"
+                                >
+                                    <option value="">-- 选择列 --</option>
+                                    {data.columns
+                                        .filter(col => col && !col.startsWith('_'))
+                                        .map(col => (
+                                            <option key={col} value={col}>{col}</option>
+                                        ))}
+                                </select>
+                            </div>
+
+                            {/* Value Columns Selector */}
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">选择要展开的列 (如推广, 渲染量):</span>
+                                <div className="max-h-28 overflow-y-auto p-1.5 bg-white rounded border border-slate-200">
+                                    <div className="flex flex-wrap gap-1">
+                                        {data.columns
+                                            .filter(col => col && !col.startsWith('_') && col !== config.flattenKeyColumn)
+                                            .map(col => {
+                                                const isSelected = (config.flattenValueColumns || []).includes(col);
+                                                return (
+                                                    <button
+                                                        key={col}
+                                                        onClick={() => {
+                                                            const currentValues = config.flattenValueColumns || [];
+                                                            if (currentValues.includes(col)) {
+                                                                updateConfig({ flattenValueColumns: currentValues.filter(c => c !== col) });
+                                                            } else {
+                                                                updateConfig({ flattenValueColumns: [...currentValues, col] });
+                                                            }
+                                                        }}
+                                                        className={`px-1.5 py-0.5 text-[9px] rounded-md transition-all font-medium whitespace-nowrap ${isSelected
+                                                            ? 'bg-indigo-600 text-white'
+                                                            : 'bg-slate-100 text-slate-600 hover:bg-indigo-100'
+                                                            }`}
+                                                    >
+                                                        {col}
+                                                    </button>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                                <div className="flex justify-between mt-1 text-[9px] text-slate-400">
+                                    <span>已选择 {(config.flattenValueColumns || []).length} 列</span>
+                                    <button
+                                        onClick={() => updateConfig({ flattenValueColumns: [] })}
+                                        className="text-red-500 hover:text-red-600 font-medium"
+                                    >清空选择</button>
+                                </div>
+                            </div>
+
+                            {/* Sum Columns Selector */}
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 block font-medium">选择要求和汇总的指标列 (支持多选):</span>
+                                <div className="max-h-24 overflow-y-auto p-1.5 bg-white rounded border border-slate-200">
+                                    <div className="flex flex-wrap gap-1">
+                                        {data.columns
+                                            .filter(col => col && !col.startsWith('_') && col !== config.flattenKeyColumn)
+                                            .map(col => {
+                                                const isSelected = (config.flattenSumColumns || []).includes(col);
+                                                return (
+                                                    <button
+                                                        key={col}
+                                                        onClick={() => {
+                                                            const currentSums = config.flattenSumColumns || [];
+                                                            let newSums: string[];
+                                                            if (currentSums.includes(col)) {
+                                                                newSums = currentSums.filter(c => c !== col);
+                                                            } else {
+                                                                newSums = [...currentSums, col];
+                                                            }
+                                                            updateConfig({
+                                                                flattenSumColumns: newSums,
+                                                                flattenSumColumn: newSums[0] || ''
+                                                            });
+                                                        }}
+                                                        className={`px-1.5 py-0.5 text-[9px] rounded-md transition-all font-medium whitespace-nowrap ${isSelected
+                                                            ? 'bg-purple-600 text-white'
+                                                            : 'bg-slate-100 text-slate-600 hover:bg-purple-100'
+                                                            }`}
+                                                    >
+                                                        {col}
+                                                    </button>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                                <div className="flex justify-between mt-1 text-[9px] text-slate-400">
+                                    <span>已选择 {(config.flattenSumColumns || []).length} 列</span>
+                                    <button
+                                        onClick={() => updateConfig({ flattenSumColumns: [], flattenSumColumn: '' })}
+                                        className="text-red-500 hover:text-red-600 font-medium"
+                                    >清空选择</button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
 

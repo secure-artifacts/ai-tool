@@ -67,6 +67,15 @@ const normalizeSharedConfig = (config?: SharedConfig | null): SharedConfig => {
     merged.textGroupBins = (config?.textGroupBins ?? defaults.textGroupBins) || [];
     merged.dateBins = (config?.dateBins ?? defaults.dateBins) || [];
     merged.displayColumns = (config?.displayColumns ?? defaults.displayColumns) || [];
+    merged.unpivotHeaderNames = (config?.unpivotHeaderNames ?? defaults.unpivotHeaderNames) || [];
+    merged.combineSourceColumns = (config?.combineSourceColumns ?? defaults.combineSourceColumns) || [];
+    merged.explodeSourceColumns = (config?.explodeSourceColumns ?? defaults.explodeSourceColumns) || [];
+    merged.flattenValueColumns = (config?.flattenValueColumns ?? defaults.flattenValueColumns) || [];
+    let sumCols = (config?.flattenSumColumns ?? defaults.flattenSumColumns) || [];
+    if (sumCols.length === 0 && config?.flattenSumColumn) {
+        sumCols = [config.flattenSumColumn];
+    }
+    merged.flattenSumColumns = sumCols;
     merged.customFilters = (config?.customFilters ?? defaults.customFilters) || [];
     merged.numFilters = (config?.numFilters ?? defaults.numFilters) || [];
     merged.sortRules = (config?.sortRules ?? defaults.sortRules) || [];
@@ -2114,7 +2123,19 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                     </div>
                                 </div>
                             </>
-                            {view === 'grid' && <DataGrid data={filteredData!} />}
+                            {view === 'grid' && (
+                                <DataGrid 
+                                    data={
+                                        (() => {
+                                            const displayCols = activeConfig.displayColumns || [];
+                                            const validCols = filteredData!.columns.filter(col => displayCols.includes(col));
+                                            return validCols.length > 0
+                                                ? { ...filteredData!, columns: validCols }
+                                                : filteredData!;
+                                        })()
+                                    } 
+                                />
+                            )}
                             {view === 'dashboard' && <Dashboard data={filteredData!} onAddSnapshot={handleAddSnapshot} />}
                             {view === 'transpose' && <TransposePanel data={(transposedDataForSettings!) as SheetData} sharedConfig={deferredSharedConfig} />}
                             {view === 'gallery' && (

@@ -81,6 +81,204 @@ export function autoWrapText(text: string, width: number = 18): string {
   return cleanBlankLines(wrappedResult.join('\n'));
 }
 
+interface ListMarker {
+  index: number;
+  length: number;
+  markerText: string;
+  value: number;
+  type: 'number' | 'ordinal' | 'special';
+}
+
+const circleMap: Record<string, number> = {
+  '①': 1, '②': 2, '③': 3, '④': 4, '⑤': 5,
+  '⑥': 6, '⑦': 7, '⑧': 8, '⑨': 9, '⑩': 10,
+  '⑪': 11, '⑫': 12, '⑬': 13, '⑭': 14, '⑮': 15,
+  '⑯': 16, '⑰': 17, '⑱': 18, '⑲': 19, '⑳': 20
+};
+
+const ordinalMap: Record<string, number> = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+  sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  firstly: 1, secondly: 2, thirdly: 3, fourthly: 4, fifthly: 5,
+  sixthly: 6, seventhly: 7, eighthly: 8, ninthly: 9, tenthly: 10,
+  '1st': 1, '2nd': 2, '3rd': 3, '4th': 4, '5th': 5,
+  '6th': 6, '7th': 7, '8th': 8, '9th': 9, '10th': 10
+};
+
+export function arrangeParallelSentences(text: string): string {
+  text = (text || '').toString();
+  if (!text.trim()) return '';
+
+  const markers: ListMarker[] = [];
+
+  // 1. Match numeric list markers: e.g. "1.", "2)", "3-", etc.
+  const numRegex = /(?:^|[\s\n\r])(\d+)([\.\)\]\}\-\u2013\u2014]+)(?=[a-zA-Z\u4e00-\u9fff])/g;
+  let match;
+  while ((match = numRegex.exec(text)) !== null) {
+    const fullMatch = match[0];
+    const numStr = match[1];
+    const punct = match[2];
+    const val = parseInt(numStr, 10);
+    const markerText = numStr + punct;
+    const markerIndex = match.index + fullMatch.indexOf(markerText);
+    markers.push({
+      index: markerIndex,
+      length: markerText.length,
+      markerText,
+      value: val,
+      type: 'number'
+    });
+  }
+
+  // 2. Match circle numbers: ①, ②, ③...
+  const circleRegex = /(?:^|[\s\n\r])([①-⑳])(?=[a-zA-Z\u4e00-\u9fff])/g;
+  while ((match = circleRegex.exec(text)) !== null) {
+    const fullMatch = match[0];
+    const char = match[1];
+    const val = circleMap[char] || 0;
+    const markerIndex = match.index + fullMatch.indexOf(char);
+    markers.push({
+      index: markerIndex,
+      length: char.length,
+      markerText: char,
+      value: val,
+      type: 'special'
+    });
+  }
+
+  // 3. Match English ordinals
+  const ordRegex = /(?:^|[\s\n\r])\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|firstly|secondly|thirdly|fourthly|fifthly|sixthly|seventhly|eighthly|ninthly|tenthly|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b([\.\,\:\s\-]+)(?=[a-zA-Z\u4e00-\u9fff])/gi;
+  while ((match = ordRegex.exec(text)) !== null) {
+    const fullMatch = match[0];
+    const word = match[1];
+    const punct = match[2];
+    const val = ordinalMap[word.toLowerCase()] || 0;
+    const markerText = word + punct;
+    const markerIndex = match.index + fullMatch.indexOf(markerText);
+    markers.push({
+      index: markerIndex,
+      length: markerText.length,
+      markerText,
+      value: val,
+      type: 'ordinal'
+    });
+  }
+
+  // Sort markers by index
+  markers.sort((a, b) => a.index - b.index);
+
+  // Filter unique non-overlapping
+  const uniqueMarkers: ListMarker[] = [];
+  let lastEnd = -1;
+  for (const m of markers) {
+    if (m.index >= lastEnd) {
+      uniqueMarkers.push(m);
+      lastEnd = m.index + m.length;
+    }
+  }
+
+  if (uniqueMarkers.length < 2) {
+    return text;
+  }
+
+  // Sequence detection
+  const validChain: ListMarker[] = [];
+  for (const m of uniqueMarkers) {
+    if (validChain.length === 0) {
+      validChain.push(m);
+    } else {
+      const last = validChain[validChain.length - 1];
+      if (m.value > last.value && m.value - last.value <= 3) {
+        validChain.push(m);
+      }
+    }
+  }
+
+  if (validChain.length < 2) {
+    return text;
+  }
+
+  const intro = text.substring(0, validChain[0].index).trim();
+  const items: string[] = [];
+
+  for (let i = 0; i < validChain.length; i++) {
+    const current = validChain[i];
+    const next = validChain[i + 1];
+    const startIdx = current.index;
+    const endIdx = next ? next.index : text.length;
+    let itemText = text.substring(startIdx, endIdx);
+
+    if (!next) {
+      let splitIdx = -1;
+      const dnlMatch = itemText.match(/\r?\n\s*\r?\n/);
+      if (dnlMatch && dnlMatch.index !== undefined) {
+        splitIdx = dnlMatch.index;
+      } else {
+        const nlMatch = itemText.match(/\r?\n\s*(?=[A-Z]|If\b|Type\b|Amen\b|Share\b|Please\b|Put\b|Send\b)/);
+        if (nlMatch && nlMatch.index !== undefined) {
+          splitIdx = nlMatch.index;
+        } else {
+          const sentenceMatch = itemText.match(/[\.\!\?]\s+(?=[A-Z]|If\b|Type\b|Amen\b|Share\b|Please\b)/);
+          if (sentenceMatch && sentenceMatch.index !== undefined) {
+            splitIdx = sentenceMatch.index + 1;
+          }
+        }
+      }
+
+      if (splitIdx !== -1) {
+        const endingText = itemText.substring(splitIdx).trim();
+        itemText = itemText.substring(0, splitIdx).trim();
+        if (endingText) {
+          items.push(itemText);
+          items.push('__ENDING__:' + endingText);
+          continue;
+        }
+      }
+    }
+
+    items.push(itemText.trim());
+  }
+
+  const formattedItems: string[] = [];
+  let ending = '';
+
+  for (const item of items) {
+    if (item.startsWith('__ENDING__:')) {
+      ending = item.substring('__ENDING__:'.length);
+      continue;
+    }
+
+    let contentStart = 0;
+    let markerPart = '';
+
+    const markerStartRegex = /^(\d+[\.\)\]\}\-\u2013\u2014]+|[①-⑳]|(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|firstly|secondly|thirdly|fourthly|fifthly|sixthly|seventhly|eighthly|ninthly|tenthly|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)[\.\,\:\s\-]+)/i;
+    const mMatch = item.match(markerStartRegex);
+    if (mMatch) {
+      markerPart = mMatch[0];
+      contentStart = markerPart.length;
+    }
+
+    const itemContent = item.substring(contentStart).trim();
+    let normalizedMarker = markerPart;
+    if (markerPart) {
+      normalizedMarker = markerPart.replace(/\s+$/, '') + ' ';
+    }
+
+    formattedItems.push(normalizedMarker + itemContent);
+  }
+
+  let output = '';
+  if (intro) {
+    output += intro + '\n';
+  }
+  output += formattedItems.join('\n');
+  if (ending) {
+    output += '\n' + ending;
+  }
+
+  return output;
+}
+
 function splitThreeParts(text: string) {
   text = (text || '').toString().trim();
   if (!text) return { title: '', content: '', ending: '' };
@@ -516,6 +714,33 @@ export const processGrid = (
         newGrid[r][srcCol + 1] = val.trim() ? autoWrapText(val, width) : '';
       }
       if (!updatedCols.includes(srcCol + 1)) updatedCols.push(srcCol + 1);
+    }
+  }
+  else if (tool === ToolType.ArrangeParallel) {
+    // 自动排列排比句：结果输出到右侧相邻列
+    const sourceColsWithContent: Set<number> = new Set();
+    for (let c = minC; c <= maxC; c++) {
+      for (let r = minR; r <= maxR; r++) {
+        if ((newGrid[r]?.[c] || '').trim()) {
+          sourceColsWithContent.add(c);
+          break;
+        }
+      }
+    }
+
+    const sortedSrcCols = Array.from(sourceColsWithContent).sort((a, b) => b - a);
+    for (const srcCol of sortedSrcCols) {
+      for (let r = minR; r <= maxR; r++) {
+        if (!newGrid[r]) newGrid[r] = [];
+        const val = newGrid[r][srcCol] || '';
+        while (newGrid[r].length <= srcCol + 1) newGrid[r].push('');
+        newGrid[r][srcCol + 1] = val.trim() ? arrangeParallelSentences(val) : '';
+        if (clearSource) {
+          newGrid[r][srcCol] = '';
+        }
+      }
+      if (!updatedCols.includes(srcCol + 1)) updatedCols.push(srcCol + 1);
+      if (clearSource && !updatedCols.includes(srcCol)) updatedCols.push(srcCol);
     }
   }
   else {

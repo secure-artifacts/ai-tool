@@ -219,6 +219,7 @@ interface SplitCropEditorProps {
     onSetGrid: (rows: number, cols: number) => void;
     onSplit: () => void;
     onSplitAndNext?: () => void;
+    onBatchApplyAll?: () => void;
     onClose: () => void;
     showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
     splitQueueCurrent?: number;
@@ -228,7 +229,7 @@ interface SplitCropEditorProps {
 const SplitCropEditor: React.FC<SplitCropEditorProps> = ({
     imageUrl, imgRef, hLines, vLines,
     onHLinesChange, onVLinesChange,
-    onAutoDetect, onSetGrid, onSplit, onSplitAndNext, onClose, showToast,
+    onAutoDetect, onSetGrid, onSplit, onSplitAndNext, onBatchApplyAll, onClose, showToast,
     splitQueueCurrent, splitQueueTotal,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -616,6 +617,17 @@ const SplitCropEditor: React.FC<SplitCropEditorProps> = ({
                         >
                             ✂️ 拆分为 {totalCells} 张 → 下一张 ({(splitQueueCurrent || 0) + 1}/{splitQueueTotal})
                         </button>
+                        {onBatchApplyAll && (splitQueueTotal - (splitQueueCurrent || 0)) > 1 && (
+                            <button
+                                className="vkf-btn vkf-btn-success"
+                                onClick={onBatchApplyAll}
+                                disabled={hLines.length === 0 && vLines.length === 0}
+                                style={{ justifyContent: 'center', padding: '12px', fontSize: 13, fontWeight: 'bold' }}
+                                title="用当前裁切线统一拆分全部剩余图片（包括当前这张）"
+                            >
+                                ⚡ 统一拆分全部剩余 ({splitQueueTotal - (splitQueueCurrent || 0) + 1} 张)
+                            </button>
+                        )}
                     </>
                 ) : (
                     <button
@@ -2580,6 +2592,112 @@ ${instruction}
         await advanceToNextSplitImage();
     }, [showToast, splitHLines, splitVLines, splitQueueIndex, splitQueue.length, advanceToNextSplitImage]);
 
+    // --- Batch apply current split lines to ALL remaining images in queue (including current) ---
+    const batchApplyAllSplitLines = useCallback(async () => {
+        if (splitHLines.length === 0 && splitVLines.length === 0) {
+            showToast('请先添加裁切线', 'error');
+            return;
+        }
+
+        const remainingImages = splitQueue.slice(splitQueueIndex);
+        if (remainingImages.length === 0) {
+            showToast('没有剩余图片可拆分', 'error');
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+            showToast('浏览器不支持裁切', 'error');
+            return;
+        }
+
+        const hLinesSorted = [...splitHLines].sort((a, b) => a - b);
+        const vLinesSorted = [...splitVLines].sort((a, b) => a - b);
+
+        let totalNewFrames = 0;
+        const allNewFrames: FrameData[] = [];
+        const allNewGroups: Array<{ id: string; name: string; blobUrl: string; sourceDataUrl?: string; frameCount: number; duration: number; collapsed: boolean }> = [];
+
+        for (let i = 0; i < remainingImages.length; i++) {
+            const source = remainingImages[i];
+            try {
+                const img = await loadImageFromDataUrl(source.dataUrl);
+                const w = img.naturalWidth;
+                const h = img.naturalHeight;
+
+                const hBounds = [0, ...hLinesSorted.map(v => Math.round(v * h)), h];
+                const vBounds = [0, ...vLinesSorted.map(v => Math.round(v * w)), w];
+
+                const groupId = `custom_split_${Date.now()}_${i}`;
+                let panel = 0;
+
+                for (let row = 0; row < hBounds.length - 1; row++) {
+                    for (let col = 0; col < vBounds.length - 1; col++) {
+                        const sx = vBounds[col];
+                        const sy = hBounds[row];
+                        const sw = vBounds[col + 1] - sx;
+                        const sh = hBounds[row + 1] - sy;
+
+                        if (sw <= 0 || sh <= 0) continue;
+
+                        canvas.width = sw;
+                        canvas.height = sh;
+                        ctx.clearRect(0, 0, sw, sh);
+                        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+
+                        allNewFrames.push({
+                            index: panel,
+                            time: panel,
+                            dataUrl: canvas.toDataURL('image/jpeg', 0.95),
+                            selected: true,
+                            groupId,
+                        });
+                        panel++;
+                    }
+                }
+
+                if (panel > 0) {
+                    allNewGroups.push({
+                        id: groupId,
+                        name: `批量拆分 ${hLinesSorted.length + 1}×${vLinesSorted.length + 1} #${i + 1}`,
+                        blobUrl: '',
+                        sourceDataUrl: source.dataUrl,
+                        frameCount: panel,
+                        duration: panel,
+                        collapsed: false,
+                    });
+                    totalNewFrames += panel;
+                }
+            } catch {
+                showToast(`第 ${splitQueueIndex + i + 1} 张图片加载失败，已跳过`, 'error');
+            }
+        }
+
+        if (allNewFrames.length === 0) {
+            showToast('拆分结果为空，请调整裁切线', 'error');
+            return;
+        }
+
+        setFrames(prev => [
+            ...prev.map(frame => ({
+                ...frame,
+                selected: frame.groupId?.startsWith('custom_split_') ? frame.selected : false,
+            })),
+            ...allNewFrames,
+        ]);
+        setGroups(prev => [
+            ...prev.map(group => ({ ...group, collapsed: true })),
+            ...allNewGroups,
+        ]);
+
+        // Close editor
+        setSplitEditorImage(null);
+        setSplitQueue([]);
+        setSplitQueueIndex(0);
+        showToast(`✅ 批量拆分完成：${remainingImages.length} 张图 → ${totalNewFrames} 张`, 'success');
+    }, [showToast, splitHLines, splitVLines, splitQueue, splitQueueIndex]);
+
     // --- Gyazo Upload ---
     const uploadSelectedToGyazo = useCallback(async () => {
         const selected = frames.filter(f => f.selected);
@@ -3782,6 +3900,7 @@ ${instruction}
                         onSetGrid={setUniformGrid}
                         onSplit={splitWithCustomLines}
                         onSplitAndNext={splitAndAdvance}
+                        onBatchApplyAll={splitQueue.length > 1 ? batchApplyAllSplitLines : undefined}
                         onClose={() => { setSplitEditorImage(null); setSplitQueue([]); setSplitQueueIndex(0); }}
                         showToast={showToast}
                         splitQueueCurrent={splitQueue.length > 1 ? splitQueueIndex + 1 : undefined}

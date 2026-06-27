@@ -74,13 +74,25 @@ const FILE_TYPE_ICONS: Record<string, React.ReactNode> = {
 // ========== Helpers ==========
 
 function extractDriveFolderId(url: string): string | null {
-    const m = url.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
+    const trimmed = (url || '').trim();
+    if (!trimmed) return null;
+    
+    // Pattern 1: Direct plain folder ID (typically 25-33 chars, e.g. 1-sEKjY...)
+    if (/^[a-zA-Z0-9_-]{15,60}$/.test(trimmed)) {
+        return trimmed;
+    }
+    
+    // Pattern 2: URL containing /folders/ID
+    const m = trimmed.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
     if (m) return m[1];
+    
+    // Pattern 3: drive.google.com/open?id=xxx (if it's a folder)
     try {
-        const parsed = new URL(url);
+        const parsed = new URL(trimmed);
         const id = parsed.searchParams.get('id');
         if (id && /^[a-zA-Z0-9_-]{10,}$/.test(id)) return id;
     } catch { }
+    
     return null;
 }
 

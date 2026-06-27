@@ -132,16 +132,16 @@ export interface ModelDef {
 /** Google 引擎可选模型（共用 AIza Key） */
 export const GOOGLE_MODELS: ModelDef[] = [
     {
-        id: 'gemini-3.1-flash-preview-06-24',
-        label: 'Gemini 3.1 Flash',
+        id: 'gemini-3.5-flash',
+        label: 'Gemini 3.5 Flash',
         engine: 'google',
         estimatedRPM: 15,
         description: '最高质量，推荐',
         supportsVision: true,
     },
     {
-        id: 'gemini-3.1-lite-preview-06-24',
-        label: 'Gemini 3.1 Lite',
+        id: 'gemini-3.1-flash-lite',
+        label: 'Gemini 3.1 Flash Lite',
         engine: 'google',
         estimatedRPM: 15,
         description: '质量好，省额度',

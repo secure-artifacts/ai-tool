@@ -61,6 +61,7 @@ export const ImageCard = memo(function ImageCard({
 
     return (
         <div
+            data-marquee-id={rowId}
             className="relative group"
             style={{ width: size }}
             title={title || undefined}
@@ -68,6 +69,52 @@ export const ImageCard = memo(function ImageCard({
             onClick={(e) => {
                 if (!selectMode) return;
                 if ((e.target as HTMLElement).closest('button')) return;
+
+                // Instant DOM feedback
+                const container = e.currentTarget as HTMLElement;
+                const wrapper = container.querySelector('[data-card-wrapper]') as HTMLElement;
+                const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                const checkbox = container.querySelector('[data-card-checkbox]') as HTMLElement;
+                
+                if (wrapper) {
+                    const isSelectedNow = wrapper.classList.contains('ring-blue-500');
+                    if (isSelectedNow) {
+                        wrapper.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
+                        wrapper.style.border = highlight ? `${highlight.borderWidth}px solid ${highlight.color}` : '1px solid #e2e8f0';
+                        wrapper.style.boxShadow = highlight ? `0 0 ${highlight.borderWidth * 2}px ${highlight.color}80` : 'none';
+                        if (overlay) {
+                            overlay.classList.remove('opacity-100');
+                            overlay.classList.add('opacity-0');
+                        }
+                        if (checkbox) {
+                            checkbox.classList.remove('bg-blue-500', 'border-blue-500', 'text-white');
+                            checkbox.classList.add('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                            const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                            if (checkIcon) {
+                                checkIcon.classList.remove('opacity-100', 'scale-100');
+                                checkIcon.classList.add('opacity-0', 'scale-50');
+                            }
+                        }
+                    } else {
+                        wrapper.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
+                        wrapper.style.border = '2px solid #3b82f6';
+                        wrapper.style.boxShadow = 'none';
+                        if (overlay) {
+                            overlay.classList.remove('opacity-0');
+                            overlay.classList.add('opacity-100');
+                        }
+                        if (checkbox) {
+                            checkbox.classList.add('bg-blue-500', 'border-blue-500', 'text-white');
+                            checkbox.classList.remove('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                            const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                            if (checkIcon) {
+                                checkIcon.classList.remove('opacity-0', 'scale-50');
+                                checkIcon.classList.add('opacity-100', 'scale-100');
+                            }
+                        }
+                    }
+                }
+
                 onSelect(rowId);
             }}
             onDoubleClick={(e) => onDoubleClick(e, rowId, link)}
@@ -75,6 +122,7 @@ export const ImageCard = memo(function ImageCard({
             onDragStart={onDragStart ? (e) => onDragStart(e, row, imageUrl) : undefined}
         >
             <div
+                data-card-wrapper
                 className={`relative overflow-hidden rounded-lg bg-slate-50 transition-all ${isSelected ? 'ring-2 ring-blue-500 ring-offset-1' : ''}`}
                 style={{
                     height: size,
@@ -90,16 +138,71 @@ export const ImageCard = memo(function ImageCard({
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                 />
 
+                {/* Selection overlay with checkmark badge */}
+                <div
+                    data-selection-overlay
+                    className={`absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none flex items-center justify-center transition-opacity duration-150 ${selectMode && isSelected ? 'opacity-100' : 'opacity-0'}`}
+                >
+                    <div className="bg-white/90 rounded-full p-1 shadow-sm">
+                        <Check size={16} className="text-blue-600" strokeWidth={3} />
+                    </div>
+                </div>
+
                 {/* Selection checkbox - clickable in select mode */}
                 {selectMode && (
                     <button
-                        onClick={(e) => { e.stopPropagation(); onToggleSelect(rowId); }}
+                        data-card-checkbox
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            // Toggle selection instantly in DOM
+                            const container = e.currentTarget.closest('[data-marquee-id]') as HTMLElement;
+                            if (container) {
+                                const wrapper = container.querySelector('[data-card-wrapper]') as HTMLElement;
+                                const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                const checkbox = e.currentTarget;
+                                const isSelectedNow = wrapper?.classList.contains('ring-blue-500');
+                                if (wrapper) {
+                                    if (isSelectedNow) {
+                                        wrapper.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                        wrapper.style.border = highlight ? `${highlight.borderWidth}px solid ${highlight.color}` : '1px solid #e2e8f0';
+                                        wrapper.style.boxShadow = highlight ? `0 0 ${highlight.borderWidth * 2}px ${highlight.color}80` : 'none';
+                                        if (overlay) {
+                                            overlay.classList.remove('opacity-100');
+                                            overlay.classList.add('opacity-0');
+                                        }
+                                        checkbox.classList.remove('bg-blue-500', 'border-blue-500', 'text-white');
+                                        checkbox.classList.add('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                        const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                        if (checkIcon) {
+                                            checkIcon.classList.remove('opacity-100', 'scale-100');
+                                            checkIcon.classList.add('opacity-0', 'scale-50');
+                                        }
+                                    } else {
+                                        wrapper.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                        wrapper.style.border = '2px solid #3b82f6';
+                                        wrapper.style.boxShadow = 'none';
+                                        if (overlay) {
+                                            overlay.classList.remove('opacity-0');
+                                            overlay.classList.add('opacity-100');
+                                        }
+                                        checkbox.classList.add('bg-blue-500', 'border-blue-500', 'text-white');
+                                        checkbox.classList.remove('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                        const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                        if (checkIcon) {
+                                            checkIcon.classList.remove('opacity-0', 'scale-50');
+                                            checkIcon.classList.add('opacity-100', 'scale-100');
+                                        }
+                                    }
+                                }
+                            }
+                            onToggleSelect(rowId);
+                        }}
                         className={`absolute top-1 left-1 z-20 w-6 h-6 rounded border-2 flex items-center justify-center transition-all cursor-pointer hover:scale-110 ${isSelected
                             ? 'bg-blue-500 border-blue-500 text-white'
                             : 'bg-white/90 border-slate-400 hover:border-blue-400'
                             }`}
                     >
-                        {isSelected && <Check size={14} />}
+                        <Check size={14} className={`transition-all duration-100 ${isSelected ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} data-card-check-icon />
                     </button>
                 )}
 

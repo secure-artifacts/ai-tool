@@ -69,6 +69,15 @@ const normalizeSharedConfig = (config?: SharedConfig | null): SharedConfig => {
     merged.textGroupBins = safeArray(config?.textGroupBins, defaults.textGroupBins);
     merged.dateBins = safeArray(config?.dateBins, defaults.dateBins);
     merged.displayColumns = safeArray(config?.displayColumns, defaults.displayColumns);
+    merged.unpivotHeaderNames = safeArray(config?.unpivotHeaderNames, defaults.unpivotHeaderNames || []);
+    merged.combineSourceColumns = safeArray(config?.combineSourceColumns, defaults.combineSourceColumns || []);
+    merged.explodeSourceColumns = safeArray(config?.explodeSourceColumns, defaults.explodeSourceColumns || []);
+    merged.flattenValueColumns = safeArray(config?.flattenValueColumns, defaults.flattenValueColumns || []);
+    let sumCols = safeArray(config?.flattenSumColumns, defaults.flattenSumColumns || []);
+    if (sumCols.length === 0 && config?.flattenSumColumn) {
+        sumCols = [config.flattenSumColumn];
+    }
+    merged.flattenSumColumns = sumCols;
     merged.customFilters = safeArray(config?.customFilters, defaults.customFilters).map((filter, index) => ({
         id: filter?.id || `filter-${Date.now()}-${index}`,
         column: filter?.column || '',
@@ -233,7 +242,13 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
 
 
     const [view, setView] = useState<'grid' | 'dashboard' | 'transpose' | 'gallery' | 'align' | 'image-formula' | 'reference-library'>(state.view === 'data-pipeline' ? 'grid' : (state.view || 'grid'));
+    const [dataMode, setDataMode] = useState<'raw' | 'processed'>('processed');
+    const [dismissedPresetBanner, setDismissedPresetBanner] = useState(false);
     const isMediaToolMode = view === 'grid' || view === 'dashboard' || view === 'transpose' || view === 'gallery';
+
+    useEffect(() => {
+        setDismissedPresetBanner(false);
+    }, [fileName, currentSheetName]);
     const lastMediaViewRef = useRef<'grid' | 'dashboard' | 'transpose' | 'gallery'>('grid');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [loadProgress, setLoadProgress] = useState<string | null>(null); // Progress message for large file loading
@@ -1030,15 +1045,298 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         setTimeout(() => parseWork(), 0);
     }, [workbook, currentSheetName, isMultiSheetMode, selectedSheets, fileName, getSheetCacheKey, sourceUrl, lastRefreshedAt]);
 
+    // ==================== Unpivot (Flatten Repeating Column Groups) Logic ====================
+    const unpivotedData = useMemo(() => {
+        if (!data || !activeConfig.unpivotEnabled) {
+            return data;
+        }
+
+        const groupSize = activeConfig.unpivotGroupSize || 2;
+        const keyColCount = Math.max(0, activeConfig.unpivotKeyColCount ?? 1);
+        const customHeaders = activeConfig.unpivotHeaderNames || [];
+
+        // Separate data columns (to be folded) from metadata columns (like _originalRowIndex, _sourceSheet)
+        const metadataColumns = data.columns.filter(col => col.startsWith('_') || col.startsWith('__'));
+        const cleanColumns = data.columns.filter(col => !col.startsWith('_') && !col.startsWith('__'));
+
+        // Key columns are the first N clean columns (e.g. ['推广'])
+        const keyColumns = cleanColumns.slice(0, keyColCount);
+        
+        // Find the index range of repeating columns using regex to avoid folding trailing non-repeating columns (like 渲染人员, 渲染量)
+        const anySuffixRegex = /(?:\d+|_\s*\d+|\.\s*\d+)$/;
+        let maxSuffixIndex = -1;
+        cleanColumns.forEach((col, idx) => {
+            if (col && anySuffixRegex.test(col)) {
+                maxSuffixIndex = idx;
+            }
+        });
+
+        let foldColCount = cleanColumns.length - keyColCount;
+        if (maxSuffixIndex >= 0) {
+            const indexAfterLastRepeating = maxSuffixIndex + 1;
+            const computedFoldColCount = indexAfterLastRepeating - keyColCount;
+            const remainder = computedFoldColCount % groupSize;
+            foldColCount = remainder === 0 ? computedFoldColCount : computedFoldColCount + (groupSize - remainder);
+            foldColCount = Math.min(foldColCount, cleanColumns.length - keyColCount);
+        }
+
+        // Foldable columns are the columns after key columns that belong to the repeating groups
+        const foldableColumns = cleanColumns.slice(keyColCount, keyColCount + foldColCount);
+        // Trailing columns are columns after the repeating groups (e.g. ['渲染人员', '渲染量'])
+        const trailingColumns = cleanColumns.slice(keyColCount + foldColCount);
+
+        // Determine consolidated column headers for foldable columns
+        const foldedValueColNames = customHeaders.length === groupSize
+            ? customHeaders
+            : foldableColumns.slice(0, groupSize).map(col => {
+                // Clean up duplicate suffixes like ".1", "_1", "1"
+                return col.replace(/\.\d+$/, '').replace(/_\d+$/, '').replace(/\d+$/, '').trim() || '未命名';
+            });
+
+        // The final columns will be [Key Columns] + [Consolidated Value Columns] + [Trailing Columns]
+        const columns = [...keyColumns, ...foldedValueColNames, ...trailingColumns];
+
+        const newRows: any[] = [];
+        const totalFoldableCols = foldableColumns.length;
+
+        for (const row of data.rows) {
+            for (let g = 0; g < totalFoldableCols; g += groupSize) {
+                const groupRow: any = {};
+                
+                // 1. Copy key columns (constant on all folded rows)
+                for (const keyCol of keyColumns) {
+                    groupRow[keyCol] = row[keyCol];
+                }
+
+                // 2. Copy repeating column group
+                let hasValue = false;
+                for (let i = 0; i < groupSize; i++) {
+                    const colIdx = g + i;
+                    const targetColName = foldedValueColNames[i];
+                    if (colIdx < totalFoldableCols) {
+                        const originalColName = foldableColumns[colIdx];
+                        const val = row[originalColName];
+                        groupRow[targetColName] = val;
+                        if (val !== undefined && val !== null && val !== '') {
+                            hasValue = true;
+                        }
+                    } else {
+                        groupRow[targetColName] = null;
+                    }
+                }
+
+                // 3. Copy trailing columns
+                for (const trailingCol of trailingColumns) {
+                    groupRow[trailingCol] = row[trailingCol];
+                }
+
+                // If this group has at least one valid value, copy metadata and push row
+                if (hasValue) {
+                    for (const metaCol of metadataColumns) {
+                        groupRow[metaCol] = row[metaCol];
+                    }
+                    newRows.push(groupRow);
+                }
+            }
+        }
+
+        return {
+            ...data,
+            columns,
+            rows: newRows
+        };
+    }, [data, activeConfig.unpivotEnabled, activeConfig.unpivotGroupSize, activeConfig.unpivotKeyColCount, activeConfig.unpivotHeaderNames]);
+
+    // ==================== Combine Columns Logic ====================
+    const combinedData = useMemo(() => {
+        const baseData = unpivotedData;
+        if (!baseData || !activeConfig.combineColumnsEnabled || !activeConfig.combineSourceColumns || activeConfig.combineSourceColumns.length === 0) {
+            return baseData;
+        }
+
+        const sources = activeConfig.combineSourceColumns;
+        const targetName = activeConfig.combineTargetColumnName || '合并配搭';
+        const sortAlphabetically = activeConfig.combineSortAlphabetically !== false;
+
+        // Add the new target column to columns list if it's not already there
+        const columns = baseData.columns.includes(targetName)
+            ? baseData.columns
+            : [...baseData.columns, targetName];
+
+        const newRows = baseData.rows.map(row => {
+            const vals = sources
+                .map(col => String(row[col] || '').trim())
+                .filter(v => v !== '' && v !== '/'); // filter out empty/invalid names
+
+            if (sortAlphabetically) {
+                vals.sort((a, b) => a.localeCompare(b, 'zh-CN'));
+            }
+
+            const combinedVal = vals.length > 0 ? vals.join(' & ') : '未分配';
+            return {
+                ...row,
+                [targetName]: combinedVal
+            };
+        });
+
+        return {
+            ...baseData,
+            columns,
+            rows: newRows
+        };
+    }, [unpivotedData, activeConfig.combineColumnsEnabled, activeConfig.combineSourceColumns, activeConfig.combineTargetColumnName, activeConfig.combineSortAlphabetically]);
+
+    // ==================== Explode Columns Logic ====================
+    const explodedData = useMemo(() => {
+        const baseData = combinedData;
+        if (!baseData || !activeConfig.explodeEnabled || !activeConfig.explodeSourceColumns || activeConfig.explodeSourceColumns.length === 0) {
+            return baseData;
+        }
+
+        const sources = activeConfig.explodeSourceColumns;
+        const targetName = activeConfig.explodeTargetColumnName || '拆分美工';
+
+        // Add the new target column to columns list if it's not already there
+        const columns = baseData.columns.includes(targetName)
+            ? baseData.columns
+            : [...baseData.columns, targetName];
+
+        const newRows: any[] = [];
+        for (const row of baseData.rows) {
+            // Find all unique, non-empty values in the source columns for this row
+            const vals = Array.from(new Set(
+                sources
+                    .map(col => String(row[col] || '').trim())
+                    .filter(v => v !== '' && v !== '/')
+            ));
+
+            if (vals.length === 0) {
+                newRows.push({
+                    ...row,
+                    [targetName]: '未分配'
+                });
+            } else {
+                for (const val of vals) {
+                    newRows.push({
+                        ...row,
+                        [targetName]: val
+                    });
+                }
+            }
+        }
+
+        return {
+            ...baseData,
+            columns,
+            rows: newRows
+        };
+    }, [combinedData, activeConfig.explodeEnabled, activeConfig.explodeSourceColumns, activeConfig.explodeTargetColumnName]);
+
+    // ==================== Flatten Rows Horizontally Logic ====================
+    const flattenedData = useMemo(() => {
+        const baseData = explodedData;
+        if (!baseData || !activeConfig.flattenEnabled || !activeConfig.flattenKeyColumn || !activeConfig.flattenValueColumns || activeConfig.flattenValueColumns.length === 0) {
+            return baseData;
+        }
+
+        const keyCol = activeConfig.flattenKeyColumn;
+        const valCols = activeConfig.flattenValueColumns;
+        const sumCols = activeConfig.flattenSumColumns || [];
+
+        // Group the rows by the keyColumn
+        const groupsMap = new Map<string, any[]>();
+        for (const row of baseData.rows) {
+            const keyVal = String(row[keyCol] || '').trim();
+            if (keyVal === '' || keyVal === '/') continue; // skip empty/invalid key values
+            if (!groupsMap.has(keyVal)) {
+                groupsMap.set(keyVal, []);
+            }
+            groupsMap.get(keyVal)!.push(row);
+        }
+
+        // Determine the maximum number of items in any group to know how many horizontal columns we need
+        let maxItems = 0;
+        groupsMap.forEach(groupRows => {
+            if (groupRows.length > maxItems) {
+                maxItems = groupRows.length;
+            }
+        });
+
+        // Sum Column Headers placed after keyColumn if specified
+        const finalSumColHeaders: string[] = [];
+        const validSumCols = sumCols.filter(col => baseData.columns.includes(col));
+        for (const sumCol of validSumCols) {
+            const header = `${sumCol}总计`;
+            finalSumColHeaders.push(header);
+        }
+
+        // Construct the new column headers
+        // Header starts with the keyColumn, then the sum total headers, and then details
+        const columns = [keyCol, ...finalSumColHeaders];
+        for (let i = 1; i <= maxItems; i++) {
+            for (const colName of valCols) {
+                columns.push(`${colName}${i}`);
+            }
+        }
+
+        // Build the new flattened rows
+        const newRows: any[] = [];
+        groupsMap.forEach((groupRows, keyVal) => {
+            const newRow: any = { [keyCol]: keyVal };
+            
+            // Track sums and whether they have valid numbers for each sum column
+            const sums: Record<string, { total: number; hasValue: boolean }> = {};
+            for (const colName of validSumCols) {
+                sums[colName] = { total: 0, hasValue: false };
+            }
+
+            groupRows.forEach((row, idx) => {
+                const suffix = idx + 1;
+                for (const colName of valCols) {
+                    const cellVal = row[colName];
+                    newRow[`${colName}${suffix}`] = cellVal;
+
+                    if (sums[colName]) {
+                        const parsedNum = parseFloat(String(cellVal || '0'));
+                        if (!isNaN(parsedNum)) {
+                            sums[colName].total += parsedNum;
+                            sums[colName].hasValue = true;
+                        }
+                    }
+                }
+            });
+
+            // Fill in missing values for columns up to maxItems to ensure all properties exist
+            for (let i = groupRows.length + 1; i <= maxItems; i++) {
+                for (const colName of valCols) {
+                    newRow[`${colName}${i}`] = '';
+                }
+            }
+
+            for (const sumCol of validSumCols) {
+                const header = `${sumCol}总计`;
+                newRow[header] = sums[sumCol].hasValue ? sums[sumCol].total : 0;
+            }
+
+            newRows.push(newRow);
+        });
+
+        return {
+            ...baseData,
+            columns,
+            rows: newRows
+        };
+    }, [explodedData, activeConfig.flattenEnabled, activeConfig.flattenKeyColumn, activeConfig.flattenValueColumns, activeConfig.flattenSumColumns]);
+
     // ==================== Deduplication Logic ====================
     const { filteredData, duplicateStats } = useMemo(() => {
         // If dedup is off, no column selected, or column doesn't exist in data, return original
-        if (!data || !dedupColumn || dedupMode === 'off' || !data.columns.includes(dedupColumn)) {
-            return { filteredData: data, duplicateStats: { total: 0, unique: 0, duplicates: 0 } };
+        if (!flattenedData || !dedupColumn || dedupMode === 'off' || !flattenedData.columns.includes(dedupColumn)) {
+            return { filteredData: flattenedData, duplicateStats: { total: 0, unique: 0, duplicates: 0 } };
         }
 
         const seen = new Map<string, number[]>(); // value -> row indices
-        const rows = data.rows;
+        const rows = flattenedData.rows;
 
         // First pass: group rows by the dedup column value
         rows.forEach((row, index) => {
@@ -1092,14 +1390,14 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
         }
 
         return {
-            filteredData: { ...data, rows: filteredRows },
+            filteredData: { ...flattenedData, rows: filteredRows },
             duplicateStats: {
                 total: rows.length,
                 unique: seen.size,
                 duplicates: duplicateCount
             }
         };
-    }, [data, dedupColumn, dedupMode]);
+    }, [flattenedData, dedupColumn, dedupMode]);
 
     // ==================== Transpose Data Logic ====================
     // This is used to show correct columns in UnifiedSettingsPanel when transpose is enabled
@@ -1203,6 +1501,188 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
             };
         }
     }, [filteredData, activeConfig.transposeData, activeConfig.mergeTransposeColumns]);
+
+    const handleRawCellChange = useCallback((rowIndex: number, column: string, newValue: string) => {
+        setData(prev => {
+            if (!prev) return null;
+            const updatedRows = [...prev.rows];
+            updatedRows[rowIndex] = {
+                ...updatedRows[rowIndex],
+                [column]: newValue
+            };
+            const updatedData = {
+                ...prev,
+                rows: updatedRows
+            };
+            
+            // Sync with current snapshot ref
+            if (parsedSnapshotRef.current.parsedData && parsedSnapshotRef.current.parsedData.fileName === prev.fileName) {
+                parsedSnapshotRef.current.parsedData = updatedData;
+            }
+            // Sync with cache map
+            if (parsedSnapshotRef.current.parsedCacheKey) {
+                parsedSheetCacheRef.current.set(parsedSnapshotRef.current.parsedCacheKey, updatedData);
+            }
+            
+            return updatedData;
+        });
+    }, []);
+
+    const canApplyArtistPreset = useMemo(() => {
+        if (dismissedPresetBanner || !data || !data.columns || data.columns.length === 0) return false;
+        if (activeConfig.flattenEnabled) return false;
+
+        const colSuffixRegex = /(?:1|_\s*1|\.\s*1)$/;
+        const group1Cols = data.columns.filter(col => col && colSuffixRegex.test(col) && !col.startsWith('_'));
+        const hasRepeating = group1Cols.length > 0;
+
+        const cols = data.columns;
+        const hasArtist = cols.some(col => col && (col.includes('美工') || col.includes('人员') || col.includes('员工') || col.includes('画师') || col.includes('设计') || col.includes('制作') || col.includes('剪辑')) && !col.includes('渲染') && !col.startsWith('_'));
+        const hasPromo = cols.some(col => col && (col.includes('推广') || col.includes('主管') || col.includes('运营') || col.includes('组长')) && !col.startsWith('_'));
+        const hasTask = cols.some(col => col && (col.includes('渲染') || col.includes('任务') || col.includes('数量') || col.includes('专业') || col.includes('专页') || col.includes('工作') || col.includes('需求') || col.includes('量')) && !col.startsWith('_'));
+
+        return !!(hasArtist && (hasPromo || hasTask || hasRepeating));
+    }, [dismissedPresetBanner, data, activeConfig.flattenEnabled]);
+
+    const handleApplyArtistPreset = useCallback(() => {
+        if (!data || !data.columns) return;
+
+        const colSuffixRegex = /(?:1|_\s*1|\.\s*1)$/;
+        const group1Cols = data.columns.filter(col => col && colSuffixRegex.test(col) && !col.startsWith('_'));
+        
+        let useUnpivot = false;
+        let groupSize = 2;
+        let keyColCount = 1;
+        let unpivotHeaders: string[] = [];
+        
+        if (group1Cols.length > 0) {
+            useUnpivot = true;
+            groupSize = group1Cols.length;
+            const firstRepeatingIndex = data.columns.findIndex(col => col && colSuffixRegex.test(col));
+            keyColCount = firstRepeatingIndex >= 0 ? firstRepeatingIndex : 0;
+            unpivotHeaders = group1Cols.map(col => col.replace(colSuffixRegex, '').trim());
+        }
+
+        const anySuffixRegex = /(?:\d+|_\s*\d+|\.\s*\d+)$/;
+        let maxSuffixIndex = -1;
+        data.columns.forEach((col, idx) => {
+            if (col && anySuffixRegex.test(col)) {
+                maxSuffixIndex = idx;
+            }
+        });
+        let foldColCount = data.columns.length - keyColCount;
+        if (maxSuffixIndex >= 0) {
+            const indexAfterLastRepeating = maxSuffixIndex + 1;
+            const computedFoldColCount = indexAfterLastRepeating - keyColCount;
+            const remainder = computedFoldColCount % groupSize;
+            foldColCount = remainder === 0 ? computedFoldColCount : computedFoldColCount + (groupSize - remainder);
+            foldColCount = Math.min(foldColCount, data.columns.length - keyColCount);
+        }
+        const trailingCols = useUnpivot ? data.columns.slice(keyColCount + foldColCount) : [];
+
+        const activeCols = useUnpivot 
+            ? [...data.columns.slice(0, keyColCount), ...unpivotHeaders, ...trailingCols]
+            : data.columns;
+
+        const artistCols = activeCols.filter(col => col && (col.includes('美工') || col.includes('人员') || col.includes('员工') || col.includes('画师') || col.includes('设计') || col.includes('制作') || col.includes('剪辑')) && !col.includes('渲染') && !col.startsWith('_'));
+        const promoCols = activeCols.filter(col => col && (col.includes('推广') || col.includes('主管') || col.includes('运营') || col.includes('组长')) && !col.startsWith('_'));
+        const taskCols = activeCols.filter(col => col && (col.includes('渲染') || col.includes('任务') || col.includes('数量') || col.includes('专业') || col.includes('专页') || col.includes('工作') || col.includes('需求') || col.includes('量')) && !col.startsWith('_'));
+
+        if (artistCols.length === 0) {
+            alert('未在当前表格中找到包含“美工/人员/员工/制作/剪辑”等字样的列！');
+            return;
+        }
+
+        const explodeTargetName = '美工';
+        const firstPromo = promoCols.length > 0 ? promoCols[0] : (activeCols.filter(c => !artistCols.includes(c))[0] || '');
+        
+        const valueCols = [];
+        if (firstPromo) valueCols.push(firstPromo);
+        taskCols.forEach(tc => {
+            if (tc && !valueCols.includes(tc)) valueCols.push(tc);
+        });
+
+        const sumTaskCols = taskCols.filter(col => col && (col.includes('数') || col.includes('量') || col.includes('额') || col.includes('值')) && !col.includes('人员') && !col.includes('姓名') && !col.includes('渲染'));
+        const primarySumCol = sumTaskCols[0] || '';
+
+        const newConfig: SharedConfig = {
+            ...activeConfig,
+            unpivotEnabled: useUnpivot,
+            unpivotGroupSize: groupSize,
+            unpivotKeyColCount: keyColCount,
+            unpivotHeaderNames: unpivotHeaders,
+            
+            transposeData: false,
+            combineColumnsEnabled: false,
+            
+            explodeEnabled: true,
+            explodeSourceColumns: artistCols,
+            explodeTargetColumnName: explodeTargetName,
+            
+            flattenEnabled: true,
+            flattenKeyColumn: explodeTargetName,
+            flattenValueColumns: valueCols,
+            flattenSumColumn: primarySumCol,
+            flattenSumColumns: sumTaskCols,
+            displayColumns: []
+        };
+
+        updateActiveConfig(newConfig);
+        setDataMode('processed');
+        setView('grid');
+    }, [data, activeConfig, updateActiveConfig]);
+
+    const handleApplyRenderStaffPreset = useCallback(() => {
+        if (!data || !data.columns) return;
+
+        // For render staff stats, we DO NOT unpivot the repeating artist columns
+        const activeCols = data.columns;
+
+        const renderCols = activeCols.filter(col => col && col.includes('渲染人员') && !col.startsWith('_'));
+        const primaryRenderCol = renderCols.length > 0 ? renderCols[0] : (activeCols.filter(c => c.includes('人员'))[0] || '渲染人员');
+
+        const promoCols = activeCols.filter(col => col && (col.includes('推广') || col.includes('主管') || col.includes('运营') || col.includes('组长')) && !col.startsWith('_'));
+        // For render staff, we only care about rendering-related task columns (excluding artist columns and requirement columns)
+        const taskCols = activeCols.filter(col => col && col.includes('渲染量') && !col.startsWith('_'));
+
+        const firstPromo = promoCols.length > 0 ? promoCols[0] : '';
+        const valueCols = [];
+        if (firstPromo) valueCols.push(firstPromo);
+        
+        taskCols.forEach(tc => {
+            if (tc && tc !== primaryRenderCol && !valueCols.includes(tc)) valueCols.push(tc);
+        });
+
+        // Sum columns is ONLY rendering-related values (excluding names/text)
+        const sumTaskCols = taskCols.filter(col => col && (col.includes('数') || col.includes('量') || col.includes('额') || col.includes('值')) && !col.includes('人员') && !col.includes('姓名'));
+        const primarySumCol = sumTaskCols[0] || '渲染量';
+
+        const newConfig: SharedConfig = {
+            ...activeConfig,
+            unpivotEnabled: false,
+            unpivotGroupSize: 2,
+            unpivotKeyColCount: 1,
+            unpivotHeaderNames: [],
+            
+            transposeData: false,
+            combineColumnsEnabled: false,
+            
+            explodeEnabled: true,
+            explodeSourceColumns: [primaryRenderCol],
+            explodeTargetColumnName: '渲染人员',
+            
+            flattenEnabled: true,
+            flattenKeyColumn: '渲染人员',
+            flattenValueColumns: valueCols,
+            flattenSumColumn: primarySumCol,
+            flattenSumColumns: sumTaskCols,
+            displayColumns: []
+        };
+
+        updateActiveConfig(newConfig);
+        setDataMode('processed');
+        setView('grid');
+    }, [data, activeConfig, updateActiveConfig]);
 
     const handleRefresh = async () => {
         if (!sourceUrl) return;
@@ -1852,6 +2332,43 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                 })()}
                             </div>
 
+                            {/* Data Mode Switcher */}
+                            <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-[10px] border border-slate-200 bg-slate-100/85 shrink-0 mr-2">
+                                <button
+                                    onClick={() => setDataMode('processed')}
+                                    className={`px-3 py-1 text-xs font-semibold rounded-[10px] transition-all flex items-center gap-1.5 ${dataMode === 'processed' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-200/50 font-normal'}`}
+                                >
+                                    📊 统计结果
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setDataMode('raw');
+                                        setView('grid');
+                                    }}
+                                    className={`px-3 py-1 text-xs font-semibold rounded-[10px] transition-all flex items-center gap-1.5 ${dataMode === 'raw' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-indigo-700 font-bold' : 'text-slate-600 hover:bg-slate-200/50 font-normal'}`}
+                                >
+                                    📝 原始数据 (双击编辑)
+                                </button>
+                            </div>
+
+                            {/* Preset Switcher (only shown when in processed mode and preset is applicable) */}
+                            {dataMode === 'processed' && data && data.columns && data.columns.some(col => col && col.includes('美工')) && (
+                                <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-[10px] border border-slate-200 bg-slate-100/85 shrink-0 mr-2">
+                                    <button
+                                        onClick={handleApplyArtistPreset}
+                                        className={`px-2.5 py-1 text-xs font-medium rounded-[10px] transition-all flex items-center gap-1 ${activeConfig.flattenEnabled && activeConfig.flattenKeyColumn === '美工' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    >
+                                        🎨 美工维度
+                                    </button>
+                                    <button
+                                        onClick={handleApplyRenderStaffPreset}
+                                        className={`px-2.5 py-1 text-xs font-medium rounded-[10px] transition-all flex items-center gap-1 ${activeConfig.flattenEnabled && activeConfig.flattenKeyColumn === '渲染人员' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-indigo-700 font-semibold' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    >
+                                        ⚡ 渲染人员维度
+                                    </button>
+                                </div>
+                            )}
+
                             {/* View Switcher (Path part) */}
                             <div className="flex items-center gap-1.5 px-2 py-0.5 shrink-0 whitespace-nowrap">
                                 <div className="hidden lg:flex items-center px-1.5 text-[10px] font-medium text-slate-500">视图</div>
@@ -1864,23 +2381,26 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                                     <Table size={14} /> <span className="hidden sm:inline">网格</span>
                                 </button>
                                 <button
-                                    onClick={() => setView('dashboard')}
-                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'dashboard' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
-                                    data-tip="仪表盘"
+                                    onClick={() => dataMode === 'processed' && setView('dashboard')}
+                                    disabled={dataMode === 'raw'}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${dataMode === 'raw' ? 'opacity-50 cursor-not-allowed text-slate-400' : ''} ${view === 'dashboard' && dataMode === 'processed' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip={dataMode === 'raw' ? "仅在统计结果模式下可用" : "仪表盘"}
                                 >
                                     <BarChart4 size={14} /> <span className="hidden sm:inline">仪表盘</span>
                                 </button>
                                 <button
-                                    onClick={() => setView('transpose')}
-                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'transpose' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
-                                    data-tip="转置视图"
+                                    onClick={() => dataMode === 'processed' && setView('transpose')}
+                                    disabled={dataMode === 'raw'}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${dataMode === 'raw' ? 'opacity-50 cursor-not-allowed text-slate-400' : ''} ${view === 'transpose' && dataMode === 'processed' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip={dataMode === 'raw' ? "仅在统计结果模式下可用" : "转置视图"}
                                 >
                                     <ArrowRightLeft size={14} /> <span className="hidden sm:inline">转置</span>
                                 </button>
                                 <button
-                                    onClick={() => setView('gallery')}
-                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${view === 'gallery' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
-                                    data-tip="画廊"
+                                    onClick={() => dataMode === 'processed' && setView('gallery')}
+                                    disabled={dataMode === 'raw'}
+                                    className={`px-3 py-1 text-xs font-medium rounded-[10px] transition-colors flex items-center gap-1.5 tooltip-bottom ${dataMode === 'raw' ? 'opacity-50 cursor-not-allowed text-slate-400' : ''} ${view === 'gallery' && dataMode === 'processed' ? 'bg-white shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-slate-800' : 'text-slate-600 hover:bg-slate-200/50'}`}
+                                    data-tip={dataMode === 'raw' ? "仅在统计结果模式下可用" : "画廊"}
                                 >
                                     <Image size={14} /> <span className="hidden sm:inline">画廊</span>
                                 </button>
@@ -2122,7 +2642,67 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         </div>
                     ) : (
                         <div className={`flex-1 overflow-hidden flex flex-col min-w-0 relative ${view === 'gallery' ? 'p-0' : 'p-4 lg:p-6'}`}>
-                            {view === 'grid' && <DataGrid data={filteredData!} />}
+                            {view === 'grid' && (
+                                <div className="flex-1 flex flex-col min-h-0 relative">
+                                    {canApplyArtistPreset && (
+                                        <div className="mb-4 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 border border-indigo-200/50 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm backdrop-blur-md animate-fade-in">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-lg text-white shadow-md shadow-indigo-500/20">
+                                                    <Sparkles className="w-5 h-5 animate-pulse" />
+                                                </div>
+                                                <div>
+                                                    <h4 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                                                        智能整理检测
+                                                        <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-medium">推荐模式</span>
+                                                    </h4>
+                                                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                                                        检测到当前表格包含 <span className="font-semibold text-indigo-600">人员、推广及任务数</span> 等列。系统已为您自动配置好美工和渲染人员两个维度的统计结果。
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-2 self-stretch md:self-auto shrink-0 justify-end flex-wrap">
+                                                <button
+                                                    onClick={handleApplyArtistPreset}
+                                                    className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium text-xs rounded-lg shadow-sm hover:shadow-md transition-all active:scale-[0.98]"
+                                                >
+                                                    <Sparkles className="w-3.5 h-3.5" />
+                                                    🎨 一键生成美工统计
+                                                </button>
+                                                <button
+                                                    onClick={handleApplyRenderStaffPreset}
+                                                    className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium text-xs rounded-lg shadow-sm hover:shadow-md transition-all active:scale-[0.98]"
+                                                >
+                                                    <Sparkles className="w-3.5 h-3.5" />
+                                                    ⚡ 一键生成渲染统计
+                                                </button>
+                                                <button
+                                                    onClick={() => setDismissedPresetBanner(true)}
+                                                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                                    title="忽略本次提示"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex-1 min-h-0 relative">
+                                        <DataGrid 
+                                            data={
+                                                dataMode === 'raw'
+                                                    ? data!
+                                                    : (() => {
+                                                        const displayCols = activeConfig.displayColumns || [];
+                                                        const validCols = filteredData!.columns.filter(col => displayCols.includes(col));
+                                                        return validCols.length > 0
+                                                            ? { ...filteredData!, columns: validCols }
+                                                            : filteredData!;
+                                                      })()
+                                            }
+                                            onCellChange={dataMode === 'raw' ? handleRawCellChange : undefined}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                             {view === 'dashboard' && <Dashboard data={filteredData!} onAddSnapshot={handleAddSnapshot} />}
                             {view === 'transpose' && <TransposePanel data={(transposedDataForSettings!) as SheetData} sharedConfig={deferredSharedConfig} />}
                             {view === 'gallery' && (
@@ -2204,7 +2784,7 @@ const SheetMindApp: React.FC<SheetMindAppProps> = ({ getAiInstance, state, setSt
                         {/* Sidebar Content */}
                         <div className="flex-1 overflow-hidden relative bg-white min-w-[300px]">
                             {sidebarTab === 'chat' ? (
-                                <ChatInterface data={data} getAiInstance={getAiInstance} />
+                                <ChatInterface data={filteredData || data!} getAiInstance={getAiInstance} />
                             ) : (
                                 <div className="h-full overflow-y-auto p-4 bg-slate-50 space-y-4">
                                     {snapshots.length === 0 ? (

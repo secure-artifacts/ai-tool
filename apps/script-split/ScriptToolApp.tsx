@@ -19,7 +19,8 @@ import {
   Combine,
   Trash2,
   AlignLeft,
-  Link2
+  Link2,
+  ListOrdered
 } from 'lucide-react';
 import {
   processGrid,
@@ -77,28 +78,12 @@ const saveDeityTerms = (terms: string[]) => {
   try { localStorage.setItem(DEITY_TERMS_KEY, JSON.stringify(terms)); } catch {}
 };
 
-/** 对单个文本应用信仰词汇大写保护 */
-const applyDeityCapitalization = (text: string, terms: string[]): string => {
-  if (!text || terms.length === 0) return text;
-  let result = text;
-  // 按长度降序排列，确保长词优先匹配（如 "the Lord God" 先于 "God"）
-  const sorted = [...terms].sort((a, b) => b.length - a.length);
-  for (const term of sorted) {
-    // 创建正则：大小写不敏感匹配，单词边界
-    // 对于多词短语（如 "the Lord"），用 \b 包裹整个短语
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
-    result = result.replace(regex, (match) => {
-      // 保持与目标 term 相同的大小写
-      return term;
-    });
-  }
-  return result;
-};
+
 
 const MODEL_OPTIONS = [
   { value: INHERIT_VALUE, label: '继承全局设置' },
-  { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·新)' },
+  { value: 'gemini-3.5-flash', label: '🚀 gemini-3.5-flash (GA·最新旗舰)' },
+  { value: 'gemini-3.1-flash-lite', label: '⚡ gemini-3.1-flash-lite (GA·默认)' },
   { value: 'gemini-2.5-flash', label: '⚡ gemini-2.5-flash (GA)' },
   { value: 'gemini-2.5-flash-lite', label: '⚡ gemini-2.5-flash-lite (GA·最快)' },
   { value: 'gemini-2.5-pro', label: '🧠 gemini-2.5-pro (GA·强推理)' },
@@ -234,7 +219,7 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
   const [showDeityModal, setShowDeityModal] = useState(false);
   const [deityTerms, setDeityTerms] = useState<string[]>(() => loadDeityTerms());
   const [deityNewTerm, setDeityNewTerm] = useState('');
-  const [enableAiSpellCheck, setEnableAiSpellCheck] = useState(true);
+  const [enableAiSpellCheck] = useState(true);
   const [spellChecking, setSpellChecking] = useState(false);
   const [diffCols, setDiffCols] = useState<Record<number, number>>(persistedState?.diffCols || {});
   const [autoRowHeight, setAutoRowHeight] = useState<boolean>(persistedState?.autoRowHeight ?? false);
@@ -426,8 +411,6 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
 
     const newGrid = gridData.map(row => [...row]);
     const newStyles = new Map(gridStyles);
-    let fixedCount = 0;
-    let checkedCount = 0;
 
     // 确保每行有足够的列
     for (let r = 0; r < newGrid.length; r++) {
@@ -436,78 +419,65 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
       }
     }
 
-    // Step 1: 纯脚本大写修正
-    for (let r = minR; r <= maxR; r++) {
-      for (let c = minC; c <= maxC; c++) {
-        const original = newGrid[r]?.[c] || '';
-        if (!original.trim()) {
-          newGrid[r][c + resultColOffset] = '';
-          newGrid[r][c + feedbackColOffset] = '';
-          continue;
-        }
-        checkedCount++;
-        const fixed = applyDeityCapitalization(original, deityTerms);
-        newGrid[r][c + resultColOffset] = fixed; // 写入旁边列作为修正后结果，不改变原始列
-        if (fixed !== original) {
-          fixedCount++;
-          newStyles.set(cellKey(r, c + resultColOffset), { bgColor: '#86efac' });
-          newGrid[r][c + feedbackColOffset] = '🔧 大写已修正';
-        } else {
-          newGrid[r][c + feedbackColOffset] = '✅';
+    if (!getAiInstance || !getAiInstance()) {
+      setStatusMsg(`⚠️ AI 检测未运行 (未配置 API Key)`);
+      for (let r = minR; r <= maxR; r++) {
+        for (let c = minC; c <= maxC; c++) {
+          if (newGrid[r]?.[c]?.trim()) {
+            newGrid[r][c + resultColOffset] = '';
+            newGrid[r][c + feedbackColOffset] = '⚠️ 需配置 API Key 运行 AI 检查';
+          }
         }
       }
+      setGridData(newGrid);
+      return;
+    }
+    const ai = getAiInstance()!;
+    let modelToUse = effectiveModel;
+    let autoUpgradeMsg = '';
+    if (modelToUse.toLowerCase().includes('lite') || modelToUse === 'gemini-3.1-flash-lite') {
+      modelToUse = 'gemini-3.5-flash';
+      autoUpgradeMsg = ' (检测到 Lite 模型，已自动升级至 3.5-flash 以确保效果)';
     }
 
-    setGridData(newGrid);
-    setGridStyles(newStyles);
+    setSpellChecking(true);
+    setStatusMsg(`🔍 AI 智能检测中...${autoUpgradeMsg}`);
 
-    const capMsg = fixedCount > 0
-      ? `大写修正 ${fixedCount}/${checkedCount} 个`
-      : `大写全部正确`;
-
-    // Step 2: AI 拼写检查（可选）
-    if (enableAiSpellCheck) {
-      if (!getAiInstance || !getAiInstance()) {
-        setStatusMsg(`✅ ${capMsg}。⚠️ AI 拼写检查未运行 (未配置 API Key)`);
-        for (let r = minR; r <= maxR; r++) {
-          for (let c = minC; c <= maxC; c++) {
-            if (newGrid[r]?.[c]?.trim()) {
-              newGrid[r][c + feedbackColOffset] = '⚠️ AI有问题需要重新执行或者关闭AI';
-            }
+    try {
+      // 收集需要检查的单元格（直接使用选区内的原文）
+      const cellsToCheck: { row: number; col: number; text: string }[] = [];
+      for (let r = minR; r <= maxR; r++) {
+        for (let c = minC; c <= maxC; c++) {
+          const val = newGrid[r]?.[c] || '';
+          if (val.trim()) {
+            cellsToCheck.push({ row: r, col: c, text: val });
+          } else {
+            newGrid[r][c + resultColOffset] = '';
+            newGrid[r][c + feedbackColOffset] = '';
           }
         }
-        setGridData(newGrid);
+      }
+
+      if (cellsToCheck.length === 0) {
+        setStatusMsg('选区内没有内容');
+        setSpellChecking(false);
         return;
       }
-      const ai = getAiInstance()!;
 
-      setSpellChecking(true);
-      setStatusMsg(`✅ ${capMsg}。🔍 AI 拼写检查中...`);
+      const BATCH_SIZE = 20;
+      let spellFixCount = 0;
+      const latestGrid = newGrid.map(row => [...row]);
+      const latestStyles = new Map(newStyles);
 
-      try {
-        // 收集需要检查的单元格（使用 Step 1 处理后的文本）
-        const cellsToCheck: { row: number; col: number; text: string }[] = [];
-        for (let r = minR; r <= maxR; r++) {
-          for (let c = minC; c <= maxC; c++) {
-            const val = newGrid[r]?.[c + resultColOffset] || '';
-            if (val.trim()) {
-              cellsToCheck.push({ row: r, col: c, text: val });
-            }
-          }
-        }
+      for (let batchStart = 0; batchStart < cellsToCheck.length; batchStart += BATCH_SIZE) {
+        const batch = cellsToCheck.slice(batchStart, batchStart + BATCH_SIZE);
+        setStatusMsg(`🔍 AI 智能检测中... (${batchStart}/${cellsToCheck.length})`);
 
-        const BATCH_SIZE = 20;
-        let spellFixCount = 0;
-        const latestGrid = newGrid.map(row => [...row]);
-        const latestStyles = new Map(newStyles);
-
-        for (let batchStart = 0; batchStart < cellsToCheck.length; batchStart += BATCH_SIZE) {
-          const batch = cellsToCheck.slice(batchStart, batchStart + BATCH_SIZE);
-          setStatusMsg(`✅ ${capMsg}。🔍 AI 拼写检查中... (${batchStart}/${cellsToCheck.length})`);
-
-          try {
-            const textsJson = batch.map((c, i) => `[${i}] ${c.text}`).join('\n---\n');
-            const prompt = `You are a professional proofreader specializing in prayer/inspirational social media content in multiple languages (especially English and Tagalog/Filipino). For each numbered text below, fix ALL spelling, grammar, punctuation, and capitalization errors while preserving the original meaning, tone, and language of the text.
+        try {
+          const pronounsList = ['he', 'him', 'his', 'you', 'your', 'siya', 'kanya', 'niya', 'kayo', 'iyo', 'mo', 'ka', 'ninyo', 'sila', 'kila', 'kaniya'];
+          const properDeityTerms = deityTerms.filter(t => !pronounsList.includes(t.toLowerCase()));
+          const textsJson = batch.map((c, i) => `[${i}] ${c.text}`).join('\n---\n');
+          const prompt = `You are a professional proofreader specializing in prayer/inspirational social media content in multiple languages (especially English and Tagalog/Filipino). For each numbered text below, fix ALL spelling, grammar, punctuation, and capitalization errors while preserving the original meaning, tone, and language of the text.
 
 FIX THESE ERROR TYPES across English and Tagalog:
 1. SPELLING & TYPOS: e.g., "Whoe" → "Whoever", "recieve" → "receive", Tagalog typos like "mahalin" / "pananampalataya" typos.
@@ -517,7 +487,17 @@ FIX THESE ERROR TYPES across English and Tagalog:
 5. GRAMMAR & WORD CORRECTION: Fix verb tenses, subject-verb agreement, and word confusion.
 6. NUMBERING SEQUENCE: "First...Second...Second" → "First...Second...Third"
 7. BROKEN SENTENCES: Fix garbled sentence boundaries.
-8. PRONOUN CAPITALIZATION FOR DEITY: Capitalize pronouns referring to God/Lord/Jesus (He, Him, His, You, Your in English; Siya, Kanya, Niya in Tagalog).
+8. PRONOUN & PROPER NOUN CAPITALIZATION FOR DEITY:
+   - PROPER NOUNS: Capitalize all proper nouns referring to Deity. Specific words list: [${properDeityTerms.join(', ')}].
+   - PRONOUNS (CONTEXT-DEPENDENT): ONLY capitalize pronouns (e.g., He, Him, His, You, Your, Siya, Kanya, Niya) if they DIRECTLY refer to God, Jesus Christ, or the Holy Spirit.
+   - AVOID OVER-CAPITALIZATION: DO NOT capitalize pronouns when they refer to the reader/audience or other human beings / biblical characters / prophets.
+     * Examples:
+       - "God is already working for you and your family" → "you" and "your" refer to the reader (human). They MUST remain lowercase: "you", "your". (Capitalizing to "You" or "Your" is a CRITICAL ERROR).
+       - "Joseph was once in a pit, but he was lifted up" → "he" refers to Joseph (human). It MUST remain lowercase: "he". (Capitalizing to "He" is a CRITICAL ERROR).
+       - "Daniel was in danger, but he was protected" → "he" refers to Daniel (human). It MUST remain lowercase: "he". (Capitalizing to "He" is a CRITICAL ERROR).
+       - "Moses led them, but he doubted" → "he" refers to Moses (human). It MUST remain lowercase: "he".
+     * Only capitalize when referring directly to God, e.g., "God is good, He is always there" (He = God), or "We worship You, Lord" (You = Lord).
+     * If a pronoun refers to any human, reader, or biblical character, KEEP IT LOWERCASE.
 9. AMEN FORMATTING: Wrap standalone "Amen" in quotes (e.g. write "Amen", say "Amen") when referred to as something to type/say.
 10. LANGUAGE CONSISTENCY: Keep Tagalog text in Tagalog, English in English. Do NOT translate the text, only correct its errors in its source language.
 
@@ -534,60 +514,57 @@ ${textsJson}
 
 Return ONLY a JSON array of corrected strings: ["corrected1", "corrected2", ...]`;
 
-            const response = await ai.models.generateContent({
-              model: effectiveModel,
-              contents: prompt,
-            });
+          const response = await ai.models.generateContent({
+            model: modelToUse,
+            contents: prompt,
+          });
 
-            const resultText = (response as any).text || '';
-            const jsonMatch = resultText.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) {
-              throw new Error('AI返回格式解析失败');
-            }
+          const resultText = (response as any).text || '';
+          const jsonMatch = resultText.match(/\[[\s\S]*\]/);
+          if (!jsonMatch) {
+            throw new Error('AI返回格式解析失败');
+          }
 
-            const corrected: string[] = JSON.parse(jsonMatch[0]);
-            for (let i = 0; i < batch.length && i < corrected.length; i++) {
-              const cell = batch[i];
-              const scriptCapitalized = latestGrid[cell.row][cell.col + resultColOffset];
-              const fixed = corrected[i];
-              if (fixed && fixed !== scriptCapitalized) {
-                latestGrid[cell.row][cell.col + resultColOffset] = fixed;
-                spellFixCount++;
-                // 拼写修正用浅紫色高亮显示结果单元格
-                latestStyles.set(cellKey(cell.row, cell.col + resultColOffset), { bgColor: '#c4b5fd' });
-                const prevFeedback = latestGrid[cell.row][cell.col + feedbackColOffset] || '';
-                latestGrid[cell.row][cell.col + feedbackColOffset] = prevFeedback.includes('修正')
-                  ? '🔧 大写+拼写已修正'
-                  : '🔤 拼写已修正';
-              }
-            }
-          } catch (batchErr) {
-            // 单个 batch 出错，在该 batch 所有单元格反馈中标注异常
-            for (const cell of batch) {
-              latestGrid[cell.row][cell.col + feedbackColOffset] = '⚠️ AI有问题需要重新执行或者关闭AI';
+          const corrected: string[] = JSON.parse(jsonMatch[0]);
+          for (let i = 0; i < batch.length && i < corrected.length; i++) {
+            const cell = batch[i];
+            const original = cell.text;
+            const fixed = corrected[i];
+            
+            latestGrid[cell.row][cell.col + resultColOffset] = fixed || original;
+            if (fixed && fixed !== original) {
+              spellFixCount++;
+              // 修正后单元格浅紫色高亮显示结果单元格
+              latestStyles.set(cellKey(cell.row, cell.col + resultColOffset), { bgColor: '#c4b5fd' });
+              latestGrid[cell.row][cell.col + feedbackColOffset] = '🤖 AI已修正';
+            } else {
+              latestGrid[cell.row][cell.col + feedbackColOffset] = '✅';
             }
           }
-        }
-
-        setGridData(latestGrid);
-        setGridStyles(latestStyles);
-        setStatusMsg(`✅ ${capMsg}，AI 拼写修正 ${spellFixCount} 个单元格（结果见 ${colToLetter(minC + resultColOffset)} 列，反馈见 ${colToLetter(minC + feedbackColOffset)} 列）`);
-      } catch (err: any) {
-        setStatusMsg(`✅ ${capMsg}。⚠️ AI 拼写检查失败: ${err.message || '未知错误'}`);
-        const failedGrid = newGrid.map(row => [...row]);
-        for (let r = minR; r <= maxR; r++) {
-          for (let c = minC; c <= maxC; c++) {
-            if (failedGrid[r]?.[c]?.trim()) {
-              failedGrid[r][c + feedbackColOffset] = '⚠️ AI有问题需要重新执行或者关闭AI';
-            }
+        } catch (batchErr) {
+          // 单个 batch 出错，在该 batch 所有单元格反馈中标注异常
+          for (const cell of batch) {
+            latestGrid[cell.row][cell.col + feedbackColOffset] = '⚠️ AI 检查失败，请重试';
           }
         }
-        setGridData(failedGrid);
-      } finally {
-        setSpellChecking(false);
       }
-    } else {
-      setStatusMsg(`✅ ${capMsg}（结果见 ${colToLetter(minC + resultColOffset)} 列，反馈见 ${colToLetter(minC + feedbackColOffset)} 列）`);
+
+      setGridData(latestGrid);
+      setGridStyles(latestStyles);
+      setStatusMsg(`✅ AI 智能检测完成，已修正 ${spellFixCount} 个单元格（结果见 ${colToLetter(minC + resultColOffset)} 列，反馈见 ${colToLetter(minC + feedbackColOffset)} 列）`);
+    } catch (err: any) {
+      setStatusMsg(`⚠️ AI 智能检测失败: ${err.message || '未知错误'}`);
+      const failedGrid = newGrid.map(row => [...row]);
+      for (let r = minR; r <= maxR; r++) {
+        for (let c = minC; c <= maxC; c++) {
+          if (failedGrid[r]?.[c]?.trim()) {
+            failedGrid[r][c + feedbackColOffset] = '⚠️ AI 检查失败，请重试';
+          }
+        }
+      }
+      setGridData(failedGrid);
+    } finally {
+      setSpellChecking(false);
     }
   };
 
@@ -1356,6 +1333,13 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
               disabled={!selection}
             />
             <ToolButton
+              icon={<ListOrdered className="w-4 h-4" />}
+              label="排比句排列"
+              tooltip="自动提取并排列带序号/英文序数的排比句（保留前言和结尾的原始换行）"
+              onClick={() => handleProcess(ToolType.ArrangeParallel)}
+              disabled={!selection}
+            />
+            <ToolButton
               icon={<Video className="w-4 h-4" />}
               label="视频提示词"
               tooltip="将选区内容统一格式化为视频提示词模板"
@@ -1695,7 +1679,7 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
           <div className="prefix-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
             <h3 className="prefix-modal-title">✝️ 文案检查修正</h3>
             <p className="prefix-modal-desc">
-              检查并修正选区内信仰词汇的大写与拼写，在右侧生成修正结果与反馈。
+              采用纯 AI 语义理解检查并修正选区内信仰词汇的大写、拼写与代词指代，并在右侧生成修正结果与反馈报告。
               <br />点击词汇可删除，输入框回车可添加（支持逗号分隔批量添加）。
             </p>
             <div style={{
@@ -1741,14 +1725,9 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
                 >
                   ↺ 恢复默认词汇
                 </button>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={enableAiSpellCheck}
-                    onChange={(e) => setEnableAiSpellCheck(e.target.checked)}
-                  />
-                  <span>🤖 AI 拼写检查</span>
-                </label>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: '#a78bfa' }} title="代词与名词将交由 AI 语义分析进行大写和纠错，已取消本地正则匹配以防误杀">
+                  🤖 纯 AI 智能检测已启用 (无本地正则误判)
+                </span>
               </div>
               <div className="prefix-modal-actions">
                 <button onClick={() => setShowDeityModal(false)} className="prefix-modal-btn-cancel">取消</button>

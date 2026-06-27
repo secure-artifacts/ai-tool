@@ -477,6 +477,14 @@ const CopySearchApp: React.FC<Props> = ({ getAiInstance, textModel = 'gemini-2.5
     const [searchQueriesCollapsed, setSearchQueriesCollapsed] = useState(false);
     const [globalProgress, setGlobalProgress] = useState('');
 
+    // 复制选项状态：是否包含前侧“查重号/分组”列，默认不包含（防止贴回原表格时错位）
+    const [copyGroupColumn, setCopyGroupColumn] = useState<boolean>(() => {
+        try { return localStorage.getItem('copy-search-copy-group-column') === 'true'; } catch { return false; }
+    });
+    useEffect(() => {
+        try { localStorage.setItem('copy-search-copy-group-column', copyGroupColumn ? 'true' : 'false'); } catch {}
+    }, [copyGroupColumn]);
+
     // ===== 翻译搜索状态 =====
     const [translateEnabled, setTranslateEnabled] = useState<boolean>(() => {
         try { return localStorage.getItem('copy-search-translate-enabled') === 'true'; } catch { return false; }
@@ -1816,19 +1824,30 @@ If no matches: []`;
         );
         if (matchedRows.length === 0) return;
 
+        // 是否在前侧插入分组列
+        const shouldPrependGroupCol = copyGroupColumn;
+        // 是否包含备注列
+        const shouldIncludeNoteCol = table.noteColumnVisible;
+
         // HTML
         let html = '<table border="1" style="border-collapse:collapse; font-family: sans-serif;">';
         html += '<tr>';
-        html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;"><b>所属搜索组</b></th>`;
+        if (shouldPrependGroupCol) {
+            html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;"><b>所属搜索组</b></th>`;
+        }
         headers.forEach(h => {
             html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">${escHtml(h)}</th>`;
         });
-        html += '<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">备注</th>';
+        if (shouldIncludeNoteCol) {
+            html += '<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">备注</th>';
+        }
         html += '</tr>';
 
         matchedRows.forEach(row => {
             html += '<tr>';
-            html += `<td bgcolor="#f0f7ff" style="background-color:#f0f7ff; padding:6px 12px; border:1px solid #cccccc; color:#1e40af;"><b>${escHtml(queryLabel)}</b></td>`;
+            if (shouldPrependGroupCol) {
+                html += `<td bgcolor="#f0f7ff" style="background-color:#f0f7ff; padding:6px 12px; border:1px solid #cccccc; color:#1e40af;"><b>${escHtml(queryLabel)}</b></td>`;
+            }
             
             row.forEach(cell => {
                 const hit = cell.highlights.find(h => h.queryId === queryId);
@@ -1840,23 +1859,30 @@ If no matches: []`;
                 const bgColorAttr = bg ? `bgcolor="${bg}"` : '';
                 html += `<td ${bgColorAttr} style="${style}">${escHtml(cell.value)}</td>`;
             });
-            const notes = getRowNoteWithSummary(row);
-            html += `<td style="padding:6px 12px; border:1px solid #cccccc; color:#666666;">${escHtml(notes)}</td>`;
+            if (shouldIncludeNoteCol) {
+                const notes = getRowNoteWithSummary(row);
+                html += `<td style="padding:6px 12px; border:1px solid #cccccc; color:#666666;">${escHtml(notes)}</td>`;
+            }
             html += '</tr>';
         });
         html += '</table>';
 
         // TSV
-        let tsvHeader = '所属搜索组\t' + headers.join('\t') + '\t备注\n';
+        let tsvHeader = (shouldPrependGroupCol ? '所属搜索组\t' : '') + headers.join('\t') + (shouldIncludeNoteCol ? '\t备注\n' : '\n');
         let tsvBody = '';
         matchedRows.forEach(row => {
-            tsvBody += queryLabel + '\t';
+            if (shouldPrependGroupCol) {
+                tsvBody += queryLabel + '\t';
+            }
             tsvBody += row.map(c => tsvCell(c.value)).join('\t');
-            tsvBody += '\t' + getRowNoteWithSummary(row) + '\n';
+            if (shouldIncludeNoteCol) {
+                tsvBody += '\t' + getRowNoteWithSummary(row);
+            }
+            tsvBody += '\n';
         });
 
         copyHtmlToClipboard(html, tsvHeader + tsvBody, `✅ 已按照搜索组“${queryLabel}”复制 ${matchedRows.length} 行结果`);
-    }, [table, queries, getRowNoteWithSummary]);
+    }, [table, queries, getRowNoteWithSummary, copyGroupColumn]);
 
     // ===== 复制表格（支持筛选模式） =====
     const copyFilteredTable = useCallback((mode: 'all' | 'highlighted' | 'unhighlighted') => {
@@ -1879,23 +1905,30 @@ If no matches: []`;
         // 检测是否有搜素匹配结果（用于生成组列）
         const hasHighlights = filteredRows.some(row => row.some(c => c.highlights.length > 0));
 
+        // 是否在前侧插入分组/查重编号列
+        const shouldPrependGroupCol = copyGroupColumn && (hasDups || hasHighlights);
+        // 是否包含备注列
+        const shouldIncludeNoteCol = table.noteColumnVisible;
+
         // 构建 HTML 表格（Excel/Sheets 可识别内联样式）
         let html = '<table border="1" style="border-collapse:collapse; font-family: sans-serif;">';
         // 表头
         html += '<tr>';
-        if (hasDups || hasHighlights) {
+        if (shouldPrependGroupCol) {
             html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;"><b>标注分组/查重号</b></th>`;
         }
         headers.forEach(h => {
             html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">${escHtml(h)}</th>`;
         });
-        html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">备注</th>`;
+        if (shouldIncludeNoteCol) {
+            html += `<th bgcolor="#444444" style="background-color:#444444; color:#ffffff; padding:6px 12px; border:1px solid #999999;">备注</th>`;
+        }
         html += '</tr>';
 
         // 数据行
         filteredRows.forEach(row => {
             html += '<tr>';
-            if (hasDups || hasHighlights) {
+            if (shouldPrependGroupCol) {
                 const marks: string[] = [];
                 const dupMatch = row.find(c => c.note && c.note.includes('DUP-'))?.note?.match(/DUP-\d+/);
                 if (dupMatch) marks.push(dupMatch[0]);
@@ -1918,17 +1951,19 @@ If no matches: []`;
                 const bgColorAttr = bg ? `bgcolor="${bg}"` : '';
                 html += `<td ${bgColorAttr} style="${style}">${escHtml(cell.value)}</td>`;
             });
-            const notes = getRowNoteWithSummary(row);
-            html += `<td style="padding:6px 12px; border:1px solid #cccccc; color:#666666;">${escHtml(notes)}</td>`;
+            if (shouldIncludeNoteCol) {
+                const notes = getRowNoteWithSummary(row);
+                html += `<td style="padding:6px 12px; border:1px solid #cccccc; color:#666666;">${escHtml(notes)}</td>`;
+            }
             html += '</tr>';
         });
         html += '</table>';
 
         // TSV
-        let tsvHeader = (hasDups || hasHighlights ? '标注分组/查重号\t' : '') + headers.join('\t') + '\t备注\n';
+        let tsvHeader = (shouldPrependGroupCol ? '标注分组/查重号\t' : '') + headers.join('\t') + (shouldIncludeNoteCol ? '\t备注\n' : '\n');
         let tsvBody = '';
         filteredRows.forEach(row => {
-            if (hasDups || hasHighlights) {
+            if (shouldPrependGroupCol) {
                 const marks: string[] = [];
                 const dupMatch = row.find(c => c.note && c.note.includes('DUP-'))?.note?.match(/DUP-\d+/);
                 if (dupMatch) marks.push(dupMatch[0]);
@@ -1942,12 +1977,15 @@ If no matches: []`;
                 tsvBody += marks.join(' | ') + '\t';
             }
             tsvBody += row.map(c => tsvCell(c.value)).join('\t');
-            tsvBody += '\t' + getRowNoteWithSummary(row) + '\n';
+            if (shouldIncludeNoteCol) {
+                tsvBody += '\t' + getRowNoteWithSummary(row);
+            }
+            tsvBody += '\n';
         });
 
         const labels = { all: '全部', highlighted: '高亮', unhighlighted: '未高亮' };
         copyHtmlToClipboard(html, tsvHeader + tsvBody, `✅ 已复制 ${filteredRows.length} 行${labels[mode]}数据`);
-    }, [table, queries, getRowNoteWithSummary]);
+    }, [table, queries, getRowNoteWithSummary, copyGroupColumn]);
 
     const copyTableWithColors = useCallback(() => copyFilteredTable('all'), [copyFilteredTable]);
     const copyHighlightedOnly = useCallback(() => copyFilteredTable('highlighted'), [copyFilteredTable]);
@@ -2557,11 +2595,18 @@ If no matches: []`;
                                     </button>
                                 )}
                                 <button onClick={() => setTable(prev => ({ ...prev, noteColumnVisible: !prev.noteColumnVisible }))}
-                                    style={btnStyle('#27272a')}
-                                    data-tip={table.noteColumnVisible ? '隐藏备注列' : '显示备注列'}
+                                    style={btnStyle(table.noteColumnVisible ? '#27272a' : '#1f1f23')}
+                                    data-tip={table.noteColumnVisible ? '隐藏备注列（复制时也将不包含备注列，防错位）' : '显示备注列（复制时也将包含备注列，拼在最右侧）'}
                                 >
                                     {table.noteColumnVisible ? <EyeOff size={14} /> : <Eye size={14} />}
                                     备注列
+                                </button>
+                                <button onClick={() => setCopyGroupColumn(prev => !prev)}
+                                    style={btnStyle(copyGroupColumn ? '#b45309' : '#27272a')}
+                                    data-tip={copyGroupColumn ? '复制表格时：【已开启】在前侧生成“查重号/分组”列。提示：如需直接覆盖原表格贴回，请关闭此列以防原列错位。' : '复制表格时：【已关闭】不生成前侧“查重号/分组”列。最安全，贴回原表时列对齐完全一致。'}
+                                >
+                                    {copyGroupColumn ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    查重号列
                                 </button>
                                 <button onClick={copyTableWithColors} style={btnStyle('#854d0e')} data-tip="复制整个表格到 Excel/Sheets，匹配行带有背景色">
                                     <Copy size={14} /> 复制整表（含颜色）

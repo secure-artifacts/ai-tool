@@ -6,9 +6,25 @@ import { Image, ExternalLink, Copy, CopyCheck } from 'lucide-react';
 
 interface DataGridProps {
   data: SheetData;
+  onCellChange?: (rowIndex: number, column: string, newValue: string) => void;
 }
 
-const DataGrid: React.FC<DataGridProps> = ({ data }) => {
+const DataGrid: React.FC<DataGridProps> = ({ data, onCellChange }) => {
+  const [editingCell, setEditingCell] = useState<{ rowIndex: number; column: string } | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
+
+  const handleCellDoubleClick = (rowIndex: number, column: string, currentValue: unknown) => {
+    if (!onCellChange) return;
+    setEditingCell({ rowIndex, column });
+    setEditValue(String(currentValue ?? ''));
+  };
+
+  const handleSaveEdit = (rowIndex: number, column: string) => {
+    if (onCellChange) {
+      onCellChange(rowIndex, column, editValue);
+    }
+    setEditingCell(null);
+  };
   const [page, setPage] = useState(0);
   const [hoveredCell, setHoveredCell] = useState<string | null>(null);
   const [jumpToPage, setJumpToPage] = useState('');
@@ -248,8 +264,10 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
     <div className="flex flex-col h-full bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
       <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
         <h3 className="font-semibold text-slate-700 flex items-center gap-2">
-          <span className="bg-green-600 text-white text-xs px-2 py-1 rounded">表格</span>
-          {data.fileName}
+          <span className={`${onCellChange ? 'bg-indigo-600' : 'bg-green-600'} text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm flex items-center gap-1`}>
+            {onCellChange ? '📝 原始数据 (双击编辑)' : '📊 统计结果 (计算输出)'}
+          </span>
+          <span className="text-slate-800 font-bold text-xs">{data.fileName}</span>
         </h3>
         <div className="flex items-center gap-2">
           {copyFeedback && (
@@ -325,11 +343,38 @@ const DataGrid: React.FC<DataGridProps> = ({ data }) => {
                   <td className="px-4 py-2 border-r border-slate-100 font-mono text-xs text-slate-400">
                     {deferredPage * rowsPerPage + absoluteIndex + 1}
                   </td>
-                  {data.columns.map((col, colIndex) => (
-                    <td key={colIndex} className="px-4 py-2 border-r border-slate-100 last:border-r-0">
-                      {renderCellContent(row[col], absoluteIndex, colIndex)}
-                    </td>
-                  ))}
+                  {data.columns.map((col, colIndex) => {
+                    const isEditing = editingCell && editingCell.rowIndex === absoluteIndex && editingCell.column === col;
+                    return (
+                      <td 
+                        key={colIndex} 
+                        className={`px-4 py-2 border-r border-slate-100 last:border-r-0 ${onCellChange ? 'cursor-pointer hover:bg-indigo-50/50 transition-colors' : ''}`}
+                        onDoubleClick={() => handleCellDoubleClick(absoluteIndex, col, row[col])}
+                        title={onCellChange ? "双击编辑此单元格" : undefined}
+                      >
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => handleSaveEdit(absoluteIndex, col)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleSaveEdit(absoluteIndex, col);
+                              } else if (e.key === 'Escape') {
+                                setEditingCell(null);
+                              }
+                            }}
+                            className="w-full px-1.5 py-0.5 text-xs rounded border border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white text-slate-800"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ) : (
+                          renderCellContent(row[col], absoluteIndex, colIndex)
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

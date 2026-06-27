@@ -601,11 +601,6 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const [groupCopyColumnsPerRow, setGroupCopyColumnsPerRow] = useState(5);
     const [groupCopyColumnsPicker, setGroupCopyColumnsPicker] = useState<{ x: number; y: number; groupKey: string; rows: DataRow[] } | null>(null);
 
-    // Classification mode state
-    const [classificationMode, setClassificationMode] = useState(false);
-    const [selectedForClassification, setSelectedForClassification] = useState<Set<string>>(new Set()); // Row IDs selected for classification
-    const selectedForClassificationRef = useRef<Set<string>>(selectedForClassification);
-    selectedForClassificationRef.current = selectedForClassification; // Keep ref in sync
     const [draggedItems, setDraggedItems] = useState<string[]>([]); // Items being dragged
     const [dragOverGroup, setDragOverGroup] = useState<string | null>(null); // Group being hovered over
     const CUSTOM_GROUPS_KEY = `sheetmind_customgroups_${sourceUrl || 'local'}`;
@@ -2767,7 +2762,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     const MARQUEE_THRESHOLD = 3; // min px to start marquee
 
     const handleMarqueeMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        if (!classificationMode || e.button !== 0) return;
+        if (!gallerySelectMode || e.button !== 0) return;
         const target = e.target as HTMLElement;
         if (target.closest('button, input, select, a, [data-no-marquee], [data-selection-overlay]')) return;
         if (target.closest('.sticky')) return;
@@ -2814,7 +2809,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 marqueeActiveRef.current = true;
                 if (!marqueeRectRef.current) {
                     const div = document.createElement('div');
-                    div.style.cssText = 'position:absolute;border:2px dashed rgba(147,51,234,0.7);background:rgba(147,51,234,0.12);pointer-events:none;z-index:50;border-radius:4px;';
+                    div.style.cssText = 'position:absolute;border:2px dashed rgba(59,130,246,0.7);background:rgba(59,130,246,0.12);pointer-events:none;z-index:50;border-radius:4px;';
                     container.style.position = 'relative';
                     container.appendChild(div);
                     marqueeRectRef.current = div;
@@ -2840,7 +2835,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 const hit = !(c.r < left || c.l > right || c.b < top || c.t > bottom);
                 if (hit !== c.hit) {
                     c.hit = hit;
-                    c.el.style.outline = hit ? (isCtrl ? '2px solid rgba(239,68,68,0.7)' : '2px solid rgba(147,51,234,0.7)') : '';
+                    c.el.style.outline = hit ? (isCtrl ? '2px solid rgba(239,68,68,0.7)' : '2px solid rgba(59,130,246,0.7)') : '';
                     c.el.style.outlineOffset = hit ? '1px' : '';
                 }
             }
@@ -2874,17 +2869,17 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                         // === INSTANT DOM feedback: toggle visual state NOW ===
                         const overlay = c.el.querySelector('[data-selection-overlay]') as HTMLElement;
                         if (isCtrl) {
-                            c.el.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
+                            c.el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
                             if (overlay) overlay.classList.replace('opacity-100', 'opacity-0');
                         } else {
-                            c.el.classList.add('ring-2', 'ring-purple-500', 'ring-offset-1');
+                            c.el.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
                             if (overlay) overlay.classList.replace('opacity-0', 'opacity-100');
                         }
                     }
                 }
 
                 if (hitIds.length > 0) {
-                    setSelectedForClassification(prev => {
+                    setSelectedThumbnails(prev => {
                         const s = new Set(prev);
                         if (isCtrl) { hitIds.forEach(id => s.delete(id)); }
                         else { hitIds.forEach(id => s.add(id)); }
@@ -2899,7 +2894,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
-    }, [classificationMode]);
+    }, [gallerySelectMode]);
 
 
     React.useLayoutEffect(() => {
@@ -3202,17 +3197,17 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         setIsDraggingImage(true);
         setDragSourceFolderId(sourceFolderId || null);
 
-        // In classification mode, track which items are being dragged
-        if (classificationMode) {
-            if (selectedForClassificationRef.current.size > 0) {
-                // If items are selected for classification, drag all of them
-                setDraggedItems(Array.from(selectedForClassificationRef.current));
+        // In selection mode, track which items are being dragged
+        if (gallerySelectMode) {
+            if (selectedThumbnails.size > 0 && selectedThumbnails.has(rowId)) {
+                // If items are selected, drag all of them
+                setDraggedItems(Array.from(selectedThumbnails));
             } else {
                 // Otherwise, just drag this single item
                 setDraggedItems([rowId]);
             }
         }
-    }, [gallerySelectMode, selectedThumbnails, effectiveData.rows, effectiveData.columns, config.imageColumn, effectiveImageColumn, classificationMode]);
+    }, [gallerySelectMode, selectedThumbnails, effectiveData.rows, effectiveData.columns, config.imageColumn, effectiveImageColumn]);
 
     // Handle drag start from favorite item (for reordering and cross-folder move)
     const handleFavoriteDragStart = useCallback((
@@ -3424,19 +3419,19 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         setTimeout(() => setCopyFeedback(null), 2000);
         setDraggedItems([]);
 
-        // 清除分类选中状态（state + DOM 两层）
-        setSelectedForClassification(new Set());
+        // 清除选中状态（state + DOM 两层）
+        setSelectedThumbnails(new Set());
 
         // 强制清理 DOM 上手动添加的选中样式（因为 onClick 中用了直接 DOM 操作）
         requestAnimationFrame(() => {
-            document.querySelectorAll('[data-marquee-id].ring-purple-500').forEach(el => {
-                el.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
+            document.querySelectorAll('[data-marquee-id].ring-blue-500').forEach(el => {
+                el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
             });
             document.querySelectorAll('[data-selection-overlay].opacity-100').forEach(el => {
                 el.classList.replace('opacity-100', 'opacity-0');
             });
         });
-    }, [syncToSheet, sourceUrl, effectiveGroupColumns, effectiveData.columns, currentSheetName, setCopyFeedback]);
+    }, [syncToSheet, sourceUrl, effectiveGroupColumns, effectiveData.columns, currentSheetName, setCopyFeedback, setSelectedThumbnails]);
 
     // Handle reorder drop - reorder items within a group (supports multi-select)
     const handleReorderDrop = useCallback(async (groupKey: string, draggedImageUrl: string, dropIndex: number, allImageUrlsInGroup: string[]) => {
@@ -3446,9 +3441,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
         // Get all selected items to move (extract imageUrls from rowIds)
         // rowId format is: "imageUrl||sourceSheet||index"
         let itemsToMove: string[] = [];
-        if (selectedForClassificationRef.current.size > 0) {
+        if (selectedThumbnailsRef.current.size > 0) {
             // Get image URLs for all selected items by parsing rowId
-            selectedForClassificationRef.current.forEach(rowId => {
+            selectedThumbnailsRef.current.forEach(rowId => {
                 // Extract imageUrl from rowId format: "imageUrl||sourceSheet||index"
                 const parts = rowId.split('||');
                 const imgUrl = parts[0]; // First part is the imageUrl
@@ -4098,15 +4093,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
 
     const scheduleThumbnailSelect = useCallback((rowId: string) => {
         if (!gallerySelectMode) return;
-        if (thumbnailClickTimerRef.current) {
-            clearTimeout(thumbnailClickTimerRef.current);
-        }
-        thumbnailClickRowRef.current = rowId;
-        thumbnailClickTimerRef.current = setTimeout(() => {
-            toggleThumbnailSelection(rowId);
-            thumbnailClickTimerRef.current = null;
-            thumbnailClickRowRef.current = null;
-        }, 200);
+        toggleThumbnailSelection(rowId);
     }, [gallerySelectMode, toggleThumbnailSelection]);
 
     const handleThumbnailDoubleClick = useCallback((e: React.MouseEvent, rowId: string, linkUrl: string) => {
@@ -4201,12 +4188,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
     }, [config.imageColumn, selectedThumbnails]);
 
     // Copy selected thumbnails' image formulas to clipboard
-    // source: 'classification' uses selectedForClassification, otherwise uses selectedThumbnails
-    const copySelectedImageFormulas = useCallback(async (rows: DataRow[], source?: string) => {
-        const selectionSet = source === 'classification' ? selectedForClassification : selectedThumbnails;
+    const copySelectedImageFormulas = useCallback(async (rows: DataRow[]) => {
         const selectedRows = rows.filter(row => {
             const rowId = String(row._rowId || '');
-            return rowId && selectionSet.has(rowId);
+            return rowId && selectedThumbnails.has(rowId);
         });
 
         if (selectedRows.length === 0) {
@@ -4237,7 +4222,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
             setCopyFeedback('复制失败');
             setTimeout(() => setCopyFeedback(null), 1500);
         }
-    }, [config.imageColumn, effectiveImageColumn, selectedThumbnails, selectedForClassification]);
+    }, [config.imageColumn, effectiveImageColumn, selectedThumbnails]);
 
     // Copy entire table data to clipboard
     const copyAllDataToClipboard = useCallback(async () => {
@@ -5292,10 +5277,10 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                 {/* Main Content */}
                 <div className="flex-1 overflow-hidden flex flex-col relative flex-overflow-container" >
                     {/* Toolbar */}
-                    <GalleryToolbar MessageSquare={MessageSquare} calendarMonth={calendarMonth} classificationMode={classificationMode} classificationOverrides={classificationOverrides} clearThumbnailSelection={clearThumbnailSelection} collapseAll={collapseAll} config={config} copyFeedback={copyFeedback} copySelectedImageFormulas={copySelectedImageFormulas} copySelectedThumbnailsData={copySelectedThumbnailsData} customGroups={customGroups} effectiveDateBinning={effectiveDateBinning} effectiveDateBins={effectiveDateBins} effectiveDateColumn={effectiveDateColumn} effectiveGroupLevels={effectiveGroupLevels} effectiveImageColumn={effectiveImageColumn} expandAll={expandAll} extractImageUrl={extractImageUrl} favorites={favorites} favoritesSyncing={favoritesSyncing} galleryCategories={galleryCategories} gallerySelectMode={gallerySelectMode} getRowGroupKey={getRowGroupKey} localSearchInput={localSearchInput} openBatchCategoryModal={openBatchCategoryModal} openBatchNoteModal={openBatchNoteModal} parseDate={parseDate} primaryGroupColumn={primaryGroupColumn} processedRows={processedRows} selectedForClassification={selectedForClassification} selectedThumbnails={selectedThumbnails} setCalendarMonth={setCalendarMonth} setClassificationMode={setClassificationMode} setCollapsedGalleryGroups={setCollapsedGalleryGroups} setCopyFeedback={setCopyFeedback} setDraggedItems={setDraggedItems} setGallerySelectMode={setGallerySelectMode} setLocalSearchInput={setLocalSearchInput} setSelectedForClassification={setSelectedForClassification} setSelectedThumbnails={setSelectedThumbnails} setShowBatchFolderMenu={setShowBatchFolderMenu} setShowCategoryView={setShowCategoryView} setShowFavorites={setShowFavorites} showCategoryView={showCategoryView} showFavorites={showFavorites} stats={stats} updateConfig={updateConfig} collabPanel={(() => { const hasSourceSheet = effectiveData.columns.includes('_sourceSheet'); const mergedSheetNames = hasSourceSheet ? Array.from(new Set(effectiveData.rows.map(r => String(r._sourceSheet || '')).filter(Boolean))) : undefined; const mergedSheetSet = mergedSheetNames ? new Set(mergedSheetNames) : undefined; return <CollabPanel currentSheetName={currentSheetName} isMultiSheetMode={hasSourceSheet} selectedSheets={mergedSheetSet} onSMDataChange={(smData: SMRowData[]) => { smData.forEach(row => { const rowIdx = row.__rowIndex; if (!rowIdx) return; const smSourceSheet = (row as SMRowData & { _sourceSheet?: string })._sourceSheet; let matchingRow; if (smSourceSheet) { matchingRow = effectiveData.rows.find((r, idx) => { const rSource = String(r._sourceSheet || ''); if (rSource !== smSourceSheet) return false; const rOrigIdx = r._originalRowIndex ? Number(r._originalRowIndex) : idx + 2; return rOrigIdx === rowIdx; }); } if (!matchingRow) { matchingRow = effectiveData.rows.find((r, idx) => { const rOrigIdx = r._originalRowIndex ? Number(r._originalRowIndex) : idx + 2; return rOrigIdx === rowIdx; }); } if (!matchingRow) return; const imageUrl = effectiveImageColumn ? extractImageUrl(matchingRow[effectiveImageColumn]) : ''; if (!imageUrl) return; if (row.SM_分类) { setClassificationOverrides(prev => { if (prev[imageUrl] === row.SM_分类) return prev; return { ...prev, [imageUrl]: row.SM_分类 as string }; }); } if (row.SM_备注) { setGalleryNotes(prev => { const existing = prev.get(imageUrl); if (existing && existing.note === row.SM_备注) return prev; const next = new Map(prev); next.set(imageUrl, { ...(existing || { id: '', imageUrl, rowIndex: rowIdx, createdAt: Date.now() }), note: row.SM_备注 as string, updatedAt: Date.now() }); return next; }); } if (row.SM_标签) { setGalleryCategories(prev => { if (prev.get(imageUrl) === row.SM_标签) return prev; const next = new Map(prev); next.set(imageUrl, row.SM_标签 as string); return next; }); } }); }} onStatusChange={(status) => { if (status === 'error') setCopyFeedback('⚠️ 协作连接失败'); }} />; })()} />
+                    <GalleryToolbar MessageSquare={MessageSquare} calendarMonth={calendarMonth} classificationOverrides={classificationOverrides} clearThumbnailSelection={clearThumbnailSelection} collapseAll={collapseAll} config={config} copyFeedback={copyFeedback} copySelectedImageFormulas={copySelectedImageFormulas} copySelectedThumbnailsData={copySelectedThumbnailsData} customGroups={customGroups} effectiveDateBinning={effectiveDateBinning} effectiveDateBins={effectiveDateBins} effectiveDateColumn={effectiveDateColumn} effectiveGroupLevels={effectiveGroupLevels} effectiveImageColumn={effectiveImageColumn} expandAll={expandAll} extractImageUrl={extractImageUrl} favorites={favorites} favoritesSyncing={favoritesSyncing} galleryCategories={galleryCategories} gallerySelectMode={gallerySelectMode} getRowGroupKey={getRowGroupKey} localSearchInput={localSearchInput} openBatchCategoryModal={openBatchCategoryModal} openBatchNoteModal={openBatchNoteModal} parseDate={parseDate} primaryGroupColumn={primaryGroupColumn} processedRows={processedRows} selectedThumbnails={selectedThumbnails} setCalendarMonth={setCalendarMonth} setCollapsedGalleryGroups={setCollapsedGalleryGroups} setCopyFeedback={setCopyFeedback} setDraggedItems={setDraggedItems} setGallerySelectMode={setGallerySelectMode} setLocalSearchInput={setLocalSearchInput} setSelectedThumbnails={setSelectedThumbnails} setShowBatchFolderMenu={setShowBatchFolderMenu} setShowCategoryView={setShowCategoryView} setShowFavorites={setShowFavorites} showCategoryView={showCategoryView} showFavorites={showFavorites} stats={stats} updateConfig={updateConfig} collabPanel={(() => { const hasSourceSheet = effectiveData.columns.includes('_sourceSheet'); const mergedSheetNames = hasSourceSheet ? Array.from(new Set(effectiveData.rows.map(r => String(r._sourceSheet || '')).filter(Boolean))) : undefined; const mergedSheetSet = mergedSheetNames ? new Set(mergedSheetNames) : undefined; return <CollabPanel currentSheetName={currentSheetName} isMultiSheetMode={hasSourceSheet} selectedSheets={mergedSheetSet} onSMDataChange={(smData: SMRowData[]) => { smData.forEach(row => { const rowIdx = row.__rowIndex; if (!rowIdx) return; const smSourceSheet = (row as SMRowData & { _sourceSheet?: string })._sourceSheet; let matchingRow; if (smSourceSheet) { matchingRow = effectiveData.rows.find((r, idx) => { const rSource = String(r._sourceSheet || ''); if (rSource !== smSourceSheet) return false; const rOrigIdx = r._originalRowIndex ? Number(r._originalRowIndex) : idx + 2; return rOrigIdx === rowIdx; }); } if (!matchingRow) { matchingRow = effectiveData.rows.find((r, idx) => { const rOrigIdx = r._originalRowIndex ? Number(r._originalRowIndex) : idx + 2; return rOrigIdx === rowIdx; }); } if (!matchingRow) return; const imageUrl = effectiveImageColumn ? extractImageUrl(matchingRow[effectiveImageColumn]) : ''; if (!imageUrl) return; if (row.SM_分类) { setClassificationOverrides(prev => { if (prev[imageUrl] === row.SM_分类) return prev; return { ...prev, [imageUrl]: row.SM_分类 as string }; }); } if (row.SM_备注) { setGalleryNotes(prev => { const existing = prev.get(imageUrl); if (existing && existing.note === row.SM_备注) return prev; const next = new Map(prev); next.set(imageUrl, { ...(existing || { id: '', imageUrl, rowIndex: rowIdx, createdAt: Date.now() }), note: row.SM_备注 as string, updatedAt: Date.now() }); return next; }); } if (row.SM_标签) { setGalleryCategories(prev => { if (prev.get(imageUrl) === row.SM_标签) return prev; const next = new Map(prev); next.set(imageUrl, row.SM_标签 as string); return next; }); } }); }} onStatusChange={(status) => { if (status === 'error') setCopyFeedback('⚠️ 协作连接失败'); }} />; })()} />
 
                     {/* Floating: Write Grouping to Sheet button */}
-                    {(sourceUrl || getCollabService().isConnected()) && (Object.keys(classificationOverrides).length > 0 || effectiveGroupColumn || classificationMode) && (() => {
+                    {(sourceUrl || getCollabService().isConnected()) && (Object.keys(classificationOverrides).length > 0 || effectiveGroupColumn || gallerySelectMode) && (() => {
                         const isCollab = getCollabService().isConnected();
                         return (
                         <button
@@ -5314,7 +5299,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                     })()}
 
                     {/* Content */}
-                    <div className="flex-1 overflow-auto p-4 pb-20 flex-overflow-container" ref={contentScrollRef} onMouseDown={handleMarqueeMouseDown} style={classificationMode ? { userSelect: 'none' } : undefined}>
+                    <div className="flex-1 overflow-auto p-4 pb-20 flex-overflow-container" ref={contentScrollRef} onMouseDown={handleMarqueeMouseDown} style={gallerySelectMode ? { userSelect: 'none' } : undefined}>
                         {/* Processing indicator */}
                         {isProcessingRows && (
                             <div className="mb-3 flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 animate-pulse">
@@ -5755,27 +5740,25 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 return (
                                                     <>
                                                         {/* Classification Mode: Drop Target Bar */}
-                                                        {classificationMode && (
-                                                            <div className="sticky top-0 z-20 bg-purple-50/95 backdrop-blur-sm border-b border-purple-200 px-2 py-1.5 mb-2 rounded-b-xl shadow-sm max-h-[30vh] overflow-y-auto custom-scrollbar flex flex-col gap-1.5">
+                                                        {gallerySelectMode && (
+                                                            <div className="sticky top-0 z-20 bg-blue-50/95 backdrop-blur-sm border-b border-blue-200 px-2 py-1.5 mb-2 rounded-b-xl shadow-sm max-h-[30vh] overflow-y-auto custom-scrollbar flex flex-col gap-1.5">
                                                                 {/* Header Row */}
                                                                 <div className="flex items-center gap-1">
-                                                                    <Layers size={14} className="text-purple-600" />
-                                                                    <span className="text-xs font-medium text-purple-700 whitespace-nowrap hidden sm:inline">工作区</span>
-                                                                    <span className="text-[10px] text-purple-500 whitespace-nowrap ml-1">
-                                                                        {selectedForClassification.size > 0
-                                                                            ? `已选 ${selectedForClassification.size}`
-                                                                            : '拖拽到分类'}
+                                                                    <Layers size={14} className="text-blue-600" />
+                                                                    <span className="text-xs font-medium text-blue-700 whitespace-nowrap hidden sm:inline">工作区</span>
+                                                                    <span className="text-[10px] text-blue-500 whitespace-nowrap ml-1">
+                                                                        {selectedThumbnails.size > 0 ? `已选 ${selectedThumbnails.size}` : '拖拽到分类'}
                                                                     </span>
                                                                     <div className="ml-auto flex items-center gap-2">
                                                                         {/* Target Type Toggles */}
-                                                                        <div className="flex items-center gap-1.5 border-r border-purple-200 pr-2">
-                                                                            <span className="text-[10px] text-purple-600">显示:</span>
+                                                                        <div className="flex items-center gap-1.5 border-r border-blue-200 pr-2">
+                                                                            <span className="text-[10px] text-blue-600">显示:</span>
                                                                             <label className="flex items-center gap-0.5 cursor-pointer">
                                                                                 <input
                                                                                     type="checkbox"
                                                                                     checked={dragTargetTypes.classification}
                                                                                     onChange={(e) => setDragTargetTypes(prev => ({ ...prev, classification: e.target.checked }))}
-                                                                                    className="w-3 h-3 text-purple-600 rounded focus:ring-purple-500"
+                                                                                    className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500"
                                                                                 />
                                                                                 <span className="text-[10px] text-slate-600">分组</span>
                                                                             </label>
@@ -5808,9 +5791,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     }
                                                                                     setSyncToSheet(checked);
                                                                                 }}
-                                                                                className="w-3.5 h-3.5 text-purple-600 rounded focus:ring-purple-500"
+                                                                                className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-blue-500"
                                                                             />
-                                                                            <span className={`text-[10px] ${syncToSheet ? 'text-purple-700 font-medium' : 'text-slate-500'}`}>
+                                                                            <span className={`text-[10px] ${syncToSheet ? 'text-blue-700 font-medium' : 'text-slate-500'}`}>
                                                                                 同步到表格
                                                                             </span>
                                                                         </label>
@@ -5823,7 +5806,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                 {/* Classification Groups Row */}
                                                                 {dragTargetTypes.classification && (
                                                                     <div className="flex flex-wrap gap-1.5 items-center">
-                                                                        <span className="text-[10px] text-purple-600 font-medium self-center mr-0.5"><FolderOpen size={10} className="inline mr-0.5" /> 分组:</span>
+                                                                        <span className="text-[10px] text-blue-600 font-medium self-center mr-0.5"><FolderOpen size={10} className="inline mr-0.5" /> 分组:</span>
                                                                         {/* 当没有分组列时，使用 categoryOptions 作为分组目标 */}
                                                                         {!primaryGroupColumn && !hasDateBinning ? (
                                                                             config.categoryOptions.length > 0 ? (
@@ -5833,10 +5816,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         key={option}
                                                                                         onClick={async (e) => {
                                                                                             const ct = selectedThumbnailsRef.current;
-                                                                                            const sm = gallerySelectModeRef.current;
-                                                                                            const ids = selectedForClassification.size > 0
-                                                                                                ? Array.from(selectedForClassification)
-                                                                                                : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                            const ids = Array.from(ct);
                                                                                             if (ids.length > 0) {
                                                                                                 const btn = e.currentTarget as HTMLElement;
                                                                                                 btn.style.transform = 'scale(1.15)';
@@ -5845,8 +5825,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                 btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
                                                                                                 btn.textContent = `✓ ${option}`;
                                                                                                 await handleClassificationChange(ids, option);
-                                                                                                setSelectedForClassification(new Set());
-                                                                                                if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                                setSelectedThumbnails(new Set());
                                                                                                 setTimeout(() => {
                                                                                                     btn.style.transform = '';
                                                                                                     btn.style.background = '';
@@ -5869,16 +5848,16 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             }
                                                                                         }}
                                                                                         className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === option
-                                                                                            ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                            : selectedForClassification.size > 0
-                                                                                                ? 'bg-purple-50 border-purple-400 text-purple-700 hover:bg-purple-200 hover:scale-105 ring-1 ring-purple-300'
-                                                                                                : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
+                                                                                            ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
+                                                                                            : selectedThumbnails.size > 0
+                                                                                                ? 'bg-blue-50 border-blue-400 text-blue-700 hover:bg-blue-200 hover:scale-105 ring-1 ring-blue-300'
+                                                                                                : 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100'
                                                                                             }`}
-                                                                                        data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '右键添加子分组'}
+                                                                                        data-tip={selectedThumbnails.size > 0 ? `点击将 ${selectedThumbnails.size} 张图片分到此组` : '右键添加子分组'}
                                                                                         onContextMenu={(e) => handleGroupContextMenu(e, option, false)}
                                                                                     >
                                                                                         {option}
-                                                                                        {(subGroups[option]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[option].length}</span>}
+                                                                                        {(subGroups[option]?.length > 0) && <span className="ml-0.5 text-blue-400 text-[9px]">▸{subGroups[option].length}</span>}
                                                                                     </div>
                                                                                 ))}
                                                                                 {/* Render sub-groups for categoryOptions */}
@@ -5890,10 +5869,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             key={`sub-${subPath}`}
                                                                                             onClick={async (e) => {
                                                                                                 const ct = selectedThumbnailsRef.current;
-                                                                                                const sm = gallerySelectModeRef.current;
-                                                                                                const ids = selectedForClassification.size > 0
-                                                                                                    ? Array.from(selectedForClassification)
-                                                                                                    : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                                const ids = Array.from(ct);
                                                                                                 if (ids.length > 0) {
                                                                                                     const btn = e.currentTarget as HTMLElement;
                                                                                                     btn.style.transform = 'scale(1.15)';
@@ -5901,8 +5877,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                     btn.style.color = '#fff';
                                                                                                     btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
                                                                                                     await handleClassificationChange(ids, subPath);
-                                                                                                    setSelectedForClassification(new Set());
-                                                                                                    if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                                    setSelectedThumbnails(new Set());
                                                                                                     setTimeout(() => {
                                                                                                         btn.style.transform = '';
                                                                                                         btn.style.background = '';
@@ -5922,16 +5897,16 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             }}
                                                                                             onContextMenu={(e) => handleGroupContextMenu(e, subPath, false)}
                                                                                             className={`px-2 py-0.5 text-[10px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === subPath
-                                                                                                ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                                : selectedForClassification.size > 0
-                                                                                                    ? 'bg-purple-50/80 border-purple-300 text-purple-600 hover:bg-purple-200 hover:scale-105'
-                                                                                                    : 'bg-white/80 border-purple-200 text-purple-500 hover:bg-purple-100'
+                                                                                                ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
+                                                                                                : selectedThumbnails.size > 0
+                                                                                                    ? 'bg-blue-50/80 border-blue-300 text-blue-600 hover:bg-blue-200 hover:scale-105'
+                                                                                                    : 'bg-white/80 border-blue-200 text-blue-500 hover:bg-blue-100'
                                                                                                 }`}
                                                                                             style={{ marginLeft: depth * 12 }}
-                                                                                            data-tip={selectedForClassification.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
+                                                                                            data-tip={selectedThumbnails.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
                                                                                         >
                                                                                             {'└ '}{leafName}
-                                                                                            {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[subPath].length}</span>}
+                                                                                            {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-blue-400 text-[9px]">▸{subGroups[subPath].length}</span>}
                                                                                         </div>
                                                                                     );
                                                                                 })}
@@ -5961,11 +5936,9 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         // 用 ref 获取最新值，避免闭包延迟
                                                                                         const currentThumbnails = selectedThumbnailsRef.current;
                                                                                         const isSelectMode = gallerySelectModeRef.current;
-                                                                                        const classifyIds = selectedForClassification.size > 0
-                                                                                            ? Array.from(selectedForClassification)
-                                                                                            : (isSelectMode && currentThumbnails.size > 0)
-                                                                                                ? Array.from(currentThumbnails)
-                                                                                                : [];
+                                                                                        const classifyIds = (isSelectMode && currentThumbnails.size > 0)
+                                                                                            ? Array.from(currentThumbnails)
+                                                                                            : [];
                                                                                         if (classifyIds.length > 0) {
                                                                                             const btn = e.currentTarget as HTMLElement;
                                                                                             btn.style.transform = 'scale(1.15)';
@@ -5974,8 +5947,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
                                                                                             // handleClassificationChange 内部已清除选中；不再需要外层 await
                                                                                             handleClassificationChange(classifyIds, targetGroup);
-                                                                                            // handleClassificationChange 已清理 selectedForClassification
-                                                                                            if (isSelectMode) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            if (isSelectMode) { setSelectedThumbnails(new Set()); }
                                                                                             setTimeout(() => {
                                                                                                 btn.style.transform = '';
                                                                                                 btn.style.background = '';
@@ -5983,32 +5955,25 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                 btn.style.boxShadow = '';
                                                                                             }, 600);
                                                                                         } else {
-                                                                                            // 没选中时，跳转到分组
-                                                                                            const groupElement = document.querySelector(`[data-group-key="${targetGroup}"]`);
-                                                                                            if (groupElement) {
-                                                                                                groupElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                                                                                setCollapsedGalleryGroups(prev => {
-                                                                                                    const next = new Set(prev);
-                                                                                                    next.delete(targetGroup);
-                                                                                                    return next;
-                                                                                                });
-                                                                                            }
+                                                                                            // 没选中时提示选择图片，去除可能误触的跳转
+                                                                                            setCopyFeedback('⚠️ 请先在多选模式下选择图片');
+                                                                                            setTimeout(() => setCopyFeedback(null), 2000);
                                                                                         }
                                                                                     }}
                                                                                     className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === targetGroup
-                                                                                        ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                        : (selectedForClassification.size > 0 || (gallerySelectMode && selectedThumbnails.size > 0))
-                                                                                            ? 'bg-purple-50 border-purple-400 text-purple-700 hover:bg-purple-200 hover:scale-105 ring-1 ring-purple-300'
-                                                                                            : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
+                                                                                        ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
+                                                                                        : (gallerySelectMode && selectedThumbnails.size > 0)
+                                                                                            ? 'bg-blue-50 border-blue-400 text-blue-700 hover:bg-blue-200 hover:scale-105 ring-1 ring-blue-300'
+                                                                                            : 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100'
                                                                                         }`}
-                                                                                    data-tip={(selectedForClassification.size > 0 || (gallerySelectMode && selectedThumbnails.size > 0)) ? `点击将 ${selectedForClassification.size || selectedThumbnails.size} 张图片分到此组` : '点击跳转 · 右键添加子分组'}
+                                                                                    data-tip={(gallerySelectMode && selectedThumbnails.size > 0) ? `点击将 ${selectedThumbnails.size} 张图片分到此组` : '多选并选中图片后点击可移动分类 · 右键添加子分组'}
                                                                                     onContextMenu={(e) => handleGroupContextMenu(e, targetGroup, false)}
                                                                                 >
                                                                                     {targetGroup}
                                                                                     <span className="ml-1 text-xs opacity-70">
                                                                                         ({filteredGroups.find(g => g[0] === targetGroup)?.[1].length || 0})
                                                                                     </span>
-                                                                                    {(subGroups[targetGroup]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[targetGroup].length}</span>}
+                                                                                    {(subGroups[targetGroup]?.length > 0) && <span className="ml-0.5 text-blue-400 text-[9px]">▸{subGroups[targetGroup].length}</span>}
                                                                                 </div>
                                                                             ))}
                                                                             {/* Render sub-groups for filteredGroups */}
@@ -6020,10 +5985,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         key={`sub-${subPath}`}
                                                                                         onClick={async (e) => {
                                                                                             const ct = selectedThumbnailsRef.current;
-                                                                                            const sm = gallerySelectModeRef.current;
-                                                                                            const ids = selectedForClassification.size > 0
-                                                                                                ? Array.from(selectedForClassification)
-                                                                                                : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                            const ids = Array.from(ct);
                                                                                             if (ids.length > 0) {
                                                                                                 const btn = e.currentTarget as HTMLElement;
                                                                                                 btn.style.transform = 'scale(1.15)';
@@ -6031,8 +5993,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                 btn.style.color = '#fff';
                                                                                                 btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
                                                                                                 await handleClassificationChange(ids, subPath);
-                                                                                                setSelectedForClassification(new Set());
-                                                                                                if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                                setSelectedThumbnails(new Set());
                                                                                                 setTimeout(() => {
                                                                                                     btn.style.transform = '';
                                                                                                     btn.style.background = '';
@@ -6052,16 +6013,16 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }}
                                                                                         onContextMenu={(e) => handleGroupContextMenu(e, subPath, false)}
                                                                                         className={`px-2 py-0.5 text-[10px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === subPath
-                                                                                            ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                            : selectedForClassification.size > 0
-                                                                                                ? 'bg-purple-50/80 border-purple-300 text-purple-600 hover:bg-purple-200 hover:scale-105'
-                                                                                                : 'bg-white/80 border-purple-200 text-purple-500 hover:bg-purple-100'
+                                                                                            ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
+                                                                                            : selectedThumbnails.size > 0
+                                                                                                ? 'bg-blue-50/80 border-blue-300 text-blue-600 hover:bg-blue-200 hover:scale-105'
+                                                                                                : 'bg-white/80 border-blue-200 text-blue-500 hover:bg-blue-100'
                                                                                             }`}
                                                                                         style={{ marginLeft: depth * 12 }}
-                                                                                        data-tip={selectedForClassification.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
+                                                                                        data-tip={selectedThumbnails.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
                                                                                     >
                                                                                         {'└ '}{leafName}
-                                                                                        {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-purple-400 text-[9px]">▸{subGroups[subPath].length}</span>}
+                                                                                        {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-blue-400 text-[9px]">▸{subGroups[subPath].length}</span>}
                                                                                     </div>
                                                                                 );
                                                                             })}
@@ -6164,10 +6125,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     draggable
                                                                                     onClick={async (e) => {
                                                                                         const ct = selectedThumbnailsRef.current;
-                                                                                        const sm = gallerySelectModeRef.current;
-                                                                                        const ids = selectedForClassification.size > 0
-                                                                                            ? Array.from(selectedForClassification)
-                                                                                            : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                        const ids = Array.from(ct);
                                                                                         if (ids.length > 0) {
                                                                                             const btn = e.currentTarget as HTMLElement;
                                                                                             btn.style.transform = 'scale(1.15)';
@@ -6175,8 +6133,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             btn.style.color = '#fff';
                                                                                             btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.5)';
                                                                                             await handleClassificationChange(ids, customGroup);
-                                                                                            setSelectedForClassification(new Set());
-                                                                                            if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setSelectedThumbnails(new Set());
                                                                                             setTimeout(() => {
                                                                                                 btn.style.transform = '';
                                                                                                 btn.style.background = '';
@@ -6235,11 +6192,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             ? draggingGroupIdx !== null
                                                                                                 ? 'bg-yellow-200 border-yellow-500 text-yellow-800 scale-105' // 分组重排序
                                                                                                 : 'bg-green-200 border-green-500 text-green-800 scale-105'   // 图片拖入
-                                                                                            : selectedForClassification.size > 0
+                                                                                            : selectedThumbnails.size > 0
                                                                                                 ? 'bg-green-50 border-green-400 text-green-700 hover:bg-green-200 hover:scale-105 ring-1 ring-green-300'
                                                                                                 : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                         }`}
-                                                                                    data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '右键添加子分组 | 双击编辑 | 拖拽调整顺序'}
+                                                                                    data-tip={selectedThumbnails.size > 0 ? `点击将 ${selectedThumbnails.size} 张图片分到此组` : '右键添加子分组 | 双击编辑 | 拖拽调整顺序'}
                                                                                     onContextMenu={(e) => handleGroupContextMenu(e, customGroup, true)}
                                                                                 >
                                                                                     ✨ {customGroup}
@@ -6271,10 +6228,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     key={`csub-${subPath}`}
                                                                                     onClick={async (e) => {
                                                                                         const ct = selectedThumbnailsRef.current;
-                                                                                        const sm = gallerySelectModeRef.current;
-                                                                                        const ids = selectedForClassification.size > 0
-                                                                                            ? Array.from(selectedForClassification)
-                                                                                            : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                        const ids = Array.from(ct);
                                                                                         if (ids.length > 0) {
                                                                                             const btn = e.currentTarget as HTMLElement;
                                                                                             btn.style.transform = 'scale(1.15)';
@@ -6282,8 +6236,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             btn.style.color = '#fff';
                                                                                             btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.5)';
                                                                                             await handleClassificationChange(ids, subPath);
-                                                                                            setSelectedForClassification(new Set());
-                                                                                            if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setSelectedThumbnails(new Set());
                                                                                             setTimeout(() => {
                                                                                                 btn.style.transform = '';
                                                                                                 btn.style.background = '';
@@ -6304,12 +6257,12 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     onContextMenu={(e) => handleGroupContextMenu(e, subPath, true)}
                                                                                     className={`px-2 py-0.5 text-[10px] font-medium rounded border border-dashed bg-opacity-50 cursor-pointer transition-all tooltip-bottom ${dragOverGroup === subPath
                                                                                         ? 'bg-green-200 border-green-500 text-green-800 scale-105'
-                                                                                        : selectedForClassification.size > 0
+                                                                                        : selectedThumbnails.size > 0
                                                                                             ? 'bg-green-50/80 border-green-300 text-green-600 hover:bg-green-200 hover:scale-105'
                                                                                             : 'bg-white/80 border-green-200 text-green-500 hover:bg-green-100'
                                                                                         }`}
                                                                                     style={{ marginLeft: depth * 12 }}
-                                                                                    data-tip={selectedForClassification.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
+                                                                                    data-tip={selectedThumbnails.size > 0 ? `分到子组: ${subPath}` : '右键添加子分组'}
                                                                                 >
                                                                                     {'└ '}{leafName}
                                                                                     {(subGroups[subPath]?.length > 0) && <span className="ml-0.5 text-green-400 text-[9px]">▸{subGroups[subPath].length}</span>}
@@ -6334,7 +6287,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     }}
                                                                                     autoFocus
                                                                                     placeholder="输入新分组名..."
-                                                                                    className="px-2 py-1 text-sm border border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 w-32"
+                                                                                    className="px-2 py-1 text-sm border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 w-32"
                                                                                 />
                                                                                 <button
                                                                                     onClick={() => {
@@ -6344,7 +6297,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             setShowNewGroupInput(false);
                                                                                         }
                                                                                     }}
-                                                                                    className="px-2 py-1 text-sm bg-purple-500 text-white rounded-lg hover:bg-purple-600"
+                                                                                    className="px-2 py-1 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                                                                                 >
                                                                                     添加
                                                                                 </button>
@@ -6360,7 +6313,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                         ) : (
                                                                             <button
                                                                                 onClick={() => setShowNewGroupInput(true)}
-                                                                                className="px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed border-purple-300 text-purple-600 hover:bg-purple-50 hover:border-purple-400 transition-colors flex items-center gap-1 tooltip-bottom"
+                                                                                className="px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center gap-1 tooltip-bottom"
                                                                                 data-tip="添加新分组"
                                                                             >
                                                                                 <Plus size={12} />
@@ -6699,17 +6652,17 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             return (
                                                                                                 <div key={rowId || `${imageUrl}-${idx}`} className="flex flex-col relative">
                                                                                                     {/* Reorder drop indicator - left side */}
-                                                                                                    {classificationMode && isReorderTarget && (
-                                                                                                        <div className="absolute -left-1 top-0 bottom-0 w-1 bg-purple-500 rounded-full z-20" />
+                                                                                                    {gallerySelectMode && isReorderTarget && (
+                                                                                                        <div className="absolute -left-1 top-0 bottom-0 w-1 bg-blue-500 rounded-full z-20" />
                                                                                                     )}
                                                                                                     <div
                                                                                                         data-marquee-id={rowId}
-                                                                                                        className={`relative group cursor-pointer ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'ring-2 ring-blue-500 ring-offset-1 rounded-lg' : ''} ${classificationMode && selectedForClassification.has(rowId) ? 'ring-2 ring-purple-500 ring-offset-1 rounded-lg' : ''} ${isBeingDragged ? 'opacity-50' : ''} ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
-                                                                                                        draggable={classificationMode || !gallerySelectMode || selectedThumbnails.has(rowId)}
+                                                                                                        className={`relative group cursor-pointer ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'ring-2 ring-blue-500 ring-offset-1 rounded-lg' : ''} ${isBeingDragged ? 'opacity-50' : ''} ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
+                                                                                                        draggable={!gallerySelectMode || selectedThumbnails.has(rowId)}
                                                                                                         onDragStart={(e) => {
-                                                                                                            if (gallerySelectMode && !selectedThumbnails.has(rowId) && !classificationMode) return;
+                                                                                                            if (gallerySelectMode && !selectedThumbnails.has(rowId)) return;
                                                                                                             // For reorder within group
-                                                                                                            if (classificationMode) {
+                                                                                                            if (gallerySelectMode) {
                                                                                                                 setReorderDragItem(imageUrl);
                                                                                                             }
                                                                                                             handleThumbnailDragStart(e, imageUrl, row, rowId);
@@ -6720,7 +6673,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                             setReorderDropTarget(null);
                                                                                                         }}
                                                                                                         onDragOver={(e) => {
-                                                                                                            if (!classificationMode || !reorderDragItem || reorderDragItem === imageUrl) return;
+                                                                                                            if (!gallerySelectMode || !reorderDragItem || reorderDragItem === imageUrl) return;
                                                                                                             e.preventDefault();
                                                                                                             // Only update if target changed to prevent re-renders
                                                                                                             if (reorderDropTarget?.group !== groupKey || reorderDropTarget?.index !== idx) {
@@ -6733,7 +6686,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                             }
                                                                                                         }}
                                                                                                         onDrop={async (e) => {
-                                                                                                            if (!classificationMode || !reorderDragItem) return;
+                                                                                                            if (!gallerySelectMode || !reorderDragItem) return;
                                                                                                             e.preventDefault();
                                                                                                             e.stopPropagation();
                                                                                                             // Handle reorder within this group
@@ -6749,41 +6702,53 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                         }}
                                                                                                         onClick={(e) => {
                                                                                                             if ((e.target as HTMLElement).closest('button')) return;
-                                                                                                            // Classification mode: toggle selection for classification
-                                                                                                            if (classificationMode) {
-                                                                                                                // Instant DOM feedback - border
-                                                                                                                const container = e.currentTarget as HTMLElement;
-                                                                                                                const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
-                                                                                                                const isSelected = container.classList.contains('ring-purple-500');
-                                                                                                                if (isSelected) {
-                                                                                                                    container.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
-                                                                                                                    overlay?.classList.replace('opacity-100', 'opacity-0');
-                                                                                                                } else {
-                                                                                                                    container.classList.add('ring-2', 'ring-purple-500', 'ring-offset-1');
-                                                                                                                    overlay?.classList.replace('opacity-0', 'opacity-100');
-                                                                                                                }
-                                                                                                                // Defer state update
-                                                                                                                React.startTransition(() => {
-                                                                                                                    setSelectedForClassification(prev => {
-                                                                                                                        const newSet = new Set(prev);
-                                                                                                                        if (newSet.has(rowId)) {
-                                                                                                                            newSet.delete(rowId);
-                                                                                                                        } else {
-                                                                                                                            newSet.add(rowId);
-                                                                                                                        }
-                                                                                                                        return newSet;
-                                                                                                                    });
-                                                                                                                });
-                                                                                                                return;
-                                                                                                            }
                                                                                                             // Gallery select mode
                                                                                                             if (!gallerySelectMode) return;
+
+                                                                                                            // Instant DOM feedback
+                                                                                                            const container = e.currentTarget as HTMLElement;
+                                                                                                            const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                                                                                            const checkbox = container.querySelector('[data-card-checkbox]') as HTMLElement;
+                                                                                                            const isSelectedNow = container.classList.contains('ring-blue-500');
+
+                                                                                                            if (isSelectedNow) {
+                                                                                                                container.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                                                if (overlay) {
+                                                                                                                    overlay.classList.remove('opacity-100');
+                                                                                                                    overlay.classList.add('opacity-0');
+                                                                                                                }
+                                                                                                                if (checkbox) {
+                                                                                                                    checkbox.classList.remove('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                                                    checkbox.classList.add('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                                                    const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                                                    if (checkIcon) {
+                                                                                                                        checkIcon.classList.remove('opacity-100', 'scale-100');
+                                                                                                                        checkIcon.classList.add('opacity-0', 'scale-50');
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            } else {
+                                                                                                                container.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                                                if (overlay) {
+                                                                                                                    overlay.classList.remove('opacity-0');
+                                                                                                                    overlay.classList.add('opacity-100');
+                                                                                                                }
+                                                                                                                if (checkbox) {
+                                                                                                                    checkbox.classList.add('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                                                    checkbox.classList.remove('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                                                    const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                                                    if (checkIcon) {
+                                                                                                                        checkIcon.classList.remove('opacity-0', 'scale-50');
+                                                                                                                        checkIcon.classList.add('opacity-100', 'scale-100');
+                                                                                                                    }
+                                                                                                                }
+                                                                                                            }
+
                                                                                                             scheduleThumbnailSelect(rowId);
                                                                                                         }}
                                                                                                         onMouseEnter={(e) => handleThumbnailMouseEnter(imageUrl, e)}
                                                                                                         onMouseLeave={handleThumbnailMouseLeave}
                                                                                                         onContextMenu={(e) => handleContextMenu(e, row, imageUrl)}
-                                                                                                        data-tooltip={classificationMode ? '点击选择，拖拽到目标分组' : (linkUrl ? '双击打开链接 · 右键菜单 · 拖拽' : '右键菜单 · 拖拽到收藏夹')}
+                                                                                                        data-tooltip={gallerySelectMode ? '点击选择，拖拽到工作区分组' : (linkUrl ? '双击打开链接 · 右键菜单 · 拖拽' : '右键菜单 · 拖拽到收藏夹')}
                                                                                                     >
                                                                                                         <img
                                                                                                             src={imageUrl}
@@ -6792,8 +6757,8 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                             onDragStart={(e) => {
                                                                                                                 if (gallerySelectMode && !selectedThumbnails.has(rowId)) return;
                                                                                                                 e.stopPropagation();
-                                                                                                                // For reorder within group in classification mode
-                                                                                                                if (classificationMode) {
+                                                                                                                // For reorder within group in select mode
+                                                                                                                if (gallerySelectMode) {
                                                                                                                     setReorderDragItem(imageUrl);
                                                                                                                 }
                                                                                                                 handleThumbnailDragStart(e, imageUrl, row, rowId);
@@ -6810,27 +6775,63 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                                             }}
                                                                                                             loading="lazy"
                                                                                                         />
-                                                                                                        {/* Blue overlay for selected items in gallery select mode */}
-                                                                                                        {gallerySelectMode && selectedThumbnails.has(rowId) && (
-                                                                                                            <div className="absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none" />
-                                                                                                        )}
-                                                                                                        {classificationMode && (
-                                                                                                            <div data-selection-overlay className={`absolute inset-0 bg-purple-500/40 rounded-lg pointer-events-none flex items-center justify-center ${selectedForClassification.has(rowId) ? 'opacity-100' : 'opacity-0'}`}>
-                                                                                                                <div className="bg-white/90 rounded-full p-1">
-                                                                                                                    <Check size={16} className="text-purple-600" />
-                                                                                                                </div>
+                                                                                                        {/* Selection overlay with checkmark badge */}
+                                                                                                        <div
+                                                                                                            data-selection-overlay
+                                                                                                            className={`absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none flex items-center justify-center transition-opacity duration-150 ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'opacity-100' : 'opacity-0'}`}
+                                                                                                        >
+                                                                                                            <div className="bg-white/90 rounded-full p-1 shadow-sm">
+                                                                                                                <Check size={16} className="text-blue-600" strokeWidth={3} />
                                                                                                             </div>
-                                                                                                        )}
+                                                                                                        </div>
                                                                                                         {/* Selection checkbox - in select mode */}
                                                                                                         {gallerySelectMode && (
                                                                                                             <button
-                                                                                                                onClick={(e) => { e.stopPropagation(); toggleThumbnailSelection(rowId); }}
+                                                                                                                data-card-checkbox
+                                                                                                                onClick={(e) => {
+                                                                                                                    e.stopPropagation();
+                                                                                                                    // Toggle selection instantly in DOM
+                                                                                                                    const container = e.currentTarget.closest('[data-marquee-id]') as HTMLElement;
+                                                                                                                    if (container) {
+                                                                                                                        const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                                                                                                        const checkbox = e.currentTarget;
+                                                                                                                        const isSelectedNow = container.classList.contains('ring-blue-500');
+                                                                                                                        if (isSelectedNow) {
+                                                                                                                            container.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                                                            if (overlay) {
+                                                                                                                                overlay.classList.remove('opacity-100');
+                                                                                                                                overlay.classList.add('opacity-0');
+                                                                                                                            }
+                                                                                                                            checkbox.classList.remove('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                                                            checkbox.classList.add('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                                                            const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                                                            if (checkIcon) {
+                                                                                                                                checkIcon.classList.remove('opacity-100', 'scale-100');
+                                                                                                                                checkIcon.classList.add('opacity-0', 'scale-50');
+                                                                                                                            }
+                                                                                                                        } else {
+                                                                                                                            container.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                                                            if (overlay) {
+                                                                                                                                overlay.classList.remove('opacity-0');
+                                                                                                                                overlay.classList.add('opacity-100');
+                                                                                                                            }
+                                                                                                                            checkbox.classList.add('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                                                            checkbox.classList.remove('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                                                            const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                                                            if (checkIcon) {
+                                                                                                                                checkIcon.classList.remove('opacity-0', 'scale-50');
+                                                                                                                                checkIcon.classList.add('opacity-100', 'scale-100');
+                                                                                                                            }
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                    toggleThumbnailSelection(rowId);
+                                                                                                                }}
                                                                                                                 className={`absolute top-1 left-1 z-20 w-6 h-6 rounded border-2 flex items-center justify-center transition-all cursor-pointer hover:scale-110 ${selectedThumbnails.has(rowId)
                                                                                                                     ? 'bg-blue-500 border-blue-500 text-white shadow-lg'
                                                                                                                     : 'bg-white/90 border-slate-400 hover:border-blue-400'
                                                                                                                     }`}
                                                                                                             >
-                                                                                                                {selectedThumbnails.has(rowId) && <Check size={14} />}
+                                                                                                                <Check size={14} className={`transition-all duration-100 ${selectedThumbnails.has(rowId) ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} data-card-check-icon />
                                                                                                             </button>
                                                                                                         )}
                                                                                                         {/* Favorite button - hidden in select mode */}
@@ -7049,15 +7050,15 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                 return (
                                                     <div className="space-y-4">
                                                         {/* Classification Mode: Drop Target Bar (无分组模式) */}
-                                                        {classificationMode && (
-                                                            <div className="sticky top-0 z-20 bg-purple-50/95 backdrop-blur-sm border-b border-purple-200 px-2 py-1.5 mb-2 rounded-b-xl shadow-sm max-h-[30vh] overflow-y-auto custom-scrollbar flex flex-col gap-1.5">
+                                                        {gallerySelectMode && (
+                                                            <div className="sticky top-0 z-20 bg-blue-50/95 backdrop-blur-sm border-b border-blue-200 px-2 py-1.5 mb-2 rounded-b-xl shadow-sm max-h-[30vh] overflow-y-auto custom-scrollbar flex flex-col gap-1.5">
                                                                 {/* Header Row */}
                                                                 <div className="flex items-center gap-1.5">
-                                                                    <Layers size={14} className="text-purple-600" />
+                                                                    <Layers size={14} className="text-blue-600" />
                                                                     <span className="text-xs font-semibold text-purple-700">分类工作区</span>
                                                                     <span className="text-[10px] text-purple-500">
-                                                                        {selectedForClassification.size > 0
-                                                                            ? `已选择 ${selectedForClassification.size} 张`
+                                                                        {selectedThumbnails.size > 0
+                                                                            ? `已选择 ${selectedThumbnails.size} 张`
                                                                             : '点击缩略图选择，然后拖拽到目标'}
                                                                     </span>
                                                                 </div>
@@ -7073,10 +7074,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                     key={option}
                                                                                     onClick={async (e) => {
                                                                                         const ct = selectedThumbnailsRef.current;
-                                                                                        const sm = gallerySelectModeRef.current;
-                                                                                        const ids = selectedForClassification.size > 0
-                                                                                            ? Array.from(selectedForClassification)
-                                                                                            : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                        const ids = Array.from(ct);
                                                                                         if (ids.length > 0) {
                                                                                             const btn = e.currentTarget as HTMLElement;
                                                                                             btn.style.transform = 'scale(1.15)';
@@ -7085,8 +7083,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                             btn.style.boxShadow = '0 0 12px rgba(168,85,247,0.5)';
                                                                                             btn.textContent = `✓ ${option}`;
                                                                                             await handleClassificationChange(ids, option);
-                                                                                            setSelectedForClassification(new Set());
-                                                                                            if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                            setSelectedThumbnails(new Set());
                                                                                             setTimeout(() => {
                                                                                                 btn.style.transform = '';
                                                                                                 btn.style.background = '';
@@ -7109,12 +7106,12 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         }
                                                                                     }}
                                                                                     className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === option
-                                                                                        ? 'bg-purple-200 border-purple-500 text-purple-800 scale-105'
-                                                                                        : selectedForClassification.size > 0
-                                                                                            ? 'bg-purple-50 border-purple-400 text-purple-700 hover:bg-purple-200 hover:scale-105 ring-1 ring-purple-300'
-                                                                                            : 'bg-white border-purple-300 text-purple-700 hover:bg-purple-100'
+                                                                                        ? 'bg-blue-200 border-blue-500 text-blue-800 scale-105'
+                                                                                        : selectedThumbnails.size > 0
+                                                                                            ? 'bg-blue-50 border-blue-400 text-blue-700 hover:bg-blue-200 hover:scale-105 ring-1 ring-blue-300'
+                                                                                            : 'bg-white border-blue-300 text-blue-700 hover:bg-blue-100'
                                                                                         }`}
-                                                                                    data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '拖拽图片到此分类'}
+                                                                                    data-tip={selectedThumbnails.size > 0 ? `点击将 ${selectedThumbnails.size} 张图片分到此组` : '拖拽图片到此分类'}
                                                                                 >
                                                                                     {option}
                                                                                 </div>
@@ -7128,10 +7125,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 key={`custom-${groupIdx}`}
                                                                                 onClick={async (e) => {
                                                                                     const ct = selectedThumbnailsRef.current;
-                                                                                    const sm = gallerySelectModeRef.current;
-                                                                                    const ids = selectedForClassification.size > 0
-                                                                                        ? Array.from(selectedForClassification)
-                                                                                        : (sm && ct.size > 0) ? Array.from(ct) : [];
+                                                                                    const ids = Array.from(ct);
                                                                                     if (ids.length > 0) {
                                                                                         const btn = e.currentTarget as HTMLElement;
                                                                                         btn.style.transform = 'scale(1.15)';
@@ -7139,8 +7133,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                         btn.style.color = '#fff';
                                                                                         btn.style.boxShadow = '0 0 12px rgba(34,197,94,0.5)';
                                                                                         await handleClassificationChange(ids, customGroup);
-                                                                                        setSelectedForClassification(new Set());
-                                                                                        if (sm) { setSelectedThumbnails(new Set()); setGallerySelectMode(false); }
+                                                                                        setSelectedThumbnails(new Set());
                                                                                         setTimeout(() => {
                                                                                             btn.style.transform = '';
                                                                                             btn.style.background = '';
@@ -7163,11 +7156,11 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 }}
                                                                                 className={`px-2 py-0.5 text-[11px] font-medium rounded border border-dashed bg-opacity-50 border-dashed cursor-pointer transition-all tooltip-bottom ${dragOverGroup === customGroup
                                                                                     ? 'bg-green-200 border-green-500 text-green-800 scale-105'
-                                                                                    : selectedForClassification.size > 0
+                                                                                    : selectedThumbnails.size > 0
                                                                                         ? 'bg-green-50 border-green-400 text-green-700 hover:bg-green-200 hover:scale-105 ring-1 ring-green-300'
                                                                                         : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
                                                                                     }`}
-                                                                                data-tip={selectedForClassification.size > 0 ? `点击将 ${selectedForClassification.size} 张图片分到此组` : '拖拽图片到此自定义分组'}
+                                                                                data-tip={selectedThumbnails.size > 0 ? `点击将 ${selectedThumbnails.size} 张图片分到此组` : '拖拽图片到此自定义分组'}
                                                                             >
                                                                                 ✨ {customGroup}
                                                                             </div>
@@ -7178,7 +7171,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                                 <input
                                                                                     type="text"
                                                                                     placeholder="新分组名称..."
-                                                                                    className="w-24 px-2 py-1 text-xs border border-purple-300 rounded focus:ring-2 focus:ring-purple-400"
+                                                                                    className="w-24 px-2 py-1 text-xs border border-blue-300 rounded focus:ring-2 focus:ring-blue-400"
                                                                                     autoFocus
                                                                                     onKeyDown={(e) => {
                                                                                         if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
@@ -7323,51 +7316,60 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                     <div
                                                                         key={rowId || `${imageUrl}-${idx}`}
                                                                         data-marquee-id={rowId}
-                                                                        className={`relative group cursor-pointer ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'ring-2 ring-blue-500 ring-offset-1 rounded-lg' : ''} ${classificationMode && selectedForClassification.has(rowId) ? 'ring-2 ring-purple-500 ring-offset-1 rounded-lg' : ''} ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
-                                                                        draggable={classificationMode || !gallerySelectMode || selectedThumbnails.has(rowId)}
+                                                                        className={`relative group cursor-pointer ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'ring-2 ring-blue-500 ring-offset-1 rounded-lg' : ''} ${isDraggingImage ? 'cursor-grabbing' : 'cursor-grab'}`}
+                                                                        draggable={!gallerySelectMode || selectedThumbnails.has(rowId)}
                                                                         onDragStart={(e) => {
-                                                                            if (gallerySelectMode && !selectedThumbnails.has(rowId) && !classificationMode) return;
+                                                                            if (gallerySelectMode && !selectedThumbnails.has(rowId)) return;
                                                                             handleThumbnailDragStart(e, imageUrl, row, rowId);
                                                                         }}
                                                                         onDragEnd={handleDragEnd}
                                                                         onClick={(e) => {
                                                                             if ((e.target as HTMLElement).closest('button')) return;
-                                                                            // Classification mode: toggle selection for classification
-                                                                            if (classificationMode) {
-                                                                                // Instant DOM feedback - border
-                                                                                const container = e.currentTarget as HTMLElement;
-                                                                                const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
-                                                                                const isSelected = container.classList.contains('ring-purple-500');
-                                                                                if (isSelected) {
-                                                                                    container.classList.remove('ring-2', 'ring-purple-500', 'ring-offset-1');
-                                                                                    overlay?.classList.replace('opacity-100', 'opacity-0');
-                                                                                } else {
-                                                                                    container.classList.add('ring-2', 'ring-purple-500', 'ring-offset-1');
-                                                                                    overlay?.classList.replace('opacity-0', 'opacity-100');
-                                                                                }
-                                                                                // Defer state update
-                                                                                React.startTransition(() => {
-                                                                                    setSelectedForClassification(prev => {
-                                                                                        const newSet = new Set(prev);
-                                                                                        if (newSet.has(rowId)) {
-                                                                                            newSet.delete(rowId);
-                                                                                        } else {
-                                                                                            newSet.add(rowId);
-                                                                                        }
-                                                                                        return newSet;
-                                                                                    });
-                                                                                });
-                                                                                return;
-                                                                            }
                                                                             // Gallery select mode
                                                                             if (!gallerySelectMode) return;
+                                                                            // Instant DOM feedback - border and overlay
+                                                                            const container = e.currentTarget as HTMLElement;
+                                                                            const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                                                            const checkbox = container.querySelector('[data-card-checkbox]') as HTMLElement;
+                                                                            const isSelectedNow = container.classList.contains('ring-blue-500');
+                                                                            if (isSelectedNow) {
+                                                                                container.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                if (overlay) {
+                                                                                    overlay.classList.remove('opacity-100');
+                                                                                    overlay.classList.add('opacity-0');
+                                                                                }
+                                                                                if (checkbox) {
+                                                                                    checkbox.classList.remove('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                    checkbox.classList.add('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                    const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                    if (checkIcon) {
+                                                                                        checkIcon.classList.remove('opacity-100', 'scale-100');
+                                                                                        checkIcon.classList.add('opacity-0', 'scale-50');
+                                                                                    }
+                                                                                }
+                                                                            } else {
+                                                                                container.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                if (overlay) {
+                                                                                    overlay.classList.remove('opacity-0');
+                                                                                    overlay.classList.add('opacity-100');
+                                                                                }
+                                                                                if (checkbox) {
+                                                                                    checkbox.classList.add('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                    checkbox.classList.remove('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                    const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                    if (checkIcon) {
+                                                                                        checkIcon.classList.remove('opacity-0', 'scale-50');
+                                                                                        checkIcon.classList.add('opacity-100', 'scale-100');
+                                                                                    }
+                                                                                }
+                                                                            }
                                                                             scheduleThumbnailSelect(rowId);
                                                                         }}
                                                                         onDoubleClick={(e) => handleThumbnailDoubleClick(e, rowId, linkUrl)}
                                                                         onMouseEnter={(e) => handleThumbnailMouseEnter(imageUrl, e)}
                                                                         onMouseLeave={handleThumbnailMouseLeave}
                                                                         onContextMenu={(e) => handleContextMenu(e, row, imageUrl)}
-                                                                        data-tooltip={linkUrl ? '双击打开链接 · 右键菜单 · 拖拽到收藏夹' : '右键菜单 · 拖拽到收藏夹'}
+                                                                        data-tooltip={gallerySelectMode ? '点击选择，拖拽到工作区分组' : (linkUrl ? '双击打开链接 · 右键菜单 · 拖拽到收藏夹' : '右键菜单 · 拖拽到收藏夹')}
                                                                     >
                                                                         <img
                                                                             src={imageUrl}
@@ -7392,27 +7394,63 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                                                                             }}
                                                                             loading="lazy"
                                                                         />
-                                                                        {/* Blue overlay for selected items */}
-                                                                        {gallerySelectMode && selectedThumbnails.has(rowId) && (
-                                                                            <div className="absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none" />
-                                                                        )}
-                                                                        {classificationMode && (
-                                                                            <div data-selection-overlay className={`absolute inset-0 bg-purple-500/40 rounded-lg pointer-events-none flex items-center justify-center ${selectedForClassification.has(rowId) ? 'opacity-100' : 'opacity-0'}`}>
-                                                                                <div className="bg-white/90 rounded-full p-1">
-                                                                                    <Check size={16} className="text-purple-600" />
-                                                                                </div>
+                                                                        {/* Selection overlay with checkmark badge */}
+                                                                        <div
+                                                                            data-selection-overlay
+                                                                            className={`absolute inset-0 bg-blue-500/30 rounded-lg pointer-events-none flex items-center justify-center transition-opacity duration-150 ${gallerySelectMode && selectedThumbnails.has(rowId) ? 'opacity-100' : 'opacity-0'}`}
+                                                                        >
+                                                                            <div className="bg-white/90 rounded-full p-1 shadow-sm">
+                                                                                <Check size={16} className="text-blue-600" strokeWidth={3} />
                                                                             </div>
-                                                                        )}
+                                                                        </div>
                                                                         {/* Selection checkbox - in select mode */}
                                                                         {gallerySelectMode && (
                                                                             <button
-                                                                                onClick={(e) => { e.stopPropagation(); toggleThumbnailSelection(rowId); }}
+                                                                                data-card-checkbox
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    // Toggle selection instantly in DOM
+                                                                                    const container = e.currentTarget.closest('[data-marquee-id]') as HTMLElement;
+                                                                                    if (container) {
+                                                                                        const overlay = container.querySelector('[data-selection-overlay]') as HTMLElement;
+                                                                                        const checkbox = e.currentTarget;
+                                                                                        const isSelectedNow = container.classList.contains('ring-blue-500');
+                                                                                        if (isSelectedNow) {
+                                                                                            container.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                            if (overlay) {
+                                                                                                overlay.classList.remove('opacity-100');
+                                                                                                overlay.classList.add('opacity-0');
+                                                                                            }
+                                                                                            checkbox.classList.remove('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                            checkbox.classList.add('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                            const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                            if (checkIcon) {
+                                                                                                checkIcon.classList.remove('opacity-100', 'scale-100');
+                                                                                                checkIcon.classList.add('opacity-0', 'scale-50');
+                                                                                            }
+                                                                                        } else {
+                                                                                            container.classList.add('ring-2', 'ring-blue-500', 'ring-offset-1');
+                                                                                            if (overlay) {
+                                                                                                overlay.classList.remove('opacity-0');
+                                                                                                overlay.classList.add('opacity-100');
+                                                                                            }
+                                                                                            checkbox.classList.add('bg-blue-500', 'border-blue-500', 'text-white', 'shadow-lg');
+                                                                                            checkbox.classList.remove('bg-white/90', 'border-slate-400', 'hover:border-blue-400');
+                                                                                            const checkIcon = checkbox.querySelector('[data-card-check-icon]') as HTMLElement;
+                                                                                            if (checkIcon) {
+                                                                                                checkIcon.classList.remove('opacity-0', 'scale-50');
+                                                                                                checkIcon.classList.add('opacity-100', 'scale-100');
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                    toggleThumbnailSelection(rowId);
+                                                                                }}
                                                                                 className={`absolute top-1 left-1 z-20 w-6 h-6 rounded border-2 flex items-center justify-center transition-all cursor-pointer hover:scale-110 ${selectedThumbnails.has(rowId)
                                                                                     ? 'bg-blue-500 border-blue-500 text-white shadow-lg'
                                                                                     : 'bg-white/90 border-slate-400 hover:border-blue-400'
                                                                                     }`}
                                                                             >
-                                                                                {selectedThumbnails.has(rowId) && <Check size={14} />}
+                                                                                <Check size={14} className={`transition-all duration-100 ${selectedThumbnails.has(rowId) ? 'opacity-100 scale-100' : 'opacity-0 scale-50'}`} data-card-check-icon />
                                                                             </button>
                                                                         )}
                                                                         {/* Favorite button - hidden in select mode */}
@@ -8043,7 +8081,7 @@ const MediaGalleryPanel: React.FC<MediaGalleryPanelProps> = ({ data, sourceUrl, 
                             }}
                         />
                         <button
-                            className="px-2 py-1 text-xs bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+                            className="px-2 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
                             onClick={(e) => {
                                 const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
                                 if (input.value.trim()) {

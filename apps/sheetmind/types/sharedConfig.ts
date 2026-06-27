@@ -103,6 +103,22 @@ export interface SharedConfig {
     transposeData?: boolean;          // 是否转置数据（横向数据转纵向）
     mergeTransposeColumns?: boolean;  // 是否合并同名列（如 贴文点赞量 [1.X] 和 [2.Y] 合并为一个列）
     pureImageMode?: boolean;          // 纯图片模式：忽略行列结构，扫描所有单元格提取图片URL
+    unpivotEnabled?: boolean;         // 是否启用分栏原始数据合并
+    unpivotGroupSize?: number;        // 每组列数（例如：2 表示每2列是一组）
+    unpivotKeyColCount?: number;      // 保留的前几列不折叠
+    unpivotHeaderNames?: string[];    // 合并后的新列名
+    combineColumnsEnabled?: boolean;  // 是否启用自定义列合并
+    combineSourceColumns?: string[];  // 要合并的源列名
+    combineTargetColumnName?: string; // 合并后的新列名
+    combineSortAlphabetically?: boolean; // 合并值是否按字母排序
+    explodeEnabled?: boolean;         // 是否启用多列展开到多行
+    explodeSourceColumns?: string[];  // 要展开的源列名
+    explodeTargetColumnName?: string; // 展开后的新列名
+    flattenEnabled?: boolean;         // 是否启用分组横向铺开
+    flattenKeyColumn?: string;        // 横向铺开合并依据列
+    flattenValueColumns?: string[];   // 横向铺开值列名列表
+    flattenSumColumn?: string;        // 向后兼容：单列求和汇总
+    flattenSumColumns?: string[];     // 横向铺开自动求和数值列列表
 
     // === 分组设置 ===
     groupColumn: string;              // 分组依据列（向后兼容，单级分组）
@@ -163,6 +179,22 @@ export const getDefaultSharedConfig = (): SharedConfig => ({
     transposeData: false,
     mergeTransposeColumns: false,
     pureImageMode: false,
+    unpivotEnabled: false,
+    unpivotGroupSize: 2,
+    unpivotKeyColCount: 1,
+    unpivotHeaderNames: [],
+    combineColumnsEnabled: false,
+    combineSourceColumns: [],
+    combineTargetColumnName: '合并配搭',
+    combineSortAlphabetically: true,
+    explodeEnabled: false,
+    explodeSourceColumns: [],
+    explodeTargetColumnName: '拆分美工',
+    flattenEnabled: false,
+    flattenKeyColumn: '',
+    flattenValueColumns: [],
+    flattenSumColumn: '',
+    flattenSumColumns: [],
     // 分组
     groupColumn: '',
     groupColumns: [],

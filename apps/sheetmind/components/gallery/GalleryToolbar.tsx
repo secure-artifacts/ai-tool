@@ -6,7 +6,6 @@ export const GalleryToolbar = (props: any) => {
     const { 
         MessageSquare,
         calendarMonth,
-        classificationMode,
         classificationOverrides,
         clearThumbnailSelection,
         collapseAll,
@@ -33,16 +32,13 @@ export const GalleryToolbar = (props: any) => {
         parseDate,
         primaryGroupColumn,
         processedRows,
-        selectedForClassification,
         selectedThumbnails,
         setCalendarMonth,
-        setClassificationMode,
         setCollapsedGalleryGroups,
         setCopyFeedback,
         setDraggedItems,
         setGallerySelectMode,
         setLocalSearchInput,
-        setSelectedForClassification,
         setSelectedThumbnails,
         setShowBatchFolderMenu,
         setShowCategoryView,
@@ -112,70 +108,6 @@ export const GalleryToolbar = (props: any) => {
                                     <Check size={10} />
                                     {gallerySelectMode ? `选择 (${selectedThumbnails.size})` : '多选'}
                                 </button>
-                            )}
-
-                            {/* Classification mode toggle */}
-                            {!showFavorites && config.viewMode === 'gallery' && (
-                                <>
-                                    <button
-                                        onClick={() => {
-                                            setClassificationMode(!classificationMode);
-                                            if (classificationMode) {
-                                                setSelectedForClassification(new Set());
-                                                setDraggedItems([]);
-                                            }
-                                        }}
-                                        className={`px-2 py-0.5 text-[10px] rounded flex items-center gap-1 transition-colors tooltip-bottom ${classificationMode
-                                            ? 'bg-purple-100/80 text-purple-700 border border-purple-200 shadow-sm'
-                                            : 'bg-transparent hover:bg-slate-100 text-slate-600'
-                                            }`}
-                                        data-tip="开启分类模式"
-                                    >
-                                        <Layers size={10} />
-                                        {classificationMode ? `分类 (${selectedForClassification.size})` : '分类'}
-                                    </button>
-                                    {/* Select from multi-select - transfer selectedThumbnails to classification */}
-                                    {classificationMode && gallerySelectMode && selectedThumbnails.size > 0 && (
-                                        <button
-                                            onClick={() => {
-                                                setSelectedForClassification(new Set(selectedThumbnails));
-                                                setCopyFeedback(`✅ 已选入 ${selectedThumbnails.size} 项到分类`);
-                                                setTimeout(() => setCopyFeedback(null), 1500);
-                                            }}
-                                            className="px-2 py-0.5 text-[10px] rounded flex items-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors tooltip-bottom"
-                                            data-tip="将多选的图片导入分类选中"
-                                        >
-                                            <Check size={10} />
-                                            选择选中项 ({selectedThumbnails.size})
-                                        </button>
-                                    )}
-                                    {/* Clear selection button - shown when items are selected */}
-                                    {classificationMode && selectedForClassification.size > 0 && (
-                                        <button
-                                            onClick={() => {
-                                                setSelectedForClassification(new Set());
-                                                setDraggedItems([]);
-                                                setCopyFeedback('✅ 已取消全选');
-                                                setTimeout(() => setCopyFeedback(null), 1500);
-                                            }}
-                                            className="px-2 py-1 text-xs rounded flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 transition-colors tooltip-bottom"
-                                            data-tip="取消全选"
-                                        >
-                                            ✕ 取消选择
-                                        </button>
-                                    )}
-                                    {/* Copy image formulas in classification mode */}
-                                    {classificationMode && selectedForClassification.size > 0 && (
-                                        <button
-                                            onClick={() => copySelectedImageFormulas && copySelectedImageFormulas(processedRows, 'classification')}
-                                            className="px-2 py-0.5 text-[10px] rounded flex items-center gap-1 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 transition-colors tooltip-bottom"
-                                            data-tip="复制选中图片的 =IMAGE() 公式"
-                                        >
-                                            <Image size={10} />
-                                            复制图片公式
-                                        </button>
-                                    )}
-                                </>
                             )}
 
                             {/* Global Keyword Search - 回车或点击搜索按钮触发，避免每字都重算 */}

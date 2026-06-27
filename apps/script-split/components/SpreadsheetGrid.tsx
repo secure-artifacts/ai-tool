@@ -529,13 +529,13 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     }
 
     // Copy (Ctrl+C)
-    if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') {
       e.preventDefault();
       handleCopy();
     }
 
     // Paste (Ctrl+V) - 直接在 keydown 中处理，解决 Electron 的 onPaste 事件问题
-    if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v') {
       if ((window as any).electronAPI) {
         e.preventDefault();
         handlePasteFromKeyboard();
@@ -679,9 +679,17 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
       }
     }
 
-    // 如果 Electron API 失败，不再尝试浏览器 API，直接报错返回以依赖原生的 onPaste 事件
+    // 如果 Electron API 失败或为空，尝试使用浏览器 navigator.clipboard API
+    if (!text && navigator.clipboard?.readText) {
+      try {
+        text = await navigator.clipboard.readText() || '';
+      } catch (err) {
+        console.warn('[SpreadsheetGrid] navigator.clipboard.readText failed:', err);
+      }
+    }
+
     if (!text) {
-      console.warn('[SpreadsheetGrid] No Electron clipboard text available');
+      console.warn('[SpreadsheetGrid] No clipboard text available');
       return;
     }
 
@@ -725,6 +733,15 @@ export const SpreadsheetGrid: React.FC<SpreadsheetGridProps> = ({
     // 如果 Electron API 失败或为空，尝试浏览器剪贴板
     if (!text) {
       text = e.clipboardData?.getData('text/plain') || '';
+    }
+
+    // 如果仍为空，尝试使用浏览器 navigator.clipboard API
+    if (!text && navigator.clipboard?.readText) {
+      try {
+        text = await navigator.clipboard.readText() || '';
+      } catch (err) {
+        console.warn('[SpreadsheetGrid] navigator.clipboard.readText failed:', err);
+      }
     }
 
     if (!text) {

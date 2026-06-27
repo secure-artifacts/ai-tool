@@ -673,6 +673,51 @@ export const GenericChart: React.FC<{
                                 <Tooltip />
                             </Treemap>
                         );
+                    case 'pivot': {
+                        // Render a simple compact table for the snapshot / gallery preview
+                        const is2D = breakdownKeys && breakdownKeys.length > 0;
+                        return (
+                            <div className="w-full h-full overflow-auto text-[10px] border border-slate-200 rounded p-1 bg-white">
+                                <table className="w-full border-collapse bg-white">
+                                    <thead>
+                                        <tr className="bg-slate-50 font-bold border-b border-slate-200">
+                                            <th className="px-2 py-1 text-left border-r border-slate-200">{xAxisLabel || '类别'}</th>
+                                            {is2D ? (
+                                                breakdownKeys.map(k => (
+                                                    <th key={k} className="px-2 py-1 text-right border-r border-slate-200">{k}</th>
+                                                ))
+                                            ) : null}
+                                            <th className="px-2 py-1 text-right">总计</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {data.slice(0, 10).map((row: any, idx: number) => (
+                                            <tr key={idx} className="hover:bg-slate-50">
+                                                <td className="px-2 py-1 font-medium text-slate-700 truncate max-w-[80px] border-r border-slate-200">{row.name}</td>
+                                                {is2D ? (
+                                                    breakdownKeys.map(k => (
+                                                        <td key={k} className="px-2 py-1 text-right font-mono text-slate-600 border-r border-slate-200">
+                                                            {row[k] !== undefined ? row[k].toLocaleString() : 0}
+                                                        </td>
+                                                    ))
+                                                ) : null}
+                                                <td className="px-2 py-1 text-right font-mono font-bold text-slate-900 bg-slate-50/30">
+                                                    {row.value !== undefined ? row.value.toLocaleString() : 0}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {data.length > 10 && (
+                                            <tr>
+                                                <td colSpan={is2D ? breakdownKeys.length + 2 : 2} className="px-2 py-1 text-center text-slate-400 italic">
+                                                    ...及其他 {data.length - 10} 项...
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        );
+                    }
                     default:
                         return null;
                 }
@@ -842,6 +887,11 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
     const [copied, setCopied] = useState(false);
     const [chartCopied, setChartCopied] = useState(false);
     const [copyingChart, setCopyingChart] = useState(false);
+
+    // --- PIVOT TABLE MULTI-COLUMN WRAPPING STATE ---
+    const [multiColumnWrap, setMultiColumnWrap] = useState<number>(1);
+    const [showPercentageInPivot, setShowPercentageInPivot] = useState<boolean>(false);
+    const [pivotCopied, setPivotCopied] = useState(false);
 
     // --- CHART DISPLAY MODE ---
     // 'total' = 总和视图, 'faceted' = 分面视图(每个分段一个图), 'filtered' = 筛选视图
@@ -1804,6 +1854,97 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
         });
     };
 
+    const handleCopyPivotData = () => {
+        const { breakdownKeys, tableData, totalValue } = processedData;
+        let text = '';
+
+        if (breakdownCol) {
+            // Copy 2D pivot table
+            const headers = [enableBinning ? '范围' : dimensionCol, ...breakdownKeys, '总计'];
+            const headerRow = headers.join('\t');
+            
+            const rows = tableData.slice(0, 100).map((item: any) => {
+                const cols = [
+                    item.name,
+                    ...breakdownKeys.map((key: string) => item[key] || 0),
+                    item.value
+                ];
+                return cols.join('\t');
+            });
+
+            const totals = [
+                '总计',
+                ...breakdownKeys.map((key: string) => {
+                    return tableData.reduce((sum: number, item: any) => sum + (item[key] || 0), 0);
+                }),
+                totalValue
+            ];
+            const totalsRow = totals.join('\t');
+
+            text = [headerRow, ...rows, totalsRow].join('\n');
+        } else {
+            // Copy 1D pivot table (with wrapping)
+            const wrapCols = multiColumnWrap;
+            const totalRows = tableData.length;
+            const rowsPerCol = Math.ceil(totalRows / wrapCols);
+            const labelCol = enableBinning ? '范围' : dimensionCol;
+            const valueCol = metricCol || (aggregation === 'count' ? '数量' : '数值');
+
+            // Build headers
+            const headerParts = [];
+            for (let c = 0; c < wrapCols; c++) {
+                headerParts.push(labelCol, valueCol);
+                if (showPercentageInPivot) {
+                    headerParts.push('占比');
+                }
+            }
+            const headerRow = headerParts.join('\t');
+
+            // Build rows
+            const rows = [];
+            for (let r = 0; r < rowsPerCol; r++) {
+                const rowParts = [];
+                for (let c = 0; c < wrapCols; c++) {
+                    const dataIdx = c * rowsPerCol + r;
+                    if (dataIdx < totalRows) {
+                        const item = tableData[dataIdx];
+                        rowParts.push(item.name, item.value);
+                        if (showPercentageInPivot) {
+                            rowParts.push(`${item.percentage}%`);
+                        }
+                    } else {
+                        rowParts.push('/', '/');
+                        if (showPercentageInPivot) {
+                            rowParts.push('/');
+                        }
+                    }
+                }
+                rows.push(rowParts.join('\t'));
+            }
+
+            // Build totals row
+            const totalRowParts = [];
+            totalRowParts.push('总计', totalValue);
+            if (showPercentageInPivot) {
+                totalRowParts.push('100%');
+            }
+            for (let c = 1; c < wrapCols; c++) {
+                totalRowParts.push('', '');
+                if (showPercentageInPivot) {
+                    totalRowParts.push('');
+                }
+            }
+            const totalsRow = totalRowParts.join('\t');
+
+            text = [headerRow, ...rows, totalsRow].join('\n');
+        }
+
+        navigator.clipboard.writeText(text).then(() => {
+            setPivotCopied(true);
+            setTimeout(() => setPivotCopied(false), 2000);
+        });
+    };
+
     const handleCopyChartImage = useCallback(async () => {
         if (!chartCaptureRef.current || copyingChart) return;
         setCopyingChart(true);
@@ -2353,6 +2494,127 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
             xAxisLabel: enableBinning ? '范围区间' : dimensionCol
         };
         onAddSnapshot(newSnapshot);
+    };
+
+    const render1DPivotTable = () => {
+        const tableData = processedData.tableData;
+        const totalRows = tableData.length;
+        if (totalRows === 0) {
+            return (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                    <Table2 size={48} className="mb-4 opacity-50" />
+                    <p className="text-sm font-medium">暂无统计数据</p>
+                </div>
+            );
+        }
+
+        const wrapCols = !breakdownCol ? multiColumnWrap : 1;
+        const rowsPerCol = Math.ceil(totalRows / wrapCols);
+
+        const renderGroupHeader = (groupKey: number) => {
+            return (
+                <React.Fragment key={`h-${groupKey}`}>
+                    <th className="px-4 py-3 text-left font-bold text-slate-700 bg-slate-100 border border-slate-200 sticky top-0 z-10">
+                        {enableBinning ? '范围' : dimensionCol}
+                    </th>
+                    <th className="px-4 py-3 text-right font-bold text-slate-700 bg-slate-100 border border-slate-200 sticky top-0 z-10">
+                        {metricCol || (aggregation === 'count' ? '数量' : '数值')}
+                    </th>
+                    {showPercentageInPivot && (
+                        <th className="px-4 py-3 text-right font-bold text-slate-700 bg-slate-100 border border-slate-200 sticky top-0 z-10">
+                            占比
+                        </th>
+                    )}
+                </React.Fragment>
+            );
+        };
+
+        const rows = [];
+        for (let r = 0; r < rowsPerCol; r++) {
+            const rowCells = [];
+            for (let c = 0; c < wrapCols; c++) {
+                const dataIdx = c * rowsPerCol + r;
+                if (dataIdx < totalRows) {
+                    const item = tableData[dataIdx];
+                    rowCells.push(
+                        <React.Fragment key={`c-${c}`}>
+                            <td className="px-4 py-2 font-medium text-slate-700 border border-slate-200 truncate max-w-[150px]" title={item.name}>
+                                {item.name}
+                            </td>
+                            <td className="px-4 py-2 text-right font-mono text-slate-900 border border-slate-200 tabular-nums">
+                                {item.value.toLocaleString()}
+                            </td>
+                            {showPercentageInPivot && (
+                                <td className="px-4 py-2 text-right text-slate-500 border border-slate-200 tabular-nums">
+                                    {item.percentage}%
+                                </td>
+                            )}
+                        </React.Fragment>
+                    );
+                } else {
+                    rowCells.push(
+                        <React.Fragment key={`c-${c}`}>
+                            <td className="px-4 py-2 text-slate-300 border border-slate-200 italic select-none">/</td>
+                            <td className="px-4 py-2 text-right text-slate-300 border border-slate-200 italic select-none">/</td>
+                            {showPercentageInPivot && (
+                                <td className="px-4 py-2 text-right text-slate-300 border border-slate-200 italic select-none">/</td>
+                            )}
+                        </React.Fragment>
+                    );
+                }
+            }
+            rows.push(
+                <tr key={`r-${r}`} className={r % 2 === 0 ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/50 hover:bg-slate-50'}>
+                    {rowCells}
+                </tr>
+            );
+        }
+
+        const totalRowCells = [];
+        totalRowCells.push(
+            <React.Fragment key="tot-0">
+                <td className="px-4 py-2 font-bold text-slate-700 bg-slate-100 border border-slate-200">
+                    总计
+                </td>
+                <td className="px-4 py-2 text-right font-bold text-indigo-700 bg-indigo-50 border border-slate-200 tabular-nums">
+                    {processedData.totalValue.toLocaleString()}
+                </td>
+                {showPercentageInPivot && (
+                    <td className="px-4 py-2 text-right font-bold text-slate-700 bg-slate-100 border border-slate-200 tabular-nums">
+                        100%
+                    </td>
+                )}
+            </React.Fragment>
+        );
+        for (let c = 1; c < wrapCols; c++) {
+            totalRowCells.push(
+                <React.Fragment key={`tot-${c}`}>
+                    <td className="px-4 py-2 bg-slate-100 border border-slate-200"></td>
+                    <td className="px-4 py-2 text-right bg-slate-100 border border-slate-200"></td>
+                    {showPercentageInPivot && (
+                        <td className="px-4 py-2 text-right bg-slate-100 border border-slate-200"></td>
+                    )}
+                </React.Fragment>
+            );
+        }
+
+        return (
+            <div className="h-full overflow-auto">
+                <table className="border-collapse text-sm w-full min-w-max">
+                    <thead>
+                        <tr>
+                            {Array.from({ length: wrapCols }).map((_, c) => renderGroupHeader(c))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows}
+                        <tr className="bg-slate-100 font-semibold sticky bottom-0 z-10">
+                            {totalRowCells}
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        );
     };
 
     return (
@@ -2933,6 +3195,41 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                             </div>
                         </div>
 
+                    {chartType === 'pivot' && (
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                                <Table2 size={16} className="text-indigo-600" /> 表格排版配置
+                            </h3>
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">分栏展示列数 (并排数)</label>
+                                <select
+                                    value={multiColumnWrap}
+                                    onChange={(e) => setMultiColumnWrap(parseInt(e.target.value))}
+                                    className="w-full p-2 border border-slate-300 rounded text-xs text-slate-800 bg-white"
+                                >
+                                    <option value={1}>1 栏 (默认单列)</option>
+                                    <option value={2}>2 栏并排</option>
+                                    <option value={3}>3 栏并排</option>
+                                    <option value={4}>4 栏并排</option>
+                                    <option value={5}>5 栏并排</option>
+                                    <option value={6}>6 栏并排</option>
+                                </select>
+                                <p className="text-[10px] text-slate-400 mt-1">仅在未设置"拆分维度"时，单维度列表生效</p>
+                            </div>
+                            {!breakdownCol && (
+                                <label className="flex items-center gap-2 cursor-pointer select-none text-xs">
+                                    <input
+                                        type="checkbox"
+                                        checked={showPercentageInPivot}
+                                        onChange={(e) => setShowPercentageInPivot(e.target.checked)}
+                                        className="rounded text-blue-600"
+                                    />
+                                    <span className="text-slate-700 font-medium">显示占比列 (Percentage)</span>
+                                </label>
+                            )}
+                        </div>
+                    )}
+
 
                     {/* Filtering - moved below */}
                     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -3043,6 +3340,15 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                         <Sparkles size={14} /> 推荐 ({recommendations.length})
                                     </button>
                                 )}
+                                {chartType === 'pivot' && (
+                                    <button
+                                        onClick={handleCopyPivotData}
+                                        className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-3 py-1.5 rounded-lg flex items-center gap-1 transition-colors border border-indigo-200"
+                                    >
+                                        {pivotCopied ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                                        {pivotCopied ? '已复制数据' : '复制表格数据'}
+                                    </button>
+                                )}
                                 <button
                                     onClick={handleCopyChartImage}
                                     disabled={copyingChart}
@@ -3079,11 +3385,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, onAddSnapshot }) => {
                                 /* Pivot Table View */
                                 <div className="h-full">
                                     {!breakdownCol ? (
-                                        <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                                            <Table2 size={48} className="mb-4 opacity-50" />
-                                            <p className="text-sm font-medium">请设置"次级维度"来生成交叉透视表</p>
-                                            <p className="text-xs mt-1">在左侧设置面板中选择一个字段作为列分类</p>
-                                        </div>
+                                        render1DPivotTable()
                                     ) : (
                                         <table className="border-collapse text-sm w-full">
                                             <thead>
