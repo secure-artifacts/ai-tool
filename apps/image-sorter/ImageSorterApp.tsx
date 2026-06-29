@@ -447,6 +447,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
     // State
     const [images, setImages] = useState<SorterImage[]>([]);
     const [editingImage, setEditingImage] = useState<SorterImage | null>(null);
+    const [isBatchEditOpen, setIsBatchEditOpen] = useState(false);
     const [enlargedInput, setEnlargedInput] = useState<{ title: string, value: string, onChange: (val: string) => void } | null>(null);
     const imagesRef = useRef<SorterImage[]>([]);
     const [classifying, setClassifying] = useState(false);
@@ -1356,6 +1357,59 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
         } : item));
         setEditingImage(null);
         toast.success('分类结果已修改');
+    };
+
+    const handleSaveBatchEdit = (
+        updatedCategories: Record<string, string>,
+        updatedTags: string[] | undefined,
+        appendTags: boolean,
+        selectedIdsToEdit: Set<string>
+    ) => {
+        setImages(prev => prev.map(item => {
+            if (!selectedIdsToEdit.has(item.id)) return item;
+
+            // 1. Update categories
+            const nextCategories = { ...(item.categories || {}) };
+            Object.entries(updatedCategories).forEach(([key, val]) => {
+                if (val !== undefined) {
+                    nextCategories[key] = val;
+                }
+            });
+
+            // 2. Update tags
+            let nextTags = item.tags || [];
+            if (updatedTags !== undefined) {
+                if (appendTags) {
+                    nextTags = Array.from(new Set([...nextTags, ...updatedTags]));
+                } else {
+                    nextTags = [...updatedTags];
+                }
+            }
+
+            // Determine primary category (category)
+            let primaryCat = item.category || '其他';
+            if (classifyMode === 'advanced' && advancedLevels.length > 0) {
+                primaryCat = nextCategories[advancedLevels[0]] || primaryCat;
+            } else {
+                const adims = dimensions.filter(d => d.name.trim());
+                if (adims.length > 0) {
+                    primaryCat = nextCategories[adims[0].name] || primaryCat;
+                } else if (updatedCategories['primary'] !== undefined) {
+                    primaryCat = updatedCategories['primary'];
+                }
+            }
+
+            return {
+                ...item,
+                categories: Object.keys(nextCategories).length > 0 ? nextCategories : undefined,
+                category: primaryCat,
+                tags: nextTags.length > 0 ? nextTags : undefined,
+                classified: true
+            };
+        }));
+
+        toast.success(`已批量修改 ${selectedIdsToEdit.size} 张图片的分类结果`);
+        setIsBatchEditOpen(false);
     };
 
     const handleSingleReclassify = async (imgId: string, silent = false) => {
@@ -4037,14 +4091,24 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         <X size={12} /> 取消
                     </button>
                     {selectedIds.size > 0 && (
-                        <button
-                            className="is-btn is-btn-sm"
-                            style={{ background: 'rgba(251, 146, 60, 0.2)', color: '#fb923c' }}
-                            onClick={() => handleBatchReclassify(selectedIds)}
-                            disabled={classifying}
-                        >
-                            <RefreshCw size={12} /> 重新分类选中 ({selectedIds.size})
-                        </button>
+                        <>
+                            <button
+                                className="is-btn is-btn-sm"
+                                style={{ background: 'rgba(251, 146, 60, 0.2)', color: '#fb923c' }}
+                                onClick={() => handleBatchReclassify(selectedIds)}
+                                disabled={classifying}
+                            >
+                                <RefreshCw size={12} /> 重新分类选中 ({selectedIds.size})
+                            </button>
+                            <button
+                                className="is-btn is-btn-sm"
+                                style={{ background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa' }}
+                                onClick={() => setIsBatchEditOpen(true)}
+                                disabled={classifying}
+                            >
+                                <Edit3 size={12} /> 批量修改选中 ({selectedIds.size})
+                            </button>
+                        </>
                     )}
 
                     <button
@@ -4246,6 +4310,159 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                                 const newTags = tagsStr.split(/[,，、]/).map(t => t.trim()).filter(Boolean);
 
                                 handleSaveEdit(primaryCat, newCategories, newTags);
+                            }}>保存修改</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Batch Edit Category/Tags Modal */}
+            {isBatchEditOpen && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                    <div style={{ background: '#1e1e1e', padding: 24, borderRadius: 12, width: '100%', maxWidth: 500, color: '#eee', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+                        <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>批量修改选中图片 ({selectedIds.size} 张)</h3>
+                        <p style={{ fontSize: 11, opacity: 0.6, marginBottom: 16, lineHeight: 1.5 }}>勾选左侧的选框表示要修改该维度，未勾选的维度将保留图片原有的分类结果不变。</p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20, maxH: '50vh', overflowY: 'auto', paddingRight: 4 }}>
+                            {classifyMode === 'advanced' && advancedLevels.length > 0 ? (
+                                advancedLevels.map(lvl => (
+                                    <div key={lvl} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <input
+                                            type="checkbox"
+                                            id={`batch-enable-${lvl}`}
+                                            style={{ width: 16, height: 16, cursor: 'pointer' }}
+                                        />
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>修改【{lvl}】为:</div>
+                                            <input
+                                                className="is-input"
+                                                style={{ width: '100%', padding: '6px 10px' }}
+                                                placeholder="输入分类值（例如：reels类）"
+                                                id={`batch-cat-${lvl}`}
+                                            />
+                                        </div>
+                                    </div>
+                                ))
+                            ) : dimensions.filter(d => d.name.trim()).length > 0 ? (
+                                dimensions.filter(d => d.name.trim()).map(dim => (
+                                    <div key={dim.name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <input
+                                            type="checkbox"
+                                            id={`batch-enable-${dim.name}`}
+                                            style={{ width: 16, height: 16, cursor: 'pointer' }}
+                                        />
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>修改【{dim.name}】为:</div>
+                                            <input
+                                                className="is-input"
+                                                style={{ width: '100%', padding: '6px 10px' }}
+                                                placeholder={`输入分类值（例如：${dim.categories[0] || ''}）`}
+                                                id={`batch-cat-${dim.name}`}
+                                            />
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <input
+                                        type="checkbox"
+                                        id="batch-enable-primary"
+                                        style={{ width: 16, height: 16, cursor: 'pointer' }}
+                                    />
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>修改【主分类】为:</div>
+                                        <input
+                                            className="is-input"
+                                            style={{ width: '100%', padding: '6px 10px' }}
+                                            placeholder="输入主分类名称"
+                                            id="batch-cat-primary"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Tags Field */}
+                            <div style={{ display: 'flex', gap: 10, borderTop: '1px solid #333', paddingTop: 16 }}>
+                                <input
+                                    type="checkbox"
+                                    id="batch-enable-tags"
+                                    style={{ width: 16, height: 16, marginTop: 4, cursor: 'pointer' }}
+                                />
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>修改标签 (用逗号分隔)</div>
+                                        <input
+                                            className="is-input"
+                                            style={{ width: '100%', padding: '6px 10px' }}
+                                            placeholder="标签1, 标签2, 标签3"
+                                            id="batch-tags"
+                                        />
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, opacity: 0.8, cursor: 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            id="batch-append-tags"
+                                            defaultChecked={true}
+                                            style={{ width: 14, height: 14 }}
+                                        />
+                                        仅追加标签 (若未勾选，则覆盖原有标签)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                            <button className="is-btn" onClick={() => setIsBatchEditOpen(false)}>取消</button>
+                            <button className="is-btn is-btn-primary" onClick={() => {
+                                const updatedCategories: Record<string, string> = {};
+                                let anyChecked = false;
+
+                                if (classifyMode === 'advanced' && advancedLevels.length > 0) {
+                                    advancedLevels.forEach(lvl => {
+                                        const isChecked = (document.getElementById(`batch-enable-${lvl}`) as HTMLInputElement)?.checked;
+                                        if (isChecked) {
+                                            anyChecked = true;
+                                            const val = (document.getElementById(`batch-cat-${lvl}`) as HTMLInputElement)?.value.trim() || '其他';
+                                            updatedCategories[lvl] = val;
+                                        }
+                                    });
+                                } else {
+                                    const adims = dimensions.filter(d => d.name.trim());
+                                    if (adims.length > 0) {
+                                        adims.forEach(dim => {
+                                            const isChecked = (document.getElementById(`batch-enable-${dim.name}`) as HTMLInputElement)?.checked;
+                                            if (isChecked) {
+                                                anyChecked = true;
+                                                const val = (document.getElementById(`batch-cat-${dim.name}`) as HTMLInputElement)?.value.trim() || '其他';
+                                                updatedCategories[dim.name] = val;
+                                            }
+                                        });
+                                    } else {
+                                        const isChecked = (document.getElementById('batch-enable-primary') as HTMLInputElement)?.checked;
+                                        if (isChecked) {
+                                            anyChecked = true;
+                                            const val = (document.getElementById('batch-cat-primary') as HTMLInputElement)?.value.trim() || '其他';
+                                            updatedCategories['primary'] = val;
+                                        }
+                                    }
+                                }
+
+                                const isTagsChecked = (document.getElementById('batch-enable-tags') as HTMLInputElement)?.checked;
+                                let updatedTags: string[] | undefined = undefined;
+                                if (isTagsChecked) {
+                                    anyChecked = true;
+                                    const tagsStr = (document.getElementById('batch-tags') as HTMLInputElement)?.value || '';
+                                    updatedTags = tagsStr.split(/[,，、]/).map(t => t.trim()).filter(Boolean);
+                                }
+
+                                if (!anyChecked) {
+                                    toast.error('请至少勾选一个要修改的字段！');
+                                    return;
+                                }
+
+                                const appendTags = (document.getElementById('batch-append-tags') as HTMLInputElement)?.checked || false;
+
+                                handleSaveBatchEdit(updatedCategories, updatedTags, appendTags, selectedIds);
                             }}>保存修改</button>
                         </div>
                     </div>
