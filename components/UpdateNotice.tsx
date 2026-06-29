@@ -29,11 +29,18 @@ interface UpdateNoticeProps {
 
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v5.0.7',
+        date: '2026-06-29',
+        description: 'v5.0.7 云函数目录依赖项安全修复与稳定更新',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v5.0.6',
         date: '2026-06-27',
         description: 'v5.0.6 安全依赖项更新与依赖漏洞修复',
         url: '#',
-        isCurrent: true
+        isCurrent: false
     },
     {
         version: 'v5.0.5',
@@ -237,15 +244,22 @@ const versionHistory: VersionInfo[] = [
 
 
 const latestUpdate: UpdateInfo = {
-    version: 'v5.0.6',
-    date: '2026-06-27',
+    version: 'v5.0.7',
+    date: '2026-06-29',
     features: {
         en: [
-            'Fixed 28 security vulnerabilities across dependencies',
-            'Updated packages like firebase, vite, react, jspdf, and uuid to safe versions'
+            'Fixed security vulnerabilities in functions/ Cloud Functions dependencies',
+            'Successfully resolved Critical vulnerabilities in protobufjs and fast-xml-parser'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
+            '-',
+            '-',
+            '2026.06.29 v5.0.7',
+            '-',
+            '🚀 云函数依赖项安全修复与稳定更新',
+            '• 安全深度修复：针对云端 functions（云函数）目录下的依赖漏洞进行了彻底排查与修复，解决了包括 protobufjs 和 fast-xml-parser 在内的 Critical（批判的）以及 High（高危）漏洞',
+            '• 编译稳定性测试：完成最新依赖版本构建，保证云端打包部署服务不受破坏',
             '-',
             '-',
             '2026.06.27 v5.0.6',
