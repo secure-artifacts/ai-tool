@@ -29,11 +29,18 @@ interface UpdateNoticeProps {
 
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v5.0.8',
+        date: '2026-06-29',
+        description: 'v5.0.8 数据分析设置面板滚动条优化与排版改进',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v5.0.7',
         date: '2026-06-29',
         description: 'v5.0.7 云函数目录依赖项安全修复与稳定更新',
         url: '#',
-        isCurrent: true
+        isCurrent: false
     },
     {
         version: 'v5.0.6',
@@ -244,15 +251,22 @@ const versionHistory: VersionInfo[] = [
 
 
 const latestUpdate: UpdateInfo = {
-    version: 'v5.0.7',
+    version: 'v5.0.8',
     date: '2026-06-29',
     features: {
         en: [
-            'Fixed security vulnerabilities in functions/ Cloud Functions dependencies',
-            'Successfully resolved Critical vulnerabilities in protobufjs and fast-xml-parser'
+            'Fixed UI issue in data analysis settings panel where options were squeezed out of view when sections expanded',
+            'Added outer scrollable wrapper to the settings panel to allow scrolling'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
+            '-',
+            '-',
+            '2026.06.29 v5.0.8',
+            '-',
+            '🚀 数据分析设置面板滚动条优化与排版改进',
+            '• 滚动条优化：修复了在“表格数据分析 (SheetMind)”设置面板中，当开启“多人合作拆分为独立行”等复杂选项时，弹出的长参数选择区域将下方的其他配置开关挤出屏幕的问题。增加了统一的外层纵向滚动条，保证面板始终可见并可滑动操作',
+            '• 排版微调：移除了内层多余的嵌套滚动条，使页面滚动更加流畅自然',
             '-',
             '-',
             '2026.06.29 v5.0.7',

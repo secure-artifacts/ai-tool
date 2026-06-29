@@ -8005,7 +8005,8 @@ const suggestInitialScale = (): number => {
 // 命令：firebase hosting:channel:deploy v2-5-0 --expires 30d
 // 然后添加到下面的列表中
 const VERSION_HISTORY = [
-  { version: '5.0.7', date: '2026-06-29', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '5.0.8', date: '2026-06-29', url: 'https://ai-toolkit-b2b78.web.app', isCurrent: true },
+  { version: '5.0.7', date: '2026-06-29', url: 'https://ai-toolkit-b2b78--v5-0-7.web.app', isCurrent: false },
   { version: '5.0.6', date: '2026-06-27', url: 'https://ai-toolkit-b2b78--v5-0-6.web.app', isCurrent: false },
   { version: '5.0.5', date: '2026-05-24', url: 'https://ai-toolkit-b2b78--v5-0-5.web.app', isCurrent: false },
   { version: '5.0.4', date: '2026-05-24', url: 'https://ai-toolkit-b2b78--v5-0-4-tojj19fp.web.app', isCurrent: false },
@@ -10146,7 +10147,7 @@ const App = () => {
                           fontSize: '0.8rem'
                         }}>
                           <div style={{ marginBottom: '0.5rem', color: 'var(--text-color)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span>✅ {language === 'zh' ? '当前版本' : 'Current'}: v5.0.7</span>
+                            <span>✅ {language === 'zh' ? '当前版本' : 'Current'}: v5.0.8</span>
                             <button
                               onClick={() => {
                                 setShowUpdateNotice(true);
