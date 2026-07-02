@@ -37,6 +37,7 @@ const HookScriptApp = React.lazy(() => import('@/apps/hook-script/HookScriptApp'
 const DriveOrganizerApp = React.lazy(() => import('@/apps/drive-organizer/DriveOrganizerApp'));
 const VideoKeyframeApp = React.lazy(() => import('@/apps/video-keyframe/VideoKeyframeApp'));
 const DataPipelinePanel = React.lazy(() => import('@/apps/sheetmind/components/DataPipelinePanel'));
+const TaskAllocationApp = React.lazy(() => import('@/apps/task-allocation/TaskAllocationApp'));
 
 // 新版反推提示词模块（合并了正式版和创艺魔盒 2 的功能）
 const ImageToPromptApp = React.lazy(() => import('@/apps/image-to-prompt').then(m => ({ default: m.ImageToPromptApp })));
@@ -228,6 +229,7 @@ const translations = {
     navWorkflowEditor: "Node Workflow",
     navDriveOrganizer: "Drive File Organizer",
     navVideoKeyframe: "Video Keyframe",
+    navTaskAllocation: "Work Matrix",
     // Prompt Tool
     promptTitle: "Image to Prompt",
     promptDescription: "Batch upload images and use multi-turn chat to refine prompts for each image independently.",
@@ -494,6 +496,7 @@ const translations = {
     navWorkflowEditor: "节点工作流",
     navDriveOrganizer: "云端文件分拣",
     navVideoKeyframe: "视频关键帧",
+    navTaskAllocation: "工作分配矩阵",
     // Prompt Tool
     promptTitle: "反推提示词 (Image to Prompt)",
     promptDescription: "支持批量上传图片，对每张图的提示词进行独立的多轮对话修改",
@@ -1434,7 +1437,7 @@ const isValidGmail = (value: string) => /^[a-zA-Z0-9](?:[a-zA-Z0-9_.+-]*[a-zA-Z0
 
 
 
-type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript' | 'dataPipeline' | 'driveOrganizer' | 'videoKeyframe';
+type Tool = 'prompt' | 'translate' | 'studio' | 'desc' | 'template' | 'subemail' | 'script' | 'directory' | 'magicCanvas' | 'imageRecognition' | 'imageReview' | 'sheetMind' | 'copyDedup' | 'mindMap' | 'aiToolsDirectory' | 'proDedup' | 'apiImageGen' | 'skillGenerator' | 'imageTextExtractor' | 'tutorialHub' | 'geminiChat' | 'imageSorter' | 'regionClassifier' | 'workflowEditor' | 'copywritingLibrary' | 'sceneBrainstorm' | 'hookScript' | 'dataPipeline' | 'driveOrganizer' | 'videoKeyframe' | 'taskAllocation';
 type Message = {
   sender: 'user' | 'model';
   text: string; // For model, this will be a JSON string
@@ -7867,6 +7870,7 @@ const NAV_ICON_NAMES: Record<Tool, string> = {
   hookScript: 'slow_motion_video',
   driveOrganizer: 'folder_special',
   videoKeyframe: 'burst_mode',
+  taskAllocation: 'grid_on',
 };
 
 const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
@@ -7899,6 +7903,7 @@ const NAV_ITEMS: { tool: Tool; labelKey: keyof typeof translations.zh }[] = [
   { tool: 'apiImageGen', labelKey: 'navApiImageGen' },
   { tool: 'copyDedup', labelKey: 'navCopyDedup' },
   { tool: 'copywritingLibrary', labelKey: 'navCopywritingLibrary' },
+  { tool: 'taskAllocation', labelKey: 'navTaskAllocation' },
 ];
 
 const CATEGORY_MAP: Record<Tool, string> = {
@@ -7922,6 +7927,7 @@ const CATEGORY_MAP: Record<Tool, string> = {
   subemail: '📊 数据与办公提效',
   directory: '📊 数据与办公提效',
   driveOrganizer: '📊 数据与办公提效',
+  taskAllocation: '📊 数据与办公提效',
   geminiChat: '🧠 灵感与辅助工具',
   sceneBrainstorm: '🧠 灵感与辅助工具',
   videoKeyframe: '🧠 灵感与辅助工具',
@@ -10984,6 +10990,10 @@ const App = () => {
           {/* 云端文件分拣器 */}
           <div className={`drive-organizer-wrapper ${activeTool === 'driveOrganizer' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'driveOrganizer' ? '100%' : '0', display: activeTool === 'driveOrganizer' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
             <DriveOrganizerApp />
+          </div>
+          {/* 工作分配矩阵 */}
+          <div className={`task-allocation-wrapper ${activeTool === 'taskAllocation' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'taskAllocation' ? '100%' : '0', display: activeTool === 'taskAllocation' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>
+            <TaskAllocationApp />
           </div>
           {/* 地区分类工具 */}
           <div className={`region-classifier-wrapper ${activeTool === 'regionClassifier' ? 'visible' : 'hidden'}`} style={{ overflow: 'hidden', height: activeTool === 'regionClassifier' ? '100%' : '0', display: activeTool === 'regionClassifier' ? 'flex' : 'none', width: '100%', flex: 1, minWidth: 0 }}>

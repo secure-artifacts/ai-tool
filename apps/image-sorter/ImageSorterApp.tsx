@@ -4323,7 +4323,7 @@ const ImageSorterApp: React.FC<ImageSorterAppProps> = ({ getAiInstance, textMode
                         <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>批量修改选中图片 ({selectedIds.size} 张)</h3>
                         <p style={{ fontSize: 11, opacity: 0.6, marginBottom: 16, lineHeight: 1.5 }}>勾选左侧的选框表示要修改该维度，未勾选的维度将保留图片原有的分类结果不变。</p>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20, maxH: '50vh', overflowY: 'auto', paddingRight: 4 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20, maxHeight: '50vh', overflowY: 'auto', paddingRight: 4 }}>
                             {classifyMode === 'advanced' && advancedLevels.length > 0 ? (
                                 advancedLevels.map(lvl => (
                                     <div key={lvl} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
