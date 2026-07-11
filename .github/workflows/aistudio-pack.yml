@@ -32,6 +32,17 @@ jobs:
         id: get_version
         run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
 
+      - name: Map SheetJS CDN to NPM registry for AI Studio compatibility
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (pkg.dependencies && pkg.dependencies.xlsx) {
+              pkg.dependencies.xlsx = '^0.18.5';
+            }
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2), 'utf8');
+          "
+
       - name: Package lightweight ZIP for AI Studio
         run: |
           zip -r "ai-toolkit-源码-v${{ env.VERSION }}.zip" . \
