@@ -1,0 +1,63 @@
+name: Package AI Studio ZIP
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Allow manual triggers on GitHub UI
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Frontend
+        run: npm run build
+
+      - name: Get version from package.json
+        id: get_version
+        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+
+      - name: Package lightweight ZIP for AI Studio
+        run: |
+          zip -r "ai-toolkit-源码-v${{ env.VERSION }}.zip" . \
+              -x "node_modules/*" \
+              -x "**/node_modules/*" \
+              -x ".git/*" \
+              -x "dist/*" \
+              -x "dist-electron/*" \
+              -x "electron/*" \
+              -x "functions/*" \
+              -x "*.backup*" \
+              -x "**/*.backup*" \
+              -x ".playwright-mcp/*" \
+              -x ".vscode/*" \
+              -x ".DS_Store" \
+              -x "AI创作工具包-*/*" \
+              -x "ai-toolkit-*/*" \
+              -x "版本归档/*" \
+              -x "未命名文件夹/*" \
+              -x "backups/*" \
+              -x "docs/*" \
+              -x "functions/node_modules/*"
+
+      - name: Upload AI Studio ZIP as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-toolkit-aistudio-v${{ env.VERSION }}
+          path: ai-toolkit-源码-v${{ env.VERSION }}.zip
+          retention-days: 7
