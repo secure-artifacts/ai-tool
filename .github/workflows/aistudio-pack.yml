@@ -32,15 +32,73 @@ jobs:
         id: get_version
         run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
 
-      - name: Map SheetJS CDN to NPM registry for AI Studio compatibility
+      - name: Configure zero-dependency environment for AI Studio compatibility
         run: |
           node -e "
             const fs = require('fs');
+            // 1. Zero out dependencies in package.json
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            if (pkg.dependencies && pkg.dependencies.xlsx) {
-              pkg.dependencies.xlsx = '^0.18.5';
-            }
+            pkg.dependencies = {};
+            pkg.devDependencies = {};
+            pkg.scripts = {
+              'dev': 'node dev-runner.cjs',
+              'start': 'node dev-runner.cjs',
+              'build': 'echo \"Build bypassed\"',
+              'preview': 'node dev-runner.cjs'
+            };
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2), 'utf8');
+
+            // 2. Create zero-dependency dev-runner.cjs HTTP server
+            const zeroDepRunnerContent = \`const http = require('http');
+            const fs = require('fs');
+            const path = require('path');
+
+            const mimeTypes = {
+              '.html': 'text/html',
+              '.css': 'text/css',
+              '.js': 'application/javascript',
+              '.json': 'application/json',
+              '.png': 'image/png',
+              '.jpg': 'image/jpeg',
+              '.gif': 'image/gif',
+              '.svg': 'image/svg+xml',
+              '.ico': 'image/x-icon',
+              '.wasm': 'application/wasm',
+              '.worker.js': 'application/javascript'
+            };
+
+            const port = process.env.PORT || '3000';
+            const publicDir = path.resolve(__dirname, 'prebuilt-dist');
+
+            const server = http.createServer((req, res) => {
+              let filePath = path.join(publicDir, req.url.split('?')[0]);
+              if (filePath === publicDir || filePath.endsWith('/')) {
+                filePath = path.join(filePath, 'index.html');
+              }
+
+              if (!filePath.startsWith(publicDir)) {
+                res.statusCode = 403;
+                res.end('Forbidden');
+                return;
+              }
+
+              fs.stat(filePath, (err, stats) => {
+                if (err || !stats.isFile()) {
+                  filePath = path.join(publicDir, 'index.html');
+                }
+
+                const ext = path.extname(filePath).toLowerCase();
+                const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+                res.writeHead(200, { 'Content-Type': contentType });
+                fs.createReadStream(filePath).pipe(res);
+              });
+            });
+
+            server.listen(Number(port), '0.0.0.0', () => {
+              console.log(\\\`Zero-dependency HTTP server running at http://0.0.0.0:\\\${port}/\\\`);
+            });\`;
+            fs.writeFileSync('dev-runner.cjs', zeroDepRunnerContent, 'utf8');
           "
 
       - name: Package lightweight ZIP for AI Studio
