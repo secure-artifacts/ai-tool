@@ -1,7 +1,7 @@
 {
   "name": "ai-creative-toolkit",
   "private": true,
-  "version": "5.0.8",
+  "version": "5.0.9",
   "type": "module",
   "scripts": {
     "dev": "node dev-runner.cjs",

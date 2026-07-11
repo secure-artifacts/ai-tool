@@ -66,9 +66,9 @@ find . -type f -size +2M \
 
 // turbo
 ```bash
-rm ~/Desktop/ai-toolkit-源码-v5.0.8.zip 2>/dev/null; \
+rm ~/Desktop/ai-toolkit-源码-v5.0.9.zip 2>/dev/null; \
 cd "/Volumes/jw/代码/🪄 AI 创作工具包/ai-创作工具包-正式版" && \
-zip -r ~/Desktop/ai-toolkit-源码-v5.0.8.zip . \
+zip -r ~/Desktop/ai-toolkit-源码-v5.0.9.zip . \
     -x "node_modules/*" \
     -x "**/node_modules/*" \
     -x ".git/*" \
@@ -106,7 +106,7 @@ zip -r ~/Desktop/ai-toolkit-源码-v5.0.8.zip . \
 ```
 
 ### 输出位置
-- `~/Desktop/ai-toolkit-源码-v5.0.8.zip`
+- `~/Desktop/ai-toolkit-源码-v5.0.9.zip`
 
 ### 包含内容
 - ✅ 所有源代码（`apps/`, `services/`, `components/`）

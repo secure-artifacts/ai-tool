@@ -29,11 +29,18 @@ interface UpdateNoticeProps {
 
 const versionHistory: VersionInfo[] = [
     {
+        version: 'v5.0.9',
+        date: '2026-07-11',
+        description: 'v5.0.9 常规版本更新与打包部署',
+        url: '#',
+        isCurrent: true
+    },
+    {
         version: 'v5.0.8',
         date: '2026-06-29',
         description: 'v5.0.8 数据分析设置面板滚动条优化与排版改进',
-        url: '#',
-        isCurrent: true
+        url: 'https://ai-toolkit-b2b78--v5-0-8.web.app',
+        isCurrent: false
     },
     {
         version: 'v5.0.7',
@@ -251,15 +258,22 @@ const versionHistory: VersionInfo[] = [
 
 
 const latestUpdate: UpdateInfo = {
-    version: 'v5.0.8',
-    date: '2026-06-29',
+    version: 'v5.0.9',
+    date: '2026-07-11',
     features: {
         en: [
+            'Version 5.0.9 release and deployment update',
             'Fixed UI issue in data analysis settings panel where options were squeezed out of view when sections expanded',
             'Added outer scrollable wrapper to the settings panel to allow scrolling'
         ],
         zh: [
             '✨ 如果更新版本使用有问题可从历史版本切换使用老版本',
+            '-',
+            '-',
+            '2026.07.11 v5.0.9',
+            '-',
+            '🚀 常规版本更新与打包部署',
+            '• 基础配置：同步版本号至 5.0.9，完成依赖项与构建安全检查',
             '-',
             '-',
             '2026.06.29 v5.0.8',

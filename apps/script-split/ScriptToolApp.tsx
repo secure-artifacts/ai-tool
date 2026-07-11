@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Columns,
   Video,
@@ -20,7 +20,13 @@ import {
   Trash2,
   AlignLeft,
   Link2,
-  ListOrdered
+  ListOrdered,
+  Scissors,
+  FileInput,
+  Download,
+  Maximize2,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import {
   processGrid,
@@ -95,6 +101,126 @@ const MODEL_OPTIONS = [
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLS = 20;
 const LINK_VARIANT_LIMIT = 4096;
+const CONTENT_PLACEHOLDER = '{{内容}}';
+const QUOTED_CONTENT_PLACEHOLDER = `"${CONTENT_PLACEHOLDER}"`;
+const MANUAL_SPLIT_MARKER = '⟦拆分点⟧';
+const TEMPLATE_PRESETS_KEY = 'script_tool_template_presets_v1';
+
+type SplitUnit = 'words' | 'characters';
+type ExpandedEditor = 'source' | 'template' | null;
+
+interface TemplateSegment {
+  id: string;
+  text: string;
+  promptTemplate?: string;
+  finalPrompt?: string;
+}
+
+interface TemplatePreset {
+  id: string;
+  name: string;
+  template: string;
+}
+
+const loadTemplatePresets = (): TemplatePreset[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TEMPLATE_PRESETS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(item => item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.template === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const countSegmentUnits = (text: string, unit: SplitUnit): number =>
+  unit === 'characters'
+    ? Array.from(text.replace(/\s/g, '')).length
+    : (text.trim().match(/\S+/g) || []).length;
+
+const splitIntoSentences = (text: string): string[] => {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  // Treat natural speech pauses as preferred boundaries, not only sentence endings.
+  return normalized.match(/[^.!?。！？,，;；:：、…]+(?:[.!?。！？,，;；:：、…]+[”’"']?)?|[^.!?。！？,，;；:：、…]+$/g)?.map(item => item.trim()).filter(Boolean) || [normalized];
+};
+
+const hardSplitText = (text: string, target: number, unit: SplitUnit): string[] => {
+  if (unit === 'words') {
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const result: string[] = [];
+    for (let i = 0; i < words.length; i += target) result.push(words.slice(i, i + target).join(' '));
+    return result;
+  }
+  const chars = Array.from(text.trim());
+  const result: string[] = [];
+  for (let i = 0; i < chars.length; i += target) result.push(chars.slice(i, i + target).join('').trim());
+  return result.filter(Boolean);
+};
+
+const autoSplitTemplateText = (
+  text: string,
+  minimum: number,
+  maximum: number,
+  unit: SplitUnit,
+  keepSentences: boolean,
+  tolerance: number
+): string[] => {
+  const safeMin = Math.max(1, Math.min(minimum, maximum));
+  const safeMax = Math.max(safeMin, maximum);
+  if (!keepSentences) return hardSplitText(text, safeMax, unit);
+  const sentences = splitIntoSentences(text);
+  const floatingMax = safeMax + Math.max(0, tolerance);
+  const result: string[] = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const candidate = current ? `${current} ${sentence}` : sentence;
+    const currentCount = countSegmentUnits(current, unit);
+    const candidateCount = countSegmentUnits(candidate, unit);
+    if (current && candidateCount > floatingMax) {
+      result.push(current);
+      current = sentence;
+    } else if (current && currentCount >= safeMin && candidateCount > safeMax && tolerance === 0) {
+      result.push(current);
+      current = sentence;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) result.push(current);
+  return result;
+};
+
+interface HighlightedTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  value: string;
+  containerClassName?: string;
+}
+
+const HighlightedTextarea = React.forwardRef<HTMLTextAreaElement, HighlightedTextareaProps>(({ value, className = '', containerClassName = '', onScroll, style, ...props }, ref) => {
+  const [scroll, setScroll] = useState({ top: 0, left: 0 });
+  const pieces = value.split(/("\{\{内容\}\}"|⟦拆分点⟧|\{\{内容\}\})/g);
+  return (
+    <span className={`relative block w-full overflow-hidden rounded-md ${containerClassName}`}>
+      <pre aria-hidden="true" className={`${className} pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words m-0`} style={{ ...style, color: 'transparent', fontFamily: 'inherit', letterSpacing: 0, transform: `translate(${-scroll.left}px, ${-scroll.top}px)`, borderColor: 'transparent' }}>
+        {pieces.map((piece, index) => piece === MANUAL_SPLIT_MARKER
+          ? <mark key={index} style={{ backgroundColor: '#b45309', color: 'transparent', borderRadius: 3, padding: 0 }}>{piece}</mark>
+          : piece === CONTENT_PLACEHOLDER || piece === QUOTED_CONTENT_PLACEHOLDER
+            ? <mark key={index} style={{ backgroundColor: '#0f766e', color: 'transparent', borderRadius: 3, padding: 0 }}>{piece}</mark>
+            : <React.Fragment key={index}>{piece}</React.Fragment>)}
+      </pre>
+      <textarea
+        {...props}
+        ref={ref}
+        value={value}
+        className={`${className} relative z-10 bg-transparent`}
+        style={{ ...style, color: '#e2e8f0', caretColor: '#f8fafc', WebkitTextFillColor: '#e2e8f0', fontFamily: 'inherit', letterSpacing: 0 }}
+        onScroll={event => {
+          setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft });
+          onScroll?.(event);
+        }}
+      />
+    </span>
+  );
+});
+HighlightedTextarea.displayName = 'HighlightedTextarea';
 
 interface PersistedScriptToolState {
   gridData: GridData;
@@ -223,6 +349,346 @@ function ScriptToolApp({ getAiInstance, textModel = 'gemini-3-flash-preview' }: 
   const [spellChecking, setSpellChecking] = useState(false);
   const [diffCols, setDiffCols] = useState<Record<number, number>>(persistedState?.diffCols || {});
   const [autoRowHeight, setAutoRowHeight] = useState<boolean>(persistedState?.autoRowHeight ?? false);
+  const [showTemplateSplitter, setShowTemplateSplitter] = useState(false);
+  const [templateSource, setTemplateSource] = useState('');
+  const [promptTemplate, setPromptTemplate] = useState(`内容：${QUOTED_CONTENT_PLACEHOLDER}`);
+  const [splitUnit, setSplitUnit] = useState<SplitUnit>('words');
+  const [splitMinimum, setSplitMinimum] = useState(10);
+  const [splitMaximum, setSplitMaximum] = useState(18);
+  const [keepSentences, setKeepSentences] = useState(true);
+  const [allowTolerance, setAllowTolerance] = useState(true);
+  const [splitTolerance, setSplitTolerance] = useState(3);
+  const [templateSegments, setTemplateSegments] = useState<TemplateSegment[]>([]);
+  const [selectedSegmentIds, setSelectedSegmentIds] = useState<Set<string>>(new Set());
+  const [segmentCarets, setSegmentCarets] = useState<Record<string, number>>({});
+  const [templatePresets, setTemplatePresets] = useState<TemplatePreset[]>(loadTemplatePresets);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
+  const [expandedEditor, setExpandedEditor] = useState<ExpandedEditor>(null);
+  const [storyboardMode, setStoryboardMode] = useState(false);
+  const promptTemplateRef = useRef<HTMLTextAreaElement | null>(null);
+  const templateSourceRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorHistoryRef = useRef<Record<'source' | 'template', { undo: string[]; redo: string[] }>>({ source: { undo: [], redo: [] }, template: { undo: [], redo: [] } });
+
+  const setEditorValue = (editor: 'source' | 'template', value: string, record = true) => {
+    const current = editor === 'source' ? templateSource : promptTemplate;
+    if (value === current) return;
+    if (record) {
+      const history = editorHistoryRef.current[editor];
+      history.undo.push(current);
+      if (history.undo.length > 100) history.undo.shift();
+      history.redo = [];
+    }
+    editor === 'source' ? setTemplateSource(value) : setPromptTemplate(value);
+  };
+
+  const undoEditor = (editor: 'source' | 'template') => {
+    const history = editorHistoryRef.current[editor];
+    const previous = history.undo.pop();
+    if (previous === undefined) return;
+    history.redo.push(editor === 'source' ? templateSource : promptTemplate);
+    setEditorValue(editor, previous, false);
+  };
+
+  const redoEditor = (editor: 'source' | 'template') => {
+    const history = editorHistoryRef.current[editor];
+    const next = history.redo.pop();
+    if (next === undefined) return;
+    history.undo.push(editor === 'source' ? templateSource : promptTemplate);
+    setEditorValue(editor, next, false);
+  };
+
+  const handleEditorShortcut = (event: React.KeyboardEvent<HTMLTextAreaElement>, editor: 'source' | 'template') => {
+    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'z') return;
+    event.preventDefault();
+    event.shiftKey ? redoEditor(editor) : undoEditor(editor);
+  };
+
+  const insertManualSplitMarker = () => {
+    const textarea = templateSourceRef.current;
+    const start = textarea?.selectionStart ?? templateSource.length;
+    const end = textarea?.selectionEnd ?? start;
+    const nextValue = `${templateSource.slice(0, start)}${MANUAL_SPLIT_MARKER}${templateSource.slice(end)}`;
+    const nextCaret = start + MANUAL_SPLIT_MARKER.length;
+    setEditorValue('source', nextValue);
+    window.requestAnimationFrame(() => {
+      templateSourceRef.current?.focus();
+      templateSourceRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+    setStatusMsg(`已在光标位置添加 ${MANUAL_SPLIT_MARKER}`);
+  };
+
+  const persistTemplatePresets = (presets: TemplatePreset[]) => {
+    setTemplatePresets(presets);
+    try { localStorage.setItem(TEMPLATE_PRESETS_KEY, JSON.stringify(presets)); } catch {}
+  };
+
+  const saveTemplatePreset = () => {
+    const name = presetName.trim();
+    if (!name) return setStatusMsg('请先输入预设名称');
+    if (!promptTemplate.trim()) return setStatusMsg('完整描述词模板不能为空');
+    const existing = templatePresets.find(item => item.name === name);
+    const preset: TemplatePreset = { id: existing?.id || `${Date.now()}`, name, template: promptTemplate };
+    const next = existing ? templatePresets.map(item => item.id === existing.id ? preset : item) : [...templatePresets, preset];
+    persistTemplatePresets(next);
+    setSelectedPresetId(preset.id);
+    setStatusMsg(existing ? `已更新预设“${name}”` : `已保存预设“${name}”`);
+  };
+
+  const loadTemplatePreset = (id: string) => {
+    setSelectedPresetId(id);
+    const preset = templatePresets.find(item => item.id === id);
+    if (!preset) return;
+    setEditorValue('template', preset.template);
+    setPresetName(preset.name);
+    setStatusMsg(`已载入预设“${preset.name}”`);
+  };
+
+  const deleteTemplatePreset = () => {
+    const preset = templatePresets.find(item => item.id === selectedPresetId);
+    if (!preset) return setStatusMsg('请先选择要删除的预设');
+    persistTemplatePresets(templatePresets.filter(item => item.id !== selectedPresetId));
+    setSelectedPresetId('');
+    setPresetName('');
+    setStatusMsg(`已删除预设“${preset.name}”`);
+  };
+
+  const insertContentPlaceholder = () => {
+    const textarea = promptTemplateRef.current;
+    const start = textarea?.selectionStart ?? promptTemplate.length;
+    const end = textarea?.selectionEnd ?? start;
+    const nextValue = `${promptTemplate.slice(0, start)}${QUOTED_CONTENT_PLACEHOLDER}${promptTemplate.slice(end)}`;
+    const nextCaret = start + QUOTED_CONTENT_PLACEHOLDER.length;
+    setEditorValue('template', nextValue);
+    window.requestAnimationFrame(() => {
+      promptTemplateRef.current?.focus();
+      promptTemplateRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+    setStatusMsg(`已在光标位置插入 ${QUOTED_CONTENT_PLACEHOLDER}`);
+  };
+
+  const fillPromptTemplate = (content: string, template = promptTemplate) => template.split(CONTENT_PLACEHOLDER).join(content);
+  const getSegmentFinalPrompt = (segment: TemplateSegment) => segment.finalPrompt ?? fillPromptTemplate(segment.text, segment.promptTemplate ?? promptTemplate);
+
+  const runTemplateSplit = () => {
+    if (!templateSource.trim()) {
+      setStatusMsg('请先输入需要拆分的原始文案');
+      return;
+    }
+    if (!promptTemplate.includes(CONTENT_PLACEHOLDER)) {
+      setStatusMsg(`描述词模板中必须包含 ${CONTENT_PLACEHOLDER} 内容块`);
+      return;
+    }
+    const sourceSnapshot = templateSource;
+    const manualBlocks = sourceSnapshot.split(MANUAL_SPLIT_MARKER);
+    const hasManualMarkers = manualBlocks.length > 1;
+    const parts = hasManualMarkers
+      ? manualBlocks.map(block => block.trim()).filter(Boolean)
+      : autoSplitTemplateText(
+        sourceSnapshot,
+        splitMinimum,
+        splitMaximum,
+        splitUnit,
+        keepSentences,
+        allowTolerance ? splitTolerance : 0
+      ).filter(Boolean);
+    setTemplateSegments(parts.map((text, index) => ({ id: `${Date.now()}-${index}`, text })));
+    setSelectedSegmentIds(new Set());
+    // Generating results must never mutate the source editor or remove its manual markers.
+    setTemplateSource(sourceSnapshot);
+    const markerCount = Math.max(0, manualBlocks.length - 1);
+    setStatusMsg(hasManualMarkers
+      ? `已严格按照 ${markerCount} 个手动拆分点生成 ${parts.length} 段，未执行自动拆分`
+      : `已自动拆分为 ${parts.length} 段，可继续批量编辑`);
+  };
+
+  const runManualPointSplit = () => {
+    if (!templateSource.trim()) {
+      setStatusMsg('请先输入文案，并在需要拆分的位置添加拆分点');
+      return;
+    }
+    if (!promptTemplate.includes(CONTENT_PLACEHOLDER)) {
+      setStatusMsg(`描述词模板中必须包含 ${CONTENT_PLACEHOLDER} 内容块`);
+      return;
+    }
+    if (!templateSource.includes(MANUAL_SPLIT_MARKER)) {
+      setStatusMsg(`请先把光标放到拆分位置，并添加 ${MANUAL_SPLIT_MARKER}`);
+      return;
+    }
+    const parts = templateSource.split(MANUAL_SPLIT_MARKER).map(item => item.trim()).filter(Boolean);
+    setTemplateSegments(parts.map((text, index) => ({ id: `${Date.now()}-manual-${index}`, text })));
+    setSelectedSegmentIds(new Set());
+    setTemplateSource(templateSource);
+    setStatusMsg(`已严格按照 ${parts.length - 1} 个手动拆分点生成 ${parts.length} 段`);
+  };
+
+  const updateTemplateSegment = (id: string, text: string) => {
+    setTemplateSegments(items => items.map(item => item.id === id ? { ...item, text } : item));
+  };
+
+  const updateSegmentFields = (id: string, patch: Partial<TemplateSegment>) => {
+    setTemplateSegments(items => items.map(item => item.id === id ? { ...item, ...patch } : item));
+  };
+
+  const replaceSegmentWithParts = (id: string, parts: string[]) => {
+    setTemplateSegments(items => {
+      const index = items.findIndex(item => item.id === id);
+      if (index < 0) return items;
+      const source = items[index];
+      const replacements = parts.filter(Boolean).map((text, partIndex) => ({
+        id: `${Date.now()}-${partIndex}`,
+        text,
+        promptTemplate: source.promptTemplate
+      }));
+      return [...items.slice(0, index), ...replacements, ...items.slice(index + 1)];
+    });
+    setSelectedSegmentIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+  };
+
+  const autoSplitCurrentSegment = (id: string) => {
+    const segment = templateSegments.find(item => item.id === id);
+    if (!segment) return;
+    const cleanText = segment.text.split(MANUAL_SPLIT_MARKER).join(' ');
+    const parts = autoSplitTemplateText(cleanText, splitMinimum, splitMaximum, splitUnit, keepSentences, allowTolerance ? splitTolerance : 0);
+    if (parts.length < 2) return setStatusMsg('当前段按现有设置无需继续拆分');
+    replaceSegmentWithParts(id, parts);
+    setStatusMsg(`已按当前设置将第 ${templateSegments.indexOf(segment) + 1} 段拆分为 ${parts.length} 段`);
+  };
+
+  const insertMarkerIntoSegment = (id: string) => {
+    const segment = templateSegments.find(item => item.id === id);
+    if (!segment) return;
+    const caret = segmentCarets[id];
+    if (caret === undefined || caret < 0 || caret > segment.text.length) return setStatusMsg('请先把光标放到该段需要拆分的位置');
+    updateTemplateSegment(id, `${segment.text.slice(0, caret)}${MANUAL_SPLIT_MARKER}${segment.text.slice(caret)}`);
+    setSegmentCarets(prev => ({ ...prev, [id]: caret + MANUAL_SPLIT_MARKER.length }));
+    setStatusMsg('已在当前段光标位置插入拆分点');
+  };
+
+  const splitCurrentSegmentAtMarkers = (id: string) => {
+    const segment = templateSegments.find(item => item.id === id);
+    if (!segment?.text.includes(MANUAL_SPLIT_MARKER)) return setStatusMsg('当前段没有手动拆分点');
+    const parts = segment.text.split(MANUAL_SPLIT_MARKER).map(text => text.trim()).filter(Boolean);
+    replaceSegmentWithParts(id, parts);
+    setStatusMsg(`已按手动拆分点将当前段拆分为 ${parts.length} 段`);
+  };
+
+  const moveRemainderToNextSegment = (id: string, redistribute: boolean) => {
+    const index = templateSegments.findIndex(item => item.id === id);
+    if (index < 0 || index >= templateSegments.length - 1) return setStatusMsg('最后一段没有下一段可接收文字');
+    const segment = templateSegments[index];
+    const caret = segmentCarets[id];
+    if (caret === undefined || caret <= 0 || caret >= segment.text.length) return setStatusMsg('请先把光标放在当前段内部需要断开的位置');
+    const before = segment.text.slice(0, caret).trim();
+    const remainder = segment.text.slice(caret).trim();
+    if (!before || !remainder) return setStatusMsg('光标前后都必须有文字');
+    const nextSegment = templateSegments[index + 1];
+    const combinedNext = `${remainder} ${nextSegment.text.trim()}`.trim();
+    const allowedMax = Math.max(splitMinimum, splitMaximum) + (allowTolerance ? splitTolerance : 0);
+    const redistributed = redistribute && countSegmentUnits(combinedNext, splitUnit) > allowedMax
+      ? autoSplitTemplateText(combinedNext, splitMinimum, splitMaximum, splitUnit, keepSentences, allowTolerance ? splitTolerance : 0)
+      : [combinedNext];
+    const nextReplacements: TemplateSegment[] = redistributed.map((text, partIndex) => ({
+      id: partIndex === 0 ? nextSegment.id : `${Date.now()}-cascade-${partIndex}`,
+      text,
+      promptTemplate: nextSegment.promptTemplate
+    }));
+    setTemplateSegments(items => [
+      ...items.slice(0, index),
+      { ...segment, text: before, finalPrompt: undefined },
+      ...nextReplacements,
+      ...items.slice(index + 2)
+    ]);
+    setStatusMsg(redistributed.length > 1
+      ? `已将光标后的文字移到下一段，并因超出范围自动重排为 ${redistributed.length} 段`
+      : redistribute
+        ? `已将第 ${index + 1} 段光标后的文字并入下一段，当前无需继续重排`
+        : `已仅移动到第 ${index + 2} 段，未自动重新拆分`);
+  };
+
+  const mergeNextAndResplit = (id: string) => {
+    const index = templateSegments.findIndex(item => item.id === id);
+    if (index < 0 || index >= templateSegments.length - 1) return setStatusMsg('最后一段无法与下一段合并');
+    const current = templateSegments[index];
+    const next = templateSegments[index + 1];
+    const mergedText = `${current.text.trim()} ${next.text.trim()}`.trim();
+    const parts = autoSplitTemplateText(mergedText, splitMinimum, splitMaximum, splitUnit, keepSentences, allowTolerance ? splitTolerance : 0);
+    const replacements: TemplateSegment[] = parts.map((text, partIndex) => ({ id: `${Date.now()}-resplit-${partIndex}`, text, promptTemplate: current.promptTemplate }));
+    setTemplateSegments(items => [...items.slice(0, index), ...replacements, ...items.slice(index + 2)]);
+    setSelectedSegmentIds(new Set());
+    setStatusMsg(`已合并第 ${index + 1}、${index + 2} 段并重新拆分为 ${parts.length} 段`);
+  };
+
+  const mergeSelectedTemplateSegments = () => {
+    const indexes = templateSegments.map((item, index) => selectedSegmentIds.has(item.id) ? index : -1).filter(index => index >= 0);
+    if (indexes.length < 2) {
+      setStatusMsg('请至少选择两个相邻段落进行合并');
+      return;
+    }
+    if (indexes.some((index, i) => i > 0 && index !== indexes[i - 1] + 1)) {
+      setStatusMsg('只能合并连续相邻的段落');
+      return;
+    }
+    const first = indexes[0];
+    const last = indexes[indexes.length - 1];
+    const merged: TemplateSegment = {
+      id: `${Date.now()}-merged`,
+      text: templateSegments.slice(first, last + 1).map(item => item.text.trim()).filter(Boolean).join(' ')
+    };
+    setTemplateSegments(items => [...items.slice(0, first), merged, ...items.slice(last + 1)]);
+    setSelectedSegmentIds(new Set([merged.id]));
+    setStatusMsg(`已合并 ${indexes.length} 个段落`);
+  };
+
+  const splitSelectedAtCarets = () => {
+    let splitCount = 0;
+    const next: TemplateSegment[] = [];
+    for (const item of templateSegments) {
+      if (!selectedSegmentIds.has(item.id)) {
+        next.push(item);
+        continue;
+      }
+      const caret = segmentCarets[item.id];
+      if (!caret || caret >= item.text.length) {
+        next.push(item);
+        continue;
+      }
+      const before = item.text.slice(0, caret).trim();
+      const after = item.text.slice(caret).trim();
+      if (!before || !after) {
+        next.push(item);
+        continue;
+      }
+      next.push({ id: `${Date.now()}-${splitCount}-a`, text: before }, { id: `${Date.now()}-${splitCount}-b`, text: after });
+      splitCount++;
+    }
+    if (!splitCount) {
+      setStatusMsg('请选中段落，并先把光标放在需要拆分的位置');
+      return;
+    }
+    setTemplateSegments(next);
+    setSelectedSegmentIds(new Set());
+    setStatusMsg(`已按光标位置拆分 ${splitCount} 个段落`);
+  };
+
+  const copyTemplateResults = async (filledOnly = false) => {
+    const chosen = selectedSegmentIds.size ? templateSegments.filter(item => selectedSegmentIds.has(item.id)) : templateSegments;
+    if (!chosen.length) return setStatusMsg('没有可复制的拆分结果');
+    const text = chosen.map(item => filledOnly ? getSegmentFinalPrompt(item) : `${item.text}\t${getSegmentFinalPrompt(item)}`).join('\n');
+    await navigator.clipboard.writeText(text);
+    setStatusMsg(`已复制 ${chosen.length} 条${filledOnly ? '完整描述词' : '双列结果'}`);
+  };
+
+  const exportTemplateResults = () => {
+    if (!templateSegments.length) return setStatusMsg('没有可导出的拆分结果');
+    const rows = ['序号\t拆分文案\t完整描述词', ...templateSegments.map((item, index) => `${index + 1}\t${item.text.replace(/\t/g, ' ')}\t${getSegmentFinalPrompt(item).replace(/\t/g, ' ')}`)];
+    const url = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/tab-separated-values;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `模板拆分结果_${Date.now()}.tsv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   // ===== 合并行内容：多列合并为一列（顿号分隔）=====
   const handleMergeRowContent = () => {
@@ -1376,6 +1842,12 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
               disabled={!selection}
             />
             <ToolButton
+              icon={<FileInput className="w-4 h-4" />}
+              label="模板拆分"
+              tooltip="按单词或字符拆分文案，并自动填充到描述词模板的内容块"
+              onClick={() => setShowTemplateSplitter(true)}
+            />
+            <ToolButton
               icon={<Languages className="w-4 h-4" />}
               label="删除中文"
               tooltip="删除选中区域内包含中文的单元格（保留纯外文）"
@@ -1470,6 +1942,134 @@ Return ONLY a JSON array of title strings: ["title1", "title2", ...]`;
           autoRowHeight={autoRowHeight}
         />
       </main>
+
+      {showTemplateSplitter && (
+        <div className="prefix-modal-overlay" onClick={() => setShowTemplateSplitter(false)}>
+          <div className="bg-white rounded-lg shadow-2xl border border-slate-200 flex flex-col" style={{ width: 'min(96vw, 1500px)', height: 'min(92vh, 920px)' }} onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">模板拆分与批量编辑</h3>
+                <p className="text-xs text-slate-500 mt-0.5">内容块默认插入为 {QUOTED_CONTENT_PLACEHOLDER}，可放在描述词的任意位置</p>
+              </div>
+              <button className="text-slate-500 hover:text-slate-800 px-2 py-1" onClick={() => setShowTemplateSplitter(false)}>关闭</button>
+            </div>
+
+            <div className="p-4 border-b border-slate-200 grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <label className="text-xs font-medium text-slate-600">
+                <span className="flex items-center justify-between gap-2"><span>原始文案</span><span className="inline-flex items-center gap-2"><button type="button" title="撤销" onClick={() => undoEditor('source')} className="rounded border border-slate-500 p-1 text-slate-300"><Undo2 className="w-3.5 h-3.5" /></button><button type="button" title="重做" onClick={() => redoEditor('source')} className="rounded border border-slate-500 p-1 text-slate-300"><Redo2 className="w-3.5 h-3.5" /></button><button type="button" onClick={insertManualSplitMarker} className="rounded border border-cyan-400 bg-cyan-900 px-2 py-1 text-[11px] font-medium text-cyan-100">在光标处添加拆分点</button><button type="button" onClick={runManualPointSplit} className="rounded border border-emerald-400 bg-emerald-900 px-2 py-1 text-[11px] font-medium text-emerald-100">按拆分点生成</button><span className="inline-flex items-center gap-1 text-[11px] text-slate-400"><Maximize2 className="w-3 h-3" />双击放大</span></span></span>
+                <HighlightedTextarea ref={templateSourceRef} onDoubleClick={() => setExpandedEditor('source')} onKeyDown={e => handleEditorShortcut(e, 'source')} className="mt-1 w-full min-h-28 border border-slate-300 rounded-md p-2 text-sm resize-y" value={templateSource} onChange={e => setEditorValue('source', e.target.value)} placeholder={`输入完整文案；手动拆分点会显示为 ${MANUAL_SPLIT_MARKER}`} title="双击放大编辑" />
+              </label>
+              <label className="text-xs font-medium text-slate-600">
+                <span className="flex items-center justify-between gap-2">
+                  <span>完整描述词模板</span>
+                  <span className="ml-auto inline-flex items-center gap-1"><button type="button" title="撤销" onClick={() => undoEditor('template')} className="rounded border border-slate-500 p-1 text-slate-300"><Undo2 className="w-3.5 h-3.5" /></button><button type="button" title="重做" onClick={() => redoEditor('template')} className="rounded border border-slate-500 p-1 text-slate-300"><Redo2 className="w-3.5 h-3.5" /></button></span>
+                  <button type="button" onClick={insertContentPlaceholder} className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                    <FileInput className="w-3.5 h-3.5" />在光标处插入内容块
+                  </button>
+                </span>
+                <HighlightedTextarea ref={promptTemplateRef} onDoubleClick={() => setExpandedEditor('template')} onKeyDown={e => handleEditorShortcut(e, 'template')} className="mt-1 w-full min-h-28 border border-slate-300 rounded-md p-2 text-sm resize-y" value={promptTemplate} onChange={e => setEditorValue('template', e.target.value)} placeholder="粘贴完整描述词，把光标放到文案应出现的位置，再点击插入内容块" title="双击放大编辑" />
+                <span className="mt-2 grid grid-cols-1 sm:grid-cols-[minmax(180px,1fr)_minmax(160px,240px)_auto_auto] items-center gap-2">
+                  <select className="w-full border rounded px-2 py-2 text-xs font-normal placeholder:text-slate-400" style={{ minWidth: 0, backgroundColor: '#0f1e36', color: '#e2e8f0', borderColor: '#49617f', colorScheme: 'dark' }} value={selectedPresetId} onChange={e => loadTemplatePreset(e.target.value)}>
+                    <option value="">选择描述词预设</option>
+                    {templatePresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                  </select>
+                  <input className="w-full border rounded px-2 py-2 text-xs font-normal placeholder:text-slate-400" style={{ minWidth: 0, backgroundColor: '#0f1e36', color: '#e2e8f0', borderColor: '#49617f', caretColor: '#e2e8f0' }} value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="输入预设名称" />
+                  <button type="button" onClick={saveTemplatePreset} className="rounded px-3 py-2 text-xs font-semibold whitespace-nowrap" style={{ backgroundColor: '#047857', color: '#ffffff', border: '1px solid #10b981' }}>保存预设</button>
+                  <button type="button" onClick={deleteTemplatePreset} disabled={!selectedPresetId} className="rounded px-3 py-2 text-xs font-semibold whitespace-nowrap disabled:opacity-40" style={{ backgroundColor: selectedPresetId ? '#991b1b' : '#27364d', color: '#ffffff', border: `1px solid ${selectedPresetId ? '#ef4444' : '#49617f'}` }}>删除</button>
+                </span>
+              </label>
+            </div>
+
+            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-3 flex-wrap bg-slate-50">
+              <label className="text-xs text-slate-600 flex items-center gap-1.5">拆分依据
+                <select className="border border-slate-300 rounded px-2 py-1 bg-white" value={splitUnit} onChange={e => setSplitUnit(e.target.value as SplitUnit)}>
+                  <option value="words">单词数</option><option value="characters">字符数</option>
+                </select>
+              </label>
+              <label className="text-xs text-slate-600 flex items-center gap-1.5">最小数量
+                <input className="w-20 border border-slate-300 rounded px-2 py-1" type="number" min="1" value={splitMinimum} onChange={e => setSplitMinimum(Math.max(1, Number(e.target.value) || 1))} />
+              </label>
+              <label className="text-xs text-slate-600 flex items-center gap-1.5">最大数量
+                <input className="w-20 border border-slate-300 rounded px-2 py-1" type="number" min="1" value={splitMaximum} onChange={e => setSplitMaximum(Math.max(1, Number(e.target.value) || 1))} />
+              </label>
+              <label className="text-xs text-slate-600 flex items-center gap-1.5"><input type="checkbox" checked={keepSentences} onChange={e => setKeepSentences(e.target.checked)} />优先按停顿标点拆分</label>
+              <label className="text-xs text-slate-600 flex items-center gap-1.5"><input type="checkbox" checked={allowTolerance} onChange={e => setAllowTolerance(e.target.checked)} />允许按标点浮动</label>
+              <label className={`text-xs flex items-center gap-1.5 ${allowTolerance ? 'text-slate-600' : 'text-slate-400'}`}>±
+                <input className="w-16 border border-slate-300 rounded px-2 py-1" type="number" min="0" disabled={!allowTolerance} value={splitTolerance} onChange={e => setSplitTolerance(Math.max(0, Number(e.target.value) || 0))} />
+              </label>
+              <Button variant="primary" onClick={runTemplateSplit} className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5">开始拆分</Button>
+            </div>
+
+            <div className="px-4 py-2 border-b border-slate-200 flex items-center gap-2 flex-wrap">
+              <div className="inline-flex rounded-md border border-slate-500 overflow-hidden">
+                <button type="button" onClick={() => setStoryboardMode(false)} className="px-3 py-1.5 text-xs font-medium" style={{ backgroundColor: !storyboardMode ? '#2563eb' : '#17253b', color: '#fff' }}>统一模板</button>
+                <button type="button" onClick={() => setStoryboardMode(true)} className="px-3 py-1.5 text-xs font-medium" style={{ backgroundColor: storyboardMode ? '#7c3aed' : '#17253b', color: '#fff' }}>分镜模式</button>
+              </div>
+              <Button onClick={mergeSelectedTemplateSegments} disabled={selectedSegmentIds.size < 2} className="text-xs px-2.5 py-1.5"><Combine className="w-3.5 h-3.5 mr-1" />批量合并</Button>
+              <Button onClick={splitSelectedAtCarets} disabled={!selectedSegmentIds.size} className="text-xs px-2.5 py-1.5"><Scissors className="w-3.5 h-3.5 mr-1" />按光标批量拆分</Button>
+              <Button onClick={() => copyTemplateResults(false)} className="text-xs px-2.5 py-1.5"><Copy className="w-3.5 h-3.5 mr-1" />复制双列</Button>
+              <Button onClick={() => copyTemplateResults(true)} className="text-xs px-2.5 py-1.5"><Copy className="w-3.5 h-3.5 mr-1" />复制完整描述词</Button>
+              <Button onClick={exportTemplateResults} className="text-xs px-2.5 py-1.5"><Download className="w-3.5 h-3.5 mr-1" />导出 TSV</Button>
+              <span className="ml-auto text-xs text-slate-500">已选 {selectedSegmentIds.size} / 共 {templateSegments.length} 段</span>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 bg-slate-50">
+              <table className="w-full border-collapse bg-white text-sm table-fixed">
+                <thead className="sticky top-0 bg-slate-100 z-10"><tr><th className="border border-slate-300 p-2 w-12"><input type="checkbox" checked={templateSegments.length > 0 && selectedSegmentIds.size === templateSegments.length} onChange={e => setSelectedSegmentIds(e.target.checked ? new Set(templateSegments.map(item => item.id)) : new Set())} /></th><th className="border border-slate-300 p-2 w-14">序号</th><th className={`border border-slate-300 p-2 text-left ${storyboardMode ? 'w-[28%]' : 'w-[40%]'}`}>拆分文案</th>{storyboardMode && <th className="border border-slate-300 p-2 w-[28%] text-left">本段描述词模板</th>}<th className="border border-slate-300 p-2 text-left">最终描述词（可编辑）</th></tr></thead>
+                <tbody>
+                  {templateSegments.map((item, index) => {
+                    const count = countSegmentUnits(item.text, splitUnit);
+                    const lowerBound = Math.max(1, Math.min(splitMinimum, splitMaximum) - (allowTolerance ? splitTolerance : 0));
+                    const upperBound = Math.max(splitMinimum, splitMaximum) + (allowTolerance ? splitTolerance : 0);
+                    const outOfRange = count < lowerBound || count > upperBound;
+                    return <tr key={item.id} className={selectedSegmentIds.has(item.id) ? 'bg-blue-50' : ''}>
+                      <td className="border border-slate-300 p-2 text-center"><input type="checkbox" checked={selectedSegmentIds.has(item.id)} onChange={e => setSelectedSegmentIds(prev => { const next = new Set(prev); e.target.checked ? next.add(item.id) : next.delete(item.id); return next; })} /></td>
+                      <td className="border border-slate-300 p-2 text-center text-slate-500">{index + 1}</td>
+                      <td className="border border-slate-300 p-2 align-top"><textarea className="w-full min-h-24 border border-slate-300 rounded p-2 resize-y text-sm" value={item.text} onChange={e => updateTemplateSegment(item.id, e.target.value)} onSelect={e => { const caret = e.currentTarget.selectionStart; setSegmentCarets(prev => ({ ...prev, [item.id]: caret })); }} /><div className="mt-1 flex items-center gap-1.5 flex-wrap"><span className={`text-[11px] mr-auto ${outOfRange ? 'text-amber-600 font-medium' : 'text-slate-400'}`}>{count} {splitUnit === 'words' ? '个单词' : '个字符'}{outOfRange ? ' · 超出目标范围' : ''}</span><button type="button" onClick={() => autoSplitCurrentSegment(item.id)} className="rounded border border-blue-500 bg-blue-900 px-2 py-1 text-[11px] font-medium text-blue-100">按设置拆分本段</button><button type="button" onClick={() => insertMarkerIntoSegment(item.id)} className="rounded border border-amber-500 bg-amber-900 px-2 py-1 text-[11px] font-medium text-amber-100">光标处插入拆分点</button><button type="button" onClick={() => splitCurrentSegmentAtMarkers(item.id)} className="rounded border border-emerald-500 bg-emerald-900 px-2 py-1 text-[11px] font-medium text-emerald-100">按拆分点拆分本段</button><button type="button" disabled={index === templateSegments.length - 1} onClick={() => moveRemainderToNextSegment(item.id, false)} className="rounded border border-cyan-500 bg-cyan-900 px-2 py-1 text-[11px] font-medium text-cyan-100 disabled:opacity-35">仅后移到下一段</button><button type="button" disabled={index === templateSegments.length - 1} onClick={() => moveRemainderToNextSegment(item.id, true)} className="rounded border border-indigo-500 bg-indigo-900 px-2 py-1 text-[11px] font-medium text-indigo-100 disabled:opacity-35">后移并重排下一段</button><button type="button" disabled={index === templateSegments.length - 1} onClick={() => mergeNextAndResplit(item.id)} className="rounded border border-violet-500 bg-violet-900 px-2 py-1 text-[11px] font-medium text-violet-100 disabled:opacity-35">整段与下一段合并重拆</button></div></td>
+                      {storyboardMode && <td className="border border-slate-300 p-2 align-top">
+                        <select className="w-full mb-1.5 border border-slate-500 rounded px-2 py-1.5 text-xs" style={{ backgroundColor: '#0f1e36', color: '#e2e8f0', colorScheme: 'dark' }} value={templatePresets.find(preset => preset.template === item.promptTemplate)?.id || ''} onChange={e => { const preset = templatePresets.find(p => p.id === e.target.value); updateSegmentFields(item.id, { promptTemplate: preset?.template, finalPrompt: undefined }); }}>
+                          <option value="">使用全局模板</option>
+                          {templatePresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                        </select>
+                        <textarea className="w-full min-h-24 border border-slate-300 rounded p-2 resize-y text-sm" value={item.promptTemplate ?? promptTemplate} onChange={e => updateSegmentFields(item.id, { promptTemplate: e.target.value, finalPrompt: undefined })} />
+                        {!((item.promptTemplate ?? promptTemplate).includes(CONTENT_PLACEHOLDER)) && <div className="text-[11px] text-red-400 mt-1">本段模板缺少 {CONTENT_PLACEHOLDER}</div>}
+                      </td>}
+                      <td className="border border-slate-300 p-2 align-top"><textarea className="w-full min-h-24 border border-slate-300 rounded p-2 resize-y text-sm" value={getSegmentFinalPrompt(item)} onChange={e => updateSegmentFields(item.id, { finalPrompt: e.target.value })} /><div className="mt-1 flex justify-end"><button type="button" onClick={() => updateSegmentFields(item.id, { finalPrompt: undefined })} className="text-[11px] text-blue-400 hover:text-blue-300">恢复自动生成</button></div></td>
+                    </tr>;
+                  })}
+                  {!templateSegments.length && <tr><td colSpan={storyboardMode ? 5 : 4} className="border border-slate-300 py-12 text-center text-slate-400">设置文案和模板后点击“开始拆分”</td></tr>}
+                </tbody>
+              </table>
+            </div>
+
+            {expandedEditor && (
+              <div className="absolute inset-0 z-30 flex flex-col bg-[#101d32]" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between gap-3 border-b border-slate-600 px-5 py-3">
+                  <div className="text-sm font-semibold text-slate-100">{expandedEditor === 'source' ? '放大编辑：原始文案' : '放大编辑：完整描述词模板'}</div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" title="撤销" onClick={() => undoEditor(expandedEditor)} className="rounded border border-slate-500 bg-slate-800 p-1.5 text-slate-200"><Undo2 className="w-4 h-4" /></button>
+                    <button type="button" title="重做" onClick={() => redoEditor(expandedEditor)} className="rounded border border-slate-500 bg-slate-800 p-1.5 text-slate-200"><Redo2 className="w-4 h-4" /></button>
+                    {expandedEditor === 'source' && <button type="button" onClick={insertManualSplitMarker} className="inline-flex items-center gap-1 rounded border border-cyan-400 bg-cyan-900 px-3 py-1.5 text-xs font-medium text-cyan-100"><Scissors className="w-3.5 h-3.5" />在光标处添加拆分点</button>}
+                    {expandedEditor === 'source' && <button type="button" onClick={() => { runManualPointSplit(); setExpandedEditor(null); }} className="inline-flex items-center gap-1 rounded border border-emerald-400 bg-emerald-900 px-3 py-1.5 text-xs font-medium text-emerald-100">按拆分点生成</button>}
+                    {expandedEditor === 'template' && <button type="button" onClick={insertContentPlaceholder} className="inline-flex items-center gap-1 rounded border border-blue-400 bg-blue-900 px-3 py-1.5 text-xs font-medium text-blue-100"><FileInput className="w-3.5 h-3.5" />在光标处插入内容块</button>}
+                    <button type="button" onClick={() => setExpandedEditor(null)} className="rounded border border-slate-500 bg-slate-700 px-3 py-1.5 text-xs font-medium text-white">完成并关闭</button>
+                  </div>
+                </div>
+                <HighlightedTextarea
+                  ref={expandedEditor === 'template' ? promptTemplateRef : templateSourceRef}
+                  autoFocus
+                  containerClassName="flex-1 min-h-0 m-4"
+                  className="absolute inset-0 w-full h-full resize-none rounded-md border border-slate-500 bg-[#0b1628] p-4 text-base leading-7 outline-none focus:border-blue-400"
+                  value={expandedEditor === 'source' ? templateSource : promptTemplate}
+                  onChange={e => setEditorValue(expandedEditor, e.target.value)}
+                  onKeyDown={e => handleEditorShortcut(e, expandedEditor)}
+                  placeholder={expandedEditor === 'source' ? '输入需要拆分的完整文案' : '粘贴完整描述词，把光标放到文案应出现的位置'}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 自定义前缀弹窗 */}
       {showPrefixModal && (
