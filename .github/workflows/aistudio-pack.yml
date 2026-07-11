@@ -70,8 +70,26 @@ jobs:
             const port = process.env.PORT || '3000';
             const publicDir = path.resolve(__dirname, 'prebuilt-dist');
 
+            // Auto kill existing process on the port to prevent port collision and force reload
+            try {
+              const cp = require('child_process');
+              const pid = cp.execSync('lsof -t -i:' + port, { encoding: 'utf8' }).trim();
+              if (pid) {
+                console.log('Port ' + port + ' is occupied by PID ' + pid + '. Killing it to force reload...');
+                cp.execSync('kill -9 ' + pid);
+              }
+            } catch (e) {}
+
             const server = http.createServer((req, res) => {
-              let filePath = path.join(publicDir, req.url.split('?')[0]);
+              let urlPath = req.url.split('?')[0];
+              
+              // Strip subpaths to support reverse proxy deployment (like AI Studio applet paths)
+              const assetsIdx = urlPath.indexOf('/assets/');
+              if (assetsIdx !== -1) {
+                urlPath = urlPath.substring(assetsIdx);
+              }
+
+              let filePath = path.join(publicDir, urlPath);
               if (filePath === publicDir || filePath.endsWith('/')) {
                 filePath = path.join(filePath, 'index.html');
               }
